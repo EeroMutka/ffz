@@ -1,0 +1,14 @@
+	BACK: 4\n	MENU: 82\n	VOLUME_UP: 24\n	VOLUME_DOWN: 25
+/* hmm... ffz currently doesn't allow for shared enum values.\n	BACK: 4\n	MENU: 82\n	VOLUME_UP: 24\n	VOLUME_DOWN: 25\n */
+key: s32
+key: KeyboardKey
+#TraceLogCallback: proc(logLevel: s32, text: ^u8, args: va_list)
+#TraceLogCallback: proc(logLevel: s32, text: ^u8 /*, args: va_list*/)
+gamepad: s32, button: s32
+gamepad: s32, button: GamepadButton
+gamepad: s32, axis: s32
+gamepad: s32, axis: GamepadAxis
+button: s32
+button: MouseButton
+cursor: s32
+cursor: MouseCursor

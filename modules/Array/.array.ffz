@@ -1,0 +1,54 @@
+// hmm. I'm not sure if this should go inside the Basic module, as Basic/Array.
+// that depends on whether it's useful enough to be able to use Array
+// inside Basic, and what exactly we put into Basic.
+
+#Basic: import("../Basic")
+// TODO: make this into #Basic: import("../Basic")
+
+// TODO: @alias_module_name
+#Array: struct[T] {
+	/*@using */
+	slice: []T
+	capacity: uint
+	allocator: ^Basic.Allocator
+}
+
+/*#push__int: proc(array: ^Array[int], elem: int) {
+	dbgbreak
+	
+	// ^Array[int] -> ^(Array[int])
+	// ^Array{int} -> (^Array){int}
+	// ^Array(int) -> (^Array)(int)
+	
+	dbgbreak
+	dbgbreak
+	dbgbreak
+}*/
+
+#add_numbers: proc[T](a: T, b: T) => (T) {
+	dbgbreak
+	dbgbreak
+	dbgbreak
+	c: a + b
+	ret c
+}
+
+/*#push: proc[T](array: ^Array[T], elem: int) {
+	dbgbreak
+	dbgbreak
+	dbgbreak
+	dbgbreak
+	//Basic.array_push_raw(^Basic.ArrayRaw(array), ^u8(&elem), sizeof(T))
+}*/
+
+
+/*
+#push__int_: push[int]
+*/
+
+/*
+#pop: proc[T](array: ^Array[T]) {
+	elem: T
+	Basic.array_pop_raw(^Basic.ArrayRaw(array), ^u8(&elem), sizeof(T))
+}*/
+

@@ -1,0 +1,19 @@
+
+#V3: struct {x: u32, y: u32, z: u32}
+
+#foo: proc(v: V3) {
+	v.x= v.x + 1
+	v.x= v.x + 1
+	v.x= v.x + 1
+	v.x= v.x + 1
+	v.x= v.x + 1
+}
+
+#ffz_entry: proc() {
+	dbgbreak
+	
+	a: V3{55, 22, 11}
+	
+	foo(a)
+}
+

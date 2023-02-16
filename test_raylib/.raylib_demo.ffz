@@ -1,0 +1,186 @@
+#rl: @import "raylib"
+
+// hmm... maybe there should be glsl-like math ops built-in.
+// x, y, z, w, r, g, b, a, swizzling, multiply/divide/etc, maybe even boolean ops? could utilize SIMD
+// arr1: player_position > enemy_position
+// arr2: [4]bool
+// arr3: arr1 && arr2
+
+// TODO: make linker work with ffz without build.bat
+
+/*#V3: struct[T] {
+	a: T
+	b: T
+	c: T
+}
+
+#AddProcType: proc[T](a: T, b: T) => (T)
+
+#add: AddProcType {
+	ret in.a + in.b
+}
+*/
+
+// hmm... maybe types should automatically become one-way distinct.
+// my_int IS an int, but int is not necessarily my_int
+//#my_int: int
+
+#V2: [2]int
+
+/*
+I think arrays should generate to
+
+#define C0_ARR(type, len) _C0_arr_##len##_##type
+#define C0_ARR_DECL(type, len) typedef struct { type _[len]; } C0_ARR(len, type);
+
+C0_ARR(5, u32)
+C0_ARR_IDX(my_arr, 2)
+	
+	C0_ARR(5, u32) test;
+	
+	C0_ARR(5, u32) test;
+	C0_ARR_IDX()
+*/
+
+//#fill_array: proc(value: u32) => ([3]u32) {
+//	ret [3]u32{value, value, value}
+//}
+
+#main: proc() {
+	//foo: "hello, sailor! rl.InitWindow(s32(window_width), s32(window_width), Hello.ptr)".ptr
+	// a: hash128(50)
+	
+	window_width: uint(512)
+	rl.InitWindow(s32(window_width), s32(window_width), "Hello".ptr)
+	
+	snake: [64]V2
+	snake[0]= V2{5, 5}
+	
+	frame_index: uint
+	
+	apple_pos: V2{2, 2}
+	grid_size: uint(12)
+	
+	game_lost: bool
+	
+	snake_direction: V2{1, 0}
+	
+	next_input: V2{1, 0}
+	
+	snake_count: uint(1)
+	
+	rl.SetTargetFPS(60)
+	
+	for, !rl.WindowShouldClose() {
+		rl.BeginDrawing()
+		rl.ClearBackground(rl.Color{200, 200, 200, 255})
+		rect_width: window_width / grid_size
+		
+		for y: uint(0), y < grid_size, y= y + 1 {
+			for x: uint(0), x < grid_size, x= x + 1 {
+				rl.DrawRectangle(
+					s32(x * rect_width)
+					s32(y * rect_width)
+					s32(rect_width - 2)
+					s32(rect_width - 2)
+					rl.Color{100, 100, 100, 255})
+			}
+		}
+		
+		// draw apple
+		rl.DrawRectangle(
+			s32(apple_pos[0] * rect_width)
+			s32(apple_pos[1] * rect_width)
+			s32(rect_width-2)
+			s32(rect_width-2)
+			rl.Color{240, 250, 100, 255})
+		
+		// draw snake
+		for i: uint(0), i < snake_count, i= i + 1 {
+			coord: snake[i]
+			rl.DrawRectangle(
+				s32(coord[0] * rect_width)
+				s32(coord[1] * rect_width)
+				s32(rect_width-2)
+				s32(rect_width-2)
+				rl.Color{200, 20, 255, 255})
+		}
+		
+		if frame_index % 15 == 0 {
+			if next_input[0] != 0 || next_input[1] != 0 {
+				snake_direction= next_input
+				next_input= V2{0, 0}
+			}
+			
+			//for i: snake_count - 1, i < snake_count, i= i - 1 {
+			//	if snake[i] != snake[i-1] {
+			//		snake[i]= snake[i-1]
+			//	}
+			//}
+			
+			// eat apple
+			if snake[0] == apple_pos {
+				/*insert_at(&snake, 0, snake[0])
+				
+				pos: [2]int
+				outer: for {
+					pos = random_apple_position()
+					for p in snake {
+						if pos == p do continue outer
+					}
+					break
+				}
+				apple_pos = pos
+				score += 1*/
+				dbgbreak
+				//f: hash64()
+			}
+			
+			snake[0][0] = snake[0][0] + snake_direction[0]
+			snake[0][1] = snake[0][1] + snake_direction[1]
+			
+			/*
+			if snake[0].x < 0 || snake[0].x >= grid_size || snake[0].y < 0 || snake[0].y >= grid_size {
+				game_lost = true
+			}
+			
+			// if you hit yourself, lose
+			for i in 1..<len(snake) {
+				if snake[0] == snake[i] {
+				game_lost = true
+				}
+			}*/
+		}
+		/*
+		if game_lost {
+			//rl.DrawText(strings.clone_to_cstring(fmt.tprint("you lost! score:", score), context.temp_allocator), 190, 200, 20, rl.LIGHTGRAY)
+			dbgbreak
+		}
+		else {
+			
+			
+			/*
+			
+	 	*/
+		}
+		//rl.DrawText(strings.clone_to_cstring(fmt.tprint("score:", score), context.temp_allocator), 190, 5, 20, rl.Color{0, 0, 0, 220})
+		*/
+		
+		
+		if rl.IsKeyDown(rl.KeyboardKey.RIGHT) && snake_direction[0] == 0 {
+			next_input = V2{1, 0}
+		}
+		if rl.IsKeyDown(rl.KeyboardKey.LEFT) && snake_direction[0] == 0 {
+			next_input = V2{-1, 0}
+		}
+		if rl.IsKeyDown(rl.KeyboardKey.UP) && snake_direction[1] == 0 {
+			next_input = V2{0, -1}
+		}
+		if rl.IsKeyDown(rl.KeyboardKey.DOWN) && snake_direction[1] == 0 {
+			next_input = V2{0, 1}
+		}
+		
+		frame_index= . + 1
+		rl.EndDrawing()
+	}
+}

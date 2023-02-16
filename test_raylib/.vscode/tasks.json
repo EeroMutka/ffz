@@ -1,0 +1,36 @@
+{
+	// See https://go.microsoft.com/fwlink/?LinkId=733558
+	// for the documentation about the tasks.json format
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build ffz project",
+			"type": "shell",
+			"command": "ffz ${workspaceFolder}",
+			"problemMatcher": {
+				"owner": "ffz",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(Semantic error) \\((.*):(.*):(.*)\\)",
+					"file": 2,
+					"line": 3,
+					"column": 4,
+					"severity": 1,
+					"message": 1
+				}
+			},
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared",
+				"showReuseMessage": false,
+				"clear": false
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		}
+	]
+}

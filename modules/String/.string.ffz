@@ -1,0 +1,11 @@
+#Basic: import("../basic")
+
+str.from_int()
+str.to_int()
+
+// allocator: temp_alc
+
+#from_int: proc(value: int, a: ^Basic.Allocator) => (string) {
+	ret Basic.str_from_int(value, a)
+}
+

@@ -1,0 +1,11 @@
+
+@link_library: "raylib.lib"
+
+@link_system_library: "kernel32.lib"
+@link_system_library: "user32.lib"
+@link_system_library: "shell32.lib"
+@link_system_library: "winmm.lib"
+@link_system_library: "gdi32.lib"
+
+#f32: u32
+#f64: u64
