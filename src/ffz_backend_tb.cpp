@@ -30,6 +30,8 @@ struct Gen {
 
 	TB_Module* tb;
 	TB_Function* tb_func;
+	TB_Reg func_big_return;
+
 	uint dummy_name_counter;
 	
 	Map64<TB_Function*> func_from_hash;
@@ -192,9 +194,11 @@ TB_DebugType* get_tb_debug_type(Gen* g, ffzType* type) {
 //	return out;
 //}
 
-TB_DataType get_proc_return_type(Gen* g, ffzType* proc_type) {
-	return proc_type->Proc.out_param ? get_tb_basic_type(g, proc_type->Proc.out_param->type) : TB_TYPE_VOID;
-}
+//TB_DataType get_proc_return_type(Gen* g, ffzType* proc_type) {
+//	return proc_type->Proc.out_param ? get_tb_basic_type(g, proc_type->Proc.out_param->type) : TB_TYPE_VOID;
+//}
+
+#define FIX_TB_BIG_RETURN_HACK 1
 
 static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	auto insertion = map64_insert(&g->func_from_hash, ffz_hash_node_inst(IBASE(inst)), (TB_Function*)0, MapInsert_DoNotOverride);
@@ -203,11 +207,20 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	ffzType* proc_type = ffz_expr_get_type(g->checker, IBASE(inst));
 	ASSERT(proc_type->tag == ffzTypeTag_Proc);
 
-	TB_DataType ret_type = get_proc_return_type(g, proc_type);
+	ffzType* ret_type = proc_type->Proc.out_param ? proc_type->Proc.out_param->type : NULL;
+	
+	bool big_return = ret_type && ret_type->size > 8;
+	TB_DataType ret_type_tb = big_return ? TB_TYPE_PTR :
+		ret_type ? get_tb_basic_type(g, ret_type) : TB_TYPE_VOID;
 
 	// TODO: deduplicate prototypes?
-	TB_FunctionPrototype* proto = tb_prototype_create(g->tb, TB_CDECL, ret_type, NULL, (int)proc_type->Proc.in_params.len, false); // TODO: debug type
+	TB_FunctionPrototype* proto = tb_prototype_create(g->tb, TB_CDECL, ret_type_tb, NULL, (int)proc_type->Proc.in_params.len + (int)big_return, false); // TODO: debug type?
 	
+	if (big_return) {
+		// if big return, pass the pointer to the return value as the first argument the same way C does. :BigReturn
+		tb_prototype_add_param(proto, TB_TYPE_PTR);
+	}
+
 	for (uint i = 0; i < proc_type->Proc.in_params.len; i++) {
 		ffzTypeProcParameter* param = &proc_type->Proc.in_params[i];
 		
@@ -236,7 +249,18 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	}
 
 	TB_Function* func_before = g->tb_func;
+	TB_Reg func_big_return_before = g->func_big_return;
 	g->tb_func = func;
+	
+	g->func_big_return = TB_NULL_REG;
+	if (big_return) {
+#if FIX_TB_BIG_RETURN_HACK
+		g->func_big_return = tb_inst_local(func, 8, 8);
+		tb_inst_store(func, TB_TYPE_PTR, g->func_big_return, tb_inst_param(func, 0), 8);
+#else
+		g->func_big_return = tb_inst_param(func, 0);
+#endif
+	}
 
 	ffzNodeProcTypeInst proc_type_inst = proc_type->Proc.type_node;
 
@@ -248,12 +272,12 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 		ffzNodeIdentifierInst param_definition = ICHILD(IAS(n, Declaration), name);
 		ffzNodeInstHash hash = ffz_hash_node_inst(IBASE(param_definition));
 		
-		TB_Reg param_addr = tb_inst_param_addr(func, i); // TB parameter inspection doesn't work if we never call this
+		TB_Reg param_addr = tb_inst_param_addr(func, i + (u32)big_return); // TB parameter inspection doesn't work if we never call this
 
 		// if it's a big parameter, then let's dereference the pointer pointer
 		if (param->type->size > 8) {
-			param_addr = tb_inst_param(func, i);
-			//param_addr = tb_inst_load(g->tb_func, TB_TYPE_PTR, param_addr, 8);
+			param_addr = tb_inst_param(func, i + (u32)big_return); // NOTE: this works with the new TB X64 backend, but has a bug with the old backend.
+			//param_addr = tb_inst_load(g->tb_func, TB_TYPE_PTR, param_addr, 8); // so let's use this to make sure it works.
 		}
 		map64_insert(&g->tb_local_addr_from_definition, hash, param_addr);
 		i++;
@@ -269,6 +293,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	}
 
 	g->tb_func = func_before;
+	g->func_big_return = func_big_return_before;
 
 	printf("\n");
 	tb_function_print(func, tb_default_print_callback, stdout, false);
@@ -287,15 +312,26 @@ static Constant gen_constant(Gen* g, ffzCheckedExpr constant) {
 	}
 }*/
 
-static TB_Reg gen_call(Gen* g, ffzNodeOperatorInst inst) {
+
+static SmallOrPtr gen_call(Gen* g, ffzNodeOperatorInst inst) {
 	ffzNodeInst left = ICHILD(inst, left);
 	ffzCheckedExpr left_chk = ffz_expr_get_checked(g->checker, left);
 	ASSERT(left_chk.type->tag == ffzTypeTag_Proc);
 
-	TB_DataType ret_type = get_proc_return_type(g, left_chk.type);
-	SmallOrPtr target = gen_expr(g, left, false);
+	ffzType* ret_type = left_chk.type->Proc.out_param ? left_chk.type->Proc.out_param->type : NULL;
+	bool big_return = ret_type && ret_type->size > 8; // :BigReturn
 	
+	TB_DataType ret_type_tb = big_return ? TB_TYPE_PTR :
+		ret_type ? get_tb_basic_type(g, ret_type) : TB_TYPE_VOID;
+
 	Array<TB_Reg> args = make_array<TB_Reg>(g->alc);
+
+	if (big_return) {
+		// allocate a local for the return value. TODO: right now this local kind of goes to waste!
+		TB_Reg return_val_addr = tb_inst_local(g->tb_func, ret_type->size, ret_type->alignment);
+		array_push(&args, return_val_addr);
+	}
+
 	u32 i = 0;
 	for FFZ_EACH_CHILD_INST(n, inst) {
 		ffzType* param_type = left_chk.type->Proc.in_params[i].type;
@@ -316,8 +352,13 @@ static TB_Reg gen_call(Gen* g, ffzNodeOperatorInst inst) {
 
 	// TODO: non-vcall for constant procedures
 
-	ASSERT(target.small != TB_NULL_REG);
-	TB_Reg out = tb_inst_vcall(g->tb_func, ret_type, target.small, args.len, args.data);
+	TB_Reg target = gen_expr(g, left, false).small;
+	ASSERT(target != TB_NULL_REG);
+
+	TB_Reg return_val = tb_inst_vcall(g->tb_func, ret_type_tb, target, args.len, args.data);
+	
+	SmallOrPtr out = {};
+	if (big_return) out.ptr = return_val; else out.small = return_val;
 	return out;
 }
 
@@ -472,7 +513,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					//out = c0_push_convert(g->c0_proc, type->basic.type, val);
 				}
 				else {
-					BP; //out = gen_call(g, derived);
+					out = gen_call(g, derived);
 				}
 			}
 		} break;
@@ -691,9 +732,25 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	case ffzNodeKind_Return: {
 		ffzNodeReturnInst ret = IAS(inst, Return);
 		TB_Reg val = TB_NULL_REG;
+		
 		if (ret.node->value) {
-			BP; //val = gen_expr(g, ICHILD(ret, value));
+			SmallOrPtr return_value = gen_expr(g, ICHILD(ret, value));
+			if (return_value.ptr) {
+				ffzType* ret_type = ffz_expr_get_type(g->checker, ICHILD(ret, value));
+
+#if FIX_TB_BIG_RETURN_HACK
+				val = tb_inst_load(g->tb_func, TB_TYPE_PTR, g->func_big_return, 8);
+#else
+				val = g->func_big_return;
+#endif
+				//tb_inst_param(g->tb_func, 0); // :BigReturn
+				tb_inst_memcpy(g->tb_func, val, return_value.ptr, tb_inst_uint(g->tb_func, TB_TYPE_I64, ret_type->size), ret_type->alignment);
+			}
+			else {
+				val = return_value.small;
+			}
 		}
+
 		tb_inst_ret(g->tb_func, val);
 	} break;
 

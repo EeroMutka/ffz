@@ -1,19 +1,19 @@
 
-#V3: struct {x: u32, y: u32, z: u32}
+// This program works if you set FIX_TB_BIG_RETURN_HACK to 1, but will segfault if you set it to 0.
 
-#foo: proc(v: V3) {
-	v.x= v.x + 1
-	v.x= v.x + 1
-	v.x= v.x + 1
-	v.x= v.x + 1
-	v.x= v.x + 1
+#V3: struct {x: u64, y: u64, z: u64}
+
+#foo: proc(v: V3) => (V3) {
+	v.x = 999
+	ret v
 }
 
 #ffz_entry: proc() {
-	dbgbreak
-	
 	a: V3{55, 22, 11}
-	
-	foo(a)
+	result: foo(a)
 }
+
+
+//@link_library: ".ffz/c_things.obj"
+//#receive_v3: @extern proc(aa: V3)
 
