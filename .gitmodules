@@ -1,3 +1,4 @@
 [submodule "Cuik"]
 	path = Cuik
 	url = https://github.com/eeromutka/Cuik
+	branch = monorepo_eero
