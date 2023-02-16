@@ -675,8 +675,8 @@ u32 ffz_get_encoded_constant_size(ffzType* type) {
 	return ffz_type_is_integer(type->tag) ? type->size : sizeof(ffzConstant);
 }
 
-ffzConstant ffz_constant_fixed_array_get(ffzType* type, ffzConstant* array, u32 index) {
-	u32 elem_size = ffz_get_encoded_constant_size(type->FixedArray.elem_type);
+ffzConstant ffz_constant_fixed_array_get(ffzType* array_type, ffzConstant* array, u32 index) {
+	u32 elem_size = ffz_get_encoded_constant_size(array_type->FixedArray.elem_type);
 	ffzConstant result = {};
 	if (array->fixed_array_elems) memcpy(&result, (u8*)array->fixed_array_elems + index*elem_size, elem_size);
 	return result;

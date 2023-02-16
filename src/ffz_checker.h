@@ -265,7 +265,7 @@ inline bool ffz_type_is_integer_ish(ffzTypeTag tag) {
 }
 
 u32 ffz_get_encoded_constant_size(ffzType* type);
-ffzConstant ffz_constant_fixed_array_get(ffzType* type, ffzConstant* array, u32 index);
+ffzConstant ffz_constant_fixed_array_get(ffzType* array_type, ffzConstant* array, u32 index);
 
 ffzNodeInst ffz_get_child_inst(ffzNodeInst parent, u32 idx);
 
