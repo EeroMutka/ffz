@@ -15,7 +15,7 @@ int main(int argc, const char* argv[]) {
 	
 	Allocator* temp = temp_push();
 	
-	if (argc == 0) {
+	if (argc <= 1) {
 		printf("Please provide a directory to compile!\n");
 		return 1;
 	}

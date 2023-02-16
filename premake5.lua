@@ -36,12 +36,12 @@ project "ffz"
 	apply_defaults()
 	
 	links {
-		"src/Cuik/tb/tb.lib",
+		"Cuik/tb/tb.lib",
 	}
 	
 	files {
 		"src/*",
 		"src/foundation/*",
-		"src/Cuik/tb/include/tb.h",
+		"Cuik/tb/include/tb.h",
 	}
 
