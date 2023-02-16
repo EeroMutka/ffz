@@ -1,0 +1,3 @@
+[submodule "Cuik"]
+	path = src/Cuik
+	url = https://github.com/eeromutka/Cuik
