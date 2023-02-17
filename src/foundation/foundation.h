@@ -19,6 +19,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h> // for memset
 
 typedef uint8_t   u8;
 typedef int8_t    s8;
@@ -653,7 +654,7 @@ C_API s64 floor_to_s64(float x);
 #define hash64_ex(value, seed) (HASH_U64(value) ^ (u64)(seed)) // fvn64-style hash
 #define hash64_push(hash, value) *(u64*)(hash) = hash64_ex((u64)value, *(u64*)hash)
 
-// -- String module -----------------------------------------------------------
+// -- String ------------------------------------------------------------------
 
 #define STR_IS_UTF8_FIRST_BYTE(c) (((c) & 0xC0) != 0x80) /* is c the start of a utf8 sequence? */
 #define STR_EACH(str, r, i) (uint i=0, r = 0, i##_next=0; r=str_next_rune(str, &i##_next); i=i##_next)
@@ -733,18 +734,18 @@ C_API rune str_prev_rune(String str, uint* byteoffset);
 
 C_API uint str_rune_count(String str);
 
-// -- Clipboard module --------------------------------------------------------
+// -- Clipboard ----------------------------------------------------------------
 
 C_API String os_clipboard_get_text(Allocator* allocator);
 C_API void os_clipboard_set_text(String str);
 
-// -- DynLib module -----------------------------------------------------------
+// -- DynamicLibrary -----------------------------------------------------------
 
 C_API OS_DynamicLibrary os_dynamic_library_load(String filepath);
 C_API bool os_dynamic_library_unload(OS_DynamicLibrary dll);
 C_API void* os_dynamic_library_sym_address(OS_DynamicLibrary dll, String symbol);
 
-// -- File module -------------------------------------------------------------
+// -- Filesystem ---------------------------------------------------------------
 
 // The path separator in the returned string will depend on the OS. On windows, it will be a backslash.
 // If the provided path is invalid, an empty string will be returned.
@@ -781,15 +782,16 @@ C_API bool os_file_delete(String filepath);
 
 C_API String os_file_picker_dialog(Allocator* allocator);
 
-// -- Time module -------------------------------------------------------------
+// -- Time --------------------------------------------------------------------
 
 C_API Tick time_get_tick();
 
-// -- Rand module -------------------------------------------------------------
+// -- Random ------------------------------------------------------------------
 
 C_API u32 rand_u32();
 C_API u64 rand_u64();
 C_API float rand_float_in_range(float minimum, float maximum);
+
 
 #undef String
 #undef Array

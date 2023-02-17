@@ -540,7 +540,7 @@ static ffzOk maybe_peek_next_token(ffzParser* p, ffzLoc pos, bool ignore_newline
 
 static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind, u32 size) {
 	ffzNode* node = mem_alloc(size, 8, p->alc);
-	*node = (ffzNode){0};
+	memset(node, 0, size);
 	node->parser_idx = p->self_idx;
 	node->parent = parent;
 	node->kind = kind;

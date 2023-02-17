@@ -316,9 +316,10 @@ inline ffzConstant* ffz_decl_get_evaluated_constant(ffzChecker* c, ffzNodeDeclar
 ffzNodeIdentifier* ffz_get_definition(ffzProject* project, ffzNodeIdentifier* ident);
 
 bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeDeclarationInst* out_decl); // hmm... this is a bit weird.
-bool ffz_definition_is_constant(ffzNodeIdentifier* definition);
+//bool ffz_definition_is_constant(ffzNodeIdentifier* definition);
 
-bool ffz_decl_is_constant(ffzNodeDeclaration* decl);
+//bool ffz_decl_is_constant(ffzNodeDeclaration* decl);
+bool ffz_decl_is_runtime_value(ffzNodeDeclaration* decl);
 
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee);
 

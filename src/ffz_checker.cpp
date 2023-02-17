@@ -422,8 +422,16 @@ bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeDeclarationIn
 	return out_decl->node->name == node.node;
 }
 
-bool ffz_definition_is_constant(ffzNodeIdentifier* definition) { return definition->is_constant || definition->parent->kind == ffzNodeKind_PolyParamList; }
-bool ffz_decl_is_constant(ffzNodeDeclaration* decl) { return ffz_definition_is_constant(decl->name); }
+//bool ffz_definition_is_constant(ffzNodeIdentifier* definition) { return definition->is_constant || definition->parent->kind == ffzNodeKind_PolyParamList; }
+
+bool ffz_decl_is_runtime_value(ffzNodeDeclaration* decl) {
+	if (decl->parent->kind == ffzNodeKind_Record) return false;
+	if (decl->parent->kind == ffzNodeKind_PolyParamList) return false;
+	if (decl->name->is_constant) return false;
+	return true;
+}
+
+//bool ffz_decl_is_constant(ffzNodeDeclaration* decl) {  }
 
 ffzNodeIdentifier* ffz_get_definition(ffzProject* project, ffzNodeIdentifier* ident) {
 	ffzChecker* module = node_get_module(project, BASE(ident));
@@ -450,21 +458,6 @@ ffzConstant* ffz_get_default_value_for_type(ffzChecker* c, ffzType* t) {
 ffzCheckedExpr ffz_decl_get_checked(ffzChecker* c, ffzNodeDeclarationInst decl) {
 	ffzCheckedExpr* out = map64_get(&c->cache, ffz_hash_node_inst(IBASE(decl)));
 	return out ? *out : ffzCheckedExpr{};
-
-	//ffzCheckedExpr out = ffz_expr_get_checked(c, ICHILD(decl,rhs));
-	//if (!ffz_decl_is_constant(decl)) {
-	//	// If you query the type of the declaration's expression without any context,
-	//	// it may have a type type. i.e.
-	//	// ...
-	//	// MyThing: u32 
-	//	// ...
-	//	// calling ffz_expr_get_type() on the right-hand-side will return a type type,
-	//	// but calling ffz_decl_get_type() on the declaration, or ffz_expr_get_type()
-	//	// on the left-hand-side will return the grounded type.
-	//	out.type = ffz_ground_type(out);
-	//	out.const_val = NULL; // non-constant declarations shouldn't store the constant value that the initial rhs expression might have
-	//}
-	//return out;
 }
 
 bool ffz_find_top_level_declaration(ffzChecker* c, String name, ffzNodeDeclarationInst* out_decl) {
@@ -549,6 +542,8 @@ static CheckInfer infer_target_type(CheckInfer infer, OPT(ffzType*) target_type)
 
 inline CheckInfer infer_no_help(const CheckInfer& infer) { return infer_target_type(infer, NULL); }
 inline CheckInfer infer_no_help_constant(CheckInfer infer) { infer = infer_target_type(infer, NULL); infer.expect_constant = true; return infer; }
+inline CheckInfer infer_no_help_nonconstant(CheckInfer infer) { infer = infer_target_type(infer, NULL); infer.expect_constant = false; return infer; }
+inline CheckInfer infer_no_help_pass(CheckInfer infer) { infer = infer_target_type(infer, NULL); infer.expect_constant = true; return infer; }
 
 // if this returns true, its ok to bit-cast between the types
 static bool type_is_a(ffzType* src, ffzType* target) {
@@ -1210,28 +1205,35 @@ static void checker_cache(ffzChecker* c, ffzNodeInst node, ffzCheckedExpr result
 	map64_insert(&c->cache, ffz_hash_node_inst(node), result, MapInsert_DoNotOverride);
 }
 
+
 /////// this should return the same CheckedExpr as the left-hand-side expression of the declaration.
 static ffzOk check_declaration(ffzChecker* c, const CheckInfer& infer, ffzNodeDeclarationInst inst) {
 	if (checker_already_cached(c, IBASE(inst))) return { true };
 	ASSERT(infer.target_type == NULL);
 
 	ffzNodeIdentifierInst name = ICHILD(inst, name);
+	//if(name.node->name == LIT("MyString")) BP;
+
 	ffzNodeInst rhs = ICHILD(inst, rhs);
-
-	bool expect_constant = ffz_decl_is_constant(inst.node);
-
+	
+	CheckInfer child_infer = infer;
+	if (!ffz_decl_is_runtime_value(inst.node)) child_infer.expect_constant = true;
+	
+	//HITS(_c, 3);
 	ffzCheckedExpr lhs_chk, rhs_chk;
-	TRY(check_expression_defaulting_to_uint(c, infer, rhs, &rhs_chk));
-	if (expect_constant && !rhs_chk.const_val) BP;
+	TRY(check_expression_defaulting_to_uint(c, child_infer, rhs, &rhs_chk));
 
 	ffzCheckedExpr out = rhs_chk;
-	if (!ffz_decl_is_constant(inst.node)) {
+	if (ffz_decl_is_runtime_value(inst.node)) {
+		// ffz_decl_is_variable
+
 		ASSERT(ffz_type_is_grounded(out.type)); // :GroundTypeType
 		out.const_val = NULL; // non-constant declarations shouldn't store the constant value that the rhs expression might have
+		// hmm... but they should within struct definitions.
 	}
 
 	checker_cache(c, IBASE(inst), out); // lhs check_expression will recurse into this same check_declaration procedure, so this will prevent it.
-	TRY(check_expression(c, infer, IBASE(name), &lhs_chk));
+	TRY(check_expression(c, child_infer, IBASE(name), &lhs_chk));
 	return { true };
 }
 
@@ -1562,13 +1564,13 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		else {
 			ffzNodePolyParamListInst poly_params = ICHILD(type_node, polymorphic_parameters);
 			for FFZ_EACH_CHILD_INST(n, poly_params) {
-				TRY(check_expression(c, infer_no_help(infer), n));
+				TRY(check_expression(c, infer_no_help_constant(infer), n));
 			}
-
+			
 			Array<ffzTypeProcParameter> in_parameters = make_array<ffzTypeProcParameter>(c->alc);
 			for FFZ_EACH_CHILD_INST(param, inst) {
 				if (param.node->kind != ffzNodeKind_Declaration) ERR(c, param.node, "Expected a declaration.");
-				TRY(check_declaration(c, infer_no_help(infer), IAS(param, Declaration)));
+				TRY(check_declaration(c, infer_no_help_nonconstant(infer), IAS(param, Declaration)));
 
 				array_push(&in_parameters, ffzTypeProcParameter{
 					IAS(param,Declaration).node->name,
@@ -1714,7 +1716,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		
 		if (result.type->tag == ffzTypeTag_Type &&
 			inst.node->parent->kind == ffzNodeKind_Declaration &&
-			!ffz_decl_is_constant(AS(inst.node->parent, Declaration))) {
+			ffz_decl_is_runtime_value(AS(inst.node->parent, Declaration))) {
 			// If you query the type of the declaration's expression without any context,
 			// it may have a type type. i.e.
 			// ...
@@ -1749,7 +1751,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			// only check the procedure body when we have a physical procedure instance (not polymorphic)
 			// and after the proc type has been cached.
 			for FFZ_EACH_CHILD_INST(n, inst) {
-				TRY(check_code_statement(c, infer, n));
+				TRY(check_code_statement(c, infer_no_help_nonconstant(infer), n));
 			}
 		}
 		else if (delayed_check_record) {
