@@ -197,8 +197,8 @@ static bool _parse_and_check_directory(ffzProject* project, String directory, ff
 			parser->pos.offset = 0;
 			parser->pos.line_num = 1;
 			parser->pos.column_num = 1;
-			parser->module_imports = make_array<ffzNodeKeyword*>(parser->alc);
-			parser->tag_decl_lists = make_map64<ffzNodeTagDecl*>(parser->alc);
+			parser->module_imports.alc = parser->alc;
+			parser->tag_decl_lists.alc = parser->alc;
 
 			ffzOk ok = ffz_parse(parser);
 			if (!ok.ok) return false;
@@ -206,7 +206,7 @@ static bool _parse_and_check_directory(ffzProject* project, String directory, ff
 			
 			{ // add linker inputs
 				{
-					ffzNodeTagDecl** first_linker_input = map64_get(&parser->tag_decl_lists, str_hash64_ex(LIT("link_library"), 0));
+					ffzNodeTagDecl** first_linker_input = (ffzNodeTagDecl**)map64_get_raw(&parser->tag_decl_lists, str_hash64_ex(LIT("link_library"), 0));
 					for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
 						ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
 						String input = os_path_to_absolute(directory, FFZ_AS(n->rhs, StringLiteral)->zero_terminated_string, parser->alc);
@@ -214,7 +214,7 @@ static bool _parse_and_check_directory(ffzProject* project, String directory, ff
 					}
 				}
 				{
-					ffzNodeTagDecl** first_linker_input = map64_get(&parser->tag_decl_lists, str_hash64_ex(LIT("link_system_library"), 0));
+					ffzNodeTagDecl** first_linker_input = (ffzNodeTagDecl**)map64_get_raw(&parser->tag_decl_lists, str_hash64_ex(LIT("link_system_library"), 0));
 					for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
 						ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
 						array_push(&project->linker_inputs, FFZ_AS(n->rhs,StringLiteral)->zero_terminated_string);
@@ -235,7 +235,7 @@ static bool _parse_and_check_directory(ffzProject* project, String directory, ff
 			}
 
 			for (uint i = 0; i < parser->module_imports.len; i++) {
-				ffzNodeKeyword* import_keyword = parser->module_imports[i];
+				ffzNodeKeyword* import_keyword = &((ffzNodeKeyword*)parser->module_imports.data)[i];
 				ASSERT(import_keyword->parent && import_keyword->parent->kind == ffzNodeKind_Operator);
 				
 				ffzNodeOperator* import_op = FFZ_AS(import_keyword->parent,Operator);

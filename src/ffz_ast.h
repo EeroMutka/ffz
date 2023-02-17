@@ -4,12 +4,16 @@
 // and utilities for dealing with the tree.
 //
 
-struct ffzProject;
-union ffzNode;
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct ffzProject ffzProject;
+typedef union ffzNode ffzNode;
 typedef u32 ffzParserIndex;
 typedef u32 ffzCheckerIndex;
 
-struct ffzOk { bool ok; };
+typedef struct ffzOk { bool ok; } ffzOk;
 
 typedef enum ffzNodeKind { // synced with `ffzNodeKind_String`
 	ffzNodeKind_Invalid,
@@ -39,7 +43,7 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_String`
 	ffzNodeKind_IntLiteral,
 	ffzNodeKind_StringLiteral,
 	ffzNodeKind_FloatLiteral,
-	
+
 	ffzNodeKind_COUNT,
 } ffzNodeKind;
 
@@ -121,13 +125,13 @@ typedef enum ffzOperatorKind { // synced with ffzOperatorKind_String
 	ffzOperatorKind_Count,
 } ffzOperatorKind;
 
-struct ffzLoc {
+typedef struct ffzLoc {
 	u32 line_num; // As in text files, starts at 1
 	u32 column_num;
 	u32 offset;
-};
+} ffzLoc;
 
-typedef struct {
+typedef struct ffzLocRange {
 	ffzLoc start;
 	ffzLoc end;
 } ffzLocRange;
@@ -136,30 +140,30 @@ typedef struct ffzNodeList {
 	ffzNode* first; // can be NULL
 } ffzNodeList;
 
-struct ffzNodeAssignment;
-struct ffzNodeTag;
-struct ffzNodeTagDecl;
-struct ffzNodeIdentifier;
-struct ffzNodeKeyword;
-struct ffzNodeOperator;
-struct ffzNodeIf;
-struct ffzNodeFor;
-struct ffzNodeProcType;
-struct ffzNodeRecord;
-struct ffzNodeEnum;
-struct ffzNodeScope;
-struct ffzNodeReturn;
-struct ffzNodeIntLiteral;
-struct ffzNodeStringLiteral;
+typedef struct ffzNodeAssignment ffzNodeAssignment;
+typedef struct ffzNodeTag ffzNodeTag;
+typedef struct ffzNodeTagDecl ffzNodeTagDecl;
+typedef struct ffzNodeIdentifier ffzNodeIdentifier;
+typedef struct ffzNodeKeyword ffzNodeKeyword;
+typedef struct ffzNodeOperator ffzNodeOperator;
+typedef struct ffzNodeIf ffzNodeIf;
+typedef struct ffzNodeFor ffzNodeFor;
+typedef struct ffzNodeProcType ffzNodeProcType;
+typedef struct ffzNodeRecord ffzNodeRecord;
+typedef struct ffzNodeEnum ffzNodeEnum;
+typedef struct ffzNodeScope ffzNodeScope;
+typedef struct ffzNodeReturn ffzNodeReturn;
+typedef struct ffzNodeIntLiteral ffzNodeIntLiteral;
+typedef struct ffzNodeStringLiteral ffzNodeStringLiteral;
 
 #define FFZ_NODE_BASE struct {\
-	ffzNodeKind kind;\
-	ffzParserIndex parser_idx;\
-	ffzLocRange loc;\
-	ffzNodeTag* first_tag;\
-	ffzNode* parent;\
-	ffzNode* next;\
-	ffzNodeList children;\
+ffzNodeKind kind;\
+ffzParserIndex parser_idx;\
+ffzLocRange loc;\
+ffzNodeTag* first_tag;\
+ffzNode* parent;\
+ffzNode* next;\
+ffzNodeList children;\
 }
 
 typedef struct ffzNodeAssignment {
@@ -184,7 +188,7 @@ typedef struct ffzNodeTagDecl {
 	FFZ_NODE_BASE;
 	String tag;
 	ffzNode* rhs;
-	
+
 	ffzNodeTagDecl* same_tag_next;
 } ffzNodeTagDecl;
 
@@ -258,7 +262,7 @@ typedef struct ffzNodeStringLiteral {
 	String zero_terminated_string;
 } ffzNodeStringLiteral;
 
-typedef union ffzNode {
+union ffzNode {
 	FFZ_NODE_BASE;
 	ffzNodeAssignment Assignment;
 	ffzNodeDeclaration Declaration;
@@ -276,11 +280,11 @@ typedef union ffzNode {
 	ffzNodeReturn Return;
 	ffzNodeIntLiteral IntLiteral;
 	ffzNodeStringLiteral StringLiteral;
-} ffzNode;
-
+};
 
 // Parser is responsible for parsing a single file / string of source code
-typedef struct ffzParser {
+typedef struct ffzParser ffzParser;
+struct ffzParser {
 	ffzProject* project;         // unused in the parser stage
 	ffzParserIndex self_idx;     // this index will be saved into the generated AstNode structures
 	ffzCheckerIndex checker_idx; // unused in the parser stage
@@ -291,25 +295,31 @@ typedef struct ffzParser {
 	ffzNodeScope* root;
 	Allocator* alc;
 
-	Array<ffzNodeKeyword*> module_imports;
-	Map64<ffzNodeTagDecl*> tag_decl_lists; // key: str_hash64(tag, 0)
+	ArrayRaw/*<ffzNodeKeyword*>*/ module_imports;
+	Map64Raw/*<ffzNodeTagDecl*>*/ tag_decl_lists; // key: str_hash64(tag, 0)
 
 	bool stop_at_curly_brackets;
 	ffzLoc pos;
 
 	void(*report_error)(ffzParser* parser, ffzLocRange at, String error);
-} ffzParser;
+};
 
 #define FFZ_AS(node,kind) ((ffzNode##kind*)node)
 #define FFZ_BASE(node) ((ffzNode*)node)
 
 #define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? FFZ_BASE(parent)->children.first : NULL; n = ffz_skip_tag_decls(n); n = n->next)
 
-inline ffzLocRange ffz_loc_to_range(ffzLoc loc) { return { loc, loc }; };
+#ifdef __cplusplus
+#define FFZ_STRUCT_INIT(type) type
+#else
+#define FFZ_STRUCT_INIT(type) (type)
+#endif
+
+inline ffzLocRange ffz_loc_to_range(ffzLoc loc) { return FFZ_STRUCT_INIT(ffzLocRange) { loc, loc }; };
 inline ffzLoc ffz_loc_min(ffzLoc a, ffzLoc b) { return a.offset < b.offset ? a : b; }
 inline ffzLoc ffz_loc_max(ffzLoc a, ffzLoc b) { return a.offset > b.offset ? a : b; }
 inline ffzLocRange ffz_loc_range_union(ffzLocRange a, ffzLocRange b) {
-	return { ffz_loc_min(a.start, b.start), ffz_loc_max(a.end, b.end) };
+	return FFZ_STRUCT_INIT(ffzLocRange) { ffz_loc_min(a.start, b.start), ffz_loc_max(a.end, b.end) };
 }
 
 inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
@@ -347,3 +357,6 @@ OPT(ffzNode*) ffz_skip_tag_decls(OPT(ffzNode*) node);
 
 String ffz_print_ast(Allocator* alc, ffzNode* node);
 
+#ifdef __cplusplus
+} // extern "C"
+#endif

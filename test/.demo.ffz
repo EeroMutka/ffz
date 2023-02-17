@@ -1,6 +1,3 @@
-
-// This program works if you set FIX_TB_BIG_RETURN_HACK to 1, but will segfault if you set it to 0.
-
 /*#V3: struct {x: u64, y: u64, z: u64}
 
 #add_vectors: proc(a: V3, b: V3) => (V3) {
@@ -22,3 +19,4 @@
 //@link_library: ".ffz/c_things.obj"
 //#receive_v3: @extern proc(aa: V3)
 
+// This program works if you set FIX_TB_BIG_RETURN_HACK to 1, but will segfault if you set it to 0.

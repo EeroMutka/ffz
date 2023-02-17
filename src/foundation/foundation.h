@@ -56,9 +56,11 @@ typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allo
 
 #ifdef __cplusplus
 #define STRUCT_INIT(T) T
+#define STRUCT_INIT_COMP(T) T
 #define C_API extern "C"
 #else
 #define STRUCT_INIT(T) (T)
+#define STRUCT_INIT_COMP(T)
 #define C_API
 #endif
 
@@ -84,10 +86,6 @@ typedef struct {
 
 // Useful for surpressing compiler warnings
 #define UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
-
-
-//#define STACK_SLICE(T, ...) Slice<T>{ (T*)std::initializer_list<T>{__VA_ARGS__}.begin(), (s64)std::initializer_list<T>{__VA_ARGS__}.size() }
-// TODO: MakeSlice with varargs that allocates a slice
 
 #ifdef _DEBUG
 #define ASSERT(x) { if (!(x)) __debugbreak(); }
@@ -172,6 +170,13 @@ inline f32 _get_f32_neg_infinity() { u32 x = 0xFF800000; return *(f32*)&x; }
 #define BITCAST(T, x) (*(T*)&x)
 
 #define THREAD_LOCAL __declspec(thread)
+
+
+// c container macros
+#ifndef __cplusplus
+#define array_push(T, array, elem) array_push_raw((array), &(elem), sizeof(T))
+#define map64_insert(map, key, value, mode) map64_insert_raw((map), (key), &(value), (mode))
+#endif
 
 // TODO: make it possible for an arena to grow.
 // It should be an enum parameter for the make_arena function.
@@ -269,14 +274,19 @@ C_API void* mem_clone_size(uint size, const void* value, Allocator* allocator);
 typedef struct {
 	void* data;
 	uint len;
+} SliceRaw;
+
+typedef struct {
+	union {
+		struct {
+			void* data;
+			uint len;
+		};
+		SliceRaw slice;
+	};
 	uint capacity;
 	Allocator* alc; // rename to allocator?
 } ArrayRaw;
-
-typedef struct {
-	void* data;
-	uint len;
-} SliceRaw;
 
 //#define HASH_STRING(x) MeowU64From(MeowHash(MeowDefaultSeed, x.len, x.data), 0)
 
@@ -311,8 +321,9 @@ typedef enum {
 
 typedef struct { void* _handle; } File;
 
-
 #define LIT(x) STRUCT_INIT(String){ (u8*)x, sizeof(x)-1 }
+#define LIT_COMP(x) STRUCT_INIT_COMP(String){ (u8*)x, sizeof(x)-1 }
+
 #define AS_BYTES(x) STRUCT_INIT(String){ (u8*)&x, sizeof(x) }
 #define SLICE_AS_BYTES(x) STRUCT_INIT(String){ (u8*)(x).data, (x).len * sizeof((x).data[0]) }
 
@@ -393,10 +404,10 @@ typedef struct {
 } LeakTracker;
 
 //extern Allocator _global_allocator; // do we need this?
-C_API THREAD_LOCAL void* _foundation_pass;
-C_API THREAD_LOCAL Arena* _temp_arena;
-C_API THREAD_LOCAL uint _temp_arena_scope_counter;
-C_API THREAD_LOCAL LeakTracker _leak_tracker;
+C_API THREAD_LOCAL extern void* _foundation_pass;
+C_API THREAD_LOCAL extern Arena* _temp_arena;
+C_API THREAD_LOCAL extern uint _temp_arena_scope_counter;
+C_API THREAD_LOCAL extern LeakTracker _leak_tracker;
 
 // Relies on PDB symbol info
 C_API void get_stack_trace(void(*visitor)(String function, String file, u32 line, void* user_ptr), void* user_ptr);
@@ -421,6 +432,7 @@ C_API void leak_tracker_deinit();
 C_API void leak_tracker_begin_entry(void* address, uint skip_stackframes_count);
 C_API void leak_tracker_assert_is_alive(void* address);
 C_API void leak_tracker_end_entry(void* address);
+
 /*
 typedef struct {
 	u32 elem_size;
@@ -471,7 +483,7 @@ typedef enum {
 	MapInsert_Override,
 } MapInsert;
 
-typedef struct { void* value; bool added; } MapInsertResult;
+typedef struct { void* _unstable_ptr; bool added; } MapInsertResult;
 
 typedef struct OS_VisitDirectoryInfo {
 	String name;
@@ -595,6 +607,7 @@ C_API void array_push_slice_raw(ArrayRaw* array, SliceRaw elems, u32 elem_size);
 C_API void array_pop_raw(ArrayRaw* array, OPT(void*) out_elem, u32 elem_size);
 C_API void array_reserve_raw(ArrayRaw* array, uint capacity, u32 elem_size);
 C_API void array_resize_raw(ArrayRaw* array, uint len, OPT(const void*) value, u32 elem_size); // set value to NULL to not initialize the memory
+//C_API SliceRaw array_get_slice_raw(ArrayRaw* array);
 
 //SlotArenaRaw* make_slot_arena_contiguous_raw(u32 elem_size, ArenaDesc arena_desc);
 //SlotArenaRaw* make_slot_arena_raw(ArenaDesc arena_desc);
@@ -648,6 +661,7 @@ C_API s64 floor_to_s64(float x);
 
 C_API String str_format(Allocator* a, const char* fmt, ...);
 C_API void str_print(Array(u8)* buffer, String str);
+C_API void str_print_rune(Array(u8)* buffer, rune rune);
 C_API void str_print_repeat(Array(u8)* buffer, String str, uint count);
 C_API void str_printf(Array(u8)* buffer, const char* fmt, ...);
 

@@ -156,6 +156,13 @@ void str_print(Array(u8)* buffer, String str) {
 	array_push_slice_raw(buffer, BITCAST(SliceRaw, str), 1);
 }
 
+void str_print_rune(Array(u8)* buffer, rune rune) {
+	ASSERT(rune < 128); // TODO
+	array_push_raw(buffer, &rune, 1);
+}
+
+//SliceRaw array_get_slice_raw(ArrayRaw* array) { return *(SliceRaw*)array; }
+
 void str_print_repeat(Array(u8)* buffer, String str, uint count) {
 	for (uint i = 0; i < count; i++) str_print(buffer, str);
 }
@@ -604,7 +611,7 @@ static void leak_tracker_begin_entry_stacktrace_visitor(String function, String 
 		u64 filepath_hash = str_hash64_ex(file, 0);
 		
 		MapInsertResult map_entry = map64_insert_raw(&_leak_tracker.file_names_cache, filepath_hash, NULL, MapInsert_DoNotOverride);		
-		String* filepath_cached = (String*)map_entry.value;
+		String* filepath_cached = (String*)map_entry._unstable_ptr;
 		if (map_entry.added) {
 			*filepath_cached = str_clone(file, &_leak_tracker.internal_arena->alc);
 		}
