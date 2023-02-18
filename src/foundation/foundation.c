@@ -1428,6 +1428,7 @@ void* arena_allocator_proc(Allocator* a, OPT(u8*) old_ptr, uint old_size, uint n
 	}
 	else {
 		_DEBUG_FILL_GARBAGE(old_ptr + new_size, old_size - new_size); // erase the top
+		int a = 11111;
 	}
 
 	return old_ptr;

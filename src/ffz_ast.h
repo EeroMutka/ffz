@@ -282,6 +282,33 @@ union ffzNode {
 	ffzNodeStringLiteral StringLiteral;
 };
 
+// synced with `ffzNodeKind`
+static const String ffzNodeKind_String[] = {
+	LIT_COMP("invalid"),
+	LIT_COMP("blank"),
+	LIT_COMP("compiler-tag-declaration"),
+	LIT_COMP("user-tag-declaration"),
+	LIT_COMP("compiler-tag"),
+	LIT_COMP("user-tag"),
+	LIT_COMP("declaration"),
+	LIT_COMP("assignment"),
+	LIT_COMP("identifier"),
+	LIT_COMP("polymorphic-parameter"),
+	LIT_COMP("keyword"),
+	LIT_COMP("dot"),
+	LIT_COMP("operator"),
+	LIT_COMP("proc-type"),
+	LIT_COMP("struct"),
+	LIT_COMP("enum"),
+	LIT_COMP("return"),
+	LIT_COMP("if"),
+	LIT_COMP("for"),
+	LIT_COMP("scope"),
+	LIT_COMP("int-literal"),
+	LIT_COMP("string-literal"),
+	LIT_COMP("float-literal"),
+};
+
 // Parser is responsible for parsing a single file / string of source code
 typedef struct ffzParser ffzParser;
 struct ffzParser {

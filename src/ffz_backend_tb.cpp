@@ -14,6 +14,29 @@ extern "C" uint64_t cuik_time_in_nanos(void) { return 0; }
 extern "C" void cuikperf_region_start(uint64_t now, const char* fmt, const char* extra) {}
 extern "C" void cuikperf_region_end(void) {}
 
+static Allocator* tb_allocator = NULL;
+//static Arena* tb_arena = {};
+
+extern "C" {
+	void* tb_platform_heap_alloc(size_t size) {
+		// TODO: mutex lock
+		return mem_alloc(size, 16, tb_allocator);
+		//void* result = arena_push_size(tb_arena, size, 16).data;
+		//memset(result, 0, size);
+		//return result;
+	}
+	void* tb_platform_heap_realloc(void* ptr, size_t size) {
+		//HITS(_c, 3);
+		// hmm.. can't mem_resize() because that requires the size. We could allocate a prefix for it
+		void* out = mem_alloc(size, 16, tb_allocator);
+		if (ptr) memcpy(out, ptr, size);
+		//return mem_resize(ptr, 
+		//void* out = arena_push_size(tb_arena, size, 16).data;
+		return out;
+	}
+	void tb_platform_heap_free(void* ptr) {}
+}
+
 union Constant {
 	TB_Symbol* symbol;
 };
@@ -58,7 +81,7 @@ struct SmallOrPtr {
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
 static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of = false);
 
-static const char* make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = false) {
+static const char* make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 	Array<u8> name = make_array<u8>(g->alc);
 
 	if (inst.node) {
@@ -194,8 +217,7 @@ TB_DebugType* get_tb_debug_type(Gen* g, ffzType* type) {
 			array_push(&tb_fields, t);
 		}
 
-		//const char* name = make_name(g, IBASE(type->Record.node));
-		TB_DebugType* out = tb_debug_create_struct(g->tb, "_");
+		TB_DebugType* out = tb_debug_create_struct(g->tb, make_name(g, IBASE(type->Record.node)));
 		tb_debug_complete_record(out, tb_fields.data, tb_fields.len, type->size, type->alignment);
 		return out;
 	} break;
@@ -421,12 +443,6 @@ static void gen_store(Gen* g, TB_Reg lhs_address, ffzNodeInst rhs) {
 	SmallOrPtr rhs_value = gen_expr(g, rhs);
 	ffzType* type = ffz_expr_get_type(g->checker, rhs);
 	_gen_store(g, lhs_address, rhs_value, type);
-}
-
-static TB_Reg tb_inst_ptr2int_HACK_FIX(TB_Function* f, TB_Reg src, TB_DataType dt) {
-	TB_Reg hack = tb_inst_local(f, 8, 8);
-	tb_inst_store(f, TB_TYPE_PTR, hack, src, 8);
-	return tb_inst_ptr2int(f, hack, TB_TYPE_I64); // THIS IS INCORRECT, BUT WORKS BECAUSE OF A BUG IN TB!!!
 }
 
 static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
@@ -676,7 +692,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				lo = tb_inst_zxt(g->fn, lo, TB_TYPE_I64);
 				hi = tb_inst_zxt(g->fn, hi, TB_TYPE_I64);
 				TB_Reg lo_offset = tb_inst_mul(g->fn, lo, tb_inst_uint(g->fn, TB_TYPE_I64, elem_type->size), (TB_ArithmaticBehavior)0);
-				TB_Reg ptr = tb_inst_add(g->fn, tb_inst_ptr2int_HACK_FIX(g->fn, array_data, TB_TYPE_I64), lo_offset, (TB_ArithmaticBehavior)0);
+				TB_Reg ptr = tb_inst_add(g->fn, tb_inst_ptr2int(g->fn, array_data, TB_TYPE_I64), lo_offset, (TB_ArithmaticBehavior)0);
 				TB_Reg len = tb_inst_sub(g->fn, hi, lo, (TB_ArithmaticBehavior)0);
 
 				tb_inst_store(g->fn, TB_TYPE_I64, out.ptr, ptr, 8);
@@ -689,7 +705,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				TB_Reg index_offset = tb_inst_mul(g->fn, index,
 					tb_inst_uint(g->fn, TB_TYPE_I64, elem_type->size), (TB_ArithmaticBehavior)0);
 				
-				out.small = tb_inst_add(g->fn, tb_inst_ptr2int_HACK_FIX(g->fn, array_data, TB_TYPE_I64),
+				out.small = tb_inst_add(g->fn, tb_inst_ptr2int(g->fn, array_data, TB_TYPE_I64),
 					index_offset, (TB_ArithmaticBehavior)0);
 
 				should_dereference = !address_of;
@@ -883,8 +899,13 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 }
 
 void ffz_tb_generate(ffzProject* project, String objname) {
-	Allocator* temp = temp_push(); defer(temp_pop());
-	
+	Allocator* temp = temp_push(); defer(temp_pop()); // temp_push_volatile?
+
+	//ASSERT(!tb_arena);
+	//tb_arena = arena_make_virtual_reserve_fixed(GiB(1), NULL);
+	ASSERT(!tb_allocator);
+	tb_allocator = temp;
+
 	TB_FeatureSet features = { 0 };
 	TB_Module* tb_module = tb_module_create_for_host(&features, true);
 

@@ -99,7 +99,7 @@ ffzConstantHash ffz_hash_constant(ffzCheckedExpr constant) {
 	} break;
 
 	case ffzTypeTag_Module: { hash64_push(&h, constant.const_val->module); } break;
-	case ffzTypeTag_Type: { hash64_push(&h, ffz_hash_type(constant.type)); } break;
+	case ffzTypeTag_Type: { hash64_push(&h, ffz_hash_type(constant.const_val->type)); } break;
 	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
@@ -155,11 +155,6 @@ static ffzOk _add_unique_definition(ffzChecker* c, ffzNodeIdentifier* def) {
 */
 u32 get_alignment(ffzChecker* c, ffzType* type) {
 	switch (type->tag) {
-	case ffzTypeTag_Bool: return 1;
-	case ffzTypeTag_SizedInt: // fallthrough
-	case ffzTypeTag_SizedUint: // fallthrough
-	case ffzTypeTag_Float: // fallthrough
-	case ffzTypeTag_Enum: return type->size;
 	case ffzTypeTag_Uint: // fallthrough
 	case ffzTypeTag_Int: // fallthrough
 	case ffzTypeTag_Pointer: // fallthrough
@@ -169,8 +164,7 @@ u32 get_alignment(ffzChecker* c, ffzType* type) {
 	case ffzTypeTag_Record: return 0; // alignment is computed at :ComputeRecordAlignment
 	case ffzTypeTag_FixedArray: return get_alignment(c, type->FixedArray.elem_type);
 	}
-	ASSERT(false);
-	return 0;
+	return type->size;
 }
 
 ffzType* make_type(ffzChecker* c, ffzType type_desc) {
@@ -692,33 +686,35 @@ ffzOk _ffz_add_possible_definitions(ffzChecker* c, OPT(ffzNode*) parent) {
 	return { true };
 }
 
-ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive) {
-	
+ffzOk ffz_instanceless_check_ex(ffzChecker* c, ffzNode* node, bool recursive, bool new_scope) {
 	ffzCheckerScope scope;
-	// when root level, we want the scope node to be NULL, instead of the parser root node!!!
-	// This is so that declarations across multiple files/parsers will be placed in equal scope.
-	scope.node = node->parent ? node : NULL;
 
-	scope.parent = c->current_scope;
-	c->current_scope = &scope;
+	if (new_scope) {
+		// when root level, we want the scope node to be NULL, instead of the parser root node!!!
+		// This is so that declarations across multiple files/parsers will be placed in equal scope.
+		scope.node = node->parent ? node : NULL;
+		scope.parent = c->current_scope;
+		c->current_scope = &scope;
+	}
 
 	if (node->kind == ffzNodeKind_Record) {
 		TRY(_ffz_add_possible_definitions(c, BASE(AS(node, Record)->polymorphic_parameters)));
 	}
 	else if (node->kind == ffzNodeKind_ProcType) {
-		ffzNodeProcType* derived = AS(node,ProcType);
-		
+		ffzNodeProcType* derived = AS(node, ProcType);
+
 		TRY(_ffz_add_possible_definitions(c, BASE(derived->polymorphic_parameters)));
 		if (derived->out_parameter) TRY(_ffz_add_possible_definition(c, derived->out_parameter));
 	}
 	else if (node->kind == ffzNodeKind_Operator) {
-		ffzNodeOperator* derived = AS(node,Operator);
-		
+		ffzNodeOperator* derived = AS(node, Operator);
+
 		if (derived->op_kind == ffzOperatorKind_PostCurlyBrackets) {
 			// If the procedure type is anonymous, add the parameters to this scope. Otherwise, the programmer must use the `in` and `out` keywords to access parameters.
 			if (derived->left->kind == ffzNodeKind_ProcType) {
-				TRY(_ffz_add_possible_definitions(c, derived->left));
-				
+				ffz_instanceless_check_ex(c, derived->left, recursive, false);
+				//TRY(_ffz_add_possible_definitions(c, derived->left));
+
 				//OPT(ffzNode*) out_parameter = AS(derived->left,ProcType)->out_parameter; // :AddOutParamDeclaration
 				//if (out_parameter) TRY(_ffz_add_possible_definition(c, out_parameter));
 			}
@@ -732,16 +728,20 @@ ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive) {
 	}
 
 	TRY(_ffz_add_possible_definitions(c, node));
-		
+
 	if (recursive) {
 		for FFZ_EACH_CHILD(n, node) {
 			TRY(ffz_instanceless_check(c, n, recursive));
 		}
 	}
 
-	c->current_scope = c->current_scope->parent;
+	if (new_scope) {
+		c->current_scope = c->current_scope->parent;
+	}
 	return { true };
 }
+
+ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive) { return ffz_instanceless_check_ex(c, node, recursive, true); }
 
 static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer infer, ffzCheckedExpr* result, bool* delayed_check_proc) {
 	ffzNodeOperator* node = inst.node;
@@ -905,7 +905,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		else if (result->type->tag == ffzTypeTag_Slice || result->type->tag == ffzTypeTag_FixedArray) {
 			// Array initialization
 			ffzType* elem_type = result->type->tag == ffzTypeTag_Slice ? result->type->Slice.elem_type : result->type->FixedArray.elem_type;
-			
+
 			Allocator* temp = temp_push(); defer(temp_pop());
 			Array<ffzCheckedExpr> elems_chk = make_array<ffzCheckedExpr>(temp);
 			bool all_elems_are_constant = true;
@@ -917,7 +917,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				array_push(&elems_chk, chk);
 				all_elems_are_constant = all_elems_are_constant && chk.const_val;
 			}
-			
+
 			if (result->type->tag == ffzTypeTag_FixedArray) {
 				s32 expected = result->type->FixedArray.length;
 				if (expected < 0) { // make a new type if [?]
@@ -940,7 +940,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		}
 		else if (result->type->tag == ffzTypeTag_Record) {
 			if (result->type->Record.is_union) ERR(c, BASE(node), "Union initialization with {} is not currently supported.");
-			
+
 			if (ffz_get_child_count(BASE(node)) != result->type->Record.fields.len) {
 				ERR(c, BASE(node), "Incorrect number of struct initializer arguments.");
 			}
@@ -952,7 +952,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				ffzType* member_type = result->type->Record.fields[field_constants.len].type;
 				ffzCheckedExpr chk;
 				TRY(check_expression(c, infer_target_type(infer, member_type), arg, &chk));
-				
+
 				if (chk.const_val) array_push(&field_constants, *chk.const_val);
 				else all_fields_are_constant = false;
 			}
@@ -962,7 +962,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				result->const_val->record_fields = field_constants.slice;
 			}
 		}
-		else ASSERT(false);
+		else ERR(c, BASE(node), "{}-initializer is not allowed for `%s`.", ffz_type_to_cstring(c, result->type));
 	} break;
 
 	case ffzOperatorKind_PostSquareBrackets: {
@@ -974,6 +974,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			(left_type->tag == ffzTypeTag_Type && left_chk.const_val->type->tag == ffzTypeTag_PolyRecord))
 		{
 			left_type = ffz_ground_type(left_chk);
+
 			ffzPolyInst poly_inst = {};
 			poly_inst.node = left_type->tag == ffzTypeTag_PolyProc ? BASE(left_chk.const_val->proc_node.node) : BASE(left_type->PolyRecord.node.node);
 			ffzNode* type_node = left_type->tag == ffzTypeTag_PolyProc ? BASE(left_type->PolyProc.type_node.node) : BASE(left_type->PolyRecord.node.node);
@@ -1551,17 +1552,16 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 
 	case ffzNodeKind_ProcType: {
 		ffzNodeProcTypeInst type_node = IAS(inst,ProcType);
-		ffzType proc_type = { ffzTypeTag_Proc, 8 };
+		ffzType proc_type = { ffzTypeTag_Proc };
 		proc_type.Proc.type_node = type_node;
 		ffzNodeInst out_param = ICHILD(type_node, out_parameter);
 
-		//ffzCheckerScope scope;
-		//push_scope(c, inst, &scope);
-		
 		if (ffz_get_child_count(BASE(type_node.node->polymorphic_parameters)) > 0 && infer.instantiating_poly_type != inst.node) {
 			proc_type.tag = ffzTypeTag_PolyProc;
 		}
 		else {
+			proc_type.size = c->pointer_size;
+
 			ffzNodePolyParamListInst poly_params = ICHILD(type_node, polymorphic_parameters);
 			for FFZ_EACH_CHILD_INST(n, poly_params) {
 				TRY(check_expression(c, infer_no_help_constant(infer), n));
@@ -1705,7 +1705,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		result.const_val->string_zero_terminated = AS(inst.node,StringLiteral)->zero_terminated_string;
 	} break;
 
-	default: ERR(c, inst.node, "Invalid expression.");
+	default: ERR(c, inst.node, "Expected an expression; got [%s]", ffzNodeKind_String[inst.node->kind].data);
 	}
 
 	ffzCheckedExpr ungrounded_result = result;

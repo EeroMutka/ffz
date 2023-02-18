@@ -3,10 +3,14 @@
 	ret V3{a.x + b.x, a.y + b.y, a.z + b.z}
 }*/
 
-/*#add_vectors: proc[T](a: [3]T, b: [3]T) => ([3]T) {
-	baba: [3]T
+#add_vectors: proc[T](a: [3]T, b: [3]T) => ([3]T) {
+	baba: T
+	
+	dbgbreak
+	dbgbreak
+	dbgbreak
 	ret [3]T{a[0] + b[0], a[1] + b[1], a[2] + b[2]}
-}*/
+}
 
 
 #ffz_entry: proc() {
@@ -21,16 +25,13 @@
 	part: my_integers[2,]
 	*/
 	
-	A: [3]u32{1, 2, 3}
-	B: [3]u32{5, 5, 6}
-	//C: add_vectors[u32](A, B)
+	v_u32_a: [3]u32{5, 62, 7}
+	v_u32_b: [3]u32{5, 6, 7}
+	v_u32_c: add_vectors[u32](v_u32_a, v_u32_b)
 	
-	
-	_1: [3]s64{55, 22, 11}
-	_2: [3]s64{100, 200, 300}
-	
-	
-	//_3: add_vectors[s64](_1, _2)
+	v_s64_a: [3]s64{11, 2, 3}
+	v_s64_b: [3]s64{200, 200, 555}
+	v_s64_c: add_vectors[s64](v_s64_a, v_s64_b)
 	
 	dbgbreak
 }
