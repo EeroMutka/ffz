@@ -1,2 +1,2 @@
 
-void ffz_tb_generate(ffzProject* project, String objname);
+void ffz_tb_generate(ffzProject* project, fString objname);

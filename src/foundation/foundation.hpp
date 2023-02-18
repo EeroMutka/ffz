@@ -5,12 +5,12 @@
 
 #define C_ARRAY_SLICE(x) {x, sizeof(x) / sizeof(x[0])}
 
-struct Allocator;
+struct fAllocator;
 typedef unsigned long long uint;
 typedef unsigned int u32;
 
 template<typename T>
-struct Slice {
+struct fSlice {
 	T* data;
 	uint len;
 
@@ -26,17 +26,17 @@ struct Slice {
 
 // NOTE: Must have the same binary layout as Array_Raw
 template<typename T>
-struct Array {
+struct fArray {
 	union {
 		struct {
 			T* data;
 			uint len;
 		};
-		Slice<T> slice;
+		fSlice<T> slice;
 	};
 	uint capacity;
 	
-	Allocator* allocator;
+	fAllocator* allocator;
 
 	inline T& operator [] (uint i) {
 		if (i >= len) __debugbreak();
@@ -46,8 +46,8 @@ struct Array {
 
 // NOTE: Must have the same binary layout as Map64_Raw
 template<typename T>
-struct Map64 {
-	Allocator* alc;
+struct fMap64 {
+	fAllocator* alc;
 	u32 value_size;
 	u32 alive_count;
 	u32 slot_count; // visual studio natvis doesn't support bitshifts, so in order to visualize it we need this here. But it might be good to store nonetheless.
@@ -55,38 +55,40 @@ struct Map64 {
 	void* slots;
 };
 
-#define String Slice<u8>
-#define Array(T) Array<T>
-#define Slice(T) Slice<T>
-#define Map64(T) Map64<T>
+#define fString fSlice<u8>
+#define fArray(T) fArray<T>
+#define fSlice(T) fSlice<T>
+#define fMap64(T) fMap64<T>
 
 // We want to give structs that include templated fields different link-names between C/C++ versions,
 // because otherwise the visual studio debugger might think to display the C version without natvis support.
-#define LeakTracker LeakTracker_cpp
-
-template<typename T>
-inline T* mem_clone(const T& value, Allocator* allocator) { return (T*)mem_clone_size(sizeof(T), &value, allocator); }
+#define fLeakTracker fLeakTracker_cpp
 
 // include the foundation C-api
 #include "foundation.h"
+#undef f_mem_clone
 
-#undef mem_clone
+template<typename T>
+inline T* f_mem_clone(const T& value, fAllocator* allocator) {
+	return (T*)f_mem_clone_size(sizeof(T), F_ALIGN_OF(T), &value, allocator);
+}
 
 // The reason we have to #define and can't just typedef in the first place,
 // is that then the C++ compiler wouldn't allow us to compile our program, which is dumb.
-typedef Slice<u8> String;
+#undef fString
+typedef fSlice<u8> fString;
 
-inline bool operator == (String a, String b) { return str_equals(a, b); }
-inline bool operator != (String a, String b) { return !str_equals(a, b); }
+inline bool operator == (fString a, fString b) { return f_str_equals(a, b); }
+inline bool operator != (fString a, fString b) { return !f_str_equals(a, b); }
 
 template<typename T>
-inline Slice<T> make_slice_garbage(uint len, Allocator* alc) {
-	return Slice<T>{ (T*)(alc)->_proc((alc), NULL, 0, (len) * sizeof(T), ALIGN_OF(T)), len };
+inline fSlice<T> f_make_slice_garbage(uint len, fAllocator* alc) {
+	return fSlice<T>{ (T*)(alc)->_proc((alc), NULL, 0, (len) * sizeof(T), F_ALIGN_OF(T)), len };
 }
 
 template<typename T>
-inline Slice<T> make_slice(uint len, const T& initial_value, Allocator* alc) {
-	Slice<T> result = make_slice_garbage<T>(len, alc);
+inline fSlice<T> f_make_slice(uint len, const T& initial_value, fAllocator* alc) {
+	fSlice<T> result = f_make_slice_garbage<T>(len, alc);
 	for (uint i = 0; i < len; i++) result[i] = initial_value;
 	return result;
 }
@@ -98,46 +100,46 @@ inline Slice<T> make_slice(uint len, const T& initial_value, Allocator* alc) {
 //inline T* arena_push_value(Arena* arena, const T& value) { return (T*)arena_push(arena, AS_BYTES(value), ALIGN_OF(T)); }
 
 template<typename T>
-inline Slice<T> clone_slice(Slice<T> x, Allocator* allocator) {
-	return Slice<T>{ (T*)mem_clone_size(x.len * sizeof(T), x.data, allocator), x.len };
+inline fSlice<T> f_clone_slice(fSlice<T> x, fAllocator* allocator) {
+	return fSlice<T>{ (T*)f_mem_clone_size(x.len * sizeof(T), F_ALIGN_OF(T), x.data, allocator), x.len };
 }
 
 template<typename T>
-inline Slice<T> slice(Array<T> other, uint lo, uint hi) {
-	ASSERT(hi >= lo);
-	return Slice<T>{ other.data + lo, hi - lo };
+inline fSlice<T> f_slice(fArray<T> other, uint lo, uint hi) {
+	F_ASSERT(hi >= lo);
+	return fSlice<T>{ other.data + lo, hi - lo };
 }
 
 template<typename T>
-inline Slice<T> slice(Slice<T> other, uint lo, uint hi) {
-	ASSERT(hi >= lo);
-	return Slice<T>{ other.data + lo, hi - lo };
+inline fSlice<T> f_slice(fSlice<T> other, uint lo, uint hi) {
+	F_ASSERT(hi >= lo);
+	return fSlice<T>{ other.data + lo, hi - lo };
 }
 
 template<typename T>
-inline Slice<T> slice_before(Array<T> other, uint mid) {
-	return Slice<T>{ other.data, mid};
+inline fSlice<T> f_slice_before(fArray<T> other, uint mid) {
+	return fSlice<T>{ other.data, mid};
 }
 
 template<typename T>
-inline Slice<T> slice_before(Slice<T> other, uint mid) {
-	return Slice<T>{ other.data, mid };
+inline fSlice<T> f_slice_before(fSlice<T> other, uint mid) {
+	return fSlice<T>{ other.data, mid };
 }
 
 template<typename T>
-inline Slice<T> slice_after(Array<T> other, uint mid) {
-	ASSERT(other.len >= mid);
-	return Slice<T>{ other.data + mid, other.len - mid};
+inline fSlice<T> f_slice_after(fArray<T> other, uint mid) {
+	F_ASSERT(other.len >= mid);
+	return fSlice<T>{ other.data + mid, other.len - mid};
 }
 
 template<typename T>
-inline Slice<T> slice_after(Slice<T> other, uint mid) {
-	ASSERT(other.len >= mid);
-	return Slice<T>{ other.data + mid, other.len - mid};
+inline fSlice<T> f_slice_after(fSlice<T> other, uint mid) {
+	F_ASSERT(other.len >= mid);
+	return fSlice<T>{ other.data + mid, other.len - mid};
 }
 
 template<typename T>
-inline void slice_set(Slice<T> dst, T value) {
+inline void f_slice_set(fSlice<T> dst, T value) {
 	//ZoneScoped;
 	for (uint i = 0; i < dst.len; i++) {
 		dst.data[i] = value;
@@ -145,97 +147,96 @@ inline void slice_set(Slice<T> dst, T value) {
 }
 
 template<typename T>
-inline void slice_copy(Slice<T> dst, Slice<T> src) {
-	ASSERT(src.len <= dst.len);
-	mem_copy(dst.data, src.data, src.len * sizeof(T));
+inline void f_slice_copy(fSlice<T> dst, fSlice<T> src) {
+	F_ASSERT(src.len <= dst.len);
+	f_mem_copy(dst.data, src.data, src.len * sizeof(T));
 }
 
-#define MAP64_EACH(map, key, value_ptr) MAP64_EACH_RAW((Map64Raw*)map, key, (void**)value_ptr)
+#define MAP64_EACH(map, key, value_ptr) f_map64_each_raw((fMap64Raw*)map, key, (void**)value_ptr)
 
 template<typename T>
-inline Map64<T> make_map64(Allocator* alc) { return BITCAST(Map64<T>, map64_make_raw(sizeof(T), alc)); }
+inline fMap64<T> f_map64_make(fAllocator* alc) { return F_BITCAST(fMap64<T>, f_map64_make_raw(sizeof(T), alc)); }
 
 template<typename T>
-inline Map64<T> make_map64_cap(uint capacity, Allocator* alc) { return BITCAST(Map64<T>, make_map64_cap_raw(sizeof(T), capacity, alc)); }
+inline fMap64<T> f_map64_make_cap(uint capacity, fAllocator* alc) { return F_BITCAST(fMap64<T>, f_make_map64_cap_raw(sizeof(T), capacity, alc)); }
 
 template<typename T>
-inline void free_map64(Map64<T>* map) { return free_map64_raw((Map64Raw*)map); }
+inline void f_map64_free(fMap64<T>* map) { return f_map64_free_raw((fMap64Raw*)map); }
 
 template<typename T>
-inline void resize_map64(Map64<T>* map, u32 slot_count_log2) { resize_map64_raw((Map64Raw*)map, slot_count_log2); }
+inline void f_map64_resize(fMap64<T>* map, u32 slot_count_log2) { f_map64_resize_raw((fMap64Raw*)map, slot_count_log2); }
 
 template<typename T>
 struct MapInsertResult_cpp { T* _unstable_ptr; bool added; };
-STATIC_ASSERT(sizeof(MapInsertResult_cpp<void>) == sizeof(MapInsertResult));
 
 template<typename T>
-inline MapInsertResult_cpp<T> map64_insert(Map64<T>* map, u64 key, const T& value, MapInsert mode = MapInsert_AssertUnique) {
-	return BITCAST(MapInsertResult_cpp<T>, map64_insert_raw((Map64Raw*)map, key, &value, mode));
+inline MapInsertResult_cpp<T> f_map64_insert(fMap64<T>* map, u64 key, const T& value, fMapInsert mode = fMapInsert_AssertUnique) {
+	return F_BITCAST(MapInsertResult_cpp<T>, f_map64_insert_raw((fMap64Raw*)map, key, &value, mode));
 }
 
 template<typename T>
-bool map64_remove(Map64<T>* map, u64 key) { return map64_remove_raw((Map64Raw*)map, key); }
+bool f_map64_remove(fMap64<T>* map, u64 key) { return f_map64_remove_raw((fMap64Raw*)map, key); }
 
 template<typename T>
-inline OPT(T*) map64_get(Map64<T>* map, u64 key) { return (T*)map64_get_raw((Map64Raw*)map, key); }
+inline fOpt(T*) f_map64_get(fMap64<T>* map, u64 key) { return (T*)f_map64_get_raw((fMap64Raw*)map, key); }
 
 template<typename T>
-inline Array<T> make_array(Allocator* alc) { return BITCAST(Array<T>, make_array_raw(alc)); }
+inline fArray<T> f_array_make(fAllocator* alc) { return F_BITCAST(fArray<T>, f_array_make_raw(alc)); }
 
 template<typename T>
-inline Array<T> make_array_len(uint len, const T& initial_value, Allocator* alc) {
-	return BITCAST(Array<T>, make_array_len_raw(sizeof(T), len, &initial_value, alc));
+inline fArray<T> f_array_make_len(uint len, const T& initial_value, fAllocator* alc) {
+	return F_BITCAST(fArray<T>, f_array_make_len_raw(sizeof(T), len, &initial_value, alc));
 }
 
 template<typename T>
-inline Array<T> make_array_len_garbage(uint len, Allocator* alc) {
-	return BITCAST(Array<T>, make_array_len_garbage_raw(sizeof(T), len, alc));
+inline fArray<T> f_array_make_len_garbage(uint len, fAllocator* alc) {
+	return F_BITCAST(fArray<T>, f_array_make_len_garbage_raw(sizeof(T), len, alc));
 }
 
 template<typename T>
-inline Array<T> make_array_cap(uint capacity, Allocator* alc) {
-	return BITCAST(Array<T>, make_array_cap_raw(sizeof(T), capacity, alc));
+inline fArray<T> f_array_make_cap(uint capacity, fAllocator* alc) {
+	return F_BITCAST(fArray<T>, f_array_make_cap_raw(sizeof(T), capacity, alc));
 }
 
 template<typename T>
-inline void free_array(Array<T>* array) { free_array_raw((ArrayRaw*)array, sizeof(T)); }
+inline void f_array_free(fArray<T>* array) { f_array_free_raw((fArrayRaw*)array, sizeof(T)); }
 
 template<typename T>
-inline void array_resize(Array<T>* array, uint len, const T& value) { array_resize_raw((ArrayRaw*)array, len, &value, sizeof(T)); }
+inline void f_array_resize(fArray<T>* array, uint len, const T& value) { f_array_resize_raw((fArrayRaw*)array, len, &value, sizeof(T)); }
 
 template<typename T>
-inline void array_resize_garbage(Array<T>* array, uint len) { array_resize_raw((ArrayRaw*)array, len, NULL, elem_size); }
+inline void f_array_resize_garbage(fArray<T>* array, uint len) { f_array_resize_raw((fArrayRaw*)array, len, NULL, elem_size); }
 
 template<typename T>
-inline uint array_push(Array<T>* array, const T& elem) { return array_push_raw((ArrayRaw*)array, &elem, sizeof(T)); }
+inline uint f_array_push(fArray<T>* array, const T& elem) { return f_array_push_raw((fArrayRaw*)array, &elem, sizeof(T)); }
 
 template<typename T>
-inline void array_push_slice(Array<T>* array, Slice<T> elems) {
-	array_push_slice_raw((ArrayRaw*)array, BITCAST(SliceRaw, elems), sizeof(T));
+inline void f_array_push_slice(fArray<T>* array, fSlice<T> elems) {
+	f_array_push_slice_raw((fArrayRaw*)array, BITCAST(fSliceRaw, elems), sizeof(T));
 }
 
 template<typename T>
-inline T array_pop(Array<T>* array) {
+inline T f_array_pop(fArray<T>* array) {
 	T elem;
-	array_pop_raw((ArrayRaw*)array, &elem, sizeof(T));
+	f_array_pop_raw((fArrayRaw*)array, &elem, sizeof(T));
 	return elem;
 }
 
 template<typename T>
-inline T& array_peek(Array<T>* array) {
-	ASSERT(array->len > 0);
+inline T& f_array_peek(fArray<T>* array) {
+	F_ASSERT(array->len > 0);
 	return array->data[array->len - 1];
 }
 
 #include <initializer_list>
 
-#define STR_JOIN(alc, ...) str_join_il(alc, {__VA_ARGS__})
-inline String str_join_il(Allocator* alc, std::initializer_list<String> args) {
-	return str_join(alc, { (String*)args.begin(), args.size() });
+#define F_STR_JOIN(alc, ...) f_str_join_il(alc, {__VA_ARGS__})
+inline fString f_str_join_il(fAllocator* alc, std::initializer_list<fString> args) {
+	return f_str_join(alc, { (fString*)args.begin(), args.size() });
 }
 
-inline void str_print_il(Array<u8>* buffer, std::initializer_list<String> args) {
-	for (auto arg : args) str_print(buffer, arg);
+inline void f_str_print_il(fArray<u8>* buffer, std::initializer_list<fString> args) {
+	for (auto arg : args) f_str_print(buffer, arg);
 }
 
 //
@@ -268,7 +269,7 @@ extern "C++" {
 #define GB_DEFER_1(x, y) x##y
 #define GB_DEFER_2(x, y) GB_DEFER_1(x, y)
 #define GB_DEFER_3(x)    GB_DEFER_2(x, __COUNTER__)
-#define defer(code)      auto GB_DEFER_3(_defer_) = gb__defer_func([&]()->void{code;})
+#define F_DEFER(code)      auto GB_DEFER_3(_defer_) = gb__defer_func([&]()->void{code;})
 }
 ////////////////////////////////////////////////////////////////
 //

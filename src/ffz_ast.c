@@ -1,105 +1,108 @@
+#define FOUNDATION_HELPER_MACROS
 #include "foundation/foundation.h"
 
 #include "ffz_ast.h"
 
 #define TRY(x) { if ((x).ok == false) return (ffzOk){false}; }
 
+#define OPT(ptr) ptr
+
 #define ERR(p, at, fmt, ...) { \
-	p->report_error(p, at, str_format(p->alc, fmt, __VA_ARGS__)); \
+	p->report_error(p, at, f_str_format(p->alc, fmt, __VA_ARGS__)); \
 	return ffz_ok; \
 }
 
 #define AS(node,kind) FFZ_AS(node, kind)
 #define BASE(node) FFZ_BASE(node)
 
-#define SLICE_BEFORE(T, slice, mid) (SliceRaw){(T*)slice.data, (mid)}
-#define SLICE_AFTER(T, slice, mid) (SliceRaw){(T*)slice.data + (mid), (slice.len) - (mid)}
-#define Slice(T) SliceRaw
-#define Array(T) ArrayRaw
+#define SLICE_BEFORE(T, slice, mid) (fSliceRaw){(T*)slice.data, (mid)}
+#define SLICE_AFTER(T, slice, mid) (fSliceRaw){(T*)slice.data + (mid), (slice.len) - (mid)}
+#define fSlice(T) fSliceRaw
+#define Array(T) fArrayRaw
 
 typedef struct Token {
 	union {
 		struct { ffzLoc start; ffzLoc end; };
 		ffzLocRange range;
 	};
-	String str;
+	fString str;
 } Token;
 
 const ffzOk ffz_ok = { true };
 
 // synced with OperatorKind
-const static String ffzOperatorKind_String[] = {
-	LIT_COMP(""),
+const static fString ffzOperatorKind_String[] = {
+	F_LIT_COMP(""),
 
-	LIT_COMP("+"),
-	LIT_COMP("-"),
-	LIT_COMP("*"),
-	LIT_COMP("/"),
-	LIT_COMP("%"),
+	F_LIT_COMP("+"),
+	F_LIT_COMP("-"),
+	F_LIT_COMP("*"),
+	F_LIT_COMP("/"),
+	F_LIT_COMP("%"),
 
-	LIT_COMP("."),
+	F_LIT_COMP("."),
 
-	LIT_COMP("=="),
-	LIT_COMP("!="),
-	LIT_COMP("<"),
-	LIT_COMP("<="),
-	LIT_COMP(">"),
-	LIT_COMP(">="),
+	F_LIT_COMP("=="),
+	F_LIT_COMP("!="),
+	F_LIT_COMP("<"),
+	F_LIT_COMP("<="),
+	F_LIT_COMP(">"),
+	F_LIT_COMP(">="),
 
-	LIT_COMP("\0"),
-	LIT_COMP("\0"),
-	LIT_COMP("\0"),
-	LIT_COMP("\0"),
+	F_LIT_COMP("\0"),
+	F_LIT_COMP("\0"),
+	F_LIT_COMP("\0"),
+	F_LIT_COMP("\0"),
 
-	LIT_COMP("<<"),
-	LIT_COMP(">>"),
+	F_LIT_COMP("<<"),
+	F_LIT_COMP(">>"),
 
-	LIT_COMP("&&"),
-	LIT_COMP("||"),
+	F_LIT_COMP("&&"),
+	F_LIT_COMP("||"),
 
-	LIT_COMP("-"),
-	LIT_COMP("+"),
-	LIT_COMP("."),
-	LIT_COMP("&"),
-	LIT_COMP("^"),
-	LIT_COMP("!"),
+	F_LIT_COMP("-"),
+	F_LIT_COMP("+"),
+	F_LIT_COMP("."),
+	F_LIT_COMP("&"),
+	F_LIT_COMP("^"),
+	F_LIT_COMP("!"),
 
-	LIT_COMP("^"),
+	F_LIT_COMP("^"),
 };
 
-STATIC_ASSERT(LEN(ffzOperatorKind_String) == ffzOperatorKind_Count);
+F_STATIC_ASSERT(F_LEN(ffzOperatorKind_String) == ffzOperatorKind_Count);
 
-const static String KeywordKind_String[] = { // synced with `KeywordKind`
+const static fString KeywordKind_String[] = { // synced with `KeywordKind`
 	{0},
-	LIT_COMP("_"),
-	LIT_COMP("?"),
-	LIT_COMP("dbgbreak"),
-	LIT_COMP("size_of"),
-	LIT_COMP("import"),
-	LIT_COMP("true"),
-	LIT_COMP("false"),
-	LIT_COMP("u8"),
-	LIT_COMP("u16"),
-	LIT_COMP("u32"),
-	LIT_COMP("u64"),
-	LIT_COMP("s8"),
-	LIT_COMP("s16"),
-	LIT_COMP("s32"),
-	LIT_COMP("s64"),
-	LIT_COMP("int"),
-	LIT_COMP("uint"),
-	LIT_COMP("bool"),
-	LIT_COMP("string"),
-	LIT_COMP("bit_and"),
-	LIT_COMP("bit_or"),
-	LIT_COMP("bit_xor"),
-	LIT_COMP("bit_not"),
-	LIT_COMP("%"),
+	F_LIT_COMP("_"),
+	F_LIT_COMP("?"),
+	F_LIT_COMP("dbgbreak"),
+	F_LIT_COMP("size_of"),
+	F_LIT_COMP("import"),
+	F_LIT_COMP("true"),
+	F_LIT_COMP("false"),
+	F_LIT_COMP("u8"),
+	F_LIT_COMP("u16"),
+	F_LIT_COMP("u32"),
+	F_LIT_COMP("u64"),
+	F_LIT_COMP("s8"),
+	F_LIT_COMP("s16"),
+	F_LIT_COMP("s32"),
+	F_LIT_COMP("s64"),
+	F_LIT_COMP("int"),
+	F_LIT_COMP("uint"),
+	F_LIT_COMP("bool"),
+	F_LIT_COMP("string"),
+	F_LIT_COMP("bit_and"),
+	F_LIT_COMP("bit_or"),
+	F_LIT_COMP("bit_xor"),
+	F_LIT_COMP("bit_not"),
+	F_LIT_COMP("%"),
 };
 
-STATIC_ASSERT(ffzNodeKind_COUNT == LEN(ffzNodeKind_String));
+F_STATIC_ASSERT(ffzNodeKind_COUNT == F_LEN(ffzNodeKind_String));
 
-String ffz_node_kind_to_string(ffzNodeKind kind) { return ffzNodeKind_String[kind]; }
+fString ffz_node_kind_to_string(ffzNodeKind kind) { return ffzNodeKind_String[kind]; }
 const char* ffz_node_kind_to_cstring(ffzNodeKind kind) { return (const char*)ffzNodeKind_String[kind].data; }
 
 // Same as in C https://en.cppreference.com/w/c/language/operator_precedence
@@ -112,50 +115,50 @@ static uint op_get_precedence(ffzOperatorKind kind) {
 	if (kind == ffzOperatorKind_Equal || kind == ffzOperatorKind_NotEqual) return 6;
 	if (kind == ffzOperatorKind_LogicalAND) return 5;
 	if (kind == ffzOperatorKind_LogicalOR) return 4;
-	ASSERT(false);
+	F_ASSERT(false);
 	return 0;
 }
 
-static void _print_ast(ArrayRaw* builder, ffzNode* node, uint tab_level) {
-	Allocator* temp = temp_push();
+static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
+	fAllocator* temp = f_temp_push();
 	if (false) {
-		str_print(builder, LIT(" <"));
-		str_print(builder, ffzNodeKind_String[node->kind]);
-		str_printf(builder, "|%d:%d-%d:%d", node->loc.start.line_num, node->loc.start.column_num, node->loc.end.line_num, node->loc.end.column_num);
+		f_str_print(builder, F_LIT(" <"));
+		f_str_print(builder, ffzNodeKind_String[node->kind]);
+		f_str_printf(builder, "|%d:%d-%d:%d", node->loc.start.line_num, node->loc.start.column_num, node->loc.end.line_num, node->loc.end.column_num);
 			//str_from_uint(AS_BYTES(node->start_pos.line_number), temp));
-		//str_print(builder, LIT(", line="));
+		//str_print(builder, F_LIT(", line="));
 		//str_print(builder, str_from_uint(AS_BYTES(node->start_pos.line_number), temp));
-		str_print(builder, LIT(">"));
+		f_str_print(builder, F_LIT(">"));
 	}
 	
 	for (ffzNodeTag* tag = node->first_tag; tag; tag = (ffzNodeTag*)tag->next) {
-		str_print(builder, tag->kind == ffzNodeKind_CompilerTag ? LIT("@") : LIT("~"));
-		str_print(builder, tag->tag);
-		str_print(builder, LIT(" "));
+		f_str_print(builder, tag->kind == ffzNodeKind_CompilerTag ? F_LIT("@") : F_LIT("~"));
+		f_str_print(builder, tag->tag);
+		f_str_print(builder, F_LIT(" "));
 	}
 
 	switch (node->kind) {
 	case ffzNodeKind_Declaration: {
 		_print_ast(builder, AS(node,Targeted)->lhs, tab_level);
-		str_print(builder, LIT(": "));
+		f_str_print(builder, F_LIT(": "));
 		_print_ast(builder, AS(node,Targeted)->rhs, tab_level);
 	} break;
 
 	case ffzNodeKind_Assignment: {
 		_print_ast(builder, AS(node, Targeted)->lhs, tab_level);
-		str_print(builder, LIT("= "));
+		f_str_print(builder, F_LIT("= "));
 		_print_ast(builder, AS(node, Targeted)->rhs, tab_level);
 	} break;
 
 	case ffzNodeKind_Keyword: {
-		str_print(builder, KeywordKind_String[AS(node,Keyword)->keyword]);
+		f_str_print(builder, KeywordKind_String[AS(node,Keyword)->keyword]);
 	} break;
 
 	case ffzNodeKind_UserTagDecl: // fallthrough
 	case ffzNodeKind_CompilerTagDecl: {
-		str_print(builder, LIT("@"));
-		str_print(builder, AS(node, TagDecl)->tag);
-		str_print(builder, LIT(": "));
+		f_str_print(builder, F_LIT("@"));
+		f_str_print(builder, AS(node, TagDecl)->tag);
+		f_str_print(builder, F_LIT(": "));
 		_print_ast(builder, AS(node,TagDecl)->rhs, tab_level);
 	} break;
 
@@ -173,163 +176,163 @@ static void _print_ast(ArrayRaw* builder, ffzNode* node, uint tab_level) {
 
 			bool multi_line = op->op_kind == ffzOperatorKind_PostCurlyBrackets;// node->Operator.arguments.first&& node->Operator.arguments.first->next;
 			if (multi_line) {
-				str_print_rune(builder, ' ');
-				str_print_rune(builder, bracket_chars.open);
-				str_print_rune(builder, '\n');
+				f_str_print_rune(builder, ' ');
+				f_str_print_rune(builder, bracket_chars.open);
+				f_str_print_rune(builder, '\n');
 				for (ffzNode* n = node->children.first; n; n = n->next) {
-					str_print_repeat(builder, LIT("\t"), tab_level + 1);
+					f_str_print_repeat(builder, F_LIT("\t"), tab_level + 1);
 					_print_ast(builder, n, tab_level + 1);
-					str_print(builder, LIT("\n"));
+					f_str_print(builder, F_LIT("\n"));
 				}
-				str_print_repeat(builder, LIT("\t"), tab_level);
+				f_str_print_repeat(builder, F_LIT("\t"), tab_level);
 			}
 			else {
-				str_print_rune(builder, bracket_chars.open);
+				f_str_print_rune(builder, bracket_chars.open);
 				for (ffzNode* n = node->children.first; n; n = n->next) {
-					if (n != node->children.first) str_print(builder, LIT(", "));
+					if (n != node->children.first) f_str_print(builder, F_LIT(", "));
 					_print_ast(builder, n, tab_level + (uint)multi_line);
 				}
 			}
-			str_print_rune(builder, bracket_chars.close);
+			f_str_print_rune(builder, bracket_chars.close);
 
 		}
 		else if (op->op_kind == ffzOperatorKind_PreSquareBrackets) {
-			str_print_rune(builder, '[');
+			f_str_print_rune(builder, '[');
 			for (ffzNode* n = node->children.first; n; n = n->next) {
-				if (n != node->children.first) str_print(builder, LIT(", "));
+				if (n != node->children.first) f_str_print(builder, F_LIT(", "));
 				_print_ast(builder, n, tab_level);
 			}
-			str_print_rune(builder, ']');
+			f_str_print_rune(builder, ']');
 
 			_print_ast(builder, op->right, tab_level);
 		}
 		else if (ffz_op_is_pre_unary(op->op_kind)) {
-			str_print(builder, ffzOperatorKind_String[op->op_kind]);
+			f_str_print(builder, ffzOperatorKind_String[op->op_kind]);
 			_print_ast(builder, op->right, tab_level);
 		}
 		else if (ffz_op_is_post_unary(op->op_kind)) {
 			_print_ast(builder, op->left, tab_level);
-			str_print(builder, ffzOperatorKind_String[op->op_kind]);
+			f_str_print(builder, ffzOperatorKind_String[op->op_kind]);
 		}
 		//else if (node->Operator.op == ffzOperatorKind_MemberAccess) {
 		//	PrintAst(builder, node->Operator.left, tab_level);
-		//	str_print(builder, LIT("."));
+		//	str_print(builder, F_LIT("."));
 		//	PrintAst(builder, node->Operator.right, tab_level);
 		//}
 		else {
-			str_print(builder, LIT("("));
+			f_str_print(builder, F_LIT("("));
 			_print_ast(builder, op->left, tab_level);
 
-			str_print(builder, LIT(" "));
-			str_print(builder, ffzOperatorKind_String[op->op_kind]);
-			str_print(builder, LIT(" "));
+			f_str_print(builder, F_LIT(" "));
+			f_str_print(builder, ffzOperatorKind_String[op->op_kind]);
+			f_str_print(builder, F_LIT(" "));
 
 			_print_ast(builder, op->right, tab_level);
-			str_print(builder, LIT(")"));
+			f_str_print(builder, F_LIT(")"));
 		}
 	} break;
 
 	case ffzNodeKind_Identifier: {
-		if (AS(node,Identifier)->is_constant) str_print(builder, LIT("#"));
-		str_print(builder, AS(node,Identifier)->name);
+		if (AS(node,Identifier)->is_constant) f_str_print(builder, F_LIT("#"));
+		f_str_print(builder, AS(node,Identifier)->name);
 	} break;
 
 	case ffzNodeKind_Record: {
 		ffzNodeRecord* record = AS(node,Record);
-		str_print(builder, record->is_union ? LIT("union") : LIT("struct"));
+		f_str_print(builder, record->is_union ? F_LIT("union") : F_LIT("struct"));
 
 		if (record->polymorphic_parameters) {
 			_print_ast(builder, BASE(record->polymorphic_parameters), tab_level);
 		}
-		str_print(builder, LIT("{"));
+		f_str_print(builder, F_LIT("{"));
 		for (ffzNode* n = node->children.first; n; n = n->next) {
-			if (n != node->children.first) str_print(builder, LIT(", "));
+			if (n != node->children.first) f_str_print(builder, F_LIT(", "));
 			_print_ast(builder, n, tab_level);
 		}
-		str_print(builder, LIT("}"));
+		f_str_print(builder, F_LIT("}"));
 	} break;
 
 	case ffzNodeKind_Enum: {
-		str_print(builder, LIT("enum"));
+		f_str_print(builder, F_LIT("enum"));
 		if (AS(node,Enum)->internal_type) {
-			str_print(builder, LIT(", "));
+			f_str_print(builder, F_LIT(", "));
 			_print_ast(builder, AS(node,Enum)->internal_type, tab_level);
 		}
-		str_print(builder, LIT(" {"));
+		f_str_print(builder, F_LIT(" {"));
 		for (ffzNode* n = node->children.first; n; n = n->next) {
-			if (n != node->children.first) str_print(builder, LIT(", "));
+			if (n != node->children.first) f_str_print(builder, F_LIT(", "));
 			_print_ast(builder, n, tab_level);
 		}
-		str_print(builder, LIT("}"));
+		f_str_print(builder, F_LIT("}"));
 	} break;
 
 	case ffzNodeKind_ProcType: {
 		ffzNodeProcType* node_proc = AS(node,ProcType);
-		str_print(builder, LIT("proc"));
+		f_str_print(builder, F_LIT("proc"));
 		
 		if (node_proc->polymorphic_parameters) {
 			_print_ast(builder, BASE(node_proc->polymorphic_parameters), tab_level);
 		}
 
 		if (node->children.first) {
-			str_print(builder, LIT("("));
+			f_str_print(builder, F_LIT("("));
 			for (ffzNode* n = node->children.first; n; n = n->next) {
-				if (n != node->children.first) str_print(builder, LIT(", "));
+				if (n != node->children.first) f_str_print(builder, F_LIT(", "));
 				_print_ast(builder, n, tab_level);
 			}
-			str_print(builder, LIT(")"));
+			f_str_print(builder, F_LIT(")"));
 		}
 
 		if (node_proc->out_parameter) {
-			str_print(builder, LIT(" => "));
+			f_str_print(builder, F_LIT(" => "));
 			_print_ast(builder, node_proc->out_parameter, tab_level);
-			str_print(builder, LIT(""));
+			f_str_print(builder, F_LIT(""));
 		}
 
-		//str_print(builder, LIT(" {\n"));
+		//str_print(builder, F_LIT(" {\n"));
 		//for (AstNode* n = node->Procedure.nodes.first; n; n = n->next) {
-		//	for (int j = 0; j < tab_level + 1; j++) str_print(builder, LIT("    "));
+		//	for (int j = 0; j < tab_level + 1; j++) str_print(builder, F_LIT("    "));
 		//	_print_ast(builder, n, tab_level + 1);
 		//
-		//	str_print(builder, LIT("\n"));
+		//	str_print(builder, F_LIT("\n"));
 		//}
-		//for (int j=0; j< tab_level; j++) str_print(builder, LIT("    "));
-		//str_print(builder, LIT("}\n"));
+		//for (int j=0; j< tab_level; j++) str_print(builder, F_LIT("    "));
+		//str_print(builder, F_LIT("}\n"));
 
 	} break;
 
 	case ffzNodeKind_Return: {
-		str_print(builder, LIT("ret"));
+		f_str_print(builder, F_LIT("ret"));
 
 		if (AS(node,Return)->value) {
-			str_print(builder, LIT(" "));
+			f_str_print(builder, F_LIT(" "));
 			_print_ast(builder, AS(node,Return)->value, tab_level);
 		}
 	} break;
 
 	case ffzNodeKind_Scope: {
-		str_print(builder, LIT("{\n"));
+		f_str_print(builder, F_LIT("{\n"));
 
 		for (ffzNode* n = node->children.first; n; n = n->next) {
-			for (int j = 0; j < tab_level + 1; j++) str_print(builder, LIT("    "));
+			for (int j = 0; j < tab_level + 1; j++) f_str_print(builder, F_LIT("    "));
 			_print_ast(builder, n, tab_level + 1);
 
-			str_print(builder, LIT("\n"));
+			f_str_print(builder, F_LIT("\n"));
 		}
 
-		for (int j = 0; j < tab_level; j++) str_print(builder, LIT("    "));
-		str_print(builder, LIT("}\n"));
+		for (int j = 0; j < tab_level; j++) f_str_print(builder, F_LIT("    "));
+		f_str_print(builder, F_LIT("}\n"));
 	} break;
 
 	case ffzNodeKind_IntLiteral: {
-		str_print(builder, str_from_uint(AS_BYTES(AS(node,IntLiteral)->value), temp));
+		f_str_print(builder, f_str_from_uint(F_AS_BYTES(AS(node,IntLiteral)->value), temp));
 	} break;
 
 	case ffzNodeKind_StringLiteral: {
 		// TODO: print escaped strings
-		str_print(builder, LIT("\""));
-		str_print(builder, AS(node,StringLiteral)->zero_terminated_string);
-		str_print(builder, LIT("\""));
+		f_str_print(builder, F_LIT("\""));
+		f_str_print(builder, AS(node,StringLiteral)->zero_terminated_string);
+		f_str_print(builder, F_LIT("\""));
 	} break;
 
 	//case ffzNodeKind_FloatLiteral: {
@@ -337,54 +340,54 @@ static void _print_ast(ArrayRaw* builder, ffzNode* node, uint tab_level) {
 	//} break;
 
 	case ffzNodeKind_If: {
-		str_print(builder, LIT("if "));
+		f_str_print(builder, F_LIT("if "));
 		_print_ast(builder, AS(node,If)->condition, tab_level);
-		str_print(builder, LIT(" "));
-		ASSERT(AS(node,If)->true_scope);
+		f_str_print(builder, F_LIT(" "));
+		F_ASSERT(AS(node,If)->true_scope);
 		_print_ast(builder, AS(node,If)->true_scope, tab_level);
 
 		if (AS(node,If)->else_scope) {
-			for (int j = 0; j < tab_level; j++) str_print(builder, LIT("    "));
-			str_print(builder, LIT("else \n"));
+			for (int j = 0; j < tab_level; j++) f_str_print(builder, F_LIT("    "));
+			f_str_print(builder, F_LIT("else \n"));
 			_print_ast(builder, AS(node,If)->else_scope, tab_level);
 		}
 
 	} break;
 
 	case ffzNodeKind_For: {
-		str_print(builder, LIT("for "));
+		f_str_print(builder, F_LIT("for "));
 		for (int i = 0; i < 3; i++) {
 			if (AS(node,For)->header_stmts[i]) {
-				if (i > 0) str_print(builder, LIT(", "));
+				if (i > 0) f_str_print(builder, F_LIT(", "));
 				_print_ast(builder, AS(node,For)->header_stmts[i], tab_level);
 			}
 		}
 
-		str_print(builder, LIT(" "));
+		f_str_print(builder, F_LIT(" "));
 		_print_ast(builder, AS(node,For)->scope, tab_level);
 	} break;
 
-	case ffzNodeKind_Blank: { str_print(builder, LIT("_")); } break;
-	case ffzNodeKind_Dot: { str_print(builder, LIT(".")); } break;
+	case ffzNodeKind_Blank: { f_str_print(builder, F_LIT("_")); } break;
+	case ffzNodeKind_Dot: { f_str_print(builder, F_LIT(".")); } break;
 
 	case ffzNodeKind_PolyParamList: {
-		str_print(builder, LIT("["));
+		f_str_print(builder, F_LIT("["));
 		for (ffzNode* n = node->children.first; n; n = n->next) {
-			if (n != node->children.first) str_print(builder, LIT(", "));
+			if (n != node->children.first) f_str_print(builder, F_LIT(", "));
 			_print_ast(builder, n, tab_level);
 		}
-		str_print(builder, LIT("]"));
+		f_str_print(builder, F_LIT("]"));
 	} break;
 
-	default: BP;
+	default: F_BP;
 	}
-	temp_pop();
+	f_temp_pop();
 }
 
-String ffz_print_ast(Allocator* alc, ffzNode* node) {
-	ArrayRaw builder = { .alc = alc };
+fString ffz_print_ast(fAllocator* alc, ffzNode* node) {
+	fArrayRaw builder = { .alc = alc };
 	_print_ast(&builder, node, 0);
-	return (String){ builder.data, builder.len };
+	return (fString){ builder.data, builder.len };
 }
 
 static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_at_curly_brackets/* = false*/);
@@ -409,7 +412,7 @@ static ffzOk maybe_eat_next_token(ffzParser* p, ffzLoc* pos, bool ignore_newline
 
 	for (;;) {
 		uint next = pos->offset;
-		rune r = str_next_rune(p->source_code, &next);
+		rune r = f_str_next_rune(p->source_code, &next);
 		if (!r) break;
 
 		CharType type = CharType_Symbol;
@@ -448,7 +451,7 @@ static ffzOk maybe_eat_next_token(ffzParser* p, ffzLoc* pos, bool ignore_newline
 				for (;;) {
 					Token tok;
 					TRY(maybe_eat_next_token(p, pos, true, &tok));
-					if (str_equals(tok.str, LIT("*/"))) break;
+					if (f_str_equals(tok.str, F_LIT("*/"))) break;
 					if (tok.str.len == 0) {
 						ERR(p, ffz_loc_to_range(start), "File ended unexpectedly; no matching */ found for comment block.", "");
 					}
@@ -481,7 +484,7 @@ static ffzOk maybe_eat_next_token(ffzParser* p, ffzLoc* pos, bool ignore_newline
 	}
 
 	out->range = token_range;
-	out->str = str_slice(p->source_code, token_range.start.offset, token_range.end.offset);
+	out->str = f_str_slice(p->source_code, token_range.start.offset, token_range.end.offset);
 	return ffz_ok;
 }
 
@@ -497,7 +500,7 @@ static ffzOk parse_statement_separator(ffzParser* p, ffzLoc* pos) {
 	Token tok;
 	TRY(eat_next_token(p, pos, false, "parsing a statement separator", &tok));
 	
-	if (!str_equals(tok.str, LIT("\n")) && !str_equals(tok.str, LIT(","))) {
+	if (!f_str_equals(tok.str, F_LIT("\n")) && !f_str_equals(tok.str, F_LIT(","))) {
 		ERR(p, tok.range, "Expected a statement separator character (either a comma or a newline).", "");
 	}
 	return ffz_ok;
@@ -514,7 +517,7 @@ static ffzOk maybe_peek_next_token(ffzParser* p, ffzLoc pos, bool ignore_newline
 #define NEW_NODE(kind, p, parent, range) new_node((p), (parent), (range), ffzNodeKind_##kind, sizeof(ffzNode##kind))
 
 static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind, u32 size) {
-	ffzNode* node = mem_alloc(size, 8, p->alc);
+	ffzNode* node = f_mem_alloc(size, 8, p->alc);
 	memset(node, 0, size);
 	node->parser_idx = p->self_idx;
 	node->parent = parent;
@@ -532,17 +535,17 @@ static ffzOk parse_possible_tag_decls(ffzParser* p, ffzNode* parent, OPT(ffzNode
 		TRY(maybe_eat_next_token(p, &pos, true, &tok));
 
 		ffzNodeKind kind = ffzNodeKind_Invalid;
-		if (str_equals(tok.str, LIT("@"))) kind = ffzNodeKind_CompilerTagDecl;
-		if (str_equals(tok.str, LIT("~"))) kind = ffzNodeKind_UserTagDecl;
+		if (f_str_equals(tok.str, F_LIT("@"))) kind = ffzNodeKind_CompilerTagDecl;
+		if (f_str_equals(tok.str, F_LIT("~"))) kind = ffzNodeKind_UserTagDecl;
 		if (kind) {
 			Token after_tag;
 			TRY(maybe_eat_next_token(p, &pos, true, &tok));
 			TRY(maybe_eat_next_token(p, &pos, true, &after_tag));
-			if (str_equals(after_tag.str, LIT(":"))) {
+			if (f_str_equals(after_tag.str, F_LIT(":"))) {
 				ffzNodeTagDecl* tag_decl = new_node(p, parent, tok.range, kind, sizeof(ffzNodeTagDecl));
 
 				// TODO: make the usage of map64 nicer?
-				MapInsertResult first = map64_insert(&p->tag_decl_lists, str_hash64_ex(tok.str, 0), tag_decl, MapInsert_DoNotOverride);
+				fMapInsertResult first = map64_insert(&p->tag_decl_lists, f_hash64_str_ex(tok.str, 0), tag_decl, fMapInsert_DoNotOverride);
 				if (!first.added) {
 					tag_decl->same_tag_next = *(ffzNodeTagDecl**)first._unstable_ptr;
 					*(ffzNodeTagDecl**)first._unstable_ptr = tag_decl;
@@ -564,7 +567,7 @@ static ffzOk parse_possible_tag_decls(ffzParser* p, ffzNode* parent, OPT(ffzNode
 }
 
 static ffzOk parse_node_list(ffzParser* p, ffzNode* parent, u8 bracket_close_char) {
-	String bracket_close = bracket_close_char ? (String){&bracket_close_char, 1} : (String){0};
+	fString bracket_close = bracket_close_char ? (fString){&bracket_close_char, 1} : (fString){0};
 
 	OPT(ffzNode*) prev = NULL;
 	OPT(ffzNode*) first = NULL;
@@ -574,7 +577,7 @@ static ffzOk parse_node_list(ffzParser* p, ffzNode* parent, u8 bracket_close_cha
 		
 		Token tok;
 		TRY(maybe_peek_next_token(p, p->pos, true, &tok));
-		if (str_equals(tok.str, bracket_close)) {
+		if (f_str_equals(tok.str, bracket_close)) {
 			p->pos = tok.end;
 			parent->loc.end = tok.end;
 			break;
@@ -583,8 +586,8 @@ static ffzOk parse_node_list(ffzParser* p, ffzNode* parent, u8 bracket_close_cha
 		bool was_comma = false;
 		if (i > 0) {
 			TRY(maybe_peek_next_token(p, p->pos, false, &tok));
-			was_comma = str_equals(tok.str, LIT(","));
-			if (!str_equals(tok.str, LIT("\n")) && !was_comma) {
+			was_comma = f_str_equals(tok.str, F_LIT(","));
+			if (!f_str_equals(tok.str, F_LIT("\n")) && !was_comma) {
 				ERR(p, tok.range, "Expected a node separator character (either a comma or a newline).", "");
 			}
 			p->pos = tok.end;
@@ -592,7 +595,7 @@ static ffzOk parse_node_list(ffzParser* p, ffzNode* parent, u8 bracket_close_cha
 		
 		ffzNode* n;
 		TRY(maybe_peek_next_token(p, p->pos, false, &tok));
-		if ((str_equals(tok.str, bracket_close) && was_comma) || str_equals(tok.str, LIT(","))) {
+		if ((f_str_equals(tok.str, bracket_close) && was_comma) || f_str_equals(tok.str, F_LIT(","))) {
 			n = NEW_NODE(Blank, p, parent, tok.range);
 		}
 		else {
@@ -616,8 +619,8 @@ static ffzOk parse_possible_tags(ffzParser* p, OPT(ffzNodeTag*)* out_tag) {
 	TRY(maybe_peek_next_token(p, p->pos, true, &tok));
 	if (tok.str.len > 0) {
 		ffzNodeKind kind = ffzNodeKind_Invalid;
-		if (str_equals(tok.str, LIT("~"))) kind = ffzNodeKind_UserTag;
-		if (str_equals(tok.str, LIT("@"))) kind = ffzNodeKind_CompilerTag;
+		if (f_str_equals(tok.str, F_LIT("~"))) kind = ffzNodeKind_UserTag;
+		if (f_str_equals(tok.str, F_LIT("@"))) kind = ffzNodeKind_CompilerTag;
 		if (kind != ffzNodeKind_Invalid) {
 			p->pos = tok.end;
 			TRY(eat_next_token(p, &p->pos, true, "parsing a tag", &tok));
@@ -660,7 +663,7 @@ static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_
 	// eif b > 0; other_thing()
 	// else;      third_thing()
 
-	if (str_equals(tok.str, LIT("if"))) {
+	if (f_str_equals(tok.str, F_LIT("if"))) {
 		p->pos = after_next;
 		ffzNodeIf* if_stmt = NEW_NODE(If, p, parent, tok.range);
 		TRY(parse_expression(p, BASE(if_stmt), &if_stmt->condition, true));
@@ -668,21 +671,21 @@ static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_
 
 		after_next = p->pos;
 		TRY(maybe_eat_next_token(p, &after_next, true, &tok));
-		if (str_equals(tok.str, LIT("else"))) {
+		if (f_str_equals(tok.str, F_LIT("else"))) {
 			p->pos = after_next;
 			TRY(parse_node(p, BASE(if_stmt), &if_stmt->else_scope, false));
 		}
 		if_stmt->loc.end = p->pos;
 		result = BASE(if_stmt);
 	}
-	else if (str_equals(tok.str, LIT("for"))) {
+	else if (f_str_equals(tok.str, F_LIT("for"))) {
 		p->pos = after_next;
 		ffzNodeFor* for_loop = NEW_NODE(For, p, parent, tok.range);
 		for (int i = 0; i < 3; i++) {
 			ffzLoc after_next = p->pos;
 			Token next_tok;
 			TRY(eat_next_token(p, &after_next, true, "parsing a for-loop header", &next_tok));
-			if (str_equals(next_tok.str, LIT("{"))) break;
+			if (f_str_equals(next_tok.str, F_LIT("{"))) break;
 
 			if (i > 0) {
 				TRY(parse_statement_separator(p, &p->pos));
@@ -690,7 +693,7 @@ static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_
 
 			after_next = p->pos;
 			TRY(eat_next_token(p, &after_next, true, "parsing a for-loop header", &next_tok));
-			if (str_equals(next_tok.str, LIT(","))) continue;
+			if (f_str_equals(next_tok.str, F_LIT(","))) continue;
 
 			ffzNode* stmt;
 			TRY(parse_node(p, BASE(for_loop), &stmt, true));
@@ -701,12 +704,12 @@ static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_
 		for_loop->loc.end = p->pos;
 		result = BASE(for_loop);
 	}
-	else if (str_equals(tok.str, LIT("ret"))) {
+	else if (f_str_equals(tok.str, F_LIT("ret"))) {
 		p->pos = after_next;
 		ffzNodeReturn* ret = NEW_NODE(Return, p, parent, tok.range);
 
 		TRY(maybe_eat_next_token(p, &after_next, false, &tok)); // With return statements, newlines do matter!
-		if (str_equals(tok.str, LIT("\n"))) {
+		if (f_str_equals(tok.str, F_LIT("\n"))) {
 			p->pos = after_next;
 		}
 		else {
@@ -761,12 +764,12 @@ static ffzOk parse_enum(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNod
 	Token tok;
 	TRY(eat_next_token(p, &p->pos, true, "parsing an enum", &tok));
 
-	if (str_equals(tok.str, LIT(","))) {
+	if (f_str_equals(tok.str, F_LIT(","))) {
 		TRY(parse_expression(p, BASE(node), &node->internal_type, true));
 		TRY(eat_next_token(p, &p->pos, true, "parsing an enum", &tok));
 	}
 
-	if (!str_equals(tok.str, LIT("{"))) ERR(p, tok.range, "Expected a `{`", "");
+	if (!f_str_equals(tok.str, F_LIT("{"))) ERR(p, tok.range, "Expected a `{`", "");
 	TRY(parse_node_list(p, BASE(node), '}'));
 	
 	*out = node;
@@ -776,7 +779,7 @@ static ffzOk parse_enum(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNod
 static ffzOk maybe_parse_polymorphic_parameter_list(ffzParser* p, ffzNode* parent, ffzNodePolyParamList** out) {
 	Token tok;
 	TRY(maybe_peek_next_token(p, p->pos, true, &tok));
-	if (str_equals(tok.str, LIT("["))) {
+	if (f_str_equals(tok.str, F_LIT("["))) {
 		p->pos = tok.end;
 		ffzNodePolyParamList* node = NEW_NODE(PolyParamList, p, parent, tok.range);
 		TRY(parse_node_list(p, BASE(node), ']'));
@@ -791,7 +794,7 @@ static ffzOk parse_struct(ffzParser* p, ffzNode* parent, ffzLocRange range, bool
 
 	Token tok;
 	TRY(eat_next_token(p, &p->pos, true, "parsing a struct", &tok));
-	if (!str_equals(tok.str, LIT("{"))) ERR(p, tok.range, "Expected a `{`", "");
+	if (!f_str_equals(tok.str, F_LIT("{"))) ERR(p, tok.range, "Expected a `{`", "");
 
 	TRY(parse_node_list(p, BASE(node), '}'));
 
@@ -800,10 +803,10 @@ static ffzOk parse_struct(ffzParser* p, ffzNode* parent, ffzLocRange range, bool
 	return ffz_ok;
 }
 
-static ffzOk eat_expected_token(ffzParser* p, String expected) {
+static ffzOk eat_expected_token(ffzParser* p, fString expected) {
 	Token tok;
 	TRY(maybe_eat_next_token(p, &p->pos, true, &tok));
-	if (!str_equals(tok.str, expected)) ERR(p, tok.range, "Expected \"%s\"; got \"%s\"", str_to_cstring(expected, p->alc), str_to_cstring(tok.str, p->alc));
+	if (!f_str_equals(tok.str, expected)) ERR(p, tok.range, "Expected \"%s\"; got \"%s\"", f_str_to_cstr(expected, p->alc), f_str_to_cstr(tok.str, p->alc));
 	return ffz_ok;
 }
 
@@ -814,37 +817,37 @@ static ffzOk parse_proc_type(ffzParser* p, ffzNode* parent, ffzLocRange range, f
 	Token tok;
 	TRY(peek_next_token(p, p->pos, true, "parsing a procedure", &tok));
 
-	//if (str_equals(tok.str, LIT("["))) {
+	//if (str_equals(tok.str, F_LIT("["))) {
 	//	BP;//p->pos = tok.end;
 	//	//TRY(parse_node_list(p, BASE(proc), ']', &proc->ProcType.polymorphic_parameters));
 	//	//TRY(maybe_peek_next_token(p, p->pos, true, &tok));
 	//}
 
-	if (str_equals(tok.str, LIT("("))) {
+	if (f_str_equals(tok.str, F_LIT("("))) {
 		p->pos = tok.end;
 		TRY(parse_node_list(p, BASE(_proc), ')'));
 		TRY(maybe_peek_next_token(p, p->pos, true, &tok));
 	}
 
-	if (str_equals(tok.str, LIT("=>"))) {
+	if (f_str_equals(tok.str, F_LIT("=>"))) {
 		p->pos = tok.end;
-		TRY(eat_expected_token(p, LIT("(")));
+		TRY(eat_expected_token(p, F_LIT("(")));
 		TRY(parse_node(p, BASE(_proc), &_proc->out_parameter, false));
-		TRY(eat_expected_token(p, LIT(")")));
+		TRY(eat_expected_token(p, F_LIT(")")));
 	}
 	_proc->loc.end = p->pos;
 	*out = _proc;
 	return ffz_ok;
 }
 
-static ffzOk parse_string_literal(ffzParser* p, String* out) {
-	ArrayRaw builder = {.alc = p->alc};
+static ffzOk parse_string_literal(ffzParser* p, fString* out) {
+	fArrayRaw builder = {.alc = p->alc};
 
 	ffzLoc start_pos = p->pos;
 
 	for (;;) {
 		uint next = p->pos.offset;
-		rune r = str_next_rune(p->source_code, &next);
+		rune r = f_str_next_rune(p->source_code, &next);
 		if (!r) ERR(p, ffz_loc_to_range(start_pos), "File ended unexpectedly; no matching `\"` found for string literal.", "");
 		if (r == '\n') {
 			p->pos.line_num++;
@@ -852,7 +855,7 @@ static ffzOk parse_string_literal(ffzParser* p, String* out) {
 		}
 
 		if (r == '\\') {
-			r = str_next_rune(p->source_code, &next);
+			r = f_str_next_rune(p->source_code, &next);
 			if (!r) ERR(p, ffz_loc_to_range(start_pos), "File ended unexpectedly; no matching `\"` found for string literal.", "");
 			if (r == '\n') {
 				p->pos.line_num++;
@@ -862,63 +865,63 @@ static ffzOk parse_string_literal(ffzParser* p, String* out) {
 			p->pos.offset = (u32)next;
 			p->pos.column_num += 1;
 
-			if (r == 'a')       str_print_rune(&builder, '\a');
-			else if (r == 'b')  str_print_rune(&builder, '\b');
-			else if (r == 'f')  str_print_rune(&builder, '\f');
-			else if (r == 'f')  str_print_rune(&builder, '\f');
-			else if (r == 'n')  str_print_rune(&builder, '\n');
-			else if (r == 'r')  str_print_rune(&builder, '\r');
-			else if (r == 't')  str_print_rune(&builder, '\t');
-			else if (r == 'v')  str_print_rune(&builder, '\v');
-			else if (r == '\\') str_print_rune(&builder, '\\');
-			else if (r == '\'') str_print_rune(&builder, '\'');
-			else if (r == '\"') str_print_rune(&builder, '\"');
-			else if (r == '?')  str_print_rune(&builder, '\?');
-			else if (r == '0')  str_print_rune(&builder, 0); // parsing octal characters is not supported like in C, with the exception of \0
+			if (r == 'a')       f_str_print_rune(&builder, '\a');
+			else if (r == 'b')  f_str_print_rune(&builder, '\b');
+			else if (r == 'f')  f_str_print_rune(&builder, '\f');
+			else if (r == 'f')  f_str_print_rune(&builder, '\f');
+			else if (r == 'n')  f_str_print_rune(&builder, '\n');
+			else if (r == 'r')  f_str_print_rune(&builder, '\r');
+			else if (r == 't')  f_str_print_rune(&builder, '\t');
+			else if (r == 'v')  f_str_print_rune(&builder, '\v');
+			else if (r == '\\') f_str_print_rune(&builder, '\\');
+			else if (r == '\'') f_str_print_rune(&builder, '\'');
+			else if (r == '\"') f_str_print_rune(&builder, '\"');
+			else if (r == '?')  f_str_print_rune(&builder, '\?');
+			else if (r == '0')  f_str_print_rune(&builder, 0); // parsing octal characters is not supported like in C, with the exception of \0
 			else if (r == 'x') {
-				//if (p->pos.remaining.len < 2) PARSER_ERROR(p, p->pos, LIT("File ended unexpectedly when parsing a string literal."));
-				ASSERT(p->pos.offset + 2 <= p->source_code.len);
+				//if (p->pos.remaining.len < 2) PARSER_ERROR(p, p->pos, F_LIT("File ended unexpectedly when parsing a string literal."));
+				F_ASSERT(p->pos.offset + 2 <= p->source_code.len);
 
-				String byte = str_slice(p->source_code, p->pos.offset, p->pos.offset + 2);
+				fString byte = f_str_slice(p->source_code, p->pos.offset, p->pos.offset + 2);
 				p->pos.offset += 2;
 				p->pos.column_num += 2;
 
 				s64 byte_value;
-				if (str_to_s64(byte, 16, &byte_value)) {
-					str_print_rune(&builder, (u8)byte_value);
+				if (f_str_to_s64(byte, 16, &byte_value)) {
+					f_str_print_rune(&builder, (u8)byte_value);
 				}
 				else ERR(p, ffz_loc_to_range(p->pos), "Failed parsing a hexadecimal byte.", "");
 			}
 			else ERR(p, ffz_loc_to_range(p->pos), "Invalid escape sequence.", "");
 		}
 		else {
-			String codepoint = str_slice(p->source_code, p->pos.offset, next);
+			fString codepoint = f_str_slice(p->source_code, p->pos.offset, next);
 			p->pos.offset = (u32)next;
 			p->pos.column_num += 1;
 
 			if (r == '\"') break;
 			if (r == '\r') continue; // Ignore carriage returns
 
-			str_print(&builder, codepoint);
+			f_str_print(&builder, codepoint);
 		}
 	}
 
-	str_print_rune(&builder, '\0');
-	*out = str_slice_before(*(String*)&builder.slice, builder.slice.len - 1);
+	f_str_print_rune(&builder, '\0');
+	*out = f_str_slice_before(*(fString*)&builder.slice, builder.slice.len - 1);
 	return ffz_ok;
 }
 
 // TODO: in checker, add a check to make sure there aren't multiple tags with the same identifier
-OPT(ffzNodeTag*) ffz_node_get_compiler_tag(ffzNode* node, String tag) {
+OPT(ffzNodeTag*) ffz_node_get_compiler_tag(ffzNode* node, fString tag) {
 	for (ffzNodeTag* n = node->first_tag; n; n = (ffzNodeTag*)n->next) {
-		if (n->kind == ffzNodeKind_CompilerTag && str_equals(n->tag, tag)) return n;
+		if (n->kind == ffzNodeKind_CompilerTag && f_str_equals(n->tag, tag)) return n;
 	}
 	return NULL;
 }
 
-OPT(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, String tag) {
+OPT(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, fString tag) {
 	for (ffzNodeTag* n = node->first_tag; n; n = (ffzNodeTag*)n->next) {
-		if (n->kind == ffzNodeKind_UserTag && str_equals(n->tag, tag)) return n;
+		if (n->kind == ffzNodeKind_UserTag && f_str_equals(n->tag, tag)) return n;
 	}
 	return NULL;
 }
@@ -927,9 +930,9 @@ OPT(ffzNodeDeclaration*) ffz_get_parent_decl(OPT(ffzNode*) node) {
 	return node && node->parent->kind == ffzNodeKind_Declaration ? AS(node->parent,Declaration) : NULL;
 }
 
-String ffz_get_parent_decl_name(OPT(ffzNode*) node) {
+fString ffz_get_parent_decl_name(OPT(ffzNode*) node) {
 	ffzNodeDeclaration* decl = ffz_get_parent_decl(node);
-	return decl ? decl->name->name : (String){0};
+	return decl ? decl->name->name : (fString){0};
 }
 
 static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNode** out) {
@@ -940,7 +943,7 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 	TRY(eat_next_token(p, &p->pos, true, "parsing a value", &tok));
 
 	s64 numeric;
-	if (str_to_s64(tok.str, 10, &numeric)) {
+	if (f_str_to_s64(tok.str, 10, &numeric)) {
 		ffzNodeIntLiteral* node = NEW_NODE(IntLiteral, p, parent, tok.range);
 		node->value = numeric;
 		*out = BASE(node);
@@ -957,7 +960,7 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 	}
 	else if (c == '(') {
 		TRY(parse_expression(p, parent, &result, false));
-		TRY(eat_expected_token(p, LIT(")")));
+		TRY(eat_expected_token(p, F_LIT(")")));
 	}
 	else if (c == '\"') {
 		ffzNodeStringLiteral* lit = NEW_NODE(StringLiteral, p, parent, tok.range);
@@ -965,21 +968,21 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 		lit->loc.end = p->pos;
 		result = BASE(lit);
 	}
-	else if (str_equals(tok.str, LIT("proc"))) {
+	else if (f_str_equals(tok.str, F_LIT("proc"))) {
 		TRY(parse_proc_type(p, parent, tok.range, (ffzNodeProcType**)&result));
 	}
-	else if (str_equals(tok.str, LIT("enum"))) {
+	else if (f_str_equals(tok.str, F_LIT("enum"))) {
 		TRY(parse_enum(p, parent, tok.range, (ffzNodeEnum**)&result));
 	}
-	else if (str_equals(tok.str, LIT("struct"))) {
+	else if (f_str_equals(tok.str, F_LIT("struct"))) {
 		TRY(parse_struct(p, parent, tok.range, false, (ffzNodeRecord**)&result));
 	}
-	else if (str_equals(tok.str, LIT("union"))) {
+	else if (f_str_equals(tok.str, F_LIT("union"))) {
 		TRY(parse_struct(p, parent, tok.range, true, (ffzNodeRecord**)&result));
 	}
 	else if (is_alnum_or_underscore(c) || c == '#' || c == '?') {
-		for (uint i = 0; i < LEN(KeywordKind_String); i++) {
-			if (str_equals(tok.str, KeywordKind_String[i])) {
+		for (uint i = 0; i < F_LEN(KeywordKind_String); i++) {
+			if (f_str_equals(tok.str, KeywordKind_String[i])) {
 				result = NEW_NODE(Keyword, p, parent, tok.range);
 				result->Keyword.keyword = (ffzKeyword)i;
 				
@@ -1049,7 +1052,7 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 		}
 	}
 
-	if (!result) ERR(p, tok.range, "Failed parsing a value; unexpected token `%s`\n", str_to_cstring(tok.str, p->alc));
+	if (!result) ERR(p, tok.range, "Failed parsing a value; unexpected token `%s`\n", f_str_to_cstr(tok.str, p->alc));
 	assign_possible_tags_to_node(result, first_tag);
 
 	*out = result;
@@ -1135,7 +1138,7 @@ static ffzOk parse_value(ffzParser* p, ffzNode* parent, ffzNode** out) {
 	return ffz_ok;
 }
 
-static ffzNodeOperator* find_root_operator(Slice(ffzNodeOperator*) chain) {
+static ffzNodeOperator* find_root_operator(fSlice(ffzNodeOperator*) chain) {
 	// Find the operator with the lowest precedence (pick the right-most
 	// one if there are multiple operators with the same precedence)
 	// and recursively call FindRoot on both sides until no operators
@@ -1153,13 +1156,13 @@ static ffzNodeOperator* find_root_operator(Slice(ffzNodeOperator*) chain) {
 
 	ffzNodeOperator** data = chain.data;
 
-	ASSERT(chain.len > 0);
+	F_ASSERT(chain.len > 0);
 	if (chain.len == 1) return data[0];
 
 	uint lowest_prec_i = 0;
-	uint lowest_prec = U64_MAX;
+	uint lowest_prec = F_U64_MAX;
 	for (uint i = chain.len - 1; i < chain.len; i--) {
-		ASSERT(data[i]->kind == ffzNodeKind_Operator);
+		F_ASSERT(data[i]->kind == ffzNodeKind_Operator);
 		uint prec = op_get_precedence(data[i]->op_kind);
 		if (prec < lowest_prec) {
 			lowest_prec = prec;
@@ -1208,7 +1211,7 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 			ffzLoc after_next = p->pos;
 			Token tok;
 			TRY(maybe_eat_next_token(p, &after_next, true, &tok));
-			if (tok.str.len == 0 || str_equals(tok.str, LIT(")"))) break;
+			if (tok.str.len == 0 || f_str_equals(tok.str, F_LIT(")"))) break;
 
 			// this should be a hash table
 			const ffzOperatorKind TwoSidedOperators[] = {
@@ -1230,9 +1233,9 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 			};
 
 			ffzOperatorKind kind = ffzOperatorKind_Invalid;
-			for (int i = 0; i < LEN(TwoSidedOperators); i++) {
+			for (int i = 0; i < F_LEN(TwoSidedOperators); i++) {
 				ffzOperatorKind test = TwoSidedOperators[i];
-				if (str_equals(ffzOperatorKind_String[test], tok.str)) {
+				if (f_str_equals(ffzOperatorKind_String[test], tok.str)) {
 					kind = test;
 					break;
 				}
@@ -1282,7 +1285,7 @@ ffzNode* ffz_get_child(ffzNode* parent, u32 idx) {
 		if (i == idx) return n;
 		i++;
 	}
-	ASSERT(false);
+	F_ASSERT(false);
 	return NULL;
 }
 
@@ -1299,6 +1302,6 @@ u32 ffz_get_child_index(ffzNode* child) {
 		if (n == child) return idx;
 		idx++;
 	}
-	ASSERT(false);
-	return U32_MAX;
+	F_ASSERT(false);
+	return F_U32_MAX;
 }

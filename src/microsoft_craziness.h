@@ -204,7 +204,7 @@ static bool WinSDK_visit_files_w(wchar_t *dir_name, WinSDK_Version_Data *data, V
     // will see if the filename conforms to the expected versioning pattern.
  
     auto wildcard_name = WinSDK_concat(dir_name, L"\\*");
-    defer(free(wildcard_name));
+    F_DEFER(free(wildcard_name));
  
     WIN32_FIND_DATAW find_data;
     auto handle = FindFirstFileW(wildcard_name, &find_data);
@@ -213,7 +213,7 @@ static bool WinSDK_visit_files_w(wchar_t *dir_name, WinSDK_Version_Data *data, V
     while (true) {
         if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && (find_data.cFileName[0] != '.')) {
             auto full_name = WinSDK_concat(dir_name, L"\\", find_data.cFileName);
-            defer(free(full_name));
+            F_DEFER(free(full_name));
  
             _proc(find_data.cFileName, full_name, data);
         }
@@ -339,20 +339,20 @@ static void WinSDK_find_windows_kit_root(WinSDK_Find_Result *result) {
     auto rc = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots",
                             0, KEY_QUERY_VALUE | KEY_WOW64_32KEY | KEY_ENUMERATE_SUB_KEYS, &main_key);
     if (rc != S_OK) return;
-    defer(RegCloseKey(main_key));
+    F_DEFER(RegCloseKey(main_key));
  
     // Look for a Windows 10 entry.
     auto windows10_root = WinSDK_read_from_the_registry(main_key, L"KitsRoot10");
     if (windows10_root) {
-        defer(free(windows10_root));
+        F_DEFER(free(windows10_root));
         
         WinSDK_Version_Data lib_data = {0};
         auto lib_base_path = WinSDK_concat(windows10_root, L"Lib");
-        defer(free(lib_base_path));
+        F_DEFER(free(lib_base_path));
 
         WinSDK_Version_Data include_data = {0};
         auto include_base_path = WinSDK_concat(windows10_root, L"include");
-        defer(free(include_base_path));
+        F_DEFER(free(include_base_path));
 
         //windows_sdk_include
  
@@ -415,13 +415,13 @@ static bool WinSDK_find_visual_studio_2017_by_fighting_through_microsoft_crazine
     ISetupConfiguration *config = NULL;
     auto hr = CoCreateInstance(CLSID_SetupConfiguration, NULL, CLSCTX_INPROC_SERVER, my_uid, (void **)&config);
     if (hr != 0)  return false;
-    defer(config->Release());
+    F_DEFER(config->Release());
  
     IEnumSetupInstances *instances = NULL;
     hr = config->EnumInstances(&instances);
     if (hr != 0)     return false;
     if (!instances)  return false;
-    defer(instances->Release());
+    F_DEFER(instances->Release());
  
     while (1) {
         ULONG found = 0;
@@ -429,21 +429,21 @@ static bool WinSDK_find_visual_studio_2017_by_fighting_through_microsoft_crazine
         auto hr = instances->Next(1, &instance, &found);
         if (hr != S_OK) break;
  
-        defer(instance->Release());
+        F_DEFER(instance->Release());
  
         BSTR bstr_inst_path;
         hr = instance->GetInstallationPath(&bstr_inst_path);
         if (hr != S_OK)  continue;
-        defer(SysFreeString(bstr_inst_path));
+        F_DEFER(SysFreeString(bstr_inst_path));
  
         auto tools_filename = WinSDK_concat(bstr_inst_path, L"\\VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
-        defer(free(tools_filename));
+        F_DEFER(free(tools_filename));
  
         FILE *f = nullptr;
         auto open_result = _wfopen_s(&f, tools_filename, L"rt");
         if (open_result != 0) continue;
         if (!f) continue;
-        defer(fclose(f););
+        F_DEFER(fclose(f););
  
         LARGE_INTEGER tools_file_size;
         auto file_handle = (HANDLE)_get_osfhandle(_fileno(f));
@@ -452,7 +452,7 @@ static bool WinSDK_find_visual_studio_2017_by_fighting_through_microsoft_crazine
  
         auto version_bytes = (tools_file_size.QuadPart + 1) * 2;  // Warning: This multiplication by 2 presumes there is no variable-length encoding in the wchars (wacky characters in the file could betray this expectation).
         wchar_t *version = (wchar_t *)malloc(version_bytes);
-        defer(free(version););
+        F_DEFER(free(version););
  
         auto read_result = fgetws(version, (int)version_bytes, f);
         if (!read_result) continue;
@@ -493,7 +493,7 @@ static void WinSDK_find_visual_studio_by_fighting_through_microsoft_craziness(Wi
     auto rc = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7", 0, KEY_QUERY_VALUE | KEY_WOW64_32KEY, &vs7_key);
  
     if (rc != S_OK)  return;
-    defer(RegCloseKey(vs7_key););
+    F_DEFER(RegCloseKey(vs7_key););
  
     // Hardcoded search for 4 prior Visual Studio versions. Is there something better to do here?
     wchar_t *versions[] = { L"14.0", L"12.0", L"11.0", L"10.0" };
@@ -505,13 +505,13 @@ static void WinSDK_find_visual_studio_by_fighting_through_microsoft_craziness(Wi
         auto buffer = WinSDK_read_from_the_registry(vs7_key, v);
         if (!buffer) continue;
  
-        defer(free(buffer););
+        F_DEFER(free(buffer););
  
         auto lib_path = WinSDK_concat(buffer, L"VC\\Lib\\amd64");
  
         // Check to see whether a vcruntime.lib actually exists here.
         auto vcruntime_filename = WinSDK_concat(lib_path, L"\\vcruntime.lib");
-        defer(free(vcruntime_filename););
+        F_DEFER(free(vcruntime_filename););
  
         if (WinSDK_os_file_exists(vcruntime_filename)) {
             result->vs_exe_path     = WinSDK_concat(buffer, L"VC\\bin\\amd64");

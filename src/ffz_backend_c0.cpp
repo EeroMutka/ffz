@@ -80,16 +80,16 @@ static C0String make_name(ffzGenC0* g, ffzNodeInst inst, bool pretty = false) {
 
 	if (inst.poly_inst != 0) {
 		if (pretty) {
-			str_print(&name, LIT("["));
+			str_print(&name, F_LIT("["));
 
 			ffzPolyInst* poly_inst = map64_get(&g->checker->poly_instantiations, inst.poly_inst);
 			for (uint i = 0; i < poly_inst->parameters.len; i++) {
-				if (i > 0) str_print(&name, LIT(", "));
+				if (i > 0) str_print(&name, F_LIT(", "));
 
 				str_print(&name, ffz_constant_to_string(g->checker, poly_inst->parameters[i]));
 			}
 
-			str_print(&name, LIT("]"));
+			str_print(&name, F_LIT("]"));
 		}
 		else {
 			// we could improve this by having an incremental counter per poly inst, that way we could use
@@ -102,7 +102,7 @@ static C0String make_name(ffzGenC0* g, ffzNodeInst inst, bool pretty = false) {
 		// Currently, we're giving these symbols unique ids and exporting them anyway, because
 		// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 
-		name.slice = STR_JOIN(g->alc, g->checker->_dbg_module_import_name, LIT("$$"), name.slice);
+		name.slice = STR_JOIN(g->alc, g->checker->_dbg_module_import_name, F_LIT("$$"), name.slice);
 	}
 	return TO_C0String(fill_empty_name_with_id(g, name.slice));
 }
@@ -446,7 +446,7 @@ static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOperatorInst ins
 		// :MemberAccess
 		String member_name = AS(right.node, Identifier)->name;
 
-		if (left.node->kind == ffzNodeKind_Identifier && AS(left.node, Identifier)->name == LIT("in")) {
+		if (left.node->kind == ffzNodeKind_Identifier && AS(left.node, Identifier)->name == F_LIT("in")) {
 			ASSERT(!address_of); // TODO
 			BP;//for (u32 i = 0; i < g->curr_proc->proc_type->Proc.in_params.len; i++) {
 			//	ffzTypeProcParameter& param = g->curr_proc->proc_type->Proc.in_params[i];

@@ -1,13 +1,27 @@
+#Basic: import("../modules/basic")
+
+//@link_library: ".ffz/c_things.obj"
+//#receive_v3: @extern proc(aa: V3)
+
 /*
 #add_vectors: proc(a: V3, b: V3) => (V3) {
 	ret V3{a.x + b.x, a.y + b.y, a.z + b.z}
 }*/
 
 /*#add_vectors: proc[T](a: [3]T, b: [3]T) => ([3]T) {
-	baba: [3]T
+	baba: T
+	
+	dbgbreak
+	dbgbreak
+	dbgbreak
 	ret [3]T{a[0] + b[0], a[1] + b[1], a[2] + b[2]}
 }*/
 
+#draw_thing: proc(integers: [3]int) {
+	a: integers[0]
+	b: integers[1]
+	c: integers[2]
+}
 
 #ffz_entry: proc() {
 	//aaa: MyString{&bytes[0], 100}
@@ -15,27 +29,13 @@
 	//str: "Hello, world!"
 	/*
 	my_integers: [?]u32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
-	
 	third: my_integers[2]
-	
 	part: my_integers[2,]
 	*/
 	
-	A: [3]u32{1, 2, 3}
-	B: [3]u32{5, 5, 6}
-	//C: add_vectors[u32](A, B)
-	
-	
-	_1: [3]s64{55, 22, 11}
-	_2: [3]s64{100, 200, 300}
-	
-	
-	//_3: add_vectors[s64](_1, _2)
+	//draw_thing([3]int{5, 60, 100})
 	
 	dbgbreak
 }
 
-//@link_library: ".ffz/c_things.obj"
-//#receive_v3: @extern proc(aa: V3)
 
-// This program works if you set FIX_TB_BIG_RETURN_HACK to 1, but will segfault if you set it to 0.

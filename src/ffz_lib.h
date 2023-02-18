@@ -40,19 +40,19 @@
 // 
 
 struct ffzProject {
-	String module_name;
-	Map64<ffzChecker*> checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
+	fString module_name;
+	fMap64<ffzChecker*> checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
 
-	Array<String> linker_inputs;
+	fArray<fString> linker_inputs;
 
-	Array/*CheckerIndex*/<ffzChecker*> checkers;
-	Array/*ParserIndex*/<ffzParser*> parsers_dependency_sorted; // dependency sorted from leaf modules towards higher-level modules
+	fArray/*CheckerIndex*/<ffzChecker*> checkers;
+	fArray/*ParserIndex*/<ffzParser*> parsers_dependency_sorted; // dependency sorted from leaf modules towards higher-level modules
 };
 
 //ffzToken token_from_node(ffzProject* project, ffzNode* node);
 
-void ffz_log_pretty_error(ffzParser* parser, String error_kind, ffzLocRange loc, String error, bool extra_newline);
+void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline);
 
-bool ffz_parse_and_check_directory(ffzProject* project, String directory);
+bool ffz_parse_and_check_directory(ffzProject* project, fString directory);
 
-bool ffz_build_directory(String directory);
+bool ffz_build_directory(fString directory);

@@ -1,9 +1,7 @@
 ﻿//
-// The foundation is a minimal set of useful functions and utilities
-// that come in handy everywhere, and which the C/C++ language doesn't
-// provide you in a good way. Although I've tried to design this to be
-// as universal as possible, it's still kind of an opinionated and personal
-// codebase for myself, so it's not namespaced under any prefix; it's the foundation.
+// The foundation is a minimal set of functions and utilities
+// that I've found come in handy everywhere, and which the C/C++
+// language doesn't provide you in a good way.
 // 
 // WARNING: THIS IS ALL CURRENTLY A WORK-IN-PROGRESS CODEBASE!! Some things aren't complete or fully tested,
 // such as UTF8 support and some things might be implemented in a dumb way.
@@ -36,147 +34,150 @@ typedef intptr_t  sint;
 typedef s32       rune;
 typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allowed)
 
-// This is used to mark optional pointers
-#define OPT(x) x
+// Used to specify nullable pointers
+#define fOpt(ptr) ptr
 
-#define LEN(x) (sizeof(x) / sizeof(x[0]))
-#define OFFSET_OF(T, f) ((uint)&((T*)0)->f)
+#define F_THREAD_LOCAL __declspec(thread)
 
-#define PAD(x) char _pad_##__COUNTER__[x]
-#define ____CONCAT(x, y) x ## y
-#define STRINGIFY(s) #s
-#define CONCAT(x, y) ____CONCAT(x, y)
+#ifdef __cplusplus
+#define F_STRUCT_INIT(T) T
+#define F_STRUCT_INIT_COMP(T) T
+#else
+#define F_STRUCT_INIT(T) (T)
+#define F_STRUCT_INIT_COMP(T)
+#endif
+
+#define F_LIT(x) F_STRUCT_INIT(fString){ (u8*)x, sizeof(x)-1 }
+#define F_LIT_COMP(x) F_STRUCT_INIT_COMP(fString){ (u8*)x, sizeof(x)-1 }
+
+#define F_LEN(x) (sizeof(x) / sizeof(x[0]))
+#define F_OFFSET_OF(T, f) ((uint)&((T*)0)->f)
+
+#define F_I8_MIN -128
+#define F_I8_MAX 127
+#define F_U8_MAX 255
+#define F_I16_MIN -32768
+#define F_I16_MAX 32767
+#define F_U16_MAX 0xffff
+#define F_I32_MIN 0x80000000
+#define F_I32_MAX 0x7fffffff
+#define F_U32_MAX 0xffffffffu
+#define F_I64_MIN 0x8000000000000000ll
+#define F_I64_MAX 0x7fffffffffffffffll
+#define F_U64_MAX 0xffffffffffffffffllu
+
+#define F_PAD(x) char _pad_##__COUNTER__[x]
+#define F_STRINGIFY(s) #s
+
+#define F_CONCAT___(x, y) x ## y
+#define F_CONCAT(x, y) F_CONCAT___(x, y)
+
+#define F_STATIC_ASSERT(x) enum { F_CONCAT(_static_assert_, __LINE__) = 1 / ((int)!!(x)) }
 
 // https://www.wambold.com/Martin/writings/alignof.html
 #ifdef __cplusplus
-	template<typename T> struct alignment_trick { char c; T member; };
-	#define ALIGN_OF(type) OFFSET_OF(alignment_trick<type>, member)
+template<typename T> struct alignment_trick { char c; T member; };
+#define F_ALIGN_OF(type) F_OFFSET_OF(alignment_trick<type>, member)
 #else
-#define ALIGN_OF(type) offsetof (struct CONCAT(_dummy, __COUNTER__) { char c; type member; }, member)
-#endif
-
-#ifdef __cplusplus
-#define STRUCT_INIT(T) T
-#define STRUCT_INIT_COMP(T) T
-#define C_API extern "C"
-#else
-#define STRUCT_INIT(T) (T)
-#define STRUCT_INIT_COMP(T)
-#define C_API
-#endif
-
-#ifndef Array
-#define Array(T) ArrayRaw
-#endif
-
-#ifndef Slice
-#define Slice(T) SliceRaw
-#endif
-
-#ifndef Map64
-#define Map64(T) Map64Raw
-#endif
-
-#ifndef String
-typedef struct {
-	u8* data;
-	uint len;
-} String;
-#define String String
+#define F_ALIGN_OF(type) offsetof (struct F_CONCAT(_dummy, __COUNTER__) { char c; type member; }, member)
 #endif
 
 // Useful for surpressing compiler warnings
-#define UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
+#define F_UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
 
 #ifdef _DEBUG
-#define ASSERT(x) { if (!(x)) __debugbreak(); }
+#define F_ASSERT(x) { if (!(x)) __debugbreak(); }
 #else
-#define ASSERT(x) { if (x) {} }
+#define F_ASSERT(x) { if (x) {} }
 #endif
 
-inline static void _cast_check_fail() { ASSERT(false); }
-#define CAST_CHK(T, x) ((T)(x) == (x) ? (T)(x) : (_cast_check_fail(), (T)0))
+inline static void _cast_check_fail() { F_ASSERT(false); }
+// Cast with range checking
+#define F_CAST(T, x) ((T)(x) == (x) ? (T)(x) : (_cast_check_fail(), (T)0))
 
-#define STATIC_ASSERT(x) enum { CONCAT(_static_assert_, __LINE__) = 1 / ((int)!!(x)) }
-
-#define BP __debugbreak();
+#define F_BP __debugbreak();
 
 // Debugging helper that counts the number of hits and allows for breaking at a certain index
-#define HITS(name, break_if_equals) \
-	static uint CONCAT(name, _c) = 1; \
-	CONCAT(name, _c)++; \
-	uint name = CONCAT(name, _c); \
-	if (name == (break_if_equals)) { BP; }
-
-#ifndef LOG
-#define LOG(s, ...) fprintf(stdout, s, __VA_ARGS__)
-#endif
-
-#define I8_MIN -128
-#define I8_MAX 127
-#define U8_MAX 255
-#define I16_MIN -32768
-#define I16_MAX 32767
-#define U16_MAX 0xffff
-#define I32_MIN 0x80000000
-#define I32_MAX 0x7fffffff
-#define U32_MAX 0xffffffffu
-#define I64_MIN 0x8000000000000000ll
-#define I64_MAX 0x7fffffffffffffffll
-#define U64_MAX 0xffffffffffffffffllu
+#define F_HITS(name, break_if_equals) \
+static uint F_CONCAT(name, _c) = 1; \
+F_CONCAT(name, _c)++; \
+uint name = F_CONCAT(name, _c); \
+if (name == (break_if_equals)) { F_BP; }
 
 // https://stackoverflow.com/questions/6235847/how-to-generate-nan-infinity-and-infinity-in-ansi-c
 inline f32 _get_f32_pos_infinity() { u32 x = 0x7F800000; return *(f32*)&x; }
 inline f32 _get_f32_neg_infinity() { u32 x = 0xFF800000; return *(f32*)&x; }
+#define F_F32_MAX _get_f32_pos_infinity()
+#define F_F32_MIN _get_f32_neg_infinity()
 
-#define F32_MAX _get_f32_pos_infinity()
-#define F32_MIN _get_f32_neg_infinity()
+#define F_KIB(x) ((uint)(x) << 10)
+#define F_MIB(x) ((uint)(x) << 20)
+#define F_GIB(x) ((uint)(x) << 30)
+#define F_TIB(x) ((u64)(x) << 40)
 
-#define KiB(x) ((uint)(x) << 10)
-#define MiB(x) ((uint)(x) << 20)
-#define GiB(x) ((uint)(x) << 30)
-#define TiB(x) ((u64)(x) << 40)
-
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define CLAMP(x, minimum, maximum) ((x) < (minimum) ? (minimum) : (x) > (maximum) ? (maximum) : (x))
+#define F_MIN(a, b) ((a) < (b) ? (a) : (b))
+#define F_MAX(a, b) ((a) > (b) ? (a) : (b))
+#define F_CLAMP(x, minimum, maximum) ((x) < (minimum) ? (minimum) : (x) > (maximum) ? (maximum) : (x))
 
 // e.g. 0b0010101000
 // =>   0b0010100000
-#define FLIP_RIGHTMOST_ONE_BIT(x) ((x) & ((x) - 1))
+#define F_FLIP_RIGHTMOST_ONE_BIT(x) ((x) & ((x) - 1))
 
 // e.g. 0b0010101111
 // =>   0b0010111111
-#define FLIP_RIGHTMOST_ZERO_BIT(x) ((x) | ((x) + 1))
+#define F_FLIP_RIGHTMOST_ZERO_BIT(x) ((x) | ((x) + 1))
 
 // e.g. 0b0010101000
 // =>   0b0010101111
-#define FLIP_RIGHMOST_ZEROES(x) (((x) - 1) | (x))
+#define F_FLIP_RIGHMOST_ZEROES(x) (((x) - 1) | (x))
 
 // When x is a power of 2, it must only contain a single 1-bit
 // x == 0 will output 1.
-#define IS_POWER_OF_2(x) (FLIP_RIGHTMOST_ONE_BIT(x) == 0)
+#define F_IS_POWER_OF_2(x) (F_FLIP_RIGHTMOST_ONE_BIT(x) == 0)
 
 // `p` must be a power of 2.
 // `x` is allowed to be negative as well.
-#define ALIGN_UP_POW2(x, p) (((x) + (p) - 1) & ~((p) - 1)) // e.g. (x=30, p=16) -> 32
-#define ALIGN_DOWN_POW2(x, p) ((x) & ~((p) - 1)) // e.g. (x=30, p=16) -> 16
+#define F_ALIGN_UP_POW2(x, p) (((x) + (p) - 1) & ~((p) - 1)) // e.g. (x=30, p=16) -> 32
+#define F_ALIGN_DOWN_POW2(x, p) ((x) & ~((p) - 1)) // e.g. (x=30, p=16) -> 16
 
-#define HAS_ALIGNMENT_POW2(x, p) ((x) % (p) == 0) // p must be a power of 2
+#define F_HAS_ALIGNMENT_POW2(x, p) ((x) % (p) == 0) // p must be a power of 2
 
-#define LERP(a, b, alpha) ((alpha)*(b) + (1.f - (alpha))*(a))
+#define F_LERP(a, b, alpha) ((alpha)*(b) + (1.f - (alpha))*(a))
 
-#define PEEK(x) (x)[(x).len - 1]
+#define F_PEEK(x) (x)[(x).len - 1]
 
-#define BITCAST(T, x) (*(T*)&x)
+// TODO: fix this to not be UB
+#define F_BITCAST(T, x) (*(T*)&x)
 
-#define THREAD_LOCAL __declspec(thread)
+#define F_AS_BYTES(x) F_STRUCT_INIT(fString){ (u8*)&x, sizeof(x) }
+#define F_SLICE_AS_BYTES(x) F_STRUCT_INIT(fString){ (u8*)(x).data, (x).len * sizeof((x).data[0]) }
+
+#ifndef fArray
+#define fArray(T) fArrayRaw
+#endif
+
+#ifndef fSlice
+#define fSlice(T) fSliceRaw
+#endif
+
+#ifndef fMap64
+#define fMap64(T) fMap64Raw
+#endif
+
+#ifndef fString
+typedef struct {
+	u8* data;
+	uint len;
+} fString;
+#define fString fString
+#endif
+
 
 
 // c container macros
 #ifndef __cplusplus
-#define array_push(T, array, elem) array_push_raw((array), &(elem), sizeof(T))
-#define map64_insert(map, key, value, mode) map64_insert_raw((map), (key), &(value), (mode))
+#define array_push(T, array, elem) f_array_push_raw((array), &(elem), sizeof(T))
+#define map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
 #endif
 
 // TODO: make it possible for an arena to grow.
@@ -185,24 +186,23 @@ inline f32 _get_f32_neg_infinity() { u32 x = 0xFF800000; return *(f32*)&x; }
 // because it could be a useful assumption to know that the addresses will be all in one contiguous block of memory.
 // It should also be possible to allocate a growing child-arena out from an existing arena / slot arena
 
-typedef struct Allocator Allocator;
-struct Allocator {
-	void*(*_proc)(Allocator* allocator, OPT(void*) old_ptr, uint old_size, uint new_size, uint_pow2 new_alignment);
+typedef struct fAllocator fAllocator;
+struct fAllocator {
+	// `old_ptr` can be NULL
+	void* (*_proc)(fAllocator* allocator, void* old_ptr, uint old_size, uint new_size, uint_pow2 new_alignment);
 };
 
 typedef enum {
-	ArenaMode_VirtualReserveFixed,
+	fArenaMode_VirtualReserveFixed,
 	//ArenaMode_VirtualGrowing, // do we really need this since we have UsingAllocatorGrowing?
-	ArenaMode_UsingBufferFixed,
-	ArenaMode_UsingAllocatorGrowing,
-} ArenaMode;
-
-struct _Arena;
+	fArenaMode_UsingBufferFixed,
+	fArenaMode_UsingAllocatorGrowing,
+} fArenaMode;
 
 typedef struct {
-	ArenaMode mode;
+	fArenaMode mode;
 	struct {
-		OPT(u8*) reserve_base;
+		fOpt(u8*) reserve_base;
 		uint reserve_size;
 	} VirtualReserveFixed;
 	struct {
@@ -211,71 +211,64 @@ typedef struct {
 	} UsingBufferFixed;
 	struct {
 		u32 min_block_size;
-		Allocator* a;
+		fAllocator* a;
 	} UsingAllocatorGrowing;
-} ArenaDesc;
+} fArenaDesc;
 
-typedef struct ArenaBlockHeader ArenaBlockHeader;
-struct ArenaBlockHeader {
+typedef struct fArenaBlock fArenaBlock;
+struct fArenaBlock {
 	uint size_including_header;
-	ArenaBlockHeader* next;
+	fArenaBlock* next;
 	// the block memory comes right after the header
 };
 
-typedef struct ArenaPosition {
+typedef struct fArenaPosition {
 	u8* head;
-	ArenaBlockHeader* current_block; // used only with ArenaMode_UsingAllocatorGrowing
-} ArenaPosition;
+	fArenaBlock* current_block; // used only with ArenaMode_UsingAllocatorGrowing
+} fArenaPosition;
 
-typedef struct Arena {
-	Allocator alc; // Must be the first field for outwards-casting!
-	ArenaDesc desc;
-	
+typedef struct fArena {
+	fAllocator alc; // Must be the first field for outwards-casting!
+	fArenaDesc desc;
+
 	struct { // should be union
 		u8* internal_base;
-		ArenaBlockHeader* first_block; // used only with ArenaMode_UsingAllocatorGrowing
+		fArenaBlock* first_block; // used only with ArenaMode_UsingAllocatorGrowing
 	};
 
 	u8* committed_end; // only used with ArenaMode_VirtualReserveFixed
-	
-	ArenaPosition pos;
-} Arena;
 
-struct SlotArenaRaw;
+	fArenaPosition pos;
+} fArena;
 
-typedef struct {
-	Allocator alc;
+#define f_make_slice_one(elem, allocator) {MemClone((elem), (allocator)), 1}
 
-	Arena* backing_arena;
-	//SlotArenaRaw* sub_arenas[12]; // slot arenas. the last arena allocates 4k blocks
-	
-	// we should store a doubly linked list of continuous block-ranges at the last arena.
-	// 00 111   22 3 4 5   666
-	// 00100011100101010111000
-} Heap;
+// Warning: these return uninitialized memory.
+#define f_mem_alloc(size, alignment, allocator) (void*)(allocator)->_proc((allocator), NULL, 0, (size), (alignment))
+#define f_mem_resize(ptr, old_size, new_size, new_alignment, allocator) (void*)(allocator)->_proc((allocator), (ptr), (old_size), (new_size), (new_alignment))
+#define f_mem_free(ptr, size, allocator) (allocator)->_proc((allocator), (ptr), (size), 0, 1)
 
-#define make_slice_one_elem(elem, allocator) {MemClone((elem), (allocator)), 1}
+#define f_mem_alloc_n(T, count, allocator) (T*)(allocator)->_proc((allocator), NULL, 0, (count) * sizeof(T), F_ALIGN_OF(T))
+#define f_mem_resize_n(T, ptr, old_count, new_count, allocator) (T*)(allocator)->_proc((allocator), ptr, (old_count) * sizeof(T), (new_count) * sizeof(T), F_ALIGN_OF(T))
+#define f_mem_free_n(T, ptr, count, allocator) (allocator)->_proc((allocator), (ptr), (count) * sizeof(T), 0, F_ALIGN_OF(T))
 
-C_API void* mem_clone_size(uint size, const void* value, Allocator* allocator);
-#define mem_clone(value, allocator) mem_clone_size(sizeof(value), &value, allocator)
+#define f_mem_zero(ptr) memset(ptr, 0, sizeof(*ptr))
+#define f_mem_zero_slice(slice) memset((f_slice).data, 0, (slice).size_bytes())
 
-#define mem_alloc(size, alignment, allocator) (void*)(allocator)->_proc((allocator), NULL, 0, (size), (alignment))
-#define mem_resize(ptr, old_size, new_size, new_alignment, allocator) (void*)(allocator)->_proc((allocator), (ptr), (old_size), (new_size), (new_alignment))
-#define mem_free(ptr, size, allocator) (allocator)->_proc((allocator), (ptr), (size), 0, 1)
+#define f_mem_clone(T, value, allocator) f_mem_clone_size(sizeof(T), F_ALIGN_OF(T), &value, allocator)
 
-#define mem_alloc_count(T, count, allocator) (T*)(allocator)->_proc((allocator), NULL, 0, (count) * sizeof(T), ALIGN_OF(T))
-#define mem_resize_count(T, ptr, old_count, new_count, allocator) (T*)(allocator)->_proc((allocator), ptr, (old_count) * sizeof(T), (new_count) * sizeof(T), ALIGN_OF(T))
-#define mem_free_count(T, ptr, count, allocator) (allocator)->_proc((allocator), (ptr), (count) * sizeof(T), 0, ALIGN_OF(T))
-
-#define mem_zero(ptr) memset(ptr, 0, sizeof(*ptr))
-#define mem_zero_slice(slice) memset((slice).data, 0, (slice).size_bytes())
+inline void* f_mem_clone_size(uint size, uint align, const void* value, fAllocator* a) {
+	void* result = f_mem_alloc(size, 1, a);
+	memcpy(result, value, size);
+	return result;
+}
 
 // Slice, Array and String have the same binary layout, so they can be bitcasted between each other
 
 typedef struct {
 	void* data;
 	uint len;
-} SliceRaw;
+} fSliceRaw;
 
 typedef struct {
 	union {
@@ -283,11 +276,11 @@ typedef struct {
 			void* data;
 			uint len;
 		};
-		SliceRaw slice;
+		fSliceRaw slice;
 	};
 	uint capacity;
-	Allocator* alc; // rename to allocator?
-} ArrayRaw;
+	fAllocator* alc; // rename to allocator?
+} fArrayRaw;
 
 //#define HASH_STRING(x) MeowU64From(MeowHash(MeowDefaultSeed, x.len, x.data), 0)
 
@@ -298,12 +291,12 @@ typedef struct {
 //#define HASH_LOC (((u64)__FILE__) ^ HASH_U64((u64)__LINE__))
 
 #ifdef _DEBUG
-C_API void _DEBUG_FILL_GARBAGE(void* ptr, uint len);
+void _DEBUG_FILL_GARBAGE(void* ptr, uint len);
 #else
 #define _DEBUG_FILL_GARBAGE(ptr, len)
 #endif
 
-typedef s64 Tick;
+typedef struct { s64 nsec; } fTick;
 
 #define NANOSECOND 1
 #define MICROSECOND 1000 // 1000 * NANOSECOND
@@ -312,21 +305,15 @@ typedef s64 Tick;
 #define MINUTE 60000000000 // 60 * SECOND
 #define HOUR 3600000000000 // 60 * MINUTE
 
-typedef struct { void* handle; } OS_DynamicLibrary;
+typedef struct { void* handle; } fDynamicLibrary;
 
 typedef enum {
-	OS_FileOpenMode_Read,
-	OS_FileOpenMode_Write,
-	OS_FileOpenMode_Append,
-} OS_FileOpenMode;
+	fFileOpenMode_Read,
+	fFileOpenMode_Write,
+	fFileOpenMode_Append,
+} fFileOpenMode;
 
-typedef struct { void* _handle; } File;
-
-#define LIT(x) STRUCT_INIT(String){ (u8*)x, sizeof(x)-1 }
-#define LIT_COMP(x) STRUCT_INIT_COMP(String){ (u8*)x, sizeof(x)-1 }
-
-#define AS_BYTES(x) STRUCT_INIT(String){ (u8*)&x, sizeof(x) }
-#define SLICE_AS_BYTES(x) STRUCT_INIT(String){ (u8*)(x).data, (x).len * sizeof((x).data[0]) }
+typedef struct { void* _handle; } fFile;
 
 // #define STRING_FROM_CSTR(x) String{ (u8*)x, strlen(x) } // this shouldn't be a macro
 
@@ -334,46 +321,45 @@ typedef struct { void* _handle; } File;
 //inline const char* _temp_cstr(String string, void* out) { ZoneScoped; memcpy(out, string.data, string.len); ((char*)out)[string.len] = '\0'; return (const char*)out; }
 //#define ALLOCA_C_STRING(str) _temp_cstr(str, alloca(str.len + 1))
 
-#define __ACTIVATE_MANUAL_STRUCT_PADDING \
-	_Pragma("warning(3:4820)") \
-	_Pragma("warning(3:4121)")
-#define __RESTORE_MANUAL_STRUCT_PADDING \
-	_Pragma("warning(4:4820)") \
-	_Pragma("warning(4:4121)")
+//#define __ACTIVATE_MANUAL_STRUCT_PADDING \
+//_Pragma("warning(3:4820)") \
+//_Pragma("warning(3:4121)")
+//#define __RESTORE_MANUAL_STRUCT_PADDING \
+//_Pragma("warning(4:4820)") \
+//_Pragma("warning(4:4121)")
+
+//typedef struct {
+//	union {
+//		u32 id; // 1 is the first valid index, 0 is invalid
+//		bool initialized;
+//	};
+//	u32 gen;
+//} SlotArrayHandle;
+
+//struct SlotArrayElemHeader {
+//	u32 gen;
+//	u32 next_free_item; // 0 means this slot is currently occupied
+//	// the value comes after the header
+//};
 
 typedef struct {
-	union {
-		u32 id; // 1 is the first valid index, 0 is invalid
-		bool initialized;
-	};
-	u32 gen;
-} SlotArrayHandle;
-
-struct SlotArrayElemHeader {
-	u32 gen;
-	u32 next_free_item; // 0 means this slot is currently occupied
-	// the value comes after the header
-};
-
-
-typedef struct {
-	Allocator* alc;
+	fAllocator* alc;
 	u32 value_size;
 
 	u32 alive_count;
-	
+
 	u32 slot_count;
 	u32 slot_count_log2; // if there are zero slots, this will be zero and the `slots` pointer will be null.
-	OPT(void*) slots;
-} Map64Raw;
+	fOpt(void*) slots;
+} fMap64Raw;
 
 typedef struct {
-	String file;
+	fString file;
 	u32 line;
-} LeakTrackerCallstackEntry;
+} fLeakTrackerCallstackEntry;
 
 typedef struct {
-	Array(LeakTrackerCallstackEntry) callstack;
+	fArray(fLeakTrackerCallstackEntry) callstack;
 
 	/*u64 allocation_idx;
 
@@ -382,14 +368,14 @@ typedef struct {
 	// this could be a BucketArray
 	Array<CallstackEntry> callstack;
 	*/
-} LeakTracker_Entry;
+} fLeakTracker_Entry;
 
 typedef struct {
 	// Note: LeakTracker never frees any of its internals until deinit_leak_tracker() is called
 	bool active;
-	Arena* internal_arena;
+	fArena* internal_arena;
 
-	Map64(LeakTracker_Entry) active_allocations; // key is the address of the allocation
+	fMap64(fLeakTracker_Entry) active_allocations; // key is the address of the allocation
 
 	/*Allocator allocator; // Must be the first field for outwards-casting!
 
@@ -401,17 +387,17 @@ typedef struct {
 	Array<LeakTracker_BadFree> bad_free_array;
 	*/
 	// This is here so that we won't have to create a dozen of duplicate strings
-	Map64(String) file_names_cache; // key is the string hashed
-} LeakTracker;
+	fMap64(fString) file_names_cache; // key is the string hashed
+} fLeakTracker;
 
 //extern Allocator _global_allocator; // do we need this?
-C_API THREAD_LOCAL extern void* _foundation_pass;
-C_API THREAD_LOCAL extern Arena* _temp_arena;
-C_API THREAD_LOCAL extern uint _temp_arena_scope_counter;
-C_API THREAD_LOCAL extern LeakTracker _leak_tracker;
+//F_THREAD_LOCAL extern void* _foundation_pass;
+F_THREAD_LOCAL extern fArena* _f_temp_arena;
+F_THREAD_LOCAL extern uint _f_temp_arena_scope_counter;
+F_THREAD_LOCAL extern fLeakTracker _f_leak_tracker;
 
 // Relies on PDB symbol info
-C_API void get_stack_trace(void(*visitor)(String function, String file, u32 line, void* user_ptr), void* user_ptr);
+void f_get_stack_trace(void(*visitor)(fString function, fString file, u32 line, void* user_ptr), void* user_ptr);
 
 //
 // Leak tracker can be used to track anything that can be keyed using a 64-bit identifier.
@@ -426,18 +412,18 @@ C_API void get_stack_trace(void(*visitor)(String function, String file, u32 line
 // and deinit_leak_tracker() when your application has finished running. deinit_leak_tracker()
 // will assert on any leaks and print information about them.
 //
-C_API void leak_tracker_init();
-C_API void leak_tracker_deinit();
+void f_leak_tracker_init();
+void f_leak_tracker_deinit();
 
-// These functions do not do anything if leak tracker is not present
-C_API void leak_tracker_begin_entry(void* address, uint skip_stackframes_count);
-C_API void leak_tracker_assert_is_alive(void* address);
-C_API void leak_tracker_end_entry(void* address);
+// These functions are ignored if leak tracker is not present
+void f_leak_tracker_begin_entry(void* address, uint skip_stackframes_count);
+void f_leak_tracker_assert_is_alive(void* address);
+void f_leak_tracker_end_entry(void* address);
 
 /*
 typedef struct {
 	u32 elem_size;
-	
+
 	u32 num_elems_per_bucket;
 	Allocator* a;
 	//bool is_using_arena;
@@ -471,34 +457,36 @@ typedef struct {
 
 // These can be combined as a mask
 typedef enum {
-	ConsoleAttribute_Blue = 0x0001,
-	ConsoleAttribute_Green = 0x0002,
-	ConsoleAttribute_Red = 0x0004,
-	ConsoleAttribute_Intensify = 0x0008,
-} ConsoleAttribute;
-typedef int ConsoleAttributeFlags;
+	fConsoleAttribute_Blue = 0x0001,
+	fConsoleAttribute_Green = 0x0002,
+	fConsoleAttribute_Red = 0x0004,
+	fConsoleAttribute_Intensify = 0x0008,
+} fConsoleAttribute;
+typedef int fConsoleAttributeFlags;
 
+// TODO: get rid of this enum and make it into proc variants
 typedef enum {
-	MapInsert_AssertUnique,
-	MapInsert_DoNotOverride,
-	MapInsert_Override,
-} MapInsert;
+	fMapInsert_AssertUnique,
+	fMapInsert_DoNotOverride,
+	fMapInsert_Override,
+} fMapInsert;
 
-typedef struct { void* _unstable_ptr; bool added; } MapInsertResult;
+// todo: get rid of this?
+typedef struct { void* _unstable_ptr; bool added; } fMapInsertResult;
 
-typedef struct OS_VisitDirectoryInfo {
-	String name;
+typedef struct fVisitDirectoryInfo {
+	fString name;
 	bool is_directory;
-} OS_VisitDirectoryInfo;
+} fVisitDirectoryInfo;
 
-typedef enum OS_VisitDirectoryResult {
+typedef enum fVisitDirectoryResult {
 	// TODO: OS_VisitDirectoryResult_Recurse,
-	OS_VisitDirectoryResult_Continue,
-} OS_VisitDirectoryResult;
+	fVisitDirectoryResult_Continue,
+} fVisitDirectoryResult;
 
-typedef OS_VisitDirectoryResult(*OS_VisitDirectoryVisitor)(const OS_VisitDirectoryInfo* info, void* userptr);
+typedef fVisitDirectoryResult(*fVisitDirectoryVisitor)(const fVisitDirectoryInfo* info, void* userptr);
 
-typedef struct RangeUint { uint lo, hi; } RangeUint;
+typedef struct fRangeUint { uint lo, hi; } fRangeUint;
 
 //
 // `temp_push`/`temp_pop` sets a convention for easily getting temporary memory
@@ -528,43 +516,51 @@ typedef struct RangeUint { uint lo, hi; } RangeUint;
 // would marked available for subsequent temporary allocations, corrupting the entire array.
 // 
 
-C_API Allocator* temp_push();
-C_API void temp_pop();
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+fAllocator* f_temp_push();
+void f_temp_pop();
 
 // temp_init and temp_deinit are not necessary and they only exist for performance.
 // They keep the temp arena alive even after a final (scope counter reaching zero) call to temp_pop.
 // You probably want to call temp_init/deinit in main, if your program has multiple independent temp_push/pop scopes.
 // If you don't call temp_init, then each final call to temp_pop will release the arena back to the OS,
 // and temp_push will in turn need to allocate a new arena from the OS.
-C_API void temp_init();
-C_API void temp_deinit();
+void f_temp_init();
+void f_temp_deinit();
 
-C_API Arena* arena_make(u32 min_block_size, Allocator* a);
-C_API Arena* arena_make_virtual_reserve_fixed(uint reserve_size, OPT(void*) reserve_base);
-C_API Arena* arena_make_using_buffer_fixed(void* base, uint size);
-C_API Arena* arena_make_ex(ArenaDesc desc);
-C_API void arena_free(Arena* arena);
+fArena* f_arena_make(u32 min_block_size, fAllocator* a);
+fArena* f_arena_make_virtual_reserve_fixed(uint reserve_size, fOpt(void*) reserve_base);
+fArena* f_arena_make_buffer_fixed(void* base, uint size);
+fArena* f_arena_make_ex(fArenaDesc desc);
+void f_arena_free(fArena* arena);
 
-C_API Heap* make_heap(ArenaDesc backing_arena_desc);
+//Heap* make_heap(fArenaDesc backing_arena_desc);
 
-C_API String arena_push_size(Arena* arena, uint size, uint_pow2 alignment);
-C_API u8* arena_push(Arena* arena, String data, uint_pow2 alignment);
+fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment);
+u8* f_arena_push_str(fArena* arena, fString data, uint_pow2 alignment);
 
-C_API u8* arena_get_base_contiguous(Arena* arena);
-C_API uint arena_get_cursor(Arena* arena);
 
-C_API ArenaPosition arena_get_pos(Arena* arena);
-C_API void arena_pop_to(Arena* arena, ArenaPosition pos);
-// TODO: C_API void arena_shrink_memory(uint base_size) // the memory will not be reduced past base_size
-C_API void arena_clear(Arena* arena);
+// should we instead just ask for a string?
+// f_arena_get_as_string()
+u8* f_arena_get_contiguous_base(fArena* arena);
+uint f_arena_get_contiguous_cursor(fArena* arena);
 
-C_API uint_pow2 next_pow_of_2(uint v);
 
-#define HASHMAP64_EMPTY_KEY (0xFFFFFFFFFFFFFFFF)
-#define HASHMAP64_DEAD_BUT_REQUIRED_FOR_CHAIN_KEY (0xFFFFFFFFFFFFFFFE)
-#define HASHMAP64_LAST_VALID_KEY (0xFFFFFFFFFFFFFFFD)
+fArenaPosition f_arena_get_pos(fArena* arena);
+void f_arena_pop_to(fArena* arena, fArenaPosition pos);
+// TODO: void arena_shrink_memory(uint base_size) // the memory will not be reduced past base_size
+void f_arena_clear(fArena* arena);
 
-inline bool map64_iterate(Map64Raw* map, uint* i, uint* key, void** value_ptr) {
+uint_pow2 f_next_pow_of_2(uint v); // todo: move this into the macros section as an inline function?
+
+#define F_MAP64_EMPTY_KEY (0xFFFFFFFFFFFFFFFF)
+#define F_MAP64_DEAD_BUT_REQUIRED_FOR_CHAIN_KEY (0xFFFFFFFFFFFFFFFE)
+#define F_MAP64_LAST_VALID_KEY (0xFFFFFFFFFFFFFFFD)
+
+inline bool f_map64_iterate(fMap64Raw* map, uint* i, uint* key, void** value_ptr) {
 	if (!map->slots) return false;
 	u32 slot_size = map->value_size + 8;
 
@@ -574,7 +570,7 @@ inline bool map64_iterate(Map64Raw* map, uint* i, uint* key, void** value_ptr) {
 		u64* key_ptr = (u64*)((u8*)map->slots + (*i) * slot_size);
 		(*i)++;
 
-		if (*key_ptr <= HASHMAP64_LAST_VALID_KEY) {
+		if (*key_ptr <= F_MAP64_LAST_VALID_KEY) {
 			*key = *key_ptr;
 			*value_ptr = key_ptr + 1;
 			return true;
@@ -582,33 +578,33 @@ inline bool map64_iterate(Map64Raw* map, uint* i, uint* key, void** value_ptr) {
 	}
 }
 
-#define MAP64_EACH_RAW(map, key, value_ptr) (uint _i=0, key=0; map64_iterate(map, &_i, &key, value_ptr); )
+#define f_map64_each_raw(map, key, value_ptr) (uint _i=0, key=0; f_map64_iterate(map, &_i, &key, value_ptr); )
 
 // WARNING: The largest 2 key values (see HASHMAP64_LAST_VALID_KEY)
 // are reserved internally for marking empty/destroyed slots by the hashmap, so you cannot use them as valid keys.
 // An assertion will fail if you try to insert a value with a reserved key.
 // This is done for performance, but maybe we should have an option to default to a safe implementation.
-C_API Map64Raw map64_make_raw(u32 value_size, Allocator* a);
-C_API Map64Raw make_map64_cap_raw(u32 value_size, uint_pow2 capacity, Allocator* a);
-C_API void free_map64_raw(Map64Raw* map);
-C_API void resize_map64_raw(Map64Raw* map, u32 slot_count_log2);
-C_API MapInsertResult map64_insert_raw(Map64Raw* map, u64 key, OPT(const void*) value, MapInsert mode);
-C_API bool map64_remove_raw(Map64Raw* map, u64 key);
-C_API OPT(void*) map64_get_raw(Map64Raw* map, u64 key);
+fMap64Raw f_map64_make_raw(u32 value_size, fAllocator* a);
+fMap64Raw f_make_map64_cap_raw(u32 value_size, uint_pow2 capacity, fAllocator* a);
+void f_map64_free_raw(fMap64Raw* map);
+void f_map64_resize_raw(fMap64Raw* map, u32 slot_count_log2);
+fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) value, fMapInsert mode);
+bool f_map64_remove_raw(fMap64Raw* map, u64 key);
+fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key);
 
-C_API void mem_copy(void* dst, const void* src, uint size);
+void f_mem_copy(void* dst, const void* src, uint size); // TODO: make this an inline call?
 
-C_API ArrayRaw make_array_raw(Allocator* a);
-C_API ArrayRaw make_array_len_raw(u32 elem_size, uint len, const void* initial_value, Allocator* a);
-C_API ArrayRaw make_array_len_garbage_raw(u32 elem_size, uint len, Allocator* a);
-C_API ArrayRaw make_array_cap_raw(u32 elem_size, uint capacity, Allocator* a);
-C_API void free_array_raw(ArrayRaw* array, u32 elem_size);
-C_API uint array_push_raw(ArrayRaw* array, const void* elem, u32 elem_size);
-C_API void array_push_slice_raw(ArrayRaw* array, SliceRaw elems, u32 elem_size);
-C_API void array_pop_raw(ArrayRaw* array, OPT(void*) out_elem, u32 elem_size);
-C_API void array_reserve_raw(ArrayRaw* array, uint capacity, u32 elem_size);
-C_API void array_resize_raw(ArrayRaw* array, uint len, OPT(const void*) value, u32 elem_size); // set value to NULL to not initialize the memory
-//C_API SliceRaw array_get_slice_raw(ArrayRaw* array);
+fArrayRaw f_array_make_raw(fAllocator* a);
+fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_value, fAllocator* a);
+fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fAllocator* a);
+fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a);
+void f_array_free_raw(fArrayRaw* array, u32 elem_size);
+uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size);
+void f_array_push_slice_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size);
+void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size);
+void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size);
+void f_array_resize_raw(fArrayRaw* array, uint len, fOpt(const void*) value, u32 elem_size); // set value to NULL to not initialize the memory
+//SliceRaw array_get_slice_raw(ArrayRaw* array);
 
 //SlotArenaRaw* make_slot_arena_contiguous_raw(u32 elem_size, ArenaDesc arena_desc);
 //SlotArenaRaw* make_slot_arena_raw(ArenaDesc arena_desc);
@@ -618,183 +614,176 @@ C_API void array_resize_raw(ArrayRaw* array, uint len, OPT(const void*) value, u
 //void delete_slot_arena_raw(SlotArenaRaw* arena);
 //uint slot_arena_get_index_raw(const SlotArenaRaw* arena, void* ptr);
 
-C_API u64 os_read_cycle_counter();
-C_API void os_sleep_milliseconds(s64 ms);
-C_API void os_print(String str);
-C_API void os_print_colored(String str, ConsoleAttributeFlags attributes_mask);
+u64 f_read_cycle_counter();
+void f_sleep_milliseconds(s64 ms);
+
+void f_os_print(fString str);
+void f_os_print_color(fString str, fConsoleAttributeFlags attributes_mask);
 
 // If `working_dir` is an empty string, the current working directory will be used.
 // `args[0]` should be the path of the executable, where `\' and `/` are both accepted path separators.
 // TODO: options to capture stdout and stderr
-C_API bool os_run_command(Slice(String) args, String working_dir, u32* out_exit_code);
-//C_API bool os_run_command_no_wait(Slice(String) args, String working_dir);
+bool f_os_run_command(fSlice(fString) args, fString working_dir, u32* out_exit_code);
+//bool os_run_command_no_wait(Slice(String) args, String working_dir);
 
-C_API bool os_set_working_dir(String dir);
-C_API String os_get_working_dir(Allocator* allocator);
+bool f_os_set_working_dir(fString dir);
+fString f_os_get_working_dir(fAllocator* allocator);
 
 // these strings do not currently convert slashes - they will be windows specific `\`
 //Slice<String> os_file_picker_multi(); // allocated with temp_allocator
 
-C_API void os_error_message(String title, String message);
+void f_os_error_popup(fString title, fString message);
 
-C_API OPT(u8*) os_mem_reserve(u64 size, OPT(void*) address);
-C_API void os_mem_commit(u8* ptr, u64 size);
-C_API void os_mem_decommit(u8* ptr, u64 size);
-C_API void os_mem_release(u8* ptr);
+fOpt(u8*) f_mem_reserve(u64 size, fOpt(void*) address);
+void f_mem_commit(u8* ptr, u64 size);
+void f_mem_decommit(u8* ptr, u64 size);
+void f_mem_release(u8* ptr);
 
-C_API s64 round_to_s64(float x);
-C_API s64 floor_to_s64(float x);
+s64 f_round_to_s64(float x);
+s64 f_floor_to_s64(float x);
 
 // -- Hash --------------------------------------------------------------------
 
-// Multiply by golden ratio (0.61803398874989486662 * 2^64)
-#define HASH_U64(x) ((u64)(x) * 0x9E3779B97F4A7D69LLU)
+#define f_hash64(value) ((u64)(value) * 0x9E3779B97F4A7D69LLU) // Multiply by golden ratio (0.61803398874989486662 * 2^64)
+#define f_hash64_ex(value, seed) (f_hash64(value) ^ (u64)(seed)) // fvn64-style hash
+#define f_hash64_push(hash, value) *(u64*)(hash) = f_hash64_ex((u64)value, *(u64*)hash)
 
-#define hash64(value) HASH_U64(value)
-#define hash64_ex(value, seed) (HASH_U64(value) ^ (u64)(seed)) // fvn64-style hash
-#define hash64_push(hash, value) *(u64*)(hash) = hash64_ex((u64)value, *(u64*)hash)
+u64 f_hash64_str_ex(fString s, u64 seed);
+#define f_hash64_str(s) f_hash64_str_ex(s, 0) 
 
 // -- String ------------------------------------------------------------------
 
-#define STR_IS_UTF8_FIRST_BYTE(c) (((c) & 0xC0) != 0x80) /* is c the start of a utf8 sequence? */
-#define STR_EACH(str, r, i) (uint i=0, r = 0, i##_next=0; r=str_next_rune(str, &i##_next); i=i##_next)
-#define STR_EACH_REVERSE(str, r, i) (uint i=str.len; rune r=str_prev_rune(str, &i);)
+#define f_str_is_utf8_first_byte(c) (((c) & 0xC0) != 0x80) /* is c the start of a utf8 sequence? */
+#define f_str_each(str, r, i) (uint i=0, r = 0, i##_next=0; r=f_str_next_rune(str, &i##_next); i=i##_next)
+#define f_str_each_reverse(str, r, i) (uint i=str.len; rune r=f_str_prev_rune(str, &i);)
 
-C_API String str_format(Allocator* a, const char* fmt, ...);
-C_API void str_print(Array(u8)* buffer, String str);
-C_API void str_print_rune(Array(u8)* buffer, rune rune);
-C_API void str_print_repeat(Array(u8)* buffer, String str, uint count);
-C_API void str_printf(Array(u8)* buffer, const char* fmt, ...);
+#define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, 1, allocator), len }
 
-C_API String str_advance(String* str, uint len);
-C_API String str_clone(String str, Allocator* allocator);
+fString f_str_format(fAllocator* a, const char* fmt, ...);
+void f_str_print(fArray(u8)* buffer, fString str);
+void f_str_print_rune(fArray(u8)* buffer, rune rune);
+void f_str_print_repeat(fArray(u8)* buffer, fString str, uint count);
+void f_str_printf(fArray(u8)* buffer, const char* fmt, ...);
 
-C_API void str_copy(String dst, String src);
+fString f_str_advance(fString* str, uint len);
+fString f_str_clone(fString str, fAllocator* allocator);
 
-C_API String str_path_stem(String path); // Returns the name of a file without extension, e.g. "matty/boo/billy.txt" => "billy"
-C_API String str_path_extension(String path); // returns the file extension, e.g. "matty/boo/billy.txt" => "txt"
-C_API String str_path_tail(String path); // Returns the last part of a path, e.g. "matty/boo/billy.txt" => "billy.txt"
-C_API String str_path_dir(String path); // returns the directory, e.g. "matty/boo/billy.txt" => "matty/boo"
+void f_str_copy(fString dst, fString src);
 
-C_API bool str_last_index_of_any_char(String str, String chars, uint* out_index);
-C_API bool str_contains(String str, String substr);
-C_API bool str_find_substring(String str, String substr, uint* out_index);
+fString f_str_path_stem(fString path); // Returns the name of a file without extension, e.g. "matty/boo/billy.txt" => "billy"
+fString f_str_path_extension(fString path); // returns the file extension, e.g. "matty/boo/billy.txt" => "txt"
+fString f_str_path_tail(fString path); // Returns the last part of a path, e.g. "matty/boo/billy.txt" => "billy.txt"
+fString f_str_path_dir(fString path); // returns the directory, e.g. "matty/boo/billy.txt" => "matty/boo"
 
-C_API String str_replace(String str, String search_for, String replace_with, Allocator* a);
-C_API String str_replace_multi(String str, Slice(String) search_for, Slice(String) replace_with, Allocator* a);
-C_API String str_to_lower(String str, Allocator* a);
-C_API rune str_rune_to_lower(rune r);
+bool f_str_last_index_of_any_char(fString str, fString chars, uint* out_index);
+bool f_str_contains(fString str, fString substr);
+bool f_str_find_substring(fString str, fString substr, uint* out_index);
 
-C_API bool str_ends_with(String str, String end);
-C_API bool str_starts_with(String str, String start);
-C_API String str_cut_end(String str, String end);
-C_API String str_cut_start(String str, String start);
+fString f_str_replace(fString str, fString search_for, fString replace_with, fAllocator* a);
+fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fString) replace_with, fAllocator* a);
+fString f_str_to_lower(fString str, fAllocator* a);
+rune f_str_rune_to_lower(rune r);
 
-//C_API void str_split(String str, u8 character, Allocator* a, Slice(String)* out);
-C_API void str_split_i(String str, u8 character, Allocator* a, Slice(RangeUint)* out);
+bool f_str_ends_with(fString str, fString end);
+bool f_str_starts_with(fString str, fString start);
+fString f_str_cut_end(fString str, fString end);
+fString f_str_cut_start(fString str, fString start);
 
-C_API String str_join(Allocator* a, Slice(String) args);
+//void str_split(String str, u8 character, Allocator* a, Slice(String)* out);
+void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)* out);
 
-C_API bool str_equals(String a, String b);
-C_API bool str_equals_nocase(String a, String b); // case-insensitive version of str_equals
+fString f_str_join(fAllocator* a, fSlice(fString) args);
 
-C_API String str_slice(String str, uint lo, uint hi);
-C_API String str_slice_before(String str, uint mid);
-C_API String str_slice_after(String str, uint mid);
+bool f_str_equals(fString a, fString b);
+bool f_str_equals_nocase(fString a, fString b); // case-insensitive version of str_equals
 
-C_API bool str_to_u64(String s, u32 radix, u64* out_value);
-C_API bool str_to_s64(String s, u32 radix, s64* out_value);
-C_API bool str_to_f64(String s, f64* out);
+fString f_str_slice(fString str, uint lo, uint hi);
+fString f_str_slice_before(fString str, uint mid);
+fString f_str_slice_after(fString str, uint mid);
 
-C_API String str_from_uint(String bytes, Allocator* a);
-C_API String str_from_int(String bytes, Allocator* a);
-C_API String str_from_float(String bytes, Allocator* a);
-C_API String str_from_float_ex(String bytes, int num_decimals, Allocator* a);
+bool f_str_to_u64(fString s, u32 radix, u64* out_value);
+bool f_str_to_s64(fString s, u32 radix, s64* out_value);
+bool f_str_to_f64(fString s, f64* out);
 
-C_API char* str_to_cstring(String s, Allocator* a);
-C_API String str_from_cstring(const char* s);
+fString f_str_from_uint(fString bytes, fAllocator* a);
+fString f_str_from_int(fString bytes, fAllocator* a);
+fString f_str_from_float(fString bytes, fAllocator* a);
+fString f_str_from_float_ex(fString bytes, int num_decimals, fAllocator* a);
 
-C_API u64 str_hash64_ex(String s, u64 seed);
-#define str_hash64(s) str_hash64_ex(s, 0) 
+char* f_str_to_cstr(fString s, fAllocator* a);
+fString f_str_from_cstr(const char* s);
 
 // Do we need this function...? It's very windows-specific.
-C_API wchar_t* str_to_utf16(String str, uint num_null_terminations, Allocator* a, uint* out_len);
-C_API String str_from_utf16(wchar_t* str_utf16, Allocator* a);
+wchar_t* f_str_to_utf16(fString str, uint num_null_terminations, fAllocator* a, uint* out_len);
+fString f_str_from_utf16(wchar_t* str_utf16, fAllocator* a);
 
-C_API uint str_encode_rune(u8* output, rune r); // returns the number of bytes written
+uint f_str_encode_rune(u8* output, rune r); // returns the number of bytes written
 // TODO: utf8_decode_rune
 
 // Returns the character on `byteoffset`, then increments it.
 // Will returns 0 if byteoffset >= str.len
-C_API rune str_next_rune(String str, uint* byteoffset);
+rune f_str_next_rune(fString str, uint* byteoffset);
 
 // Decrements `bytecounter`, then returns the character on it.
 // Will returns 0 if byteoffset < 0
-C_API rune str_prev_rune(String str, uint* byteoffset);
+rune f_str_prev_rune(fString str, uint* byteoffset);
 
-C_API uint str_rune_count(String str);
+uint f_str_rune_count(fString str);
 
 // -- Clipboard ----------------------------------------------------------------
 
-C_API String os_clipboard_get_text(Allocator* allocator);
-C_API void os_clipboard_set_text(String str);
+fString f_os_clipboard_get_text(fAllocator* allocator);
+void f_os_clipboard_set_text(fString str);
 
 // -- DynamicLibrary -----------------------------------------------------------
 
-C_API OS_DynamicLibrary os_dynamic_library_load(String filepath);
-C_API bool os_dynamic_library_unload(OS_DynamicLibrary dll);
-C_API void* os_dynamic_library_sym_address(OS_DynamicLibrary dll, String symbol);
+fDynamicLibrary f_dynamic_library_load(fString filepath);
+bool f_dynamic_library_unload(fDynamicLibrary dll);
+void* f_dynamic_library_sym_address(fDynamicLibrary dll, fString symbol);
 
-// -- Filesystem ---------------------------------------------------------------
+// -- Files --------------------------------------------------------------------
 
 // The path separator in the returned string will depend on the OS. On windows, it will be a backslash.
 // If the provided path is invalid, an empty string will be returned.
 // TODO: maybe it'd be better if these weren't os-specific functions, and instead could take an argument for specifying
 //       windows-style paths / unix-style paths
-C_API bool os_path_is_absolute(String path);
+bool f_files_path_is_absolute(fString path);
 
 // If `working_dir` is an empty string, the current working directory will be used.
-C_API String os_path_to_absolute(String working_dir, String path, Allocator* a);
+fString f_files_path_to_absolute(fString working_dir, fString path, fAllocator* a);
+bool f_files_visit_directory(fString path, fVisitDirectoryVisitor visitor, void* visitor_userptr);
+bool f_files_directory_exists(fString path);
+bool f_files_delete_directory(fString path); // If the directory doesn't already exist, it's treated as a success.
+bool f_files_make_directory(fString path); // If the directory already exists, it's treated as a success.
 
-C_API bool os_visit_directory(String path, OS_VisitDirectoryVisitor visitor, void* visitor_userptr);
+bool f_files_read_whole(fString filepath, fAllocator* allocator, fString* out_str);
+bool f_files_write_whole(fString filepath, fString data);
 
-C_API bool os_directory_exists(String path);
-C_API bool os_delete_directory(String path); // If the directory doesn't already exist, it's treated as a success.
-C_API bool os_make_directory(String path); // If the directory already exists, it's treated as a success.
+fFile f_files_open(fString filepath, fFileOpenMode mode);
+bool f_files_exists(fFile file);
+bool f_files_close(fFile file);
+uint f_files_size(fFile file);
+uint f_files_read(fFile file, void* dst, uint size);
+bool f_files_write(fFile file, fString data);
+uint f_files_get_position(fFile file);
+bool f_files_set_position(fFile file, uint position);
 
-C_API bool os_file_read_whole(String filepath, Allocator* allocator, String* out_str);
-C_API bool os_file_write_whole(String filepath, String data);
+u64 f_files_get_modtime(fString filepath); // it'd be nice if this used apollo time
+bool f_files_clone(fString src_filepath, fString dst_filepath);
+bool f_files_delete(fString filepath);
 
-C_API File os_file_open(String filepath, OS_FileOpenMode mode);
-C_API bool os_file_is_valid(File file);
-C_API bool os_file_close(File file);
-
-C_API uint os_file_size(File file);
-
-C_API uint os_file_read(File file, void* dst, uint size);
-C_API bool os_file_write(File file, String data);
-C_API uint os_file_get_position(File file);
-C_API bool os_file_set_position(File file, uint position);
-
-C_API u64 os_file_get_modtime(String filepath); // it'd be nice if this used apollo time
-C_API bool os_file_clone(String src_filepath, String dst_filepath);
-C_API bool os_file_delete(String filepath);
-
-C_API String os_file_picker_dialog(Allocator* allocator);
+fString f_files_pick_file_dialog(fAllocator* allocator);
 
 // -- Time --------------------------------------------------------------------
 
-C_API Tick time_get_tick();
+fTick f_get_tick();
 
 // -- Random ------------------------------------------------------------------
 
-C_API u32 rand_u32();
-C_API u64 rand_u64();
-C_API float rand_float_in_range(float minimum, float maximum);
+u32 f_random_u32();
+u64 f_random_u64();
+float f_random_float_in_range(float minimum, float maximum);
 
-
-#undef String
-#undef Array
-#undef Slice
-#undef Map64
-#undef C_API
+#ifdef __cplusplus
+} // extern "C"
+#endif

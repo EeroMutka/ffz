@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#define OPT(ptr) ptr
+
 typedef struct ffzProject ffzProject;
 typedef union ffzNode ffzNode;
 typedef u32 ffzParserIndex;
@@ -180,13 +182,13 @@ typedef struct ffzNodeDeclaration {
 
 typedef struct ffzNodeTag {
 	FFZ_NODE_BASE;
-	String tag;
+	fString tag;
 	// TODO: tag argument? it should be able to hold an arbitrary AST tree inside
 } ffzNodeTag;
 
 typedef struct ffzNodeTagDecl {
 	FFZ_NODE_BASE;
-	String tag;
+	fString tag;
 	ffzNode* rhs;
 
 	ffzNodeTagDecl* same_tag_next;
@@ -194,7 +196,7 @@ typedef struct ffzNodeTagDecl {
 
 typedef struct ffzNodeIdentifier {
 	FFZ_NODE_BASE;
-	String name;
+	fString name;
 	bool is_constant; // has # in front? ... maybe this field should be removed and just be stored in the StmtTargets
 } ffzNodeIdentifier;
 
@@ -259,7 +261,7 @@ typedef struct ffzNodeIntLiteral {
 
 typedef struct ffzNodeStringLiteral {
 	FFZ_NODE_BASE;
-	String zero_terminated_string;
+	fString zero_terminated_string;
 } ffzNodeStringLiteral;
 
 union ffzNode {
@@ -283,30 +285,30 @@ union ffzNode {
 };
 
 // synced with `ffzNodeKind`
-static const String ffzNodeKind_String[] = {
-	LIT_COMP("invalid"),
-	LIT_COMP("blank"),
-	LIT_COMP("compiler-tag-declaration"),
-	LIT_COMP("user-tag-declaration"),
-	LIT_COMP("compiler-tag"),
-	LIT_COMP("user-tag"),
-	LIT_COMP("declaration"),
-	LIT_COMP("assignment"),
-	LIT_COMP("identifier"),
-	LIT_COMP("polymorphic-parameter"),
-	LIT_COMP("keyword"),
-	LIT_COMP("dot"),
-	LIT_COMP("operator"),
-	LIT_COMP("proc-type"),
-	LIT_COMP("struct"),
-	LIT_COMP("enum"),
-	LIT_COMP("return"),
-	LIT_COMP("if"),
-	LIT_COMP("for"),
-	LIT_COMP("scope"),
-	LIT_COMP("int-literal"),
-	LIT_COMP("string-literal"),
-	LIT_COMP("float-literal"),
+static const fString ffzNodeKind_String[] = {
+	F_LIT_COMP("invalid"),
+	F_LIT_COMP("blank"),
+	F_LIT_COMP("compiler-tag-declaration"),
+	F_LIT_COMP("user-tag-declaration"),
+	F_LIT_COMP("compiler-tag"),
+	F_LIT_COMP("user-tag"),
+	F_LIT_COMP("declaration"),
+	F_LIT_COMP("assignment"),
+	F_LIT_COMP("identifier"),
+	F_LIT_COMP("polymorphic-parameter"),
+	F_LIT_COMP("keyword"),
+	F_LIT_COMP("dot"),
+	F_LIT_COMP("operator"),
+	F_LIT_COMP("proc-type"),
+	F_LIT_COMP("struct"),
+	F_LIT_COMP("enum"),
+	F_LIT_COMP("return"),
+	F_LIT_COMP("if"),
+	F_LIT_COMP("for"),
+	F_LIT_COMP("scope"),
+	F_LIT_COMP("int-literal"),
+	F_LIT_COMP("string-literal"),
+	F_LIT_COMP("float-literal"),
 };
 
 // Parser is responsible for parsing a single file / string of source code
@@ -316,19 +318,19 @@ struct ffzParser {
 	ffzParserIndex self_idx;     // this index will be saved into the generated AstNode structures
 	ffzCheckerIndex checker_idx; // unused in the parser stage
 
-	String source_code;
-	String source_code_filepath; // The filepath is displayed in error messages, but not used anywhere else.
+	fString source_code;
+	fString source_code_filepath; // The filepath is displayed in error messages, but not used anywhere else.
 
 	ffzNodeScope* root;
-	Allocator* alc;
+	fAllocator* alc;
 
-	ArrayRaw/*<ffzNodeKeyword*>*/ module_imports;
-	Map64Raw/*<ffzNodeTagDecl*>*/ tag_decl_lists; // key: str_hash64(tag, 0)
+	fArrayRaw/*<ffzNodeKeyword*>*/ module_imports;
+	fMap64Raw/*<ffzNodeTagDecl*>*/ tag_decl_lists; // key: str_hash64(tag, 0)
 
 	bool stop_at_curly_brackets;
 	ffzLoc pos;
 
-	void(*report_error)(ffzParser* parser, ffzLocRange at, String error);
+	void(*report_error)(ffzParser* parser, ffzLocRange at, fString error);
 };
 
 #define FFZ_AS(node,kind) ((ffzNode##kind*)node)
@@ -357,8 +359,8 @@ inline bool ffz_op_is_comparison(ffzOperatorKind kind) { return kind >= ffzOpera
 inline bool ffz_op_is_shift(ffzOperatorKind kind) { return kind == ffzOperatorKind_ShiftL || kind == ffzOperatorKind_ShiftR; }
 inline bool ffz_op_is_arithmetic(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Add && kind <= ffzOperatorKind_Modulo; }
 
-OPT(ffzNodeTag*) ffz_node_get_compiler_tag(ffzNode* node, String tag);
-OPT(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, String tag);
+OPT(ffzNodeTag*) ffz_node_get_compiler_tag(ffzNode* node, fString tag);
+OPT(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, fString tag);
 
 //u32 ffz_poly_parameter_get_index(ffzNode* node);
 //u32 ffz_parameter_get_index(ffzNode* node);
@@ -367,7 +369,7 @@ OPT(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, String tag);
 //u32 ffz_scope_child_get_index(ffzNode* node);
 
 OPT(ffzNodeDeclaration*) ffz_get_parent_decl(OPT(ffzNode*) node); // returns NULL if node->parent is not a declaration, or the node itself is NULL
-String ffz_get_parent_decl_name(OPT(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
+fString ffz_get_parent_decl_name(OPT(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
 
 u32 ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
 ffzNode* ffz_get_child(ffzNode* parent, u32 idx);
@@ -375,14 +377,16 @@ u32 ffz_get_child_count(OPT(ffzNode*) parent); // returns 0 if parent is NULL
 
 //ffzToken ffz_token_from_node(ffzParser* parser, ffzNode* node);
 
-String ffz_node_kind_to_string(ffzNodeKind kind);
+fString ffz_node_kind_to_string(ffzNodeKind kind);
 const char* ffz_node_kind_to_cstring(ffzNodeKind kind);
 
 ffzOk ffz_parse(ffzParser* p);
 
 OPT(ffzNode*) ffz_skip_tag_decls(OPT(ffzNode*) node);
 
-String ffz_print_ast(Allocator* alc, ffzNode* node);
+fString ffz_print_ast(fAllocator* alc, ffzNode* node);
+
+#undef OPT
 
 #ifdef __cplusplus
 } // extern "C"

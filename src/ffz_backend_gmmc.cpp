@@ -75,17 +75,17 @@ static String make_export_name(ffzBackend* gen, ffzNodeInst inst) {
 	Array<u8> name = make_array<u8>(gen->allocator);
 	str_print(&name, ffz_get_parent_decl_name(inst.node));
 	if (inst.poly_inst != 0) {
-		str_print(&name, LIT("["));
+		str_print(&name, F_LIT("["));
 
 		ffzPolyInst* poly_inst = map64_get(&gen->checker->poly_instantiations, inst.poly_inst);
 		for (uint i = 0; i < poly_inst->parameters.len; i++) {
-			if (i > 0) str_print(&name, LIT(", "));
+			if (i > 0) str_print(&name, F_LIT(", "));
 
 			ASSERT(poly_inst->parameters[i]->tag == ffzTypeTag_Type);
 			str_print(&name, ffz_type_to_string(gen->checker, poly_inst->parameters[i]->type.t));
 		}
 
-		str_print(&name, LIT("]"));
+		str_print(&name, F_LIT("]"));
 	}
 
 	if (gen->checker->_dbg_module_import_name.len > 0) {
@@ -93,7 +93,7 @@ static String make_export_name(ffzBackend* gen, ffzNodeInst inst) {
 		// Currently, we're giving these symbols unique ids and exporting them anyway, because
 		// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 
-		BP;//export_name = str_join_il(gen->allocator, { gen->checker->imported_from_module_name, LIT("."), export_name });
+		BP;//export_name = str_join_il(gen->allocator, { gen->checker->imported_from_module_name, F_LIT("."), export_name });
 	}
 	return fill_empty_name_with_id(gen, name.slice);
 }
@@ -481,7 +481,7 @@ static gmmcValue* gen_procedure(ffzBackend* gen, ffzNodeOperatorInst inst) {
 	gen->curr_proc = &proc_gen_ctx;
 
 	for FFZ_EACH_CHILD_INST(n, proc_type->Proc.type_node) {
-		String prefix = left.node->kind == ffzNodeKind_ProcType ? String{} : LIT("in.");
+		String prefix = left.node->kind == ffzNodeKind_ProcType ? String{} : F_LIT("in.");
 		add_dbginfo_local(gen, ICHILD(IAS(n,Declaration),name), prefix);
 	}
 
@@ -498,7 +498,7 @@ static gmmcValue* gen_procedure(ffzBackend* gen, ffzNodeOperatorInst inst) {
 
 	gmmc_proc_set_ops(_proc, proc_gen_ctx.gmmc_ops.data, (int)proc_gen_ctx.gmmc_ops.len);
 
-	//if (dbginfo_name.len == 0) dbginfo_name = LIT("?");
+	//if (dbginfo_name.len == 0) dbginfo_name = F_LIT("?");
 
 	gmmcDIProcedure* proc_dbginfo = mem_clone(gmmcDIProcedure{}, gen->allocator);
 	//proc_dbginfo->name = transmute(GMMC_String)dbginfo_name;
@@ -627,7 +627,7 @@ static gmmcValue* gen_operator(ffzBackend* gen, ffzNodeOperatorInst inst, const 
 		ASSERT(!desc.must_be_constant);
 		String member_name = AS(right.node, Identifier)->name;
 
-		if (left.node->kind == ffzNodeKind_Identifier && AS(left.node, Identifier)->name == LIT("in")) {
+		if (left.node->kind == ffzNodeKind_Identifier && AS(left.node, Identifier)->name == F_LIT("in")) {
 			for (u32 i = 0; i < gen->curr_proc->proc_type->Proc.in_params.len; i++) {
 				ffzTypeProcParameter& param = gen->curr_proc->proc_type->Proc.in_params[i];
 				if (param.name->name == member_name) {
@@ -960,7 +960,7 @@ static OPT(gmmcValue*) gen_expression(ffzBackend* gen, ffzNodeInst inst, const G
 	} break;
 
 	case ffzNodeKind_ProcType: {
-		if (ffz_node_get_compiler_tag(inst.node, LIT("extern"))) {
+		if (ffz_node_get_compiler_tag(inst.node, F_LIT("extern"))) {
 			String name = ffz_get_parent_decl_name(inst.node);
 			result = gmmc_val_extern_sym_address(gen->gmmc, 8, BITCAST(gmmcString, name));
 		}
@@ -973,7 +973,7 @@ static OPT(gmmcValue*) gen_expression(ffzBackend* gen, ffzNodeInst inst, const G
 		// TODO: make sure this is not duplicated (like any other constants) for different poly instances
 
 		// hmm yeah maybe it's a bit dumb to have "import" be a compiler tag.
-		if (ffz_node_get_compiler_tag(inst.node, LIT("import"))) return NULL;
+		if (ffz_node_get_compiler_tag(inst.node, F_LIT("import"))) return NULL;
 
 		String str = AS(inst.node,StringLiteral)->zero_terminated_string;
 		ASSERT(str.len > 0 && str.len + 1 < U32_MAX);

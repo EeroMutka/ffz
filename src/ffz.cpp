@@ -13,14 +13,14 @@ int main(int argc, const char* argv[]) {
 	//}
 	//printf("\n");
 	
-	Allocator* temp = temp_push();
+	fAllocator* temp = f_temp_push();
 	
 	if (argc <= 1) {
 		printf("Please provide a directory to compile!\n");
 		return 1;
 	}
 
-	String dir = os_path_to_absolute(String{}, str_from_cstring(argv[1]), temp);
+	fString dir = f_files_path_to_absolute(fString{}, f_str_from_cstr(argv[1]), temp);
 	if (!ffz_build_directory(dir)) return 1;
 	
 	return 0;
