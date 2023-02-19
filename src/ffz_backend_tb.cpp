@@ -403,27 +403,50 @@ static SmallOrPtr gen_call(Gen* g, ffzNodeOperatorInst inst) {
 	return out;
 }
 
-static void gen_initializer_constant(Gen* g, void* dst, ffzType* type, ffzConstant* constant) {
+struct Initializer { TB_Initializer* init; u8* mem; };
+
+Initializer make_initializer(Gen* g, u32 size, u32 alignment) {
+	TB_Initializer* init = tb_initializer_create(g->tb, size, alignment, 32); // ... why do we need to provide a capacity???
+	void* mem = tb_initializer_add_region(g->tb, init, 0, size);
+	return { init, (u8*)mem };
+}
+
+static void gen_initializer_constant(Gen* g, Initializer init, u32 offset, ffzType* type, ffzConstant* constant) {
 	switch (type->tag) {
 	case ffzTypeTag_Bool: // fallthrough
 	case ffzTypeTag_SizedInt: // fallthrough
 	case ffzTypeTag_Int: // fallthrough
 	case ffzTypeTag_SizedUint: // fallthrough
 	case ffzTypeTag_Uint: {
-		memcpy(dst, constant, type->size);
+		memcpy(init.mem + offset, constant, type->size);
+	} break;
+	case ffzTypeTag_String: {
+		fString s = constant->string_zero_terminated;
+		Initializer str_data_init = make_initializer(g, s.len + 1, 8);
+		memcpy(str_data_init.mem, s.data, s.len + 1);
+
+		// we need to make a global out of the string...
+		TB_Global* str_data_global = tb_global_create(g->tb, make_name(g), TB_STORAGE_DATA, NULL, TB_LINKAGE_PRIVATE);
+		tb_global_set_initializer(g->tb, str_data_global, str_data_init.init);
+		
+		memset(init.mem + offset, 0, 8);
+		tb_initializer_add_symbol_reloc(g->tb, init.init, offset, (TB_Symbol*)str_data_global);
+
+		u64 len = s.len;
+		memcpy(init.mem + offset + 8, &len, 8);
 	} break;
 	case ffzTypeTag_Record: {
-		memset(dst, 0, type->size);
+		memset(init.mem + offset, 0, type->size);
 		for (uint i = 0; i < type->Record.fields.len; i++) {
 			ffzTypeRecordField* field = &type->Record.fields[i];
-			gen_initializer_constant(g, (u8*)dst + field->offset, field->type, &constant->record_fields[i]);
+			gen_initializer_constant(g, init, offset + field->offset, field->type, &constant->record_fields[i]);
 		}
 	} break;
 	case ffzTypeTag_FixedArray: {
 		uint elem_size = type->FixedArray.elem_type->size;
 		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
 			ffzConstant c = ffz_constant_fixed_array_get(type, constant, i);
-			gen_initializer_constant(g, (u8*)dst + i*elem_size, type->FixedArray.elem_type, &c);
+			gen_initializer_constant(g, init, offset + i*elem_size, type->FixedArray.elem_type, &c);
 		}
 	} break;
 	default: F_BP;
@@ -445,6 +468,8 @@ static void gen_store(Gen* g, TB_Reg lhs_address, ffzNodeInst rhs) {
 	_gen_store(g, lhs_address, rhs_value, type);
 }
 
+
+
 static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	SmallOrPtr out = {};
 
@@ -452,10 +477,12 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	if (checked.const_val) {
 		switch (checked.type->tag) {
 		case ffzTypeTag_Bool: {
+			F_ASSERT(!address_of);
 			out.small = tb_inst_bool(g->fn, checked.const_val->bool_);
 		} break;
 		case ffzTypeTag_SizedInt: // fallthrough
 		case ffzTypeTag_Int: {
+			F_ASSERT(!address_of);
 			if (checked.type->size == 1)      out.small = tb_inst_sint(g->fn, TB_TYPE_I8,  checked.const_val->u8_);
 			else if (checked.type->size == 2) out.small = tb_inst_sint(g->fn, TB_TYPE_I16, checked.const_val->u16_);
 			else if (checked.type->size == 4) out.small = tb_inst_sint(g->fn, TB_TYPE_I32, checked.const_val->u32_);
@@ -465,6 +492,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 		case ffzTypeTag_SizedUint: // fallthrough
 		case ffzTypeTag_Uint: {
+			F_ASSERT(!address_of);
 			if (checked.type->size == 1)      out.small = tb_inst_uint(g->fn, TB_TYPE_I8,  checked.const_val->u8_);
 			else if (checked.type->size == 2) out.small = tb_inst_uint(g->fn, TB_TYPE_I16, checked.const_val->u16_);
 			else if (checked.type->size == 4) out.small = tb_inst_uint(g->fn, TB_TYPE_I32, checked.const_val->u32_);
@@ -473,6 +501,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 		//case ffzTypeTag_Int: { BP; } break;
 		case ffzTypeTag_Proc: {
+			F_ASSERT(!address_of);
 			if (checked.const_val->proc_node.node->kind == ffzNodeKind_ProcType) { // @extern proc
 				const char* name = make_name(g, checked.const_val->proc_node);
 				TB_External* external = tb_extern_create(g->tb, name, TB_EXTERNAL_SO_EXPORT);
@@ -484,22 +513,22 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 
+		case ffzTypeTag_String: // fallthrough
 		case ffzTypeTag_FixedArray: // fallthrough
 		case ffzTypeTag_Record: {
-			TB_Initializer* init = tb_initializer_create(g->tb, checked.type->size, checked.type->alignment, 1);
+			Initializer init = make_initializer(g, checked.type->size, checked.type->alignment);
 			
-			void* mem = tb_initializer_add_region(g->tb, init, 0, checked.type->size);
-			gen_initializer_constant(g, mem, checked.type, checked.const_val);
+			gen_initializer_constant(g, init, 0, checked.type, checked.const_val);
 			
 			TB_Global* global = tb_global_create(g->tb, make_name(g), TB_STORAGE_DATA, NULL, TB_LINKAGE_PRIVATE);
-			tb_global_set_initializer(g->tb, global, init);
+			tb_global_set_initializer(g->tb, global, init.init);
 			
 			TB_Reg global_addr = tb_inst_get_symbol_address(g->fn, (TB_Symbol*)global);
 			if (checked.type->size > 8) {
-				out.ptr = global_addr;
+				if (address_of) out.small = global_addr;
+				else out.ptr = global_addr;
 			}
 			else F_BP;
-
 		} break;
 
 		default: F_BP;
@@ -613,7 +642,6 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->checker, left);
 				
 				ffzType* struct_type = left_chk.type->tag == ffzTypeTag_Pointer ? left_chk.type->Pointer.pointer_to : left_chk.type;
-				//C0AggType* struct_type_c0 = get_c0_type(g, struct_type);
 
 				ffzTypeRecordFieldUse field;
 				F_ASSERT(ffz_type_find_record_field_use(g->checker, struct_type, member_name, &field));

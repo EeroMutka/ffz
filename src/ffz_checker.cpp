@@ -545,7 +545,7 @@ static bool type_is_a(ffzType* src, ffzType* target) {
 	if (src->tag == ffzTypeTag_Uint && target->tag == ffzTypeTag_Int) return true; // allow implicit cast from uint -> int
 	if (target->tag == ffzTypeTag_Void) return true; // everything can cast to void
 
-	if (src->module == target->module) {
+	if (src->module && src->module == target->module) {
 		bool matches = ffz_hash_type(src) == ffz_hash_type(target);
 		F_ASSERT((src == target) == matches);
 		return src == target;
@@ -1098,10 +1098,12 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				//}
 			}
 			else if (left_chk.type->tag == ffzTypeTag_Type && left_chk.const_val->type->tag == ffzTypeTag_Enum) {
+				ffzType* enum_type = left_chk.const_val->type;
 				ffzMemberHash member_key = ffz_hash_member(left_chk.const_val->type, member_name);
-				
-				if (u64* val = f_map64_get(&left_chk.type->module->enum_value_from_name, member_key)) {
+
+				if (u64* val = f_map64_get(&enum_type->module->enum_value_from_name, member_key)) {
 					result->type = left_chk.const_val->type;
+					result->const_val = make_constant_int(c, *val);
 					found = true;
 				}
 			}
@@ -1650,7 +1652,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		// Note that we're making the enum type pointer BEFORE populating all of the fields
 		ffzType* enum_type_ptr = make_type(c, enum_type);
 
-		CheckInfer decl_infer = infer_no_help(infer);
+		CheckInfer decl_infer = infer_no_help_constant(infer);
 		decl_infer.infer_decl_type = enum_type.Enum.internal_type;
 
 		uint i = 0;
@@ -1659,12 +1661,10 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			
 			ffzNodeDeclarationInst decl = IAS(n, Declaration);
 			TRY(check_declaration(c, decl_infer, decl));
-			F_ASSERT(decl.node->rhs->kind == ffzNodeKind_IntLiteral);
+			ffzCheckedExpr chk = ffz_decl_get_checked(c, decl);
 
-			//ffzNode* name_identifier = stmt.node->Targeted.lhs_expression;
+			u64 val = chk.const_val->u64_;
 			ffzMemberHash key = ffz_hash_member(enum_type_ptr, decl.node->name->name);
-			//MapInsert(&c->enum_value_from_name, 
-			u64 val = AS(decl.node->rhs,IntLiteral)->value;
 			f_map64_insert(&c->enum_value_from_name, key, val);
 
 			enum_type.Enum.fields[i] = ffzTypeEnumField{ decl.node->name->name, val };

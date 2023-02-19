@@ -174,7 +174,7 @@ typedef struct ffzConstant {
 
 		ffzType* type;
 		ffzChecker* module;
-		fString string_zero_terminated;
+		fString string_zero_terminated; // length doesn't contain the zero termination.
 
 		// tightly-packed array of ffzConstant. i.e. if this is an array of u8,
 		// the n-th element would be ((ffzConstant*)((u8*)array_elems + n))->_u8.
@@ -234,7 +234,9 @@ struct ffzChecker {
 	fMap64(ffzPolyInst) poly_instantiations; // key: ffz_hash_poly_inst
 	fMap64(ffzPolyInstHash) poly_instantiation_sites; // key: ffz_has_node_inst
 	fMap64(ffzTypeRecordFieldUse*) record_field_from_name; // key: MemberKey
-	fMap64(u64) enum_value_from_name; // key: MemberKey. TODO: remove this and use the constant eval instead!
+
+	// Only required during checking
+	fMap64(u64) enum_value_from_name; // key: MemberKey.
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
 	fMap64(ffzChecker*) imported_modules; // key: *AstNode. Maybe this should be moved into ffzProject since it doesn't change often (thinking about threading)

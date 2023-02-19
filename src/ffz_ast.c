@@ -437,9 +437,9 @@ static ffzOk maybe_eat_next_token(ffzParser* p, ffzLoc* pos, bool ignore_newline
 			// We need to manually check for some cases where symbols should be joined.
 			// e.g. <= << >> == !=
 			bool join_symbol = false;
-			if (prev_r == '|') join_symbol = true; // ||
-			if (prev_r == '&') join_symbol = true; // &&
-			if (prev_r == '=') join_symbol = true; // ==
+			if (prev_r == '|' && r == '|') join_symbol = true;
+			if (prev_r == '&' && r == '&') join_symbol = true;
+			if (prev_r == '=' && (r == '=' || r == '>')) join_symbol = true; // =>, ==
 			if (prev_r == '<') join_symbol = true; // <<, <=
 			if (prev_r == '>') join_symbol = true; // >>, >=
 			if (prev_r == '!' && r == '=') join_symbol = true; // != should join, but e.g. !! and !~ shouldn't join

@@ -402,9 +402,13 @@ bool ffz_build_directory(fString directory) {
 		f_array_push(&linker_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
 		f_array_push(&linker_args, F_LIT("/INCREMENTAL:NO"));     // incremental linking would break things with the way we're generating OBJ files
 		f_array_push(&linker_args, F_LIT("/DEBUG"));
-		f_array_push(&linker_args, F_LIT("/NODEFAULTLIB")); // disable linking to CRT
-		f_array_push(&linker_args, F_LIT("/SUBSYSTEM:WINDOWS"));
-		f_array_push(&linker_args, F_LIT("/ENTRY:ffz_entry"));
+		
+		// f_array_push(&linker_args, F_LIT("/NODEFAULTLIB")); // disable linking to CRT
+
+		bool console_app = true;
+		f_array_push(&linker_args, console_app ? F_LIT("/SUBSYSTEM:CONSOLE") : F_LIT("/SUBSYSTEM:WINDOWS"));
+		//if (!console_app) f_array_push(&linker_args, F_LIT("/ENTRY:ffz_entry"));
+
 		f_array_push(&linker_args, F_LIT("/OUT:.ffz/.exe"));
 		f_array_push(&linker_args, objname);
 

@@ -160,9 +160,9 @@ void f_str_print(Array(u8)* buffer, fString str) {
 	f_array_push_slice_raw(buffer, F_BITCAST(fSliceRaw, str), 1);
 }
 
-void f_str_print_rune(Array(u8)* buffer, rune rune) {
-	F_ASSERT(rune < 128); // TODO
-	f_array_push_raw(buffer, &rune, 1);
+void f_str_print_rune(Array(u8)* buffer, rune r) {
+	F_ASSERT(r < 128); // TODO
+	f_array_push_raw(buffer, &r, 1);
 }
 
 //SliceRaw array_get_slice_raw(ArrayRaw* array) { return *(SliceRaw*)array; }

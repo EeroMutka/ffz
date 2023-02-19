@@ -1,4 +1,10 @@
 #B: import("../modules/basic")
+// TODO: move this to foundation.ffz modfile
+
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-library-features?view=msvc-170
+@link_system_library: "libucrt.lib"
+//@link_system_library: "libcmt.lib" // link CRT startup code
+
 
 //@link_library: ".ffz/c_things.obj"
 //#receive_v3: @extern proc(aa: V3)
@@ -23,17 +29,21 @@
 	c: integers[2]
 }
 
-#ffz_entry: proc() {
+#printf: @extern proc(fmt: ^u8)
+
+#main: proc() {
 	//aaa: MyString{&bytes[0], 100}
 	
 	// how can I detect cycles?
 	//a: 5 + b
 	//b: u32(20)
-	//s: "Hello, sailor"
+	s: "Hello, sailor"
 	
-	//for i: 0, i<64, i=.+1 {
-	// //B.f_os_print_color(
-	//}
+	printf("yoooooooooooo!\n\n\n".ptr)
+	
+	for i: 0, i<64, i=.+1 {
+		B.f_os_print_color(s, B.fConsoleAttributeFlags(B.fConsoleAttribute.Green))
+	}
 	
 	//str: "Hello, world!"
 	/*

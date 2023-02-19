@@ -2,6 +2,7 @@
 
 @link_library: "foundation.obj"
 
+
 #f32: u32
 #f64: u64
 
@@ -260,7 +261,7 @@
 
 #f_str_print: @extern proc(buffer: ^fArrayRaw, str: string)
 
-#f_str_print_rune: @extern proc(buffer: ^fArrayRaw, rune: rune)
+#f_str_print_rune: @extern proc(buffer: ^fArrayRaw, r: rune)
 
 #f_str_print_repeat: @extern proc(buffer: ^fArrayRaw, str: string, count: uint)
 

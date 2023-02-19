@@ -658,7 +658,7 @@ u64 f_hash64_str_ex(fString s, u64 seed);
 
 fString f_str_format(fAllocator* a, const char* fmt, ...);
 void f_str_print(fArray(u8)* buffer, fString str);
-void f_str_print_rune(fArray(u8)* buffer, rune rune);
+void f_str_print_rune(fArray(u8)* buffer, rune r);
 void f_str_print_repeat(fArray(u8)* buffer, fString str, uint count);
 void f_str_printf(fArray(u8)* buffer, const char* fmt, ...);
 
