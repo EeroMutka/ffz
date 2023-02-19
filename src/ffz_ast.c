@@ -520,6 +520,7 @@ static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeK
 	ffzNode* node = f_mem_alloc(size, 8, p->alc);
 	memset(node, 0, size);
 	node->parser_idx = p->self_idx;
+	node->index = p->next_node_index++;
 	node->parent = parent;
 	node->kind = kind;
 	node->loc = range;
@@ -545,7 +546,7 @@ static ffzOk parse_possible_tag_decls(ffzParser* p, ffzNode* parent, OPT(ffzNode
 				ffzNodeTagDecl* tag_decl = new_node(p, parent, tok.range, kind, sizeof(ffzNodeTagDecl));
 
 				// TODO: make the usage of map64 nicer?
-				fMapInsertResult first = map64_insert(&p->tag_decl_lists, f_hash64_str_ex(tok.str, 0), tag_decl, fMapInsert_DoNotOverride);
+				fMapInsertResult first = f_map64_insert(&p->tag_decl_lists, f_hash64_str_ex(tok.str, 0), tag_decl, fMapInsert_DoNotOverride);
 				if (!first.added) {
 					tag_decl->same_tag_next = *(ffzNodeTagDecl**)first._unstable_ptr;
 					*(ffzNodeTagDecl**)first._unstable_ptr = tag_decl;
@@ -987,7 +988,7 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 				result->Keyword.keyword = (ffzKeyword)i;
 				
 				if (i == ffzKeyword_import) {
-					array_push(ffzNodeKeyword*, &p->module_imports, AS(result,Keyword));
+					f_array_push(&p->module_imports, AS(result,Keyword));
 				}
 
 				break;
@@ -1248,7 +1249,7 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 			AS(node,Operator)->left = prev;
 			prev->parent = node;
 
-			array_push(ffzNodeOperator*, &operator_chain, AS(node,Operator));
+			f_array_push(&operator_chain, AS(node,Operator));
 			p->pos = after_next;
 		}
 

@@ -1,4 +1,4 @@
-﻿//
+﻿// 
 // The foundation is a minimal set of functions and utilities
 // that I've found come in handy everywhere, and which the C/C++
 // language doesn't provide you in a good way.
@@ -34,7 +34,7 @@ typedef intptr_t  sint;
 typedef s32       rune;
 typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allowed)
 
-// Used to specify nullable pointers
+// Used to mark nullable pointers
 #define fOpt(ptr) ptr
 
 #define F_THREAD_LOCAL __declspec(thread)
@@ -172,12 +172,10 @@ typedef struct {
 #define fString fString
 #endif
 
-
-
 // c container macros
 #ifndef __cplusplus
-#define array_push(T, array, elem) f_array_push_raw((array), &(elem), sizeof(T))
-#define map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
+#define f_array_push(array, elem) f_array_push_raw((array), &(elem), sizeof(elem))
+#define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
 #endif
 
 // TODO: make it possible for an arena to grow.
@@ -263,7 +261,7 @@ inline void* f_mem_clone_size(uint size, uint align, const void* value, fAllocat
 	return result;
 }
 
-// Slice, Array and String have the same binary layout, so they can be bitcasted between each other
+// Slice, Array and fString have the same binary layout, so they can be bitcasted between each other
 
 typedef struct {
 	void* data;
@@ -279,7 +277,7 @@ typedef struct {
 		fSliceRaw slice;
 	};
 	uint capacity;
-	fAllocator* alc; // rename to allocator?
+	fAllocator* alc;
 } fArrayRaw;
 
 //#define HASH_STRING(x) MeowU64From(MeowHash(MeowDefaultSeed, x.len, x.data), 0)
@@ -315,10 +313,10 @@ typedef enum {
 
 typedef struct { void* _handle; } fFile;
 
-// #define STRING_FROM_CSTR(x) String{ (u8*)x, strlen(x) } // this shouldn't be a macro
+// #define STRING_FROM_CSTR(x) fString{ (u8*)x, strlen(x) } // this shouldn't be a macro
 
 // ALLOCA_C_STRING probably shouldn't be used in actual programs. Use to_cstring() instead.
-//inline const char* _temp_cstr(String string, void* out) { ZoneScoped; memcpy(out, string.data, string.len); ((char*)out)[string.len] = '\0'; return (const char*)out; }
+//inline const char* _temp_cstr(fString string, void* out) { ZoneScoped; memcpy(out, string.data, string.len); ((char*)out)[string.len] = '\0'; return (const char*)out; }
 //#define ALLOCA_C_STRING(str) _temp_cstr(str, alloca(str.len + 1))
 
 //#define __ACTIVATE_MANUAL_STRUCT_PADDING \
@@ -344,7 +342,7 @@ typedef struct { void* _handle; } fFile;
 
 typedef struct {
 	fAllocator* alc;
-	u32 value_size;
+	u32 value_size; // ...should we even have this?
 
 	u32 alive_count;
 
@@ -366,7 +364,7 @@ typedef struct {
 	i64 size;
 	i64 alignment;
 	// this could be a BucketArray
-	Array<CallstackEntry> callstack;
+	fArray(CallstackEntry) callstack;
 	*/
 } fLeakTracker_Entry;
 
@@ -377,20 +375,20 @@ typedef struct {
 
 	fMap64(fLeakTracker_Entry) active_allocations; // key is the address of the allocation
 
-	/*Allocator allocator; // Must be the first field for outwards-casting!
+	/*fAllocator allocator; // Must be the first field for outwards-casting!
 
-	Allocator* passthrough_allocator;
+	fAllocator* passthrough_allocator;
 	Arena internal_arena;
 
 	u64 next_allocation_idx;
 
-	Array<LeakTracker_BadFree> bad_free_array;
+	fArray(LeakTracker_BadFree) bad_free_array;
 	*/
 	// This is here so that we won't have to create a dozen of duplicate strings
 	fMap64(fString) file_names_cache; // key is the string hashed
 } fLeakTracker;
 
-//extern Allocator _global_allocator; // do we need this?
+//extern fAllocator _global_allocator; // do we need this?
 //F_THREAD_LOCAL extern void* _foundation_pass;
 F_THREAD_LOCAL extern fArena* _f_temp_arena;
 F_THREAD_LOCAL extern uint _f_temp_arena_scope_counter;
@@ -425,7 +423,7 @@ typedef struct {
 	u32 elem_size;
 
 	u32 num_elems_per_bucket;
-	Allocator* a;
+	fAllocator* a;
 	//bool is_using_arena;
 	//union {
 	//	struct {
@@ -489,7 +487,7 @@ typedef fVisitDirectoryResult(*fVisitDirectoryVisitor)(const fVisitDirectoryInfo
 typedef struct fRangeUint { uint lo, hi; } fRangeUint;
 
 //
-// `temp_push`/`temp_pop` sets a convention for easily getting temporary memory
+// `temp_push`/`f_temp_pop` sets a convention for easily getting temporary memory
 // in a thread-safe way for a duration of some scope. Internally, foundation.cpp
 // declares a thread-local Arena.
 // 
@@ -499,20 +497,20 @@ typedef struct fRangeUint { uint lo, hi; } fRangeUint;
 // return allocated memory back to the outer scope. e.g:
 // 
 // foo:
-//    Allocator* temp = temp_push();
-//    MyArray<int> a = make_array(temp);
+//    fAllocator* temp = temp_push();
+//    MyArray<int> a = f_array_make(temp);
 //    bar(&a);
-//    temp_pop();
+//    f_temp_pop();
 // 
 // bar:
-//    Allocator* temp = temp_push();
+//    fAllocator* temp = temp_push();
 //    Baz* baz = some_procedure_that_allocates_memory(temp);
-//    array_push(&a, baz->some_field)  // Potentially grow the array and require an allocation from the temp arena
-//    temp_pop();                  // Whoops, we might have just corrupted the entire array!
+//    f_array_push(&a, baz->some_field)  // Potentially grow the array and require an allocation from the temp arena
+//    f_temp_pop();                  // Whoops, we might have just corrupted the entire array!
 // 
 // ... If the temp arena was popped at the end of `bar` to where it was when entering the procedure,
-// there would be a subtle bug. `array_push` would first use the temporary allocator to insert some value, requiring
-// a potential allocation by the array. Then `temp_pop` would be called, and the memory in use by the array
+// there would be a subtle bug. `f_array_push` would first use the temporary allocator to insert some value, requiring
+// a potential allocation by the array. Then `f_temp_pop` would be called, and the memory in use by the array
 // would marked available for subsequent temporary allocations, corrupting the entire array.
 // 
 
@@ -524,9 +522,9 @@ fAllocator* f_temp_push();
 void f_temp_pop();
 
 // temp_init and temp_deinit are not necessary and they only exist for performance.
-// They keep the temp arena alive even after a final (scope counter reaching zero) call to temp_pop.
+// They keep the temp arena alive even after a final (scope counter reaching zero) call to f_temp_pop.
 // You probably want to call temp_init/deinit in main, if your program has multiple independent temp_push/pop scopes.
-// If you don't call temp_init, then each final call to temp_pop will release the arena back to the OS,
+// If you don't call temp_init, then each final call to f_temp_pop will release the arena back to the OS,
 // and temp_push will in turn need to allocate a new arena from the OS.
 void f_temp_init();
 void f_temp_deinit();
@@ -547,7 +545,6 @@ u8* f_arena_push_str(fArena* arena, fString data, uint_pow2 alignment);
 // f_arena_get_as_string()
 u8* f_arena_get_contiguous_base(fArena* arena);
 uint f_arena_get_contiguous_cursor(fArena* arena);
-
 
 fArenaPosition f_arena_get_pos(fArena* arena);
 void f_arena_pop_to(fArena* arena, fArenaPosition pos);
@@ -624,13 +621,13 @@ void f_os_print_color(fString str, fConsoleAttributeFlags attributes_mask);
 // `args[0]` should be the path of the executable, where `\' and `/` are both accepted path separators.
 // TODO: options to capture stdout and stderr
 bool f_os_run_command(fSlice(fString) args, fString working_dir, u32* out_exit_code);
-//bool os_run_command_no_wait(Slice(String) args, String working_dir);
+//bool os_run_command_no_wait(Slice(fString) args, fString working_dir);
 
 bool f_os_set_working_dir(fString dir);
 fString f_os_get_working_dir(fAllocator* allocator);
 
 // these strings do not currently convert slashes - they will be windows specific `\`
-//Slice<String> os_file_picker_multi(); // allocated with temp_allocator
+//fSlice(fString) os_file_picker_multi(); // allocated with temp_allocator
 
 void f_os_error_popup(fString title, fString message);
 
@@ -651,7 +648,7 @@ s64 f_floor_to_s64(float x);
 u64 f_hash64_str_ex(fString s, u64 seed);
 #define f_hash64_str(s) f_hash64_str_ex(s, 0) 
 
-// -- String ------------------------------------------------------------------
+// -- fString ------------------------------------------------------------------
 
 #define f_str_is_utf8_first_byte(c) (((c) & 0xC0) != 0x80) /* is c the start of a utf8 sequence? */
 #define f_str_each(str, r, i) (uint i=0, r = 0, i##_next=0; r=f_str_next_rune(str, &i##_next); i=i##_next)
@@ -689,7 +686,7 @@ bool f_str_starts_with(fString str, fString start);
 fString f_str_cut_end(fString str, fString end);
 fString f_str_cut_start(fString str, fString start);
 
-//void str_split(String str, u8 character, Allocator* a, Slice(String)* out);
+//void str_split(fString str, u8 character, fAllocator* a, Slice(fString)* out);
 void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)* out);
 
 fString f_str_join(fAllocator* a, fSlice(fString) args);

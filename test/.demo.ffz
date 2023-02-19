@@ -1,4 +1,4 @@
-#Basic: import("../modules/basic")
+#B: import("../modules/basic")
 
 //@link_library: ".ffz/c_things.obj"
 //#receive_v3: @extern proc(aa: V3)
@@ -25,6 +25,15 @@
 
 #ffz_entry: proc() {
 	//aaa: MyString{&bytes[0], 100}
+	
+	// how can I detect cycles?
+	//a: 5 + b
+	//b: u32(20)
+	//s: "Hello, sailor"
+	
+	//for i: 0, i<64, i=.+1 {
+	// //B.f_os_print_color(
+	//}
 	
 	//str: "Hello, world!"
 	/*

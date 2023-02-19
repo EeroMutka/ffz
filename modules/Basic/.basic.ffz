@@ -1,0 +1,28 @@
+// what should we even put in basic?
+// integer min/max constants
+// 
+// some utilities, like max/min functions unless we make them built-ins. hmm...
+// 
+// sleep
+// atomics
+// 
+// memory allocation related stuff:
+// memory reserve / commit / decommit / release
+// Arena
+// temp arena
+// 
+// 
+// leak tracker?
+// 
+// okay. So the philosophy is: let's keep Basic as simple and small as possible.
+// Just add what's absolutely a good idea.
+// Array, Map, etc can live separately.
+// 
+// Array?
+// Map? and hashing?
+// 
+// Threading?
+// Generic heap allocator?
+// 
+// 
+// 

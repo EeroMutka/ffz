@@ -12,7 +12,7 @@
 
 	-->
 	
-	<Type Name="Slice&lt;*&gt;">
+	<Type Name="fSlice_cpp&lt;*&gt;">
 		<DisplayString>{{data={(void*)data}, len={len}}}</DisplayString>
 		<Expand>
 			<ArrayItems>
@@ -23,7 +23,7 @@
 	</Type>
 	
 	<!-- String -->
-	<Type Name="Slice&lt;unsigned char&gt;">
+	<Type Name="fSlice_cpp&lt;unsigned char&gt;">
 		<DisplayString>{data,[len]s}</DisplayString>
 		<Expand>
 			<ArrayItems>
@@ -33,7 +33,7 @@
 		</Expand>
 	</Type>
 	
-	<Type Name="Array&lt;*&gt;">
+	<Type Name="fArray_cpp&lt;*&gt;">
 		<DisplayString>{{data={(void*)data}, len={len}, capacity={capacity}}}</DisplayString>
 		<Expand>
 			<ArrayItems>
@@ -56,7 +56,7 @@
 		</Expand>
 	</Type>
 	
-	<Type Name="Map64&lt;*&gt;">
+	<Type Name="fMap64_cpp&lt;*&gt;">
 		<Expand>
 			<CustomListItems MaxItemsPerView="5000">
 				<Variable Name="i" InitialValue="0" />

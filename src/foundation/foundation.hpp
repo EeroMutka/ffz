@@ -10,7 +10,7 @@ typedef unsigned long long uint;
 typedef unsigned int u32;
 
 template<typename T>
-struct fSlice {
+struct fSlice_cpp {
 	T* data;
 	uint len;
 
@@ -26,17 +26,17 @@ struct fSlice {
 
 // NOTE: Must have the same binary layout as Array_Raw
 template<typename T>
-struct fArray {
+struct fArray_cpp {
 	union {
 		struct {
 			T* data;
 			uint len;
 		};
-		fSlice<T> slice;
+		fSlice_cpp<T> slice;
 	};
 	uint capacity;
 	
-	fAllocator* allocator;
+	fAllocator* alc;
 
 	inline T& operator [] (uint i) {
 		if (i >= len) __debugbreak();
@@ -46,7 +46,7 @@ struct fArray {
 
 // NOTE: Must have the same binary layout as Map64_Raw
 template<typename T>
-struct fMap64 {
+struct fMap64_cpp {
 	fAllocator* alc;
 	u32 value_size;
 	u32 alive_count;
@@ -55,14 +55,13 @@ struct fMap64 {
 	void* slots;
 };
 
-#define fString fSlice<u8>
-#define fArray(T) fArray<T>
-#define fSlice(T) fSlice<T>
-#define fMap64(T) fMap64<T>
-
 // We want to give structs that include templated fields different link-names between C/C++ versions,
 // because otherwise the visual studio debugger might think to display the C version without natvis support.
 #define fLeakTracker fLeakTracker_cpp
+#define fString fSlice_cpp<u8>
+#define fArray(T) fArray_cpp<T>
+#define fSlice(T) fSlice_cpp<T>
+#define fMap64(T) fMap64_cpp<T>
 
 // include the foundation C-api
 #include "foundation.h"
@@ -76,19 +75,19 @@ inline T* f_mem_clone(const T& value, fAllocator* allocator) {
 // The reason we have to #define and can't just typedef in the first place,
 // is that then the C++ compiler wouldn't allow us to compile our program, which is dumb.
 #undef fString
-typedef fSlice<u8> fString;
+typedef fSlice_cpp<u8> fString;
 
 inline bool operator == (fString a, fString b) { return f_str_equals(a, b); }
 inline bool operator != (fString a, fString b) { return !f_str_equals(a, b); }
 
 template<typename T>
-inline fSlice<T> f_make_slice_garbage(uint len, fAllocator* alc) {
-	return fSlice<T>{ (T*)(alc)->_proc((alc), NULL, 0, (len) * sizeof(T), F_ALIGN_OF(T)), len };
+inline fSlice(T) f_make_slice_garbage(uint len, fAllocator* alc) {
+	return fSlice(T){ (T*)(alc)->_proc((alc), NULL, 0, (len) * sizeof(T), F_ALIGN_OF(T)), len };
 }
 
 template<typename T>
-inline fSlice<T> f_make_slice(uint len, const T& initial_value, fAllocator* alc) {
-	fSlice<T> result = f_make_slice_garbage<T>(len, alc);
+inline fSlice(T) f_make_slice(uint len, const T& initial_value, fAllocator* alc) {
+	fSlice(T) result = f_make_slice_garbage<T>(len, alc);
 	for (uint i = 0; i < len; i++) result[i] = initial_value;
 	return result;
 }
@@ -100,46 +99,46 @@ inline fSlice<T> f_make_slice(uint len, const T& initial_value, fAllocator* alc)
 //inline T* arena_push_value(Arena* arena, const T& value) { return (T*)arena_push(arena, AS_BYTES(value), ALIGN_OF(T)); }
 
 template<typename T>
-inline fSlice<T> f_clone_slice(fSlice<T> x, fAllocator* allocator) {
-	return fSlice<T>{ (T*)f_mem_clone_size(x.len * sizeof(T), F_ALIGN_OF(T), x.data, allocator), x.len };
+inline fSlice(T) f_clone_slice(fSlice(T) x, fAllocator* allocator) {
+	return fSlice(T){ (T*)f_mem_clone_size(x.len * sizeof(T), F_ALIGN_OF(T), x.data, allocator), x.len };
 }
 
 template<typename T>
-inline fSlice<T> f_slice(fArray<T> other, uint lo, uint hi) {
+inline fSlice(T) f_slice(fArray(T) other, uint lo, uint hi) {
 	F_ASSERT(hi >= lo);
-	return fSlice<T>{ other.data + lo, hi - lo };
+	return fSlice(T){ other.data + lo, hi - lo };
 }
 
 template<typename T>
-inline fSlice<T> f_slice(fSlice<T> other, uint lo, uint hi) {
+inline fSlice(T) f_slice(fSlice(T) other, uint lo, uint hi) {
 	F_ASSERT(hi >= lo);
-	return fSlice<T>{ other.data + lo, hi - lo };
+	return fSlice(T){ other.data + lo, hi - lo };
 }
 
 template<typename T>
-inline fSlice<T> f_slice_before(fArray<T> other, uint mid) {
-	return fSlice<T>{ other.data, mid};
+inline fSlice(T) f_slice_before(fArray(T) other, uint mid) {
+	return fSlice(T){ other.data, mid};
 }
 
 template<typename T>
-inline fSlice<T> f_slice_before(fSlice<T> other, uint mid) {
-	return fSlice<T>{ other.data, mid };
+inline fSlice(T) f_slice_before(fSlice(T) other, uint mid) {
+	return fSlice(T){ other.data, mid };
 }
 
 template<typename T>
-inline fSlice<T> f_slice_after(fArray<T> other, uint mid) {
+inline fSlice(T) f_slice_after(fArray(T) other, uint mid) {
 	F_ASSERT(other.len >= mid);
-	return fSlice<T>{ other.data + mid, other.len - mid};
+	return fSlice(T){ other.data + mid, other.len - mid};
 }
 
 template<typename T>
-inline fSlice<T> f_slice_after(fSlice<T> other, uint mid) {
+inline fSlice(T) f_slice_after(fSlice(T) other, uint mid) {
 	F_ASSERT(other.len >= mid);
-	return fSlice<T>{ other.data + mid, other.len - mid};
+	return fSlice(T){ other.data + mid, other.len - mid};
 }
 
 template<typename T>
-inline void f_slice_set(fSlice<T> dst, T value) {
+inline void f_slice_set(fSlice(T) dst, T value) {
 	//ZoneScoped;
 	for (uint i = 0; i < dst.len; i++) {
 		dst.data[i] = value;
@@ -147,7 +146,7 @@ inline void f_slice_set(fSlice<T> dst, T value) {
 }
 
 template<typename T>
-inline void f_slice_copy(fSlice<T> dst, fSlice<T> src) {
+inline void f_slice_copy(fSlice(T) dst, fSlice(T) src) {
 	F_ASSERT(src.len <= dst.len);
 	f_mem_copy(dst.data, src.data, src.len * sizeof(T));
 }
@@ -155,75 +154,75 @@ inline void f_slice_copy(fSlice<T> dst, fSlice<T> src) {
 #define MAP64_EACH(map, key, value_ptr) f_map64_each_raw((fMap64Raw*)map, key, (void**)value_ptr)
 
 template<typename T>
-inline fMap64<T> f_map64_make(fAllocator* alc) { return F_BITCAST(fMap64<T>, f_map64_make_raw(sizeof(T), alc)); }
+inline fMap64(T) f_map64_make(fAllocator* alc) { return F_BITCAST(fMap64(T), f_map64_make_raw(sizeof(T), alc)); }
 
 template<typename T>
-inline fMap64<T> f_map64_make_cap(uint capacity, fAllocator* alc) { return F_BITCAST(fMap64<T>, f_make_map64_cap_raw(sizeof(T), capacity, alc)); }
+inline fMap64(T) f_map64_make_cap(uint capacity, fAllocator* alc) { return F_BITCAST(fMap64(T), f_make_map64_cap_raw(sizeof(T), capacity, alc)); }
 
 template<typename T>
-inline void f_map64_free(fMap64<T>* map) { return f_map64_free_raw((fMap64Raw*)map); }
+inline void f_map64_free(fMap64(T)* map) { return f_map64_free_raw((fMap64Raw*)map); }
 
 template<typename T>
-inline void f_map64_resize(fMap64<T>* map, u32 slot_count_log2) { f_map64_resize_raw((fMap64Raw*)map, slot_count_log2); }
+inline void f_map64_resize(fMap64(T)* map, u32 slot_count_log2) { f_map64_resize_raw((fMap64Raw*)map, slot_count_log2); }
 
 template<typename T>
 struct MapInsertResult_cpp { T* _unstable_ptr; bool added; };
 
 template<typename T>
-inline MapInsertResult_cpp<T> f_map64_insert(fMap64<T>* map, u64 key, const T& value, fMapInsert mode = fMapInsert_AssertUnique) {
+inline MapInsertResult_cpp<T> f_map64_insert(fMap64(T)* map, u64 key, const T& value, fMapInsert mode = fMapInsert_AssertUnique) {
 	return F_BITCAST(MapInsertResult_cpp<T>, f_map64_insert_raw((fMap64Raw*)map, key, &value, mode));
 }
 
 template<typename T>
-bool f_map64_remove(fMap64<T>* map, u64 key) { return f_map64_remove_raw((fMap64Raw*)map, key); }
+bool f_map64_remove(fMap64(T)* map, u64 key) { return f_map64_remove_raw((fMap64Raw*)map, key); }
 
 template<typename T>
-inline fOpt(T*) f_map64_get(fMap64<T>* map, u64 key) { return (T*)f_map64_get_raw((fMap64Raw*)map, key); }
+inline fOpt(T*) f_map64_get(fMap64(T)* map, u64 key) { return (T*)f_map64_get_raw((fMap64Raw*)map, key); }
 
 template<typename T>
-inline fArray<T> f_array_make(fAllocator* alc) { return F_BITCAST(fArray<T>, f_array_make_raw(alc)); }
+inline fArray(T) f_array_make(fAllocator* alc) { return F_BITCAST(fArray(T), f_array_make_raw(alc)); }
 
 template<typename T>
-inline fArray<T> f_array_make_len(uint len, const T& initial_value, fAllocator* alc) {
-	return F_BITCAST(fArray<T>, f_array_make_len_raw(sizeof(T), len, &initial_value, alc));
+inline fArray(T) f_array_make_len(uint len, const T& initial_value, fAllocator* alc) {
+	return F_BITCAST(fArray(T), f_array_make_len_raw(sizeof(T), len, &initial_value, alc));
 }
 
 template<typename T>
-inline fArray<T> f_array_make_len_garbage(uint len, fAllocator* alc) {
-	return F_BITCAST(fArray<T>, f_array_make_len_garbage_raw(sizeof(T), len, alc));
+inline fArray(T) f_array_make_len_garbage(uint len, fAllocator* alc) {
+	return F_BITCAST(fArray(T), f_array_make_len_garbage_raw(sizeof(T), len, alc));
 }
 
 template<typename T>
-inline fArray<T> f_array_make_cap(uint capacity, fAllocator* alc) {
-	return F_BITCAST(fArray<T>, f_array_make_cap_raw(sizeof(T), capacity, alc));
+inline fArray(T) f_array_make_cap(uint capacity, fAllocator* alc) {
+	return F_BITCAST(fArray(T), f_array_make_cap_raw(sizeof(T), capacity, alc));
 }
 
 template<typename T>
-inline void f_array_free(fArray<T>* array) { f_array_free_raw((fArrayRaw*)array, sizeof(T)); }
+inline void f_array_free(fArray(T)* array) { f_array_free_raw((fArrayRaw*)array, sizeof(T)); }
 
 template<typename T>
-inline void f_array_resize(fArray<T>* array, uint len, const T& value) { f_array_resize_raw((fArrayRaw*)array, len, &value, sizeof(T)); }
+inline void f_array_resize(fArray(T)* array, uint len, const T& value) { f_array_resize_raw((fArrayRaw*)array, len, &value, sizeof(T)); }
 
 template<typename T>
-inline void f_array_resize_garbage(fArray<T>* array, uint len) { f_array_resize_raw((fArrayRaw*)array, len, NULL, elem_size); }
+inline void f_array_resize_garbage(fArray(T)* array, uint len) { f_array_resize_raw((fArrayRaw*)array, len, NULL, elem_size); }
 
 template<typename T>
-inline uint f_array_push(fArray<T>* array, const T& elem) { return f_array_push_raw((fArrayRaw*)array, &elem, sizeof(T)); }
+inline uint f_array_push(fArray(T)* array, const T& elem) { return f_array_push_raw((fArrayRaw*)array, &elem, sizeof(T)); }
 
 template<typename T>
-inline void f_array_push_slice(fArray<T>* array, fSlice<T> elems) {
-	f_array_push_slice_raw((fArrayRaw*)array, BITCAST(fSliceRaw, elems), sizeof(T));
+inline void f_array_push_slice(fArray(T)* array, fSlice(T) elems) {
+	f_array_push_slice_raw((fArrayRaw*)array, F_BITCAST(fSliceRaw, elems), sizeof(T));
 }
 
 template<typename T>
-inline T f_array_pop(fArray<T>* array) {
+inline T f_array_pop(fArray(T)* array) {
 	T elem;
 	f_array_pop_raw((fArrayRaw*)array, &elem, sizeof(T));
 	return elem;
 }
 
 template<typename T>
-inline T& f_array_peek(fArray<T>* array) {
+inline T& f_array_peek(fArray(T)* array) {
 	F_ASSERT(array->len > 0);
 	return array->data[array->len - 1];
 }
@@ -235,7 +234,7 @@ inline fString f_str_join_il(fAllocator* alc, std::initializer_list<fString> arg
 	return f_str_join(alc, { (fString*)args.begin(), args.size() });
 }
 
-inline void f_str_print_il(fArray<u8>* buffer, std::initializer_list<fString> args) {
+inline void f_str_print_il(fArray(u8)* buffer, std::initializer_list<fString> args) {
 	for (auto arg : args) f_str_print(buffer, arg);
 }
 
@@ -315,8 +314,8 @@ struct Hasher<T*> {
 	inline u64 get(T* x) { return HASH_U64((u64)x); }
 };
 
-template<typename T> struct Hasher<Slice<T>> {
-	inline u64 get(Slice<T> x) {
+template<typename T> struct Hasher<fSlice(T)> {
+	inline u64 get(fSlice(T) x) {
 		u64 seed = 0xf778ac35da8c86f4;
 		for (uint i = 0; i < x.len; i++) {
 			u64 elem_hash = Hasher<T>().get(x.data[i]);
@@ -326,13 +325,13 @@ template<typename T> struct Hasher<Slice<T>> {
 	}
 };
 
-template<typename T> struct Hasher<Array<T>> {
-	inline u32 get(Array<T> x) { return HASHER_GET(Slice<T>, x.slice); }
+template<typename T> struct Hasher<fArray(T)> {
+	inline u32 get(fArray(T) x) { return HASHER_GET(fSlice(T), x.slice); }
 };
 
 
 template<typename T>
-inline bool SliceIterateCondition(Slice<T> const& slice, uint* idx, T* ptr) {
+inline bool SliceIterateCondition(fSlice(T) const& slice, uint* idx, T* ptr) {
 	if (slice.len == 0)
 		return false;
 
@@ -341,7 +340,7 @@ inline bool SliceIterateCondition(Slice<T> const& slice, uint* idx, T* ptr) {
 }
 
 template<typename T>
-inline bool SliceIterateCondition(Slice<T> const& slice, uint* idx, T** ptr) {
+inline bool SliceIterateCondition(fSlice(T) const& slice, uint* idx, T** ptr) {
 	*ptr = slice.data + *idx;
 	return *idx < slice.len;
 }
@@ -382,7 +381,7 @@ inline bool SliceIterateCondition(Slice<T> const& slice, uint* idx, T** ptr) {
 //    explicitly provide an allocator to all functions that allocate memory.
 //    Same goes for things like loggers. If we didn't have the InitArray/Map
 //    functions, it'd be required to pass an allocator to all functions that
-//    operate on the container, such as when array_push. Having a single InitArray/Map
+//    operate on the container, such as when f_array_push. Having a single InitArray/Map
 //    where the allocator for the container is stored is a lot nicer. This
 //    also gets rid of the bug-prone scenario where you're accidentally inserting
 //    to a container from inside some code that uses an implicit context allocator
@@ -397,7 +396,7 @@ inline bool SliceIterateCondition(Slice<T> const& slice, uint* idx, T** ptr) {
 //    Plus, it's nice to be symmetric, since you're also required to call DestroyArray/Map!
 //
 template<typename T>
-inline void InitArrayCap(Array<T>* arr, uint capacity, Allocator* allocator) {
+inline void InitArrayCap(fArray(T)* arr, uint capacity, fAllocator* allocator) {
 	ZoneScoped;
 	arr->allocator = allocator;
 	arr->data = MakeSlice(T, capacity, allocator).data; // TODO: delay the reserve/capacity until you actually push to the array. We can still store the capacity
@@ -406,7 +405,7 @@ inline void InitArrayCap(Array<T>* arr, uint capacity, Allocator* allocator) {
 }
 
 template<typename T>
-inline void InitArrayLen(Array<T>* arr, uint len, const T& value, Allocator* allocator) {
+inline void InitArrayLen(fArray(T)* arr, uint len, const T& value, fAllocator* allocator) {
 	ZoneScoped;
 	arr->allocator = allocator;
 	arr->data = MakeSlice(T, len, allocator).data;
@@ -419,7 +418,7 @@ inline void InitArrayLen(Array<T>* arr, uint len, const T& value, Allocator* all
 }
 
 template<typename T>
-inline void InitArrayLenGarbage(Array<T>* arr, uint len, Allocator* allocator) {
+inline void InitArrayLenGarbage(fArray(T)* arr, uint len, fAllocator* allocator) {
 	ZoneScoped;
 	arr->allocator = allocator;
 	arr->data = MakeSlice(T, len, allocator).data;
@@ -428,12 +427,12 @@ inline void InitArrayLenGarbage(Array<T>* arr, uint len, Allocator* allocator) {
 }
 
 template<typename T>
-inline void ArrayReserve(Array<T>* arr, uint capacity) {
+inline void ArrayReserve(fArray(T)* arr, uint capacity) {
 	ArrayReserveRaw((RawArray*)arr, sizeof(T), capacity);
 }
 
 template<typename T>
-inline void array_resize(Array<T>* arr, uint len, T value) {
+inline void array_resize(fArray(T)* arr, uint len, T value) {
 	ZoneScoped;
 	ArrayReserve(arr, len);
 
@@ -445,21 +444,21 @@ inline void array_resize(Array<T>* arr, uint len, T value) {
 }
 
 template<typename T>
-inline void ArrayResizeGarbage(Array<T>* arr, uint len) {
+inline void ArrayResizeGarbage(fArray(T)* arr, uint len) {
 	ZoneScoped;
 	ArrayReserve(arr, len);
 	arr->len = len;
 }
 
 template<typename T>
-inline void DestroyArray(Array<T> arr) {
+inline void DestroyArray(fArray(T) arr) {
 	ZoneScoped;
-	Slice<u8> allocation = { (u8*)arr.data, arr.capacity * sizeof(T) };
+	fSlice(u8) allocation = { (u8*)arr.data, arr.capacity * sizeof(T) };
 	mem_release(allocation, arr.allocator);
 }
 
 template<typename T>
-inline void ArrayClear(Array<T>* arr) {
+inline void ArrayClear(fArray(T)* arr) {
 	ZoneScoped;
 #ifdef _DEBUG
 	memset(arr->data, 0xCC, arr->len * sizeof(T)); // debug; trigger data-breakpoints
@@ -468,7 +467,7 @@ inline void ArrayClear(Array<T>* arr) {
 }
 
 template<typename T>
-inline void array_push(Array<T>* arr, T elem) {
+inline void f_array_push(fArray(T)* arr, T elem) {
 	ZoneScoped;
 	if (arr->capacity < arr->len + 1) {
 		// needs to grow!
@@ -481,10 +480,10 @@ inline void array_push(Array<T>* arr, T elem) {
 }
 
 template<typename T>
-inline void array_pop(Array<T>* arr) { ASSERT(arr->len > 0); arr->len--; }
+inline void array_pop(fArray(T)* arr) { ASSERT(arr->len > 0); arr->len--; }
 
 template<typename T>
-inline void ArrayInsert(Array<T>* arr, uint position, T elem) {
+inline void ArrayInsert(fArray(T)* arr, uint position, T elem) {
 	ZoneScoped;
 	if (arr->capacity < arr->len + 1) {
 		// needs to grow!
@@ -500,7 +499,7 @@ inline void ArrayInsert(Array<T>* arr, uint position, T elem) {
 }
 
 template<typename T>
-inline void ArrayInsertSlice(Array<T>* arr, uint position, Slice<T> elems) {
+inline void ArrayInsertSlice(fArray(T)* arr, uint position, fSlice(T) elems) {
 	ZoneScoped;
 	if (arr->capacity < arr->len + elems.len) {
 		// needs to grow!
@@ -516,7 +515,7 @@ inline void ArrayInsertSlice(Array<T>* arr, uint position, Slice<T> elems) {
 }
 
 template<typename T>
-inline void ArrayRemove(Array<T>* arr, uint index) {
+inline void ArrayRemove(fArray(T)* arr, uint index) {
 	ZoneScoped;
 	ASSERT(arr.len > 0 && index >= 0 && index < arr.len);
 	for (uint i = index + 1; i < arr->len; i++) {
@@ -526,7 +525,7 @@ inline void ArrayRemove(Array<T>* arr, uint index) {
 }
 
 template<typename T>
-inline void ArrayRemoveSlice(Array<T>* arr, uint lo, uint hi) {
+inline void ArrayRemoveSlice(fArray(T)* arr, uint lo, uint hi) {
 	ZoneScoped;
 	uint count = hi - lo;
 	for (uint i = lo + count; i < arr->len; i++) {
@@ -536,7 +535,7 @@ inline void ArrayRemoveSlice(Array<T>* arr, uint lo, uint hi) {
 }
 
 template<typename T>
-inline void array_push_slice(Array<T>* arr, Slice<T> elems) {
+inline void array_push_slice(fArray(T)* arr, fSlice(T) elems) {
 	ZoneScoped;
 	if (arr->capacity < arr->len + elems.len) {
 		// needs to grow!
@@ -548,26 +547,26 @@ inline void array_push_slice(Array<T>* arr, Slice<T> elems) {
 }
 
 //template<typename T>
-//inline T* mem_new(Allocator* allocator) {
+//inline T* mem_new(fAllocator* allocator) {
 //	ZoneScoped;
-//	Slice<u8> allocation = mem_alloc(sizeof(T), allocator);
+//	fSlice(u8) allocation = mem_alloc(sizeof(T), allocator);
 //	return (T*)allocation.data;
 //}
 //
 
 template<typename T>
-inline void _MemFree(Slice<T> allocation, Allocator* allocator) {
+inline void _MemFree(fSlice(T) allocation, fAllocator* allocator) {
 	allocator->proc(allocator, SLICE_BYTES(allocation), 0, ALIGN_OF(T));
 }
 
 template<typename T>
-inline void _MemResize(Slice<T>* allocation, uint new_len, Allocator* allocator) {
+inline void _MemResize(fSlice(T)* allocation, uint new_len, fAllocator* allocator) {
 	allocation->data = (T*)allocator->proc(allocator, SLICE_BYTES(*allocation), new_len * sizeof(T), ALIGN_OF(T));
 	allocation->len = new_len;
 }
 
 template<typename T>
-inline T* _MemClone(const T& value, Allocator* allocator) {
+inline T* _MemClone(const T& value, fAllocator* allocator) {
 	ZoneScoped;
 	T* ptr = (T*)(allocator)->proc((allocator), {}, sizeof(T), ALIGN_OF(T));
 	*ptr = value;
@@ -575,9 +574,9 @@ inline T* _MemClone(const T& value, Allocator* allocator) {
 }
 
 template<typename T>
-inline Slice<T> clone_slice(Slice<T> slice, Allocator* allocator) {
+inline fSlice(T) clone_slice(fSlice(T) slice, fAllocator* allocator) {
 	ZoneScoped;
-	Slice<T> cloned = MakeSlice(T, slice.len, allocator);
+	fSlice(T) cloned = MakeSlice(T, slice.len, allocator);
 	memcpy(cloned.data, slice.data, slice.len * sizeof(T));
 	return cloned;
 }
@@ -587,9 +586,9 @@ inline Slice<T> clone_slice(Slice<T> slice, Allocator* allocator) {
 //struct SlotArray {
 //	u32 num_items_per_bucket;
 //
-//	Allocator* allocator;
+//	fAllocator* allocator;
 //
-//	Array<void*> buckets;
+//	fArray(void*) buckets;
 //
 //	u32 num_alive;
 //	u32 first_removed;
@@ -604,7 +603,7 @@ inline Slice<T> clone_slice(Slice<T> slice, Allocator* allocator) {
 
 //typedef SlotArray<void> SlotArrayRaw;
 template<typename T>
-inline void slot_array_init(SlotArray<T>* arr, Allocator* allocator, u32 num_items_per_bucket = 32) {
+inline void slot_array_init(SlotArray<T>* arr, fAllocator* allocator, u32 num_items_per_bucket = 32) {
 	ZoneScoped;
 	ASSERT(num_items_per_bucket > 0);
 	arr->allocator = allocator;
@@ -615,9 +614,9 @@ template<typename T>
 void slot_array_destroy(const SlotArray<T>& arr) {
 	ZoneScoped;
 	for (i64 i = 0; i < arr.buckets.len; i++) {
-		u8* bucket = (u8*)((Array<void*>)arr.buckets)[i];
+		u8* bucket = (u8*)((fArray(void*))arr.buckets)[i];
 
-		Slice<u8> allocation = { bucket, arr.num_items_per_bucket * (sizeof(SlotArrayElemHeader) + sizeof(T)) };
+		fSlice(u8) allocation = { bucket, arr.num_items_per_bucket * (sizeof(SlotArrayElemHeader) + sizeof(T)) };
 		mem_release(allocation, arr.allocator);
 	}
 	array_release(arr.buckets);
@@ -650,8 +649,8 @@ struct Map_Entry {
 template<typename KEY, typename VALUE>
 struct Map {
 	uint len;
-	Slice<Map_Entry<KEY, VALUE>> entries;
-	Allocator* allocator;
+	fSlice(Map_Entry<KEY, VALUE)> entries;
+	fAllocator* allocator;
 
 	inline VALUE* KeyAndValue(KEY key, KEY* out_key) {
 		ZoneScoped;
@@ -715,7 +714,7 @@ void MapResize(Map<KEY, VALUE>* map, uint capacity) {
 	map->len = 0;
 
 	typedef Map_Entry<KEY, VALUE> entry_type;
-	Slice<entry_type> old_entries = map->entries;
+	fSlice(entry_type) old_entries = map->entries;
 
 	ASSERT(map->allocator); // did you call InitMap?
 	//if (!map->allocator.proc)
@@ -737,7 +736,7 @@ void MapResize(Map<KEY, VALUE>* map, uint capacity) {
 }
 
 template<typename KEY, typename VALUE>
-inline void InitMap(Map<KEY, VALUE>* map, uint capacity, Allocator* allocator) {
+inline void InitMap(Map<KEY, VALUE>* map, uint capacity, fAllocator* allocator) {
 	ZoneScoped;
 	*map = {};
 	map->allocator = allocator;
@@ -873,7 +872,7 @@ struct SlotArena {
 };
 
 template<typename T>
-inline void MakeSlotArena(SlotArena<T>* arena, uint reserve_size, Allocator* allocator) { make_slot_arena_raw((RawSlotArena*)arena, sizeof(T), reserve_size, allocator); }
+inline void MakeSlotArena(SlotArena<T>* arena, uint reserve_size, fAllocator* allocator) { make_slot_arena_raw((RawSlotArena*)arena, sizeof(T), reserve_size, allocator); }
 
 template<typename T>
 inline T* SlotArenaAdd(SlotArena<T>* arena) {
@@ -898,8 +897,8 @@ inline u64 SlotArenaGetIndex(const SlotArena<T>* arena, void* ptr) { return slot
 #define PrintB(buffer, ...) _PrintB(buffer, {__VA_ARGS__})
 #define PrintA(allocator, ...) _PrintA(allocator, {__VA_ARGS__})
 
-void _Print(std::initializer_list<String> args);
-void _PrintB(Array<u8>* buffer, std::initializer_list<String> args);
-String _PrintA(Allocator* allocator, std::initializer_list<String> args);
+void _Print(std::initializer_list<fString> args);
+void _PrintB(fArray(u8)* buffer, std::initializer_list<fString> args);
+fString _PrintA(fAllocator* allocator, std::initializer_list<fString> args);
 
 */

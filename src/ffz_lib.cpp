@@ -107,6 +107,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 	checker->project = project;
 	checker->self_idx = (ffzCheckerIndex)f_array_push(&project->checkers, checker);
 
+	checker->checked_identifiers = f_map64_make_raw(0, checker->alc);
 	checker->definition_map = f_map64_make<ffzNodeIdentifier*>(checker->alc);
 	//checker->definition_from_node = make_map64_cap<ffzNodeIdentifier*>(1024, checker->alc);
 	checker->cache = f_map64_make<ffzCheckedExpr>(checker->alc);
@@ -138,7 +139,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		checker->builtin_types[ffzKeyword_string-a] = { ffzTypeTag_String, checker->pointer_size*2, checker->pointer_size };
 	}
 
-	checker->report_error = [](ffzChecker* checker, fSlice<ffzNode*> poly_path, ffzNode* at, fString error) {
+	checker->report_error = [](ffzChecker* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
 		ffzParser* parser = checker->project->parsers_dependency_sorted[at->parser_idx];
 		
 		ffz_log_pretty_error(parser, F_LIT("Semantic error "), at->loc, error, true);
@@ -153,7 +154,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 #endif
 
 	struct FileVisitData {
-		fArray<fString> files;
+		fArray(fString) files;
 		fString directory;
 	} visit;
 	visit.files = f_array_make<fString>(temp);
@@ -164,7 +165,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			FileVisitData* visit = (FileVisitData*)userptr;
 
 			if (!info->is_directory && f_str_path_extension(info->name) == F_LIT("ffz") && info->name.data[0] == '.') {
-				fString filepath = f_str_join_il(visit->files.allocator, { visit->directory, F_LIT("\\"), info->name });
+				fString filepath = f_str_join_il(visit->files.alc, { visit->directory, F_LIT("\\"), info->name });
 				f_array_push(&visit->files, filepath);
 			}
 
@@ -174,7 +175,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		F_BP; // directory doesn't exist!
 	}
 
-		fSlice<ffzParser*> parsers_dependency_sorted = f_make_slice_garbage<ffzParser*>(visit.files.len, temp);
+		fSlice(ffzParser*) parsers_dependency_sorted = f_make_slice_garbage<ffzParser*>(visit.files.len, temp);
 		for (uint i = 0; i < visit.files.len; i++) {
 			ffzParser* parser = f_mem_clone(ffzParser{}, temp);
 			parsers_dependency_sorted[i] = parser;
@@ -197,8 +198,8 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			parser->pos.offset = 0;
 			parser->pos.line_num = 1;
 			parser->pos.column_num = 1;
-			parser->module_imports.alc = parser->alc;
-			parser->tag_decl_lists.alc = parser->alc;
+			parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
+			parser->tag_decl_lists = f_map64_make<ffzNodeTagDecl*>(parser->alc);
 
 			ffzOk ok = ffz_parse(parser);
 			if (!ok.ok) return false;
@@ -206,7 +207,9 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			
 			{ // add linker inputs
 				{
-					ffzNodeTagDecl** first_linker_input = (ffzNodeTagDecl**)f_map64_get_raw(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_library"), 0));
+					//f_map64_get(
+					auto foo = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_library"), 0));
+					ffzNodeTagDecl** first_linker_input = foo;
 					for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
 						F_ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
 						fString input = f_files_path_to_absolute(directory, FFZ_AS(n->rhs, StringLiteral)->zero_terminated_string, parser->alc);
@@ -214,7 +217,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 					}
 				}
 				{
-					ffzNodeTagDecl** first_linker_input = (ffzNodeTagDecl**)f_map64_get_raw(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_system_library"), 0));
+					ffzNodeTagDecl** first_linker_input = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_system_library"), 0));
 					for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
 						F_ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
 						f_array_push(&project->linker_inputs, FFZ_AS(n->rhs,StringLiteral)->zero_terminated_string);
@@ -225,7 +228,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 
 			if (true) {
 				f_os_print(F_LIT("PRINTING AST: ======================================================\n"));
-				fArray<u8> builder = f_array_make_cap<u8>(64, temp);
+				fArray(u8) builder = f_array_make_cap<u8>(64, temp);
 				for (ffzNode* n = parser->root->children.first; n; n = n->next) {
 					f_str_print_il(&builder, { ffz_print_ast(temp, n), F_LIT("\n") });
 				}
@@ -235,11 +238,11 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			}
 
 			for (uint i = 0; i < parser->module_imports.len; i++) {
-				ffzNodeKeyword* import_keyword = &((ffzNodeKeyword*)parser->module_imports.data)[i];
+				ffzNodeKeyword* import_keyword = parser->module_imports[i];
 				F_ASSERT(import_keyword->parent && import_keyword->parent->kind == ffzNodeKind_Operator);
 				
 				ffzNodeOperator* import_op = FFZ_AS(import_keyword->parent,Operator);
-				F_ASSERT(import_op->kind == ffzOperatorKind_PostRoundBrackets && ffz_get_child_count(FFZ_BASE(import_op)) == 1);
+				F_ASSERT(import_op->op_kind == ffzOperatorKind_PostRoundBrackets && ffz_get_child_count(FFZ_BASE(import_op)) == 1);
 				
 				ffzNode* import_name_node = ffz_get_child(FFZ_BASE(import_op), 0);
 				F_ASSERT(import_name_node->kind == ffzNodeKind_StringLiteral);
@@ -390,7 +393,7 @@ bool ffz_build_directory(fString directory) {
 
 #if 1
 	{
-		fArray<fString> linker_args = f_array_make<fString>(temp);
+		fArray(fString) linker_args = f_array_make<fString>(temp);
 		f_array_push(&linker_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\link.exe")));
 		
 		// Note that we should not put quotation marks around the path. It's because of some weird rules with how command line arguments are combined into one string on windows.

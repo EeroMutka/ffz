@@ -41,12 +41,12 @@
 
 struct ffzProject {
 	fString module_name;
-	fMap64<ffzChecker*> checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
+	fMap64(ffzChecker*) checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
 
-	fArray<fString> linker_inputs;
+	fArray(fString) linker_inputs;
 
-	fArray/*CheckerIndex*/<ffzChecker*> checkers;
-	fArray/*ParserIndex*/<ffzParser*> parsers_dependency_sorted; // dependency sorted from leaf modules towards higher-level modules
+	fArray(ffzChecker*) /*CheckerIndex*/ checkers;
+	fArray(ffzParser*) /*ParserIndex*/ parsers_dependency_sorted; // dependency sorted from leaf modules towards higher-level modules
 };
 
 //ffzToken token_from_node(ffzProject* project, ffzNode* node);

@@ -129,10 +129,8 @@ u64 ffz_hash_declaration_path(ffzDefinitionPath path) {
 
 static ffzOk _add_unique_definition(ffzChecker* c, ffzNodeIdentifier* def) {
 	fString name = def->name;
-
-	//if (name == F_LIT("VirtualReserveFixed")) BP;
+	
 	for (ffzCheckerScope* scope = c->current_scope; scope; scope = scope->parent) {
-		
 		ffzDefinitionPath path = { scope->node, name };
 		if (ffzNodeIdentifier** existing = f_map64_get(&c->definition_map, ffz_hash_declaration_path(path))) {
 			ERR(c, BASE(def), "`%s` is already declared before (at line: %u)",
@@ -245,9 +243,9 @@ bool ffz_type_is_comparable(ffzType* type) {
 	return false;
 }
 
-void _print_constant(ffzChecker* c, fArray<u8>* b, ffzCheckedExpr constant);
+void _print_constant(ffzChecker* c, fArray(u8)* b, ffzCheckedExpr constant);
 
-void _print_type(ffzChecker* c, fArray<u8>* b, ffzType* type) {
+void _print_type(ffzChecker* c, fArray(u8)* b, ffzType* type) {
 	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
 
 	switch (type->tag) {
@@ -360,7 +358,7 @@ void _print_type(ffzChecker* c, fArray<u8>* b, ffzType* type) {
 	}
 }
 
-void _print_constant(ffzChecker* c, fArray<u8>* b, ffzCheckedExpr constant) {
+void _print_constant(ffzChecker* c, fArray(u8)* b, ffzCheckedExpr constant) {
 	switch (constant.type->tag) {
 	case ffzTypeTag_Invalid: { f_str_print(b, F_LIT("[invalid]")); } break;
 	case ffzTypeTag_Module: { f_str_print(b, F_LIT("[module]")); } break;
@@ -388,7 +386,7 @@ void _print_constant(ffzChecker* c, fArray<u8>* b, ffzCheckedExpr constant) {
 }
 
 fString ffz_constant_to_string(ffzChecker* c, ffzCheckedExpr constant) {
-	fArray<u8> builder = f_array_make_cap<u8>(32, c->alc);
+	fArray(u8) builder = f_array_make_cap<u8>(32, c->alc);
 	_print_constant(c, &builder, constant);
 	return builder.slice;
 }
@@ -399,13 +397,13 @@ const char* ffz_constant_to_cstring(ffzChecker* c, ffzCheckedExpr constant) {
 }
 
 fString ffz_type_to_string(ffzChecker* c, ffzType* type) {
-	fArray<u8> builder = f_array_make_cap<u8>(32, c->alc);
+	fArray(u8) builder = f_array_make_cap<u8>(32, c->alc);
 	_print_type(c, &builder, type);
 	return builder.slice;
 }
 
 const char* ffz_type_to_cstring(ffzChecker* c, ffzType* type) {
-	fArray<u8> builder = f_array_make_cap<u8>(32, c->alc);
+	fArray(u8) builder = f_array_make_cap<u8>(32, c->alc);
 	_print_type(c, &builder, type);
 	f_array_push(&builder, (u8)0);
 	return (const char*)builder.data;
@@ -422,6 +420,7 @@ bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeDeclarationIn
 
 bool ffz_decl_is_runtime_value(ffzNodeDeclaration* decl) {
 	if (decl->parent->kind == ffzNodeKind_Record) return false;
+	if (decl->parent->kind == ffzNodeKind_Enum) return false;
 	if (decl->parent->kind == ffzNodeKind_PolyParamList) return false;
 	if (decl->name->is_constant) return false;
 	return true;
@@ -481,7 +480,7 @@ static ffzType* make_type_slice(ffzChecker* c, ffzType* elem_type) {
 	return make_type(c, type);
 }
 
-fSlice<ffzTypeRecordField> ffz_type_get_record_fields(ffzChecker* c, ffzType* type) {
+fSlice(ffzTypeRecordField) ffz_type_get_record_fields(ffzChecker* c, ffzType* type) {
 	if (type->tag == ffzTypeTag_String || type->tag == ffzTypeTag_Slice) {
 		ffzType* ptr_to = type->tag == ffzTypeTag_Slice ? type->fSlice.elem_type : ffz_builtin_type(c, ffzKeyword_u8);
 
@@ -909,7 +908,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			ffzType* elem_type = result->type->tag == ffzTypeTag_Slice ? result->type->fSlice.elem_type : result->type->FixedArray.elem_type;
 
 			fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
-			fArray<ffzCheckedExpr> elems_chk = f_array_make<ffzCheckedExpr>(temp);
+			fArray(ffzCheckedExpr) elems_chk = f_array_make<ffzCheckedExpr>(temp);
 			bool all_elems_are_constant = true;
 
 			CheckInfer elem_infer = infer_target_type(infer, elem_type);
@@ -948,7 +947,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			}
 
 			bool all_fields_are_constant = true;
-			fArray<ffzConstant> field_constants = f_array_make<ffzConstant>(c->alc);
+			fArray(ffzConstant) field_constants = f_array_make<ffzConstant>(c->alc);
 
 			for FFZ_EACH_CHILD_INST(arg, inst) {
 				ffzType* member_type = result->type->Record.fields[field_constants.len].type;
@@ -1222,10 +1221,10 @@ static ffzOk check_declaration(ffzChecker* c, const CheckInfer& infer, ffzNodeDe
 	CheckInfer child_infer = infer;
 	if (!ffz_decl_is_runtime_value(inst.node)) child_infer.expect_constant = true;
 	
-	//HITS(_c, 3);
+//	F_HITS(_c, 263);
 	ffzCheckedExpr lhs_chk, rhs_chk;
 	TRY(check_expression_defaulting_to_uint(c, child_infer, rhs, &rhs_chk));
-
+	
 	ffzCheckedExpr out = rhs_chk;
 	if (ffz_decl_is_runtime_value(inst.node)) {
 		// ffz_decl_is_variable
@@ -1235,7 +1234,7 @@ static ffzOk check_declaration(ffzChecker* c, const CheckInfer& infer, ffzNodeDe
 		// hmm... but they should within struct definitions.
 	}
 
-	checker_cache(c, IBASE(inst), out); // lhs check_expression will recurse into this same check_declaration procedure, so this will prevent it.
+	checker_cache(c, IBASE(inst), out); // the lhs check_expression will recurse into this same check_declaration procedure, so this will prevent it.
 	TRY(check_expression(c, child_infer, IBASE(name), &lhs_chk));
 	return { true };
 }
@@ -1450,7 +1449,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		if (out) *out = *existing;
 		return { true };
 	}
-	F_HITS(_c, 0);
+	//F_HITS(_c, 32);
 	
 	if (!infer.instantiating_poly_type) {
 		ffz_instanceless_check(c, inst.node, false);
@@ -1533,15 +1532,19 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			ffzNodeDeclarationInst decl_inst;
 			F_ASSERT(ffz_get_decl_if_definition(def_inst, &decl_inst));
 
+			fMapInsertResult circle_chk = f_map64_insert_raw(&c->checked_identifiers, ffz_hash_node_inst(IBASE(inst)), NULL, fMapInsert_DoNotOverride);
+			if (!circle_chk.added) ERR(c, BASE(inst.node), "Circular definition!"); // TODO: elaborate
+
 			// Sometimes we need to access a constant declaration that's ahead of us that we haven't yet checked.
 			// In that case we need to completely reset the context back to the declaration's scope, then evaluate the
 			// thing we need real quick, and then come back as if nothing had happened.
 			
-			//ffzCheckerScope* scope_before = c->current_scope;
-			//c->current_scope = scope;
 			TRY(check_declaration(c, infer, decl_inst));
-			//c->current_scope = scope_before;
-
+			
+			if (BASE(def) != inst.node && ffz_decl_is_runtime_value(decl_inst.node) && decl_inst.node->index > inst.node->index) {
+				ERR(c, inst.node, "Variable is being used before it is declared.");
+			}
+			
 			result = ffz_decl_get_checked(c, decl_inst);
 			if (def_inst.node->is_constant) F_ASSERT(result.const_val);
 		}
@@ -1569,7 +1572,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 				TRY(check_expression(c, infer_no_help_constant(infer), n));
 			}
 			
-			fArray<ffzTypeProcParameter> in_parameters = f_array_make<ffzTypeProcParameter>(c->alc);
+			fArray(ffzTypeProcParameter) in_parameters = f_array_make<ffzTypeProcParameter>(c->alc);
 			for FFZ_EACH_CHILD_INST(param, inst) {
 				if (param.node->kind != ffzNodeKind_Declaration) ERR(c, param.node, "Expected a declaration.");
 				TRY(check_declaration(c, infer_no_help_nonconstant(infer), IAS(param, Declaration)));

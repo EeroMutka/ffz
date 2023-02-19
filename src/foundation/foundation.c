@@ -222,8 +222,8 @@ fString f_str_path_stem(fString path) {
 	return path;
 }
 
-//const char* temp_cstr(String str) {
-//	Slice<u8> mem = mem_alloc(str.len + 1, TEMP_ALLOCATOR);
+//const char* temp_cstr(fString str) {
+//	fSlice(u8) mem = mem_alloc(str.len + 1, TEMP_ALLOCATOR);
 //	memcpy(mem.data, str.data, str.len);
 //	mem.data[str.len] = '\0';
 //
@@ -245,7 +245,7 @@ fString f_str_path_stem(fString path) {
 //
 //}
 
-//u32 hash_fnv32(Slice<u8> data, u32 seed) {
+//u32 hash_fnv32(fSlice(u8) data, u32 seed) {
 //	for (i64 i = 0; i < data.len; i++) {
 //		seed = (seed * 0x01000193) ^ data[i];
 //	}
@@ -282,18 +282,18 @@ fString f_str_clone(fString str, fAllocator* a) {
 	return copied;
 }
 
-//String str_clone(const char* cstr, Allocator* a) {
+//fString f_str_clone(const char* cstr, fAllocator* a) {
 //	ZoneScoped;
-//	return str_clone(String{ (u8*)cstr, (isize)strlen(cstr) }, allocator);
+//	return f_str_clone(fString{ (u8*)cstr, (isize)strlen(cstr) }, allocator);
 //}
 
-//String _str_join(Slice<String> strings, Allocator* a) {
+//fString _str_join(fSlice(fString) strings, fAllocator* a) {
 //	ZoneScoped;
 //	i64 total_size = 0;
 //	for (i64 i = 0; i < strings.len; i++)
 //		total_size += strings.data[i].len;
 //
-//	String result = MakeSlice(u8, total_size, allocator);
+//	fString result = MakeSlice(u8, total_size, allocator);
 //
 //	u8* ptr = result.data;
 //	for (i64 i = 0; i < strings.len; i++) {
@@ -304,26 +304,26 @@ fString f_str_clone(fString str, fAllocator* a) {
 //	return result;
 //}
 
-/*void str_split(String str, u8 character, Allocator* a, Slice(String)* out) {
+/*void str_split(fString str, u8 character, fAllocator* a, Slice(fString)* out) {
 	uint required_len = 1;
 	for (uint i = 0; i < str.len; i++) {
 		if (str.data[i] == character) required_len++;
 	}
 
-	Array(String) substrings = make_array_cap_raw(sizeof(String), required_len, a);
+	Array(fString) substrings = make_array_cap_raw(sizeof(fString), required_len, a);
 	
 	uint prev = 0;
 	for (uint i = 0; i < str.len; i++) {
 		if (str.data[i] == character) {
-			String s = str_slice(str, prev, i);
-			array_push_raw(&substrings, &s, sizeof(String));
+			fString s = str_slice(str, prev, i);
+			array_push_raw(&substrings, &s, sizeof(fString));
 			prev = i + 1;
 		}
 	}
 	
-	String s = str_slice_after(str, prev);
-	array_push_raw(&substrings, &s, sizeof(String));
-	*out = BITCAST(Slice(String), substrings);
+	fString s = str_slice_after(str, prev);
+	array_push_raw(&substrings, &s, sizeof(fString));
+	*out = BITCAST(Slice(fString), substrings);
 }*/
 
 bool f_str_ends_with(fString str, fString end) {
@@ -414,7 +414,7 @@ void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)*
 //		//if (!arr->allocator.proc)
 //		//	slot_array_init(arr);
 //
-//		Slice<u8> bucket_allocation = MemAllocSlice(u8, arr->num_items_per_bucket * item_size, arr->allocator);
+//		fSlice(u8) bucket_allocation = MemAllocSlice(u8, arr->num_items_per_bucket * item_size, arr->allocator);
 //		array_append(&arr->buckets, (void*)bucket_allocation.data);
 //	}
 //
@@ -437,9 +437,9 @@ void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)*
 //}
 
 #if 0
-Slice<u8> tracker_alloc(Allocator* a, i64 size, i64 alignment) {
+fSlice(u8) tracker_alloc(fAllocator* a, i64 size, i64 alignment) {
 	LeakTracker* tracker = (LeakTracker*)allocator;
-	Slice<u8> allocation = tracker->passthrough_allocator->alloc(tracker->passthrough_allocator, size, alignment);
+	fSlice(u8) allocation = tracker->passthrough_allocator->alloc(tracker->passthrough_allocator, size, alignment);
 	
 	// Even with zero sized allocations, we still want a unique allocated address at least for memory debugging purposes.
 	ASSERT(allocation.data != NULL);
@@ -458,12 +458,12 @@ Slice<u8> tracker_alloc(Allocator* a, i64 size, i64 alignment) {
 		} pass = {0, tracker, &entry};
 		_foundation_pass = &pass;
 
-		os_get_stack_trace([](String function, String file, u32 line) {
+		os_get_stack_trace([](fString function, fString file, u32 line) {
 			Pass* pass = (Pass*)_foundation_pass;
 			if (pass->i > 0) {
-				String* filepath_cached = pass->tracker->file_names_cache[file];
+				fString* filepath_cached = pass->tracker->file_names_cache[file];
 				if (!filepath_cached) {
-					String cloned = str_clone(file, &pass->tracker->internal_arena.allocator);
+					fString cloned = f_str_clone(file, &pass->tracker->internal_arena.allocator);
 					filepath_cached = map_insert(&pass->tracker->file_names_cache, cloned, cloned).ptr;
 				}
 
@@ -481,7 +481,7 @@ Slice<u8> tracker_alloc(Allocator* a, i64 size, i64 alignment) {
 #endif
 
 #if 0
-void tracker_free(Allocator* a, Slice<u8> allocation) {
+void tracker_free(fAllocator* a, fSlice(u8) allocation) {
 	BP;
 	LeakTracker* tracker = (LeakTracker*)allocator;
 	if (allocation.data) {
@@ -500,7 +500,7 @@ void tracker_free(Allocator* a, Slice<u8> allocation) {
 #endif
 
 #if 0
-void tracker_resize(Allocator* a, Slice<u8>* allocation, i64 new_size, i64 alignment) {
+void tracker_resize(fAllocator* a, fSlice(u8)* allocation, i64 new_size, i64 alignment) {
 	LeakTracker* tracker = (LeakTracker*)allocator;
 	u8* old_address = allocation->data;
 	ASSERT(old_address);
@@ -526,12 +526,12 @@ void tracker_resize(Allocator* a, Slice<u8>* allocation, i64 new_size, i64 align
 }
 #endif
 
-//void tracker_begin(Allocator* a, void* address) {
+//void tracker_begin(fAllocator* a, void* address) {
 //	LeakTracker* tracker = (LeakTracker*)allocator;
 //	map_insert(&tracker->active_allocations, address, (LeakTracker_Entry) { leak_tracker_next_allocation(tracker) });
 //}
 //
-//void tracker_end(Allocator* a, void* address) {
+//void tracker_end(fAllocator* a, void* address) {
 //	LeakTracker* tracker = (LeakTracker*)allocator;
 //	if (address) {
 //		LeakTracker_Entry* entry = tracker->active_allocations[address];
@@ -662,7 +662,7 @@ fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a) {
 
 void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size) {
 	if (capacity > array->capacity) {
-		F_ASSERT(array->alc); // Did you call make_array?
+		F_ASSERT(array->alc); // Did you call f_array_make?
 		array->data = f_mem_resize_n(u8, array->data, array->capacity * elem_size, capacity * elem_size, array->alc);
 		array->capacity = capacity;
 	}
@@ -757,8 +757,8 @@ float f_random_float_in_range(float minimum, float maximum) {
 
 
 
-//void _custom_print_f(void(*append_fn)(String), String fmt, std::initializer_list<String> args) {
-//	Slice<String> args_slice = { (String*)args.begin(), args.size() };
+//void _custom_print_f(void(*append_fn)(fString), fString fmt, std::initializer_list<fString> args) {
+//	fSlice(fString) args_slice = { (fString*)args.begin(), args.size() };
 //
 //	uint reserve_len = fmt.len;
 //	for (int i = 0; i < args.size(); i++) reserve_len += args_slice[i].len;
@@ -782,34 +782,34 @@ float f_random_float_in_range(float minimum, float maximum) {
 //	}
 //}
 
-//String __aprint(Allocator* a, const char* fmt, ...) {
+//fString __aprint(fAllocator* a, const char* fmt, ...) {
 //	//ZoneScoped;
 //	va_list args;
 //	va_start(args, fmt);
-//	String result = __aprint_va_list(allocator, fmt, args);
+//	fString result = __aprint_va_list(allocator, fmt, args);
 //	va_end(args);
 //	return result;
 //	//__crt_va_start(args, fmt); defer(__crt_va_end(args));
 //}
 
 
-//void _print_fmt(String fmt, std::initializer_list<String> args) {
-//	_custom_print_f([](String str) {
+//void _print_fmt(fString fmt, std::initializer_list<fString> args) {
+//	_custom_print_f([](fString str) {
 //		os_write_to_console(str);
 //	}, fmt, args);
 //}
 
-//String _aprint_fmt(Allocator* a, String fmt, std::initializer_list<String> args) {
-//	Slice<String> args_slice = { (String*)args.begin(), args.size() };
+//fString _aprint_fmt(fAllocator* a, fString fmt, std::initializer_list<fString> args) {
+//	fSlice(fString) args_slice = { (fString*)args.begin(), args.size() };
 //
 //	uint size = 0;
 //	_foundation_pass = &size;
-//	_custom_print_f([](String str) { *(uint*)_foundation_pass += 1; }, fmt, args);
+//	_custom_print_f([](fString str) { *(uint*)_foundation_pass += 1; }, fmt, args);
 //	
-//	String result = MakeSlice(u8, size, allocator);
+//	fString result = MakeSlice(u8, size, allocator);
 //	
 //	_foundation_pass = result.data;
-//	_custom_print_f([](String str) {
+//	_custom_print_f([](fString str) {
 //		memcpy(_foundation_pass, str.data, str.len);
 //		_foundation_pass = (u8*)_foundation_pass + str.len;
 //	}, fmt, args);
@@ -817,32 +817,32 @@ float f_random_float_in_range(float minimum, float maximum) {
 //	return result;
 //}
 
-//void _bprint_fmt(Array<u8>* buffer, String fmt, std::initializer_list<String> args) {
+//void _bprint_fmt(fArray(u8)* buffer, fString fmt, std::initializer_list<fString> args) {
 //	_foundation_pass = buffer;
-//	_custom_print_f([](String str) {
-//		array_push_slice((Array<u8>*)_foundation_pass, str);
+//	_custom_print_f([](fString str) {
+//		array_push_slice((fArray(u8)*)_foundation_pass, str);
 //		}, fmt, args);
 //}
 //
-//void _Print(std::initializer_list<String> args) {
-//	for (String arg : args) {
+//void _Print(std::initializer_list<fString> args) {
+//	for (fString arg : args) {
 //		os_write_to_console(arg);
 //	}
 //}
 
-//void _PrintB(Array<u8>* buffer, std::initializer_list<String> args) {
-//	for (String arg : args) {
+//void _PrintB(fArray(u8)* buffer, std::initializer_list<fString> args) {
+//	for (fString arg : args) {
 //		array_push_slice(buffer, arg);
 //	}
 //}
 
-//String _PrintA(Allocator* a, std::initializer_list<String> args) {
+//fString _PrintA(fAllocator* a, std::initializer_list<fString> args) {
 //	uint size = 0;
-//	for (String arg : args) size += arg.len;
+//	for (fString arg : args) size += arg.len;
 //
-//	Array<u8> buf;
+//	fArray(u8) buf;
 //	InitArrayCap(&buf, size, allocator);
-//	for (String arg : args) array_push_slice(&buf, arg);
+//	for (fString arg : args) array_push_slice(&buf, arg);
 //	return buf.slice;
 //}
 
@@ -882,8 +882,8 @@ fString f_str_from_float(fString bytes, fAllocator* a) {
 }
 
 
-//Slice<u8> global_allocator_alloc(Allocator* a, uint size, uint alignment) {
-//	Slice<u8> allocation;
+//fSlice(u8) global_allocator_alloc(fAllocator* a, uint size, uint alignment) {
+//	fSlice(u8) allocation;
 //	allocation.data = (u8*)malloc(size);
 //	allocation.len = size;
 //
@@ -900,14 +900,14 @@ fString f_str_from_float(fString bytes, fAllocator* a) {
 //	return allocation;
 //}
 
-//void global_allocator_free(Allocator* a, Slice<u8> allocation) {
+//void global_allocator_free(fAllocator* a, fSlice(u8) allocation) {
 //#ifdef _DEBUG
 //	memset(allocation.data, 0xCC, allocation.len); // debug; trigger data-breakpoints and make use-after-free bugs evident.
 //#endif
 //	free(allocation.data);
 //}
 
-//void global_allocator_resize(Allocator* a, Slice<u8>* allocation, uint new_size, uint alignment) {
+//void global_allocator_resize(fAllocator* a, fSlice(u8)* allocation, uint new_size, uint alignment) {
 //	if (new_size <= allocation->len) return;
 //
 //	ASSERT(allocation->data != NULL);
@@ -1266,17 +1266,17 @@ void f_map64_free_raw(fMap64Raw* map) {
 //		.using_arena = make_arena(arena_desc),
 //		.elem_size = elem_size,
 //	};
-//	return mem_clone(_slot_arena, &_slot_arena.arena->alc);
+//	return f_mem_clone(_slot_arena, &_slot_arena.arena->alc);
 //}
 
-//SlotArenaRaw* make_slot_arena_raw(u32 elem_size, u32 num_elems_per_bucket, Allocator* a) {
+//SlotArenaRaw* make_slot_arena_raw(u32 elem_size, u32 num_elems_per_bucket, fAllocator* a) {
 //	SlotArenaRaw _slot_arena = {
 //		.first_free = &SLOT_ARENA_FREELIST_END,
 //		.a = a,
 //		.num_elems_per_bucket = num_elems_per_bucket,
 //		.elem_size = elem_size,
 //	};
-//	return mem_clone(_slot_arena, a);
+//	return f_mem_clone(_slot_arena, a);
 //}
 
 /*
@@ -1735,7 +1735,7 @@ bool f_str_to_s64(fString s, u32 radix, s64* out_value) {
 }
 
 char* f_str_to_cstr(fString s, fAllocator* a) {
-	char* bytes = f_mem_alloc(s.len, 1, a);
+	char* bytes = f_mem_alloc(s.len + 1, 1, a);
 	memcpy(bytes, s.data, s.len);
 	bytes[s.len] = 0;
 	return bytes;
@@ -1952,12 +1952,12 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 	}
 
 	
-	//Slice<String> os_file_picker_multi() {
+	//fSlice(fString) os_file_picker_multi() {
 	//	ZoneScoped;
 	//	ASSERT(false); // cancelling does not work!!!!
 	//	return {};
 
-		//Slice<u8> buffer = mem_alloc(16*KB, TEMP_ALLOCATOR);
+		//fSlice(u8) buffer = mem_alloc(16*KB, TEMP_ALLOCATOR);
 		//buffer[0] = '\0';
 		//
 		//OPENFILENAMEA ofn = {};
@@ -1973,10 +1973,10 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		//ofn.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER | OFN_NOCHANGEDIR;
 		//GetOpenFileNameA(&ofn);
 		//
-		//Array<String> items = {};
+		//fArray(fString) items = {};
 		//items.allocator = TEMP_ALLOCATOR;
 		//
-		//String directory = String{ buffer.data, (isize)strlen((char*)buffer.data) };
+		//fString directory = fString{ buffer.data, (isize)strlen((char*)buffer.data) };
 		//u8* ptr = buffer.data + directory.len + 1;
 		//
 		//if (*ptr == NULL) {
@@ -1988,9 +1988,9 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		//
 		//i64 i = 0;
 		//while (*ptr) {
-		//	String filename = String{ ptr, (isize)strlen((char*)ptr) };
+		//	fString filename = fString{ ptr, (isize)strlen((char*)ptr) };
 		//
-		//	String fullpath = str_join(slice({ directory, F_LIT("\\"), filename }), TEMP_ALLOCATOR);
+		//	fString fullpath = str_join(slice({ directory, F_LIT("\\"), filename }), TEMP_ALLOCATOR);
 		//	assert(fullpath.len < 270);
 		//	array_append(items, fullpath);
 		//
@@ -2038,7 +2038,7 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		return result;
 	}
 
-	//void os_allocator_proc(Slice<u8>* allocation, AllocatorMode mode, i64 size, i64 alignment, void* allocator_data, Code_Location loc) {
+	//void os_allocator_proc(fSlice(u8)* allocation, AllocatorMode mode, i64 size, i64 alignment, void* allocator_data, Code_Location loc) {
 	//	switch (mode) {
 	//	case AllocatorMode_VirtualReserve:
 	//		assert(allocation->data == NULL);
@@ -2057,7 +2057,7 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 	//}
 
 	void f_os_error_popup(fString title, fString message) {
-		u8 buf[4096]; // we can't use temp_push/temp_pop here, because we might be reporting an error about running over the temporary arena
+		u8 buf[4096]; // we can't use temp_push/f_temp_pop here, because we might be reporting an error about running over the temporary arena
 		fArena* stack_arena = f_arena_make_buffer_fixed(buf, sizeof(buf));
 		uint _;
 		wchar_t* title_utf16 = f_str_to_utf16(title, 1, &stack_arena->alc, &_);

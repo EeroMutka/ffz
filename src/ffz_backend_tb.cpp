@@ -57,9 +57,9 @@ struct Gen {
 
 	uint dummy_name_counter;
 	
-	fMap64<TB_Function*> func_from_hash;
-	fMap64<TB_Reg> tb_local_addr_from_definition;
-	fArray<TB_FileID> tb_file_from_parser_idx;
+	fMap64(TB_Function*) func_from_hash;
+	fMap64(TB_Reg) tb_local_addr_from_definition;
+	fArray(TB_FileID) tb_file_from_parser_idx;
 };
 
 // Helper macros for ffz
@@ -82,7 +82,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
 static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of = false);
 
 static const char* make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
-	fArray<u8> name = f_array_make<u8>(g->alc);
+	fArray(u8) name = f_array_make<u8>(g->alc);
 
 	if (inst.node) {
 		f_str_print(&name, ffz_get_parent_decl_name(inst.node));
@@ -188,8 +188,8 @@ TB_DebugType* get_tb_debug_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_Record: {
 		if (type->tag == ffzTypeTag_Record && type->Record.is_union) F_BP;
 
-		fSlice<ffzTypeRecordField> fields = ffz_type_get_record_fields(g->checker, type);
-		fArray<TB_DebugType*> tb_fields = f_array_make<TB_DebugType*>(g->alc);
+		fSlice(ffzTypeRecordField) fields = ffz_type_get_record_fields(g->checker, type);
+		fArray(TB_DebugType*) tb_fields = f_array_make<TB_DebugType*>(g->alc);
 
 		for (uint i = 0; i < fields.len; i++) {
 			ffzTypeRecordField& field = fields[i];
@@ -207,8 +207,8 @@ TB_DebugType* get_tb_debug_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_FixedArray: {
 		// TODO: message negate / try to fix array debug info
 		
-		fSlice<ffzTypeRecordField> fields = ffz_type_get_record_fields(g->checker, type);
-		fArray<TB_DebugType*> tb_fields = f_array_make<TB_DebugType*>(g->alc);
+		fSlice(ffzTypeRecordField) fields = ffz_type_get_record_fields(g->checker, type);
+		fArray(TB_DebugType*) tb_fields = f_array_make<TB_DebugType*>(g->alc);
 		TB_DebugType* elem_type_tb = get_tb_debug_type(g, type->FixedArray.elem_type);
 
 		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
@@ -365,7 +365,7 @@ static SmallOrPtr gen_call(Gen* g, ffzNodeOperatorInst inst) {
 	TB_DataType ret_type_tb = big_return ? TB_TYPE_PTR :
 		ret_type ? get_tb_basic_type(g, ret_type) : TB_TYPE_VOID;
 
-	fArray<TB_Reg> args = f_array_make<TB_Reg>(g->alc);
+	fArray(TB_Reg) args = f_array_make<TB_Reg>(g->alc);
 
 	SmallOrPtr out = {};
 	if (big_return) {

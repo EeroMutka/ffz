@@ -8,8 +8,6 @@
 extern "C" {
 #endif
 
-#define OPT(ptr) ptr
-
 typedef struct ffzProject ffzProject;
 typedef union ffzNode ffzNode;
 typedef u32 ffzParserIndex;
@@ -161,6 +159,7 @@ typedef struct ffzNodeStringLiteral ffzNodeStringLiteral;
 #define FFZ_NODE_BASE struct {\
 ffzNodeKind kind;\
 ffzParserIndex parser_idx;\
+u32 index;\
 ffzLocRange loc;\
 ffzNodeTag* first_tag;\
 ffzNode* parent;\
@@ -209,15 +208,15 @@ typedef struct ffzNodeOperator {
 	FFZ_NODE_BASE; // if this is a post/pre-scope-op, the nodes inside the scope are stored in `children`
 	ffzOperatorKind op_kind;
 
-	OPT(ffzNode*) left;
-	OPT(ffzNode*) right;
+	fOpt(ffzNode*) left;
+	fOpt(ffzNode*) right;
 } ffzNodeOperator;
 
 typedef struct ffzNodeIf {
 	FFZ_NODE_BASE;
 	ffzNode* condition;
 	ffzNode* true_scope;
-	OPT(ffzNode*) else_scope;
+	fOpt(ffzNode*) else_scope;
 } ffzNodeIf;
 
 typedef struct ffzNodeFor {
@@ -230,13 +229,13 @@ typedef struct ffzNodePolyParamList { FFZ_NODE_BASE; } ffzNodePolyParamList;
 
 typedef struct ffzNodeProcType {
 	FFZ_NODE_BASE; // the input parameters are encoded in `children`
-	OPT(ffzNodePolyParamList*) polymorphic_parameters;
-	OPT(ffzNode*) out_parameter;
+	fOpt(ffzNodePolyParamList*) polymorphic_parameters;
+	fOpt(ffzNode*) out_parameter;
 } ffzNodeProcType;
 
 typedef struct ffzNodeRecord {
 	FFZ_NODE_BASE; // the struct fields are encoded in `children`
-	OPT(ffzNodePolyParamList*) polymorphic_parameters;
+	fOpt(ffzNodePolyParamList*) polymorphic_parameters;
 	bool is_union;
 } ffzNodeRecord;
 
@@ -251,7 +250,7 @@ typedef struct ffzNodeBlank { FFZ_NODE_BASE; } ffzNodeBlank;
 
 typedef struct ffzNodeReturn {
 	FFZ_NODE_BASE;
-	OPT(ffzNode*) value;
+	fOpt(ffzNode*) value;
 } ffzNodeReturn;
 
 typedef struct ffzNodeIntLiteral {
@@ -322,10 +321,11 @@ struct ffzParser {
 	fString source_code_filepath; // The filepath is displayed in error messages, but not used anywhere else.
 
 	ffzNodeScope* root;
+	u32 next_node_index;
 	fAllocator* alc;
 
-	fArrayRaw/*<ffzNodeKeyword*>*/ module_imports;
-	fMap64Raw/*<ffzNodeTagDecl*>*/ tag_decl_lists; // key: str_hash64(tag, 0)
+	fArray(ffzNodeKeyword*) module_imports;
+	fMap64(ffzNodeTagDecl*) tag_decl_lists; // key: str_hash64(tag, 0)
 
 	bool stop_at_curly_brackets;
 	ffzLoc pos;
@@ -359,8 +359,8 @@ inline bool ffz_op_is_comparison(ffzOperatorKind kind) { return kind >= ffzOpera
 inline bool ffz_op_is_shift(ffzOperatorKind kind) { return kind == ffzOperatorKind_ShiftL || kind == ffzOperatorKind_ShiftR; }
 inline bool ffz_op_is_arithmetic(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Add && kind <= ffzOperatorKind_Modulo; }
 
-OPT(ffzNodeTag*) ffz_node_get_compiler_tag(ffzNode* node, fString tag);
-OPT(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, fString tag);
+fOpt(ffzNodeTag*) ffz_node_get_compiler_tag(ffzNode* node, fString tag);
+fOpt(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, fString tag);
 
 //u32 ffz_poly_parameter_get_index(ffzNode* node);
 //u32 ffz_parameter_get_index(ffzNode* node);
@@ -368,12 +368,12 @@ OPT(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, fString tag);
 //u32 ffz_enum_child_get_index(ffzNode* node);
 //u32 ffz_scope_child_get_index(ffzNode* node);
 
-OPT(ffzNodeDeclaration*) ffz_get_parent_decl(OPT(ffzNode*) node); // returns NULL if node->parent is not a declaration, or the node itself is NULL
-fString ffz_get_parent_decl_name(OPT(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
+fOpt(ffzNodeDeclaration*) ffz_get_parent_decl(fOpt(ffzNode*) node); // returns NULL if node->parent is not a declaration, or the node itself is NULL
+fString ffz_get_parent_decl_name(fOpt(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
 
 u32 ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
 ffzNode* ffz_get_child(ffzNode* parent, u32 idx);
-u32 ffz_get_child_count(OPT(ffzNode*) parent); // returns 0 if parent is NULL
+u32 ffz_get_child_count(fOpt(ffzNode*) parent); // returns 0 if parent is NULL
 
 //ffzToken ffz_token_from_node(ffzParser* parser, ffzNode* node);
 
@@ -382,11 +382,9 @@ const char* ffz_node_kind_to_cstring(ffzNodeKind kind);
 
 ffzOk ffz_parse(ffzParser* p);
 
-OPT(ffzNode*) ffz_skip_tag_decls(OPT(ffzNode*) node);
+fOpt(ffzNode*) ffz_skip_tag_decls(fOpt(ffzNode*) node);
 
 fString ffz_print_ast(fAllocator* alc, ffzNode* node);
-
-#undef OPT
 
 #ifdef __cplusplus
 } // extern "C"
