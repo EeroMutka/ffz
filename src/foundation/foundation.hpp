@@ -207,7 +207,7 @@ template<typename T>
 inline void f_array_resize_garbage(fArray(T)* array, uint len) { f_array_resize_raw((fArrayRaw*)array, len, NULL, elem_size); }
 
 template<typename T>
-inline uint f_array_push(fArray(T)* array, const T& elem) { return f_array_push_raw((fArrayRaw*)array, &elem, sizeof(T)); }
+inline uint f_array_push(fArray(T)* array, const T& elem) { return f_array_push_raw((fArrayRaw*)array, &elem, sizeof(T), F_ALIGN_OF(T)); }
 
 template<typename T>
 inline void f_array_push_slice(fArray(T)* array, fSlice(T) elems) {

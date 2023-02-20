@@ -99,55 +99,22 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		return true;
 	}
 
-	ffzChecker* checker = f_mem_clone(ffzChecker{}, temp);
+	ffzChecker* checker = ffz_checker_init(temp);
 	*checker_insertion._unstable_ptr = checker;
-	*out_checker = checker;
-
-	checker->alc = temp;
 	checker->project = project;
 	checker->self_idx = (ffzCheckerIndex)f_array_push(&project->checkers, checker);
-
-	checker->checked_identifiers = f_map64_make_raw(0, checker->alc);
-	checker->definition_map = f_map64_make<ffzNodeIdentifier*>(checker->alc);
-	//checker->definition_from_node = make_map64_cap<ffzNodeIdentifier*>(1024, checker->alc);
-	checker->cache = f_map64_make<ffzCheckedExpr>(checker->alc);
-	checker->type_from_hash = f_map64_make<ffzType*>(checker->alc);
-	checker->poly_instantiations = f_map64_make<ffzPolyInst>(checker->alc);
-	checker->poly_instantiation_sites = f_map64_make<ffzPolyInstHash>(checker->alc);
-	checker->record_field_from_name = f_map64_make<ffzTypeRecordFieldUse*>(checker->alc);
-	checker->enum_value_from_name = f_map64_make<u64>(checker->alc);
-	checker->enum_value_is_taken = f_map64_make<ffzNode*>(checker->alc);
-	checker->imported_modules = f_map64_make<ffzChecker*>(checker->alc);
-
-	checker->pointer_size = 8;
-	{
-		u32 a = ffzKeyword_u8;
-		checker->builtin_types[ffzKeyword_u8-a] = { ffzTypeTag_SizedUint, 1, 1 };
-		checker->builtin_types[ffzKeyword_u16-a] = { ffzTypeTag_SizedUint, 2, 2 };
-		checker->builtin_types[ffzKeyword_u32-a] = { ffzTypeTag_SizedUint, 4, 4 };
-		checker->builtin_types[ffzKeyword_u64-a] = { ffzTypeTag_SizedUint, 8, 8 };
-		
-		checker->builtin_types[ffzKeyword_s8-a] = { ffzTypeTag_SizedInt, 1, 1 };
-		checker->builtin_types[ffzKeyword_s16-a] = { ffzTypeTag_SizedInt, 2, 2 };
-		checker->builtin_types[ffzKeyword_s32-a] = { ffzTypeTag_SizedInt, 4, 4 };
-		checker->builtin_types[ffzKeyword_s64-a] = { ffzTypeTag_SizedInt, 8, 8 };
-		
-		checker->builtin_types[ffzKeyword_uint-a] = { ffzTypeTag_Uint, checker->pointer_size, checker->pointer_size };
-		checker->builtin_types[ffzKeyword_int-a] = { ffzTypeTag_Int, checker->pointer_size, checker->pointer_size };
-		
-		checker->builtin_types[ffzKeyword_bool-a] = { ffzTypeTag_Bool, 1, 1 };
-		checker->builtin_types[ffzKeyword_string-a] = { ffzTypeTag_String, checker->pointer_size*2, checker->pointer_size };
-	}
-
+	
 	checker->report_error = [](ffzChecker* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
 		ffzParser* parser = checker->project->parsers_dependency_sorted[at->parser_idx];
-		
+
 		ffz_log_pretty_error(parser, F_LIT("Semantic error "), at->loc, error, true);
 		for (uint i = poly_path.len - 1; i < poly_path.len; i++) {
 			ffz_log_pretty_error(parser, F_LIT("\n  ...inside instantiation "), poly_path[i]->loc, F_LIT(""), false);
 		}
 		F_BP;
 	};
+
+	*out_checker = checker;
 
 #ifdef _DEBUG
 	checker->_dbg_module_import_name = _dbg_module_import_name;

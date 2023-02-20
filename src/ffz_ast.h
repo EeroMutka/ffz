@@ -47,15 +47,16 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_String`
 	ffzNodeKind_COUNT,
 } ffzNodeKind;
 
-typedef enum ffzKeyword { // synced with `KeywordKind_String`
+typedef enum ffzKeyword { // synced with `ffz_keyword_to_string`
 	ffzKeyword_Invalid,
-	ffzKeyword_Underscore, // TODO: remove this? and replace with _Blank
+	ffzKeyword_Underscore,
 	ffzKeyword_QuestionMark,
 	ffzKeyword_dbgbreak,
 	ffzKeyword_size_of,
+	ffzKeyword_align_of,
 	ffzKeyword_import,
+	// TODO: type_of?
 	// TODO: offset_of?
-	// TODO: align_of?
 
 	ffzKeyword_true,
 	ffzKeyword_false,
@@ -71,6 +72,7 @@ typedef enum ffzKeyword { // synced with `KeywordKind_String`
 	ffzKeyword_int,
 	ffzKeyword_uint,
 	ffzKeyword_bool,
+	ffzKeyword_raw,
 	ffzKeyword_string,
 
 	// :ffz_keyword_is_bitwise_op
@@ -308,6 +310,36 @@ static const fString ffzNodeKind_String[] = {
 	F_LIT_COMP("int-literal"),
 	F_LIT_COMP("string-literal"),
 	F_LIT_COMP("float-literal"),
+};
+
+const static fString ffz_keyword_to_string[] = { // synced with `ffzKeyword`
+	{0},
+	F_LIT_COMP("_"),
+	F_LIT_COMP("?"),
+	F_LIT_COMP("dbgbreak"),
+	F_LIT_COMP("size_of"),
+	F_LIT_COMP("align_of"),
+	F_LIT_COMP("import"),
+	F_LIT_COMP("true"),
+	F_LIT_COMP("false"),
+	F_LIT_COMP("u8"),
+	F_LIT_COMP("u16"),
+	F_LIT_COMP("u32"),
+	F_LIT_COMP("u64"),
+	F_LIT_COMP("s8"),
+	F_LIT_COMP("s16"),
+	F_LIT_COMP("s32"),
+	F_LIT_COMP("s64"),
+	F_LIT_COMP("int"),
+	F_LIT_COMP("uint"),
+	F_LIT_COMP("bool"),
+	F_LIT_COMP("raw"),
+	F_LIT_COMP("string"),
+	F_LIT_COMP("bit_and"),
+	F_LIT_COMP("bit_or"),
+	F_LIT_COMP("bit_xor"),
+	F_LIT_COMP("bit_not"),
+	F_LIT_COMP("%"),
 };
 
 // Parser is responsible for parsing a single file / string of source code

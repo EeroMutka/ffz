@@ -79,7 +79,7 @@ typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allo
 template<typename T> struct alignment_trick { char c; T member; };
 #define F_ALIGN_OF(type) F_OFFSET_OF(alignment_trick<type>, member)
 #else
-#define F_ALIGN_OF(type) offsetof (struct F_CONCAT(_dummy, __COUNTER__) { char c; type member; }, member)
+#define F_ALIGN_OF(type) (F_OFFSET_OF(struct F_CONCAT(_dummy, __COUNTER__) { char c; type member; }, member))
 #endif
 
 // Useful for surpressing compiler warnings
@@ -174,7 +174,7 @@ typedef struct {
 
 // c container macros
 #ifndef __cplusplus
-#define f_array_push(array, elem) f_array_push_raw((array), &(elem), sizeof(elem))
+#define f_array_push(T, array, elem) f_array_push_raw((array), &(elem), sizeof(elem), F_ALIGN_OF(T))
 #define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
 #endif
 
@@ -186,6 +186,7 @@ typedef struct {
 
 typedef struct fAllocator fAllocator;
 struct fAllocator {
+	// TODO: get rid of caller-managed alignment for convenience?
 	// `old_ptr` can be NULL
 	void* (*_proc)(fAllocator* allocator, void* old_ptr, uint old_size, uint new_size, uint_pow2 new_alignment);
 };
@@ -596,8 +597,8 @@ fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_valu
 fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fAllocator* a);
 fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a);
 void f_array_free_raw(fArrayRaw* array, u32 elem_size);
-uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size);
-void f_array_push_slice_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size);
+uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size, u32 elem_align);
+void f_array_push_slice_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size, u32 elem_align);
 void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size);
 void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size);
 void f_array_resize_raw(fArrayRaw* array, uint len, fOpt(const void*) value, u32 elem_size); // set value to NULL to not initialize the memory

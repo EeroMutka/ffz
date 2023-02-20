@@ -10,6 +10,7 @@ struct ffzChecker;
 typedef enum ffzTypeTag {
 	ffzTypeTag_Invalid,
 
+	ffzTypeTag_Raw,
 	ffzTypeTag_Type,
 	ffzTypeTag_PolyProc, // this is the type of an entire polymorphic procedure including a body
 	ffzTypeTag_PolyRecord, // nothing should ever actually have the type of this - but a polymorphic struct type definition will type type to this
@@ -17,7 +18,6 @@ typedef enum ffzTypeTag {
 
 	ffzTypeTag_Bool,
 	ffzTypeTag_Pointer,
-	ffzTypeTag_Void, // void is the type of an _ expression
 
 	// :TypeIsInteger
 	ffzTypeTag_SizedInt, // maybe SizedInt/SizedUint could be a flag if we would have flags in types?
@@ -97,12 +97,9 @@ typedef struct ffzTypeRecordField {
 } ffzTypeRecordField;
 
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
-
 struct ffzTypeRecordFieldUse {
-	ffzTypeRecordFieldUse* /*opt*/ parent;
 	ffzType* type;
-	u32 offset_from_root;
-	u32 local_index;
+	u32 offset;
 };
 
 typedef struct ffzTypeProcParameter {
@@ -118,9 +115,11 @@ typedef struct ffzTypeEnumField {
 typedef struct ffzType {
 	ffzTypeTag tag;
 	u32 size;
-	u32 alignment;
-	ffzChecker* module; // NULL for built-in types. TODO: lets just make it always valid
+	u32 align;
+	ffzChecker* module; // NULL for built-in types. TODO: lets just make it always valid?
 	
+	fSlice(ffzTypeRecordField) record_fields; // available for struct, union, slice types and the string type.
+
 	union {
 		struct {
 			ffzNodeProcTypeInst type_node;
@@ -130,7 +129,6 @@ typedef struct ffzType {
 		} Proc, PolyProc;
 		
 		struct {
-			fSlice(ffzTypeRecordField) fields;
 			ffzNodeRecordInst /*opt*/ node;
 			bool is_union; // otherwise struct
 		} Record, PolyRecord;
@@ -205,8 +203,9 @@ typedef u64 ffzEnumValueHash;
 
 // Checker is responsible for checking some chunk of code (currently must be a single module) and caching information about it.
 struct ffzChecker {
-	ffzProject* project;
+	ffzProject* project; // should we make this void*?
 	ffzCheckerIndex self_idx;
+
 	fAllocator* alc;
 
 	u32 pointer_size;
@@ -294,8 +293,10 @@ ffzType* /*opt*/ ffz_builtin_type(ffzChecker* c, ffzKeyword keyword);
 
 // -- Checker operations --------------------------------------------------------------
 
-ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNodeInst node); // TODO: cleanup
+ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNodeInst node);
 ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive);
+
+ffzChecker* ffz_checker_init(fAllocator* allocator);
 
 // -- Accessing cached data -----------------------------------------------------------
 
@@ -304,7 +305,7 @@ bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeDeclarat
 ffzNodeInst ffz_get_instantiated_expression(ffzChecker* c, ffzNodeInst node); // do we need this?
 
 bool ffz_type_find_record_field_use(ffzChecker* c, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
-fSlice(ffzTypeRecordField) ffz_type_get_record_fields(ffzChecker* c, ffzType* type); // available for struct, union, slice types and the string type.
+//fSlice(ffzTypeRecordField) ffz_type_get_record_fields(ffzChecker* c, ffzType* type);
 
 ffzCheckedExpr ffz_expr_get_checked(ffzChecker* c, ffzNodeInst node);
 inline ffzType* ffz_expr_get_type(ffzChecker* c, ffzNodeInst node) { return ffz_expr_get_checked(c, node).type; }
@@ -325,5 +326,3 @@ bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeDeclarationIn
 bool ffz_decl_is_runtime_value(ffzNodeDeclaration* decl);
 
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee);
-
-ffzType* make_type(ffzChecker* c, ffzType type); // TODO: this shouldn't be exposed

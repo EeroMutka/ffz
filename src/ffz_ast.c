@@ -72,34 +72,6 @@ const static fString ffzOperatorKind_String[] = {
 
 F_STATIC_ASSERT(F_LEN(ffzOperatorKind_String) == ffzOperatorKind_Count);
 
-const static fString KeywordKind_String[] = { // synced with `KeywordKind`
-	{0},
-	F_LIT_COMP("_"),
-	F_LIT_COMP("?"),
-	F_LIT_COMP("dbgbreak"),
-	F_LIT_COMP("size_of"),
-	F_LIT_COMP("import"),
-	F_LIT_COMP("true"),
-	F_LIT_COMP("false"),
-	F_LIT_COMP("u8"),
-	F_LIT_COMP("u16"),
-	F_LIT_COMP("u32"),
-	F_LIT_COMP("u64"),
-	F_LIT_COMP("s8"),
-	F_LIT_COMP("s16"),
-	F_LIT_COMP("s32"),
-	F_LIT_COMP("s64"),
-	F_LIT_COMP("int"),
-	F_LIT_COMP("uint"),
-	F_LIT_COMP("bool"),
-	F_LIT_COMP("string"),
-	F_LIT_COMP("bit_and"),
-	F_LIT_COMP("bit_or"),
-	F_LIT_COMP("bit_xor"),
-	F_LIT_COMP("bit_not"),
-	F_LIT_COMP("%"),
-};
-
 F_STATIC_ASSERT(ffzNodeKind_COUNT == F_LEN(ffzNodeKind_String));
 
 fString ffz_node_kind_to_string(ffzNodeKind kind) { return ffzNodeKind_String[kind]; }
@@ -151,7 +123,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_Keyword: {
-		f_str_print(builder, KeywordKind_String[AS(node,Keyword)->keyword]);
+		f_str_print(builder, ffz_keyword_to_string[AS(node,Keyword)->keyword]);
 	} break;
 
 	case ffzNodeKind_UserTagDecl: // fallthrough
@@ -518,6 +490,7 @@ static ffzOk maybe_peek_next_token(ffzParser* p, ffzLoc pos, bool ignore_newline
 
 static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind, u32 size) {
 	ffzNode* node = f_mem_alloc(size, 8, p->alc);
+	if (node == (void*)0x0000020000000472) F_BP;
 	memset(node, 0, size);
 	node->parser_idx = p->self_idx;
 	node->index = p->next_node_index++;
@@ -982,13 +955,13 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 		TRY(parse_struct(p, parent, tok.range, true, (ffzNodeRecord**)&result));
 	}
 	else if (is_alnum_or_underscore(c) || c == '#' || c == '?') {
-		for (uint i = 0; i < F_LEN(KeywordKind_String); i++) {
-			if (f_str_equals(tok.str, KeywordKind_String[i])) {
+		for (uint i = 0; i < F_LEN(ffz_keyword_to_string); i++) {
+			if (f_str_equals(tok.str, ffz_keyword_to_string[i])) {
 				result = NEW_NODE(Keyword, p, parent, tok.range);
 				result->Keyword.keyword = (ffzKeyword)i;
 				
 				if (i == ffzKeyword_import) {
-					f_array_push(&p->module_imports, AS(result,Keyword));
+					f_array_push(ffzNodeKeyword*, &p->module_imports, AS(result, Keyword));
 				}
 
 				break;
@@ -1249,7 +1222,7 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 			AS(node,Operator)->left = prev;
 			prev->parent = node;
 
-			f_array_push(&operator_chain, AS(node,Operator));
+			f_array_push(ffzNodeOperator*, &operator_chain, AS(node,Operator));
 			p->pos = after_next;
 		}
 
@@ -1261,6 +1234,7 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 	if (operator_chain.len > 0) {
 		root = BASE(find_root_operator(operator_chain.slice));
 	}
+	root->loc.end = p->pos;
 
 	p->stop_at_curly_brackets = stop_bef;
 

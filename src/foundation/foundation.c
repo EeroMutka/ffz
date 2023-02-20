@@ -157,12 +157,12 @@ fString str_format_va_list(fAllocator* a, const char* fmt, va_list args) {
 }
 
 void f_str_print(Array(u8)* buffer, fString str) {
-	f_array_push_slice_raw(buffer, F_BITCAST(fSliceRaw, str), 1);
+	f_array_push_slice_raw(buffer, F_BITCAST(fSliceRaw, str), 1, 1);
 }
 
 void f_str_print_rune(Array(u8)* buffer, rune r) {
 	F_ASSERT(r < 128); // TODO
-	f_array_push_raw(buffer, &r, 1);
+	f_array_push_raw(buffer, &r, 1, 1);
 }
 
 //SliceRaw array_get_slice_raw(ArrayRaw* array) { return *(SliceRaw*)array; }
@@ -359,12 +359,14 @@ void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)*
 	uint prev = 0;
 	for (uint i = 0; i < str.len; i++) {
 		if (str.data[i] == character) {
-			f_array_push_raw(&splits, &(fRangeUint){prev, i}, sizeof(fRangeUint));
+			fRangeUint range = { prev, i };
+			f_array_push(fRangeUint, &splits, range);
 			prev = i + 1;
 		}
 	}
 
-	f_array_push_raw(&splits, &(fRangeUint){prev, str.len}, sizeof(fRangeUint));
+	fRangeUint range = { prev, str.len };
+	f_array_push(fRangeUint, &splits, range);
 	*out = F_BITCAST(fSlice(fRangeUint), splits);
 }
 
@@ -613,7 +615,8 @@ static void leak_tracker_begin_entry_stacktrace_visitor(fString function, fStrin
 			*filepath_cached = f_str_clone(file, &_f_leak_tracker.internal_arena->alc);
 		}
 
-		f_array_push_raw(&pass->entry->callstack, &(fLeakTrackerCallstackEntry){ *filepath_cached, line }, sizeof(fLeakTrackerCallstackEntry));
+		fLeakTrackerCallstackEntry entry = { *filepath_cached, line };
+		f_array_push(fLeakTrackerCallstackEntry, &pass->entry->callstack, entry);
 	}
 	pass->i++;
 }
@@ -680,10 +683,10 @@ void _DEBUG_FILL_GARBAGE(void* ptr, uint len) { memset(ptr, 0xCC, len); }
 void slice_copy_raw(fSliceRaw dst, fSliceRaw src) {
 }
 
-void f_array_push_slice_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size) {
+void f_array_push_slice_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size, u32 elem_align) {
 	f_array_reserve_raw(array, array->len + elems.len, elem_size);
 	for (uint i = 0; i < elems.len; i++) {
-		f_array_push_raw(array, (const void*)((u8*)elems.data + elem_size * i), elem_size);
+		f_array_push_raw(array, (const void*)((u8*)elems.data + elem_size * i), elem_size, elem_align);
 	}
 }
 
@@ -695,11 +698,12 @@ void f_array_resize_raw(fArrayRaw* array, uint len, const void* value, u32 elem_
 	array->len = len;
 }
 
-uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size) {
+uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size, u32 elem_align) {
 	if (array->len >= array->capacity) {
 		// grow the array
 		uint new_capacity = F_MAX(8, array->capacity * 2);
-		array->data = f_mem_resize_n(u8, array->data, elem_size * array->capacity, elem_size * new_capacity, array->alc);
+		
+		array->data = f_mem_resize(array->data, elem_size * array->capacity, elem_size * new_capacity, elem_align, array->alc);
 		array->capacity = new_capacity;
 	}
 	memcpy((u8*)array->data + array->len * elem_size, elem, elem_size);
@@ -959,12 +963,12 @@ fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
 		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, alignment);
 		arena->pos.head = allocation_pos + size;
 
-		if (arena->pos.head > arena->committed_end) {
+		if ((uint)arena->pos.head > (uint)arena->committed_end) {
 			f_mem_commit(arena->committed_end, (uint)arena->pos.head - (uint)arena->committed_end);
 			arena->committed_end = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, F_KIB(4));
 		}
 		
-		if (arena->pos.head > arena->internal_base + arena->desc.VirtualReserveFixed.reserve_size) {
+		if ((uint)arena->pos.head > (uint)arena->internal_base + arena->desc.VirtualReserveFixed.reserve_size) {
 			error_out_of_memory();
 		}
 
@@ -978,7 +982,7 @@ fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
 		arena->pos.head = allocation_pos + size;
 
 		F_ASSERT(arena->internal_base);
-		if (arena->pos.head > arena->internal_base + arena->desc.UsingBufferFixed.size) {
+		if ((uint)arena->pos.head > (uint)arena->internal_base + arena->desc.UsingBufferFixed.size) {
 			error_out_of_memory();
 		}
 	} break;
@@ -989,7 +993,7 @@ fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
 		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, alignment);
 
 		fArenaBlock* curr_block = arena->pos.current_block;
-		if (!curr_block || (allocation_pos + size > (u8*)curr_block + curr_block->size_including_header)) {
+		if (!curr_block || ((uint)allocation_pos + size > (uint)curr_block + curr_block->size_including_header)) {
 			//HITS(_cccc, 31);
 			// The allocation doesn't fit in this block.
 
@@ -1032,7 +1036,7 @@ fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
 		}
 
 		arena->pos.head = allocation_pos + size;
-		F_ASSERT(arena->pos.head <= (u8*)arena->pos.current_block + arena->pos.current_block->size_including_header);
+		F_ASSERT((uint)arena->pos.head <= (uint)arena->pos.current_block + arena->pos.current_block->size_including_header);
 	} break;
 	
 	default: F_BP;
@@ -1109,6 +1113,9 @@ void f_map64_resize_raw(fMap64Raw* map, u32 slot_count_log2) {
 }
 
 uint_pow2 f_next_pow_of_2(uint v) {
+	// todo: use the following formula from Tilde Backend
+	// x == 1 ? 1 : 1 << (64 - _lzcnt_u64(x - 1));
+
 	// https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
 	v--;
 	v |= v >> 1;
@@ -1760,11 +1767,11 @@ fString f_str_replace(fString str, fString search_for, fString replace_with, fAl
 	
 	for (uint i = 0; i <= last;) {
 		if (memcmp(str.data + i, search_for.data, search_for.len) == 0) {
-			f_array_push_slice_raw(&result, F_BITCAST(fSliceRaw, replace_with), 1);
+			f_array_push_slice_raw(&result, F_BITCAST(fSliceRaw, replace_with), 1, 1);
 			i += search_for.len;
 		}
 		else {
-			f_array_push_raw(&result, &str.data[i], 1);
+			f_array_push_raw(&result, &str.data[i], 1, 1);
 			i++;
 		}
 	}
@@ -1784,13 +1791,13 @@ fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fStr
 			
 			if (memcmp(str.data + i, search_for_j.data, search_for_j.len) == 0) {
 				fString replace_with_j = ((fString*)replace_with.data)[j];
-				f_array_push_slice_raw(&result, F_BITCAST(fSliceRaw, replace_with_j), 1);
+				f_array_push_slice_raw(&result, F_BITCAST(fSliceRaw, replace_with_j), 1, 1);
 				i += search_for_j.len;
 				goto continue_outer;
 			}
 		}
 		
-		f_array_push_raw(&result, &str.data[i], 1);
+		f_array_push_raw(&result, &str.data[i], 1, 1);
 		i++;
 	continue_outer:;
 	}
@@ -2454,38 +2461,38 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 			fString arg = arg_strings[i];
 			
 			u8 quotation = '\"', backslash = '\\';
-			f_array_push_raw(&cmd_string, &quotation, 1);
+			f_array_push_raw(&cmd_string, &quotation, 1, 1);
 			
 			for (uint j = 0; j < arg.len; j++) {
 				if (arg.data[j] == quotation) {
-					f_array_push_raw(&cmd_string, &backslash, 1); // escape quotation marks with a backslash
+					f_array_push_raw(&cmd_string, &backslash, 1, 1); // escape quotation marks with a backslash
 				}
 				else if (arg.data[j] == backslash) {
 					if (j + 1 == arg.len) {
 						// if we have a backslash and it's the last character in the string,
 						// we must push \\"
-						f_array_push_raw(&cmd_string, &backslash, 1);
-						f_array_push_raw(&cmd_string, &backslash, 1);
+						f_array_push_raw(&cmd_string, &backslash, 1, 1);
+						f_array_push_raw(&cmd_string, &backslash, 1, 1);
 						break;
 					}
 					else if (arg.data[j + 1] == quotation) {
 						// if we have a backslash and the next character is a quotation mark,
 						// we must push \\\"
-						f_array_push_raw(&cmd_string, &backslash, 1);
-						f_array_push_raw(&cmd_string, &backslash, 1);
-						f_array_push_raw(&cmd_string, &backslash, 1);
-						f_array_push_raw(&cmd_string, &quotation, 1);
+						f_array_push_raw(&cmd_string, &backslash, 1, 1);
+						f_array_push_raw(&cmd_string, &backslash, 1, 1);
+						f_array_push_raw(&cmd_string, &backslash, 1, 1);
+						f_array_push_raw(&cmd_string, &quotation, 1, 1);
 						j++; // also skip the next "
 						continue;
 					}
 				}
 				
-				f_array_push_raw(&cmd_string, &arg.data[j], 1);
+				f_array_push_raw(&cmd_string, &arg.data[j], 1, 1);
 			}
 			
-			f_array_push_raw(&cmd_string, &quotation, 1);
+			f_array_push_raw(&cmd_string, &quotation, 1, 1);
 			
-			if (i < args.len - 1) f_array_push_raw(&cmd_string, &(u8){' '}, 1); // Separate each argument with a space
+			if (i < args.len - 1) f_array_push_raw(&cmd_string, &(u8){' '}, 1, 1); // Separate each argument with a space
 		}
 
 		uint cmd_string_utf16_len;

@@ -1,54 +1,52 @@
 // hmm. I'm not sure if this should go inside the Basic module, as Basic/Array.
-// that depends on whether it's useful enough to be able to use Array
-// inside Basic, and what exactly we put into Basic.
+// I guess that depends on whether anything inside Basic requires an array implementation.
 
-#Basic: import("../Basic")
-// TODO: make this into #Basic: import("../Basic")
+#B: import("../Basic")
 
 // TODO: @alias_module_name
 #Array: struct[T] {
-	/*@using */
-	slice: []T
+	@using slice: []T
 	capacity: uint
-	allocator: ^Basic.Allocator
+	allocator: ^B.Allocator
 }
 
-/*#push__int: proc(array: ^Array[int], elem: int) {
-	dbgbreak
+#make: proc[T](allocator: ^B.Allocactor) => (Array[T]) {
+	a: Array[T]
+	a.allocator= allocator
 	
-	// ^Array[int] -> ^(Array[int])
-	// ^Array{int} -> (^Array){int}
-	// ^Array(int) -> (^Array)(int)
 	
-	dbgbreak
-	dbgbreak
-	dbgbreak
-}*/
-
-#add_numbers: proc[T](a: T, b: T) => (T) {
-	dbgbreak
-	dbgbreak
-	dbgbreak
-	c: a + b
-	ret c
+	ret a
 }
 
-/*#push: proc[T](array: ^Array[T], elem: int) {
-	dbgbreak
-	dbgbreak
-	dbgbreak
-	dbgbreak
-	//Basic.array_push_raw(^Basic.ArrayRaw(array), ^u8(&elem), sizeof(T))
-}*/
+#free: proc[T](a: ^Array[T]) {
+	foo: []raw
+	a.allocator._proc(a.allocator, a.ptr, a.capacity*size_of(T), 0, 0)
+}
 
+#push: proc[T](a: ^Array[T], elem: T) => (uint) {
+	ret push_raw((^Array[raw])(a), &elem, size_of(T), align_of(T))
+}
 
-/*
-#push__int_: push[int]
-*/
+// --
+// Raw array utilities - these are useful if you don't know the element type ahead of time.
+// --
 
-/*
-#pop: proc[T](array: ^Array[T]) {
-	elem: T
-	Basic.array_pop_raw(^Basic.ArrayRaw(array), ^u8(&elem), sizeof(T))
-}*/
-
+#push_raw: proc(a: ^Array[raw], elem: ^raw, elem_size: uint, elem_align: uint) => (uint) {
+	dbgbreak
+	ret 0
+	/*
+	if (a.len >= a.capacity) { // Do we need to grow the array?
+		new_capacity: B.max[uint](8, a.capacity*2)
+		
+		a.ptr= a.allocator._proc(a.allocator, a.ptr, a.capacity*elem_size, new_capacity*elem_size, elem_align)
+		a.capacity= new_capacity
+	}
+	
+	dst: B.form_slice[u8]((^u8)(uint(a.ptr) + elem_size * a.len), elem_size)
+	src: B.form_slice[u8]((^u8)(&elem), elem_size)
+	B.copy[u8](dst, src)
+	
+	out: a.len
+	a.len= .+1
+	ret out*/
+}

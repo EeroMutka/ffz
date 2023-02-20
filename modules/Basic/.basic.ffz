@@ -23,6 +23,178 @@
 // 
 // Threading?
 // Generic heap allocator?
-// 
-// 
-// 
+
+#Arena: struct {
+	@using allocator: Allocator // NOTE: must be the first field for downcasting!
+	
+	system_page_size: u32 // practically always 4 KiB
+	
+	// virtual memory
+	reserve_base: ^u8
+	reserve_size: uint
+	
+	committed_end: ^u8
+	head: ^u8
+}
+
+#arena_allocator_proc: AllocatorProc {
+	dbgbreak
+	ret (^raw)(0)
+}
+
+// `reserve_base` can be NULL for automatically determined address
+#arena_make_virtual_reserve_fixed: proc(reserve_size: uint, reserve_base: ^u8) => (Arena) {
+	out: Arena
+	out.allocator._proc= arena_allocator_proc
+	out.reserve_base= reserve_base
+	out.reserve_size= reserve_size
+	
+	sys_info: SYSTEM_INFO
+	GetSystemInfo(&sys_info)
+	out.system_page_size= sys_info.dwPageSize
+	
+	ret out
+}
+
+// If you want to learn more about bit twiddling tricks, such as the ones used in `align_down` and `align_up`,
+// a good resource is the book Hacker's Delight by Warren, H. It goes through a lot of these.
+
+// `alignment` must be a power of 2.
+// `x` is allowed to be positive or negative.
+#align_down: proc(x: int, alignment: int) => (int) {
+	ret bit_and(x, -alignment)
+}
+
+// `alignment` must be a power of 2.
+// `x` is allowed to be positive or negative.
+#align_up: proc(x: int, alignment: int) => (int) {
+	ret bit_and(x + alignment - 1, -alignment)
+}
+
+#get_required_alignment_for_size: proc(size: uint) => (uint) {
+	#small_aligns: [?]uint{0, 1, 2, 4, 4, 8, 8, 8, 8}
+	if size <= 8 { ret small_aligns[size] }
+	ret 16
+}
+
+#arena_push: proc(arena: ^Arena, size: uint) => ([]u8) {
+	alignment: get_required_alignment_for_size(size)
+	
+	allocation_pos: align_up(int(arena.head), alignment)
+	arena.head = (^u8)(allocation_pos + size)
+	
+	if (uint(arena.head) > uint(arena.committed_end)) {
+		virtual_commit(arena.committed_end, uint(arena.head) - uint(arena.committed_end))
+		// power of 2
+		dbgbreak
+		//arena.committed_end = align_up()
+	}
+}
+
+//#arena_push_str: proc(arena: ^Arena, size: uint)
+
+// returns NULL if invalid
+#virtual_reserve: proc(size: uint, optional_address: ^u8) => (^u8) {
+	ret VirtualAlloc(optional_address, size, MEM_RESERVE, PAGE_READWRITE)
+}
+
+#virtual_commit: proc(ptr: ^u8, size: uint) => (bool) {
+	ret VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != (^u8)(0)
+}
+
+#virtual_decommit: proc(ptr: ^u8, size: uint) => (bool) {
+	ret VirtualFree(ptr, size, MEM_DECOMMIT) == 1
+}
+
+#virtual_free: proc(ptr: ^u8) => (bool) {
+	ret VirtualFree(ptr, 0, MEM_RELEASE) == 1
+}
+
+
+// `max` and `min` should really be language level constructs...
+#max: proc[T](a: T, b: T) => (T) {
+	if a > b { ret a }
+	ret b
+}
+
+#min: proc[T](a: T, b: T) => (T) {
+	if a < b { ret a }
+	ret b
+}
+
+#copy: proc[T](dst: []T, src: []T) {
+	dbgbreak
+}
+
+#set: proc[T](dst: []T, value: T) {
+	dbgbreak
+}
+
+#as_bytes: proc[T](value: ^T) => ([]u8) {
+	out: []u8
+	out.ptr= ^u8(value)
+	out.len= size_of(T)
+	ret out
+}
+
+/*#as_bytes_raw: proc(value: ^raw, size: uint) => ([]u8) {
+	out: []u8
+	out.ptr= (^u8)(value)
+	out.len= size
+	ret out
+}*/
+
+// hmm... should form_slice be possible by just  []uint{&some_ptr, 50}  ?
+#form_slice: proc[T](ptr: ^T, len: uint) => ([]T) {
+	out: []T
+	out.ptr= ptr
+	out.len= len
+	ret out
+}
+
+#AllocatorProc: proc(a: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => (^raw)
+
+#Allocator: struct {
+	_proc: AllocatorProc
+}
+
+// Note: the returned memory will be uninitialized
+#slice_make: proc[T](len: uint, a: ^Allocator) => ([]T) {
+	out: []T
+	out.ptr= (^T)(a._proc(a, ^raw(0), 0, len * size_of(T), align_of(T)))
+	out.len= len
+	ret out
+}
+
+#slice_resize: proc[T](slice: ^[]T, len: uint, a: ^Allocator) {
+}
+
+#slice_free: proc[T](slice: []T, a: ^Allocator) {
+	a._proc(a, (^raw)(slice.ptr), slice.len, 0, 0)
+}
+
+
+// -- OS-specific defines -----------------------------------------------------
+
+#SYSTEM_INFO: struct {
+	dwOemId: u32
+	dwPageSize: u32
+	lpMinimumApplicationAddress: ^raw
+	lpMaximumApplicationAddress: ^raw
+	dwActiveProcessorMask: ^u32
+	dwNumberOfProcessors: u32
+	dwProcessorType: u32
+	dwAllocationGranularity: u32
+	wProcessorLevel: u16
+	wProcessorRevision: u16
+}
+
+#VirtualAlloc: @extern proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => (^u8)
+#VirtualFree: @extern proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => (u32)
+#GetSystemInfo: @extern proc(lpSystemInfo: ^SYSTEM_INFO)
+
+#MEM_RESERVE: u32(8192)
+#MEM_COMMIT: u32(4096)
+#PAGE_READWRITE: u32(4)
+#MEM_DECOMMIT: u32(16384)
+#MEM_RELEASE: u32(32768)

@@ -1,27 +1,9 @@
-#B: import("../modules/basic")
-// TODO: move this to foundation.ffz modfile
+#Basic: import("../modules/basic")
 
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-library-features?view=msvc-170
-@link_system_library: "libucrt.lib"
-//@link_system_library: "libcmt.lib" // link CRT startup code
+#Arr: import("../modules/Array")
 
-
-//@link_library: ".ffz/c_things.obj"
-//#receive_v3: @extern proc(aa: V3)
-
-/*
-#add_vectors: proc(a: V3, b: V3) => (V3) {
-	ret V3{a.x + b.x, a.y + b.y, a.z + b.z}
-}*/
-
-/*#add_vectors: proc[T](a: [3]T, b: [3]T) => ([3]T) {
-	baba: T
-	
-	dbgbreak
-	dbgbreak
-	dbgbreak
-	ret [3]T{a[0] + b[0], a[1] + b[1], a[2] + b[2]}
-}*/
+// link crt startup
+@link_system_library: "libcmt.lib"
 
 #draw_thing: proc(integers: [3]int) {
 	a: integers[0]
@@ -29,30 +11,14 @@
 	c: integers[2]
 }
 
-#printf: @extern proc(fmt: ^u8)
-
 #main: proc() {
 	//aaa: MyString{&bytes[0], 100}
-	
-	// how can I detect cycles?
-	//a: 5 + b
-	//b: u32(20)
-	s: "Hello, sailor"
-	
-	printf("yoooooooooooo!\n\n\n".ptr)
+	arr: Arr.Array[int]
+	Arr.push[int](&arr, 200)
 	
 	for i: 0, i<64, i=.+1 {
-		B.f_os_print_color(s, B.fConsoleAttributeFlags(B.fConsoleAttribute.Green))
+		Basic.f_os_print_color("hoi ", Basic.fConsoleAttributeFlags(Basic.fConsoleAttribute.Green))
 	}
-	
-	//str: "Hello, world!"
-	/*
-	my_integers: [?]u32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
-	third: my_integers[2]
-	part: my_integers[2,]
-	*/
-	
-	//draw_thing([3]int{5, 60, 100})
 	
 	dbgbreak
 }
