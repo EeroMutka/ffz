@@ -1,8 +1,9 @@
 #include "foundation/foundation.hpp"
 
+#include "ffz_lib.h"
+
 #include "ffz_ast.h"
 #include "ffz_checker.h"
-#include "ffz_lib.h"
 
 #include "ffz_backend_c0.h"
 #include "ffz_backend_tb.h"
@@ -99,10 +100,8 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		return true;
 	}
 
-	ffzChecker* checker = ffz_checker_init(temp);
+	ffzChecker* checker = ffz_checker_init(project, temp);
 	*checker_insertion._unstable_ptr = checker;
-	checker->project = project;
-	checker->self_idx = (ffzCheckerIndex)f_array_push(&project->checkers, checker);
 	
 	checker->report_error = [](ffzChecker* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
 		ffzParser* parser = checker->project->parsers_dependency_sorted[at->parser_idx];
@@ -264,7 +263,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 				
 				// Note that the root node of a parser should not introduce a new scope. Instead, the root-scope should be the module scope.
 				for FFZ_EACH_CHILD(n, parser->root) {
-					if (!ffz_check_toplevel_statement(checker, ffzNodeInst{ n, 0 }).ok) {
+					if (!ffz_check_toplevel_statement(checker, n).ok) {
 						return false;
 					}
 				}
@@ -284,12 +283,15 @@ bool ffz_build_directory(fString directory) {
 	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
 
 	ffzProject project = {};
+	project.persistent_allocator = temp;
 	project.module_name = f_str_path_tail(directory);
 	project.checked_module_from_directory = f_map64_make<ffzChecker*>(temp);
 	project.checkers = f_array_make<ffzChecker*>(temp);
 	project.parsers_dependency_sorted = f_array_make<ffzParser*>(temp);
 	project.linker_inputs = f_array_make<fString>(temp);
 	
+	project.checker_from_poly_idx = f_array_make_len<ffzChecker*>(1, (ffzChecker*)0, temp); // we want to make the 0 index invalid
+
 	fString ffz_build_dir = f_files_path_to_absolute(directory, F_LIT(".ffz"), temp);
 	//os_delete_directory(ffz_build_dir); // deleting a directory causes problems when visual studio is attached to the thing. Even if this is allowed to fail, it will still take a long time.
 	F_ASSERT(f_files_make_directory(ffz_build_dir));

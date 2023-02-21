@@ -1,6 +1,7 @@
 #define FOUNDATION_HELPER_MACROS
 #include "foundation/foundation.h"
 
+#include "ffz_lib.h"
 #include "ffz_ast.h"
 
 #define TRY(x) { if ((x).ok == false) return (ffzOk){false}; }
@@ -493,7 +494,7 @@ static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeK
 	if (node == (void*)0x0000020000000472) F_BP;
 	memset(node, 0, size);
 	node->parser_idx = p->self_idx;
-	node->index = p->next_node_index++;
+	node->parser_local_index = p->next_parser_local_node_index++;
 	node->parent = parent;
 	node->kind = kind;
 	node->loc = range;

@@ -1,8 +1,8 @@
 #include "foundation/foundation.hpp"
 
+#include "ffz_lib.h"
 #include "ffz_ast.h"
 #include "ffz_checker.h"
-#include "ffz_lib.h"
 
 #include "ffz_backend_tb.h"
 
@@ -70,7 +70,7 @@ struct Gen {
 
 #define IAS(node, kind) FFZ_INST_AS(node, kind)
 #define IBASE(node) FFZ_INST_BASE(node) 
-#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).poly_inst }
+#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).poly_idx }
 
 // holds either a value, or a pointer to the value if the size of the type > 8 bytes
 struct SmallOrPtr {
@@ -90,40 +90,37 @@ static const char* make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) 
 
 	if (inst.node) {
 		f_str_print(&name, ffz_get_parent_decl_name(inst.node));
-	}
+		
+		if (ffz_is_polymorphic(g->project, inst)) {
+			if (pretty) {
+				f_str_print(&name, F_LIT("["));
 
-	if (inst.poly_inst != 0) {
-		if (pretty) {
-			f_str_print(&name, F_LIT("["));
+				ffzPolymorph poly = ffz_poly_from_inst(g->project, inst);
+				for (uint i = 0; i < poly.parameters.len; i++) {
+					if (i > 0) f_str_print(&name, F_LIT(", "));
 
-			ffzPolyInst* poly_inst = f_map64_get(&g->checker->poly_instantiations, inst.poly_inst);
-			for (uint i = 0; i < poly_inst->parameters.len; i++) {
-				if (i > 0) f_str_print(&name, F_LIT(", "));
+					f_str_print(&name, ffz_constant_to_string(g->project, poly.parameters[i]));
+				}
 
-				f_str_print(&name, ffz_constant_to_string(g->checker, poly_inst->parameters[i]));
+				f_str_print(&name, F_LIT("]"));
 			}
-
-			f_str_print(&name, F_LIT("]"));
+			else {
+				f_str_printf(&name, "$%u", inst.poly_idx.idx);
+			}
 		}
-		else {
-			// we could improve this by having an incremental counter per poly inst, that way we could use
-			// 128 bit hashes and still end up with short names
-			f_str_printf(&name, "$%llx", inst.poly_inst);
-		}
-	}
+		
+		if (g->checker->_dbg_module_import_name.len > 0) {
+			// We don't want to export symbols from imported modules.
+			// Currently, we're giving these symbols unique ids and exporting them anyway, because
+			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 
-	if (inst.node && g->checker->_dbg_module_import_name.len > 0) {
-		// We don't want to export symbols from imported modules.
-		// Currently, we're giving these symbols unique ids and exporting them anyway, because
-		// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
-
-		if (!ffz_node_get_compiler_tag(inst.node, F_LIT("extern"))) {
-			f_str_print(&name, F_LIT("$$"));
-			f_str_print(&name, g->checker->_dbg_module_import_name);
+			if (!ffz_node_get_compiler_tag(inst.node, F_LIT("extern"))) {
+				f_str_print(&name, F_LIT("$$"));
+				f_str_print(&name, g->checker->_dbg_module_import_name);
+			}
 		}
 	}
-	
-	if (name.len == 0) {
+	else {
 		f_str_printf(&name, "_ffz_%llu", g->dummy_name_counter);
 		g->dummy_name_counter++;
 	}
@@ -210,7 +207,7 @@ TB_DebugType* get_tb_debug_type(Gen* g, ffzType* type) {
 
 		const char* name = type->tag == ffzTypeTag_String ? "string" :
 			type->tag == ffzTypeTag_Slice ? make_name(g) : // TODO
-			make_name(g, IBASE(type->Record.node));
+			make_name(g, IBASE(type->unique_node));
 
 		TB_DebugType* out = tb_debug_create_struct(g->tb, name);
 		tb_debug_complete_record(out, tb_fields.data, tb_fields.len, type->size, type->align);
@@ -258,7 +255,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	auto insertion = f_map64_insert(&g->func_from_hash, ffz_hash_node_inst(IBASE(inst)), (TB_Function*)0, fMapInsert_DoNotOverride);
 	if (!insertion.added) return *insertion._unstable_ptr;
 
-	ffzType* proc_type = ffz_expr_get_type(g->checker, IBASE(inst));
+	ffzType* proc_type = ffz_expr_get_type(g->project, IBASE(inst));
 	F_ASSERT(proc_type->tag == ffzTypeTag_Proc);
 
 	ffzType* ret_type = proc_type->Proc.out_param ? proc_type->Proc.out_param->type : NULL;
@@ -316,7 +313,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 #endif
 	}
 
-	ffzNodeProcTypeInst proc_type_inst = proc_type->Proc.type_node;
+	ffzNodeProcTypeInst proc_type_inst = IAS(proc_type->unique_node,ProcType);
 
 	u32 i = 0;
 	for FFZ_EACH_CHILD_INST(n, proc_type_inst) {
@@ -368,8 +365,8 @@ static Constant gen_constant(Gen* g, ffzCheckedExpr constant) {
 
 
 static SmallOrPtr gen_call(Gen* g, ffzNodeOperatorInst inst) {
-	ffzNodeInst left = ICHILD(inst, left);
-	ffzCheckedExpr left_chk = ffz_expr_get_checked(g->checker, left);
+	ffzNodeInst left = ICHILD(inst,left);
+	ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 	F_ASSERT(left_chk.type->tag == ffzTypeTag_Proc);
 
 	ffzType* ret_type = left_chk.type->Proc.out_param ? left_chk.type->Proc.out_param->type : NULL;
@@ -511,14 +508,14 @@ static void _gen_store(Gen* g, TB_Reg addr, SmallOrPtr value, ffzType* type) {
 
 static void gen_store(Gen* g, TB_Reg lhs_address, ffzNodeInst rhs) {
 	SmallOrPtr rhs_value = gen_expr(g, rhs);
-	ffzType* type = ffz_expr_get_type(g->checker, rhs);
+	ffzType* type = ffz_expr_get_type(g->project, rhs);
 	_gen_store(g, lhs_address, rhs_value, type);
 }
 
 static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	SmallOrPtr out = {};
 
-	ffzCheckedExpr checked = ffz_expr_get_checked(g->checker, inst);
+	ffzCheckedExpr checked = ffz_expr_get_checked(g->project, inst);
 	F_ASSERT(ffz_type_is_grounded(checked.type));
 
 	if (checked.const_val) {
@@ -582,8 +579,8 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 	switch (inst.node->kind) {
 	case ffzNodeKind_Identifier: {
-		// runtime variable and its definition should always have the same poly instance. This won't be true if we add globals though.
-		ffzNodeIdentifierInst def = { ffz_get_definition(g->project, AS(inst.node,Identifier)), inst.poly_inst };
+		// runtime variable and its definition should always have the same polymorph. This won't be true if we add globals though...
+		ffzNodeIdentifierInst def = { ffz_get_definition(g->project, AS(inst.node,Identifier)), inst.poly_idx };
 		if (def.node->is_constant) F_BP;
 		//if (ffz_definition_is_constant(def.node)) BP;
 
@@ -659,13 +656,13 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				}
 			}
 			else {
-				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->checker, left);
+				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 				if (left_chk.type->tag == ffzTypeTag_Type) {
 					ffzType* left_type = left_chk.const_val->type;
 					// type cast, e.g. u32(5293900)
 
 					ffzNodeInst arg = ffz_get_child_inst(IBASE(inst), 0);
-					ffzType* arg_type = ffz_expr_get_type(g->checker, arg);
+					ffzType* arg_type = ffz_expr_get_type(g->project, arg);
 
 					out = gen_expr(g, arg);
 					if (ffz_type_is_pointer_ish(left_type->tag)) { // cast to pointer
@@ -716,12 +713,12 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				//}
 			}
 			else {
-				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->checker, left);
+				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 				
 				ffzType* struct_type = left_chk.type->tag == ffzTypeTag_Pointer ? left_chk.type->Pointer.pointer_to : left_chk.type;
 
 				ffzTypeRecordFieldUse field;
-				F_ASSERT(ffz_type_find_record_field_use(g->checker, struct_type, member_name, &field));
+				F_ASSERT(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
 				//F_ASSERT(field.parent == NULL);
 
 				TB_Reg addr_of_struct = gen_expr(g, left, left_chk.type->tag != ffzTypeTag_Pointer).small;
@@ -763,7 +760,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 
 		case ffzOperatorKind_PostSquareBrackets: {
-			ffzType* left_type = ffz_expr_get_type(g->checker, left);
+			ffzType* left_type = ffz_expr_get_type(g->project, left);
 			F_ASSERT(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
 
 			ffzType* elem_type = left_type->tag == ffzTypeTag_Slice ? left_type->fSlice.elem_type : left_type->FixedArray.elem_type;
@@ -863,7 +860,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	case ffzNodeKind_Declaration: {
 		ffzNodeDeclarationInst decl = IAS(inst, Declaration);
 		ffzNodeIdentifierInst definition = ICHILD(decl, name);
-		ffzType* type = ffz_decl_get_type(g->checker, decl);
+		ffzType* type = ffz_decl_get_type(g->project, decl);
 
 		if (ffz_decl_is_runtime_value(decl.node)) {
 			TB_Reg local_addr = tb_inst_local(g->fn, type->size, type->align);
@@ -981,7 +978,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		if (ret.node->value) {
 			SmallOrPtr return_value = gen_expr(g, ICHILD(ret, value));
 			if (return_value.ptr) {
-				ffzType* ret_type = ffz_expr_get_type(g->checker, ICHILD(ret, value));
+				ffzType* ret_type = ffz_expr_get_type(g->project, ICHILD(ret, value));
 
 #if FIX_TB_BIG_RETURN_HACK
 				val = tb_inst_load(g->fn, TB_TYPE_PTR, g->func_big_return, 8);
@@ -1039,7 +1036,7 @@ void ffz_tb_generate(ffzProject* project, fString objname) {
 		g.checker = project->checkers[parser->checker_idx];
 
 		for FFZ_EACH_CHILD(n, parser->root) {
-			gen_statement(&g, ffzNodeInst{ n, 0 });
+			gen_statement(&g, ffz_get_toplevel_inst(g.checker, n));
 		}
 	}
 

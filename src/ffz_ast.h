@@ -8,10 +8,8 @@
 extern "C" {
 #endif
 
-typedef struct ffzProject ffzProject;
+//typedef struct ffzProject ffzProject;
 typedef union ffzNode ffzNode;
-typedef u32 ffzParserIndex;
-typedef u32 ffzCheckerIndex;
 
 typedef struct ffzOk { bool ok; } ffzOk;
 
@@ -127,17 +125,6 @@ typedef enum ffzOperatorKind { // synced with ffzOperatorKind_String
 	ffzOperatorKind_Count,
 } ffzOperatorKind;
 
-typedef struct ffzLoc {
-	u32 line_num; // As in text files, starts at 1
-	u32 column_num;
-	u32 offset;
-} ffzLoc;
-
-typedef struct ffzLocRange {
-	ffzLoc start;
-	ffzLoc end;
-} ffzLocRange;
-
 typedef struct ffzNodeList {
 	ffzNode* first; // can be NULL
 } ffzNodeList;
@@ -161,7 +148,7 @@ typedef struct ffzNodeStringLiteral ffzNodeStringLiteral;
 #define FFZ_NODE_BASE struct {\
 ffzNodeKind kind;\
 ffzParserIndex parser_idx;\
-u32 index;\
+u32 parser_local_index;\
 ffzLocRange loc;\
 ffzNodeTag* first_tag;\
 ffzNode* parent;\
@@ -353,7 +340,7 @@ struct ffzParser {
 	fString source_code_filepath; // The filepath is displayed in error messages, but not used anywhere else.
 
 	ffzNodeScope* root;
-	u32 next_node_index;
+	u32 next_parser_local_node_index;
 	fAllocator* alc;
 
 	fArray(ffzNodeKeyword*) module_imports;

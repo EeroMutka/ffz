@@ -39,15 +39,42 @@
 // This shouldn't be a problem since the goal is to be simple to implement. The goal is <5k LOC in C++
 // 
 
-struct ffzProject {
+
+// Global, project-wide unique index for ffzNode.
+//typedef u32 ffzNodeIdx;
+
+typedef struct { u32 idx; } ffzPolymorphIdx; // 0 is invalid index
+
+typedef u32 ffzParserIndex;
+typedef u32 ffzCheckerIndex;
+
+typedef struct ffzChecker ffzChecker;
+typedef struct ffzParser ffzParser;
+
+typedef struct ffzLoc {
+	u32 line_num; // As in text files, starts at 1
+	u32 column_num;
+	u32 offset;
+} ffzLoc;
+
+typedef struct ffzLocRange {
+	ffzLoc start;
+	ffzLoc end;
+} ffzLocRange;
+
+typedef struct ffzProject {
+	fAllocator* persistent_allocator;
 	fString module_name;
 	fMap64(ffzChecker*) checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
 
 	fArray(fString) linker_inputs;
+	
+	fArray(ffzChecker*) checker_from_poly_idx; // key: ffzPolymorphIdx
+	//fArray(ffzNode*) node_from_idx;
 
-	fArray(ffzChecker*) /*CheckerIndex*/ checkers;
-	fArray(ffzParser*) /*ParserIndex*/ parsers_dependency_sorted; // dependency sorted from leaf modules towards higher-level modules
-};
+	fArray(ffzChecker*) checkers; // key: ffzCheckerIndex
+	fArray(ffzParser*) parsers_dependency_sorted; // key: ffzParserIndex // dependency sorted from leaf modules towards higher-level modules
+} ffzProject;
 
 //ffzToken token_from_node(ffzProject* project, ffzNode* node);
 

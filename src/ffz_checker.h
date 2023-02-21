@@ -39,16 +39,20 @@ struct ffzDefinitionPath {
 	fString name;
 };
 
-typedef u64 ffzHash; // TODO: make this 128-bit.
+
+typedef u64 ffzHash; // TODO: increase this to 128 bits.
 typedef ffzHash ffzNodeInstHash;
-typedef ffzHash ffzPolyInstHash; // PolyInstHash should be consistent across modules across identical code!
+typedef ffzHash ffzPolymorphHash; // PolyInstHash should be consistent across modules across identical code!
 typedef ffzHash ffzTypeHash; // Should be consistent across modules across identical code!
 typedef ffzHash ffzConstantHash; // Should be consistent across modules across identical code!
+
+// Hmm. We could store a compressed version of NodeInst in our data structures (down to 8 bytes from 16)
+// typedef struct ffzNodeInstSlim { ffzNodeIdx node; ffzPolyInstIdx poly_inst; } ffzNodeInstSlim;
 
 #define FFZ_DECLARE_NODE_INST_TYPE(T)\
 	struct T##Inst {\
 		T* /*opt*/ node;\
-		ffzPolyInstHash poly_inst;\
+		ffzPolymorphIdx poly_idx;\
 	}
 
 FFZ_DECLARE_NODE_INST_TYPE(ffzNode);
@@ -116,25 +120,32 @@ typedef struct ffzType {
 	ffzTypeTag tag;
 	u32 size;
 	u32 align;
-	ffzChecker* module; // NULL for built-in types. TODO: lets just make it always valid?
 	
+	union {
+		// unique_node is available for struct, union, enum, and proc types.
+		ffzNodeInst unique_node;
+		struct {
+			void* _;
+			ffzPolymorphIdx poly_idx; // poly_idx is available for all types. FIXME: currently it's not!!
+		};
+	};
+
 	fSlice(ffzTypeRecordField) record_fields; // available for struct, union, slice types and the string type.
 
 	union {
 		struct {
-			ffzNodeProcTypeInst type_node;
-			//ffzNodeOperatorInst body_node; // should we have this?
+			//ffzNodeProcTypeInst type_node;
 			fSlice(ffzTypeProcParameter) in_params;
 			ffzTypeProcParameter* /*opt*/ out_param;
 		} Proc, PolyProc;
 		
 		struct {
-			ffzNodeRecordInst /*opt*/ node;
+			//ffzNodeRecordInst /*opt*/ node;
 			bool is_union; // otherwise struct
 		} Record, PolyRecord;
 
 		struct {
-			ffzNodeEnumInst node;
+			//ffzNodeEnumInst node;
 			ffzType* internal_type;
 			fSlice(ffzTypeEnumField) fields;
 		} Enum;
@@ -193,7 +204,7 @@ typedef struct ffzCheckedExpr {
 	ffzConstant* /*opt*/ const_val;
 } ffzCheckedExpr;
 
-typedef struct ffzPolyInst {
+typedef struct ffzPolymorph {
 	ffzNode* node;
 	fSlice(ffzCheckedExpr) parameters;
 } ffzPolyInst;
@@ -205,9 +216,7 @@ typedef u64 ffzEnumValueHash;
 struct ffzChecker {
 	ffzProject* project; // should we make this void*?
 	ffzCheckerIndex self_idx;
-
 	fAllocator* alc;
-
 	u32 pointer_size;
 
 #ifdef _DEBUG
@@ -230,11 +239,15 @@ struct ffzChecker {
 
 	fMap64(ffzType*) type_from_hash; // key: TypeHash
 	fMap64(ffzCheckedExpr) cache; // key: ffz_hash_node_inst. Statements have NULL entries.
-	fMap64(ffzPolyInst) poly_instantiations; // key: ffz_hash_poly_inst
-	fMap64(ffzPolyInstHash) poly_instantiation_sites; // key: ffz_has_node_inst
+	
+	ffzPolymorphIdx toplevel_poly_idx;
+	fMap64(ffzPolymorph) poly_from_idx; // key: (u64)ffzPolyInstIdx // maybe this should be moved into Project and turned into an array
+	fMap64(ffzPolymorphIdx) poly_idx_from_hash; // key: ffz_hash_poly_inst
+	fMap64(ffzPolymorphIdx) poly_instantiation_sites; // key: ffz_has_node_inst
+
 	fMap64(ffzTypeRecordFieldUse*) record_field_from_name; // key: MemberKey
 
-	// Only required during checking
+	// Only required during checking.
 	fMap64(u64) enum_value_from_name; // key: MemberKey.
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
@@ -248,7 +261,7 @@ struct ffzChecker {
 #define FFZ_INST_BASE(node) (*(ffzNodeInst*)&(node))
 
 #define FFZ_EACH_CHILD_INST(n, parent) (\
-	ffzNodeInst n = {(parent.node) ? FFZ_BASE((parent).node)->children.first : NULL, (parent).poly_inst};\
+	ffzNodeInst n = {(parent.node) ? FFZ_BASE((parent).node)->children.first : NULL, (parent).poly_idx};\
 	n.node = ffz_skip_tag_decls(n.node);\
 	n.node = n.node->next)
 
@@ -275,49 +288,67 @@ ffzType* ffz_ground_type(ffzCheckedExpr checked); // TODO: get rid of this?
 bool ffz_type_is_grounded(ffzType* type); // a type is grounded when a runtime variable may have that type.
 bool ffz_type_is_comparable(ffzType* type);
 
-fString ffz_type_to_string(ffzChecker* c, ffzType* type);
-const char* ffz_type_to_cstring(ffzChecker* c, ffzType* type);
+fString ffz_type_to_string(ffzProject* p, ffzType* type);
+const char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
 
-fString ffz_constant_to_string(ffzChecker* c, ffzCheckedExpr constant);
-const char* ffz_constant_to_cstring(ffzChecker* c, ffzCheckedExpr constant);
+fString ffz_constant_to_string(ffzProject* p, ffzCheckedExpr constant);
+const char* ffz_constant_to_cstring(ffzProject* p, ffzCheckedExpr constant);
 
-ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
+//ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
 ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst);
-u64 ffz_hash_declaration_path(ffzDefinitionPath path);
-ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
-ffzConstantHash ffz_hash_constant(ffzCheckedExpr constant); // do we need this? if we can map constants to node instances, why don't we use node inst hash?
-ffzTypeHash ffz_hash_type(ffzType* type);
-ffzPolyInstHash ffz_hash_poly_inst(ffzPolyInst inst);
+//u64 ffz_hash_declaration_path(ffzDefinitionPath path);
+//ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
+ffzConstantHash ffz_hash_constant(ffzCheckedExpr constant);
+
+inline ffzNodeInst ffz_get_toplevel_inst(ffzChecker* c, ffzNode* node) { return ffzNodeInst{node, c->toplevel_poly_idx}; }
+//ffzTypeHash ffz_hash_type(ffzType* type);
+//ffzPolyInstHash ffz_hash_poly_inst(ffzPolyInst inst);
 
 ffzType* /*opt*/ ffz_builtin_type(ffzChecker* c, ffzKeyword keyword);
 
 // -- Checker operations --------------------------------------------------------------
 
-ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNodeInst node);
+ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node);
 ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive);
 
-ffzChecker* ffz_checker_init(fAllocator* allocator);
+ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator);
 
 // -- Accessing cached data -----------------------------------------------------------
 
+inline ffzChecker* ffz_checker_from_poly_idx(ffzProject* p, ffzPolymorphIdx poly_idx) {
+	F_ASSERT(poly_idx.idx != 0);
+	return p->checker_from_poly_idx[poly_idx.idx];
+}
+inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) { return ffz_checker_from_poly_idx(p, inst.poly_idx); }
+
+
+// Currently may return NULL for some basic types! this might be changed though.
+inline ffzChecker* ffz_checker_from_type(ffzProject* p, ffzType* type) { return p->checker_from_poly_idx[type->poly_idx.idx]; }
+
+ffzPolymorph ffz_poly_from_idx(ffzProject* p, ffzPolymorphIdx idx);
+inline ffzPolymorph ffz_poly_from_inst(ffzProject* p, ffzNodeInst inst) { return ffz_poly_from_idx(p, inst.poly_idx); }
+
+inline bool ffz_is_polymorphic(ffzProject* p, ffzNodeInst inst) { return inst.poly_idx.idx != ffz_checker_from_inst(p, inst)->toplevel_poly_idx.idx; }
+
+
 bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeDeclarationInst* out_decl);
 
-ffzNodeInst ffz_get_instantiated_expression(ffzChecker* c, ffzNodeInst node); // do we need this?
+ffzNodeInst ffz_get_instantiated_expression(ffzProject* p, ffzNodeInst node); // do we need this?
 
-bool ffz_type_find_record_field_use(ffzChecker* c, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
+bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
 //fSlice(ffzTypeRecordField) ffz_type_get_record_fields(ffzChecker* c, ffzType* type);
 
-ffzCheckedExpr ffz_expr_get_checked(ffzChecker* c, ffzNodeInst node);
-inline ffzType* ffz_expr_get_type(ffzChecker* c, ffzNodeInst node) { return ffz_expr_get_checked(c, node).type; }
-inline ffzConstant* ffz_expr_get_evaluated_constant(ffzChecker* c, ffzNodeInst node) { return ffz_expr_get_checked(c, node).const_val; }
+ffzCheckedExpr ffz_expr_get_checked(ffzProject* p, ffzNodeInst node);
+inline ffzType* ffz_expr_get_type(ffzProject* p, ffzNodeInst node) { return ffz_expr_get_checked(p, node).type; }
+inline ffzConstant* ffz_expr_get_evaluated_constant(ffzProject* p, ffzNodeInst node) { return ffz_expr_get_checked(p, node).const_val; }
 
-ffzCheckedExpr ffz_decl_get_checked(ffzChecker* c, ffzNodeDeclarationInst decl);
-inline ffzType* ffz_decl_get_type(ffzChecker* c, ffzNodeDeclarationInst node) { return ffz_decl_get_checked(c, node).type; }
-inline ffzConstant* ffz_decl_get_evaluated_constant(ffzChecker* c, ffzNodeDeclarationInst node) { return ffz_decl_get_checked(c, node).const_val; }
+ffzCheckedExpr ffz_decl_get_checked(ffzProject* p, ffzNodeDeclarationInst decl);
+inline ffzType* ffz_decl_get_type(ffzProject* p, ffzNodeDeclarationInst node) { return ffz_decl_get_checked(p, node).type; }
+inline ffzConstant* ffz_decl_get_evaluated_constant(ffzProject* p, ffzNodeDeclarationInst node) { return ffz_decl_get_checked(p, node).const_val; }
 
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in  foo: int  the "foo" identifier would be a definition.
-ffzNodeIdentifier* ffz_get_definition(ffzProject* project, ffzNodeIdentifier* ident);
+ffzNodeIdentifier* ffz_get_definition(ffzProject* p, ffzNodeIdentifier* ident);
 
 bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeDeclarationInst* out_decl); // hmm... this is a bit weird.
 //bool ffz_definition_is_constant(ffzNodeIdentifier* definition);
