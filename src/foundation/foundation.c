@@ -1392,7 +1392,7 @@ void f_arena_clear(fArena* arena) {
 	}
 }
 
-void* arena_allocator_proc(fAllocator* a, OPT(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {
+static void* arena_allocator_proc(fAllocator* a, OPT(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {
 	//ZoneScoped;
 
 	F_HITS(_c, 0);
@@ -1654,90 +1654,52 @@ uint f_str_rune_count(fString str) {
 	return i;
 }
 
-static u8 char_to_value[] = {
-	0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
-	0x08,0x09,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
-	0xFF,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0xFF,
-	0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
-};
 
-static u8 char_is_integer[] = {
-	0,0,0,0,0,0,1,1,
-	1,0,0,0,1,0,0,0,
-	0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,
-};
+bool f_str_to_u64(fString s, uint base, u64* out_value) {
+	F_ASSERT(2 <= base && base <= 16);
 
-static bool Str_IsU64(fString s, u32 radix) {
-	//ZoneScoped;
-	// License: @DionSystems, modified from `MD_StringIsU64`
-	bool result = false;
-	if (s.len > 0) {
-		result = true;
-		for (u8* ptr = s.data, *opl = s.data + s.len;
-			ptr < opl;
-			ptr += 1)
-		{
-			u8 c = *ptr;
-			if (!char_is_integer[c >> 3]) {
-				result = false;
-				break;
-			}
-			if (char_to_value[(c - 0x30) & 0x1F] >= radix) {
-				result = false;
-				break;
-			}
-		}
-	}
-	return result;
-}
-
-bool f_str_to_u64(fString s, u32 radix, u64* out_value) {
-	if (!Str_IsU64(s, radix)) return false; // TODO
-
-	//ZoneScoped;
-	F_ASSERT(2 <= radix && radix <= 16);
-	u64 value = 0;
+	uint value = 0;
 	for (uint i = 0; i < s.len; i++) {
-		value *= radix;
-		u8 c = s.data[i];
-		value += char_to_value[(c - 0x30) & 0x1F];
+		uint c = s.data[i];
+		if (c == '_') continue;
+
+		if (c >= 'A' && c <= 'Z') c += 32; // ASCII convert to lowercase
+
+		uint digit;
+		if (c >= '0' && c <= '9') {
+			digit = c - '0';
+		}
+		else if (c >= 'a' && c <= 'f') {
+			digit = 10 + c - 'a';
+		}
+		else return false;
+
+		if (digit > base) return false;
+
+		if (f_does_mul_overflow(value, base)) return false;
+		value *= base;
+		if (f_does_add_overflow(value, digit)) return false;
+		value += digit;
 	}
 	*out_value = value;
 	return true;
 }
 
+bool f_str_to_s64(fString s, uint base, s64* out_value) {
+	F_ASSERT(2 <= base && base <= 16);
 
-
-bool _str_is_i64(fString s, u32 radix) {
-	//ZoneScoped;
-	// License: @DionSystems, modified from `MD_StringIsCStyleInt`
-
-	u8* ptr = s.data;
-	u8* opl = s.data + s.len;
-
-	// consume sign
-	for (; ptr < opl && (*ptr == '+' || *ptr == '-'); ptr += 1);
-
-	// check integer "digits"
-	fString digits_substr = (fString){ ptr, (uint)opl - (uint)ptr };
-	return Str_IsU64(digits_substr, radix);
-}
-
-bool f_str_to_s64(fString s, u32 radix, s64* out_value) {
-	if (!_str_is_i64(s, radix)) return false;
-
-//	ZoneScoped;
 	s64 sign = 1;
-	if (s.len > 0 && s.data[0] == '-') {
-		sign = -1;
-		s = f_str_slice_after(s, 1);
+	if (s.len > 0) {
+		if (s.data[0] == '+') f_str_advance(&s, 1);
+		else if (s.data[0] == '-') {
+			f_str_advance(&s, 1);
+			sign = -1;
+		}
 	}
-	
-	u64 val_u64;
-	if (!f_str_to_u64(s, radix, &val_u64)) return false;
-	
-	*out_value = sign * (s64)val_u64;
+
+	s64 val;
+	if (!f_str_to_u64(s, base, (u64*)&val) || val < 0) return false;
+	*out_value = val * sign;
 	return true;
 }
 
@@ -2293,24 +2255,6 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		return true;
 	}
 
-	static s64 mul_div_u64(s64 val, s64 num, s64 den) {
-		//ZoneScoped;
-		// Implementation taken from the odin core library @license_todo
-		s64 q = val / den;
-		s64 r = val % den;
-		return q * num + r * num / den;
-	}
-
-	fTick f_get_tick() {
-		//ZoneScoped;
-		// Implementation taken from the odin core library @license_todo
-		LARGE_INTEGER freq, now;
-		F_ASSERT(QueryPerformanceFrequency(&freq) == TRUE);
-		F_ASSERT(QueryPerformanceCounter(&now) == TRUE);
-
-		return (fTick){ mul_div_u64(now.QuadPart, 1000000000, freq.QuadPart) };
-	}
-
 	bool f_files_exists(fFile file) { return file._handle != 0; }
 	
 	fFile f_files_open(fString filepath, fFileOpenMode mode) {
@@ -2640,17 +2584,3 @@ fString f_str_to_lower(fString str, fAllocator* a) {
 	}
 	return out;
 }
-
-
-/* ============ LICENSES ============
-
-@DionSystems:
-
-	Copyright 2021 Dion Systems LLC
-
-	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/

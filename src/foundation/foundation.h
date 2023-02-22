@@ -152,6 +152,11 @@ inline f32 _get_f32_neg_infinity() { u32 x = 0xFF800000; return *(f32*)&x; }
 #define F_AS_BYTES(x) F_STRUCT_INIT(fString){ (u8*)&x, sizeof(x) }
 #define F_SLICE_AS_BYTES(x) F_STRUCT_INIT(fString){ (u8*)(x).data, (x).len * sizeof((x).data[0]) }
 
+// https://graphitemaster.github.io/aau/#unsigned-multiplication-can-overflow
+inline bool f_does_mul_overflow(uint x, uint y) { return y && x > ((uint)-1) / y; }
+inline bool f_does_add_overflow(uint x, uint y) { return x + y < x; }
+inline bool f_does_sub_underflow(uint x, uint y) { return x - y > x; }
+
 #ifndef fArray
 #define fArray(T) fArrayRaw
 #endif
@@ -699,8 +704,15 @@ fString f_str_slice(fString str, uint lo, uint hi);
 fString f_str_slice_before(fString str, uint mid);
 fString f_str_slice_after(fString str, uint mid);
 
-bool f_str_to_u64(fString s, u32 radix, u64* out_value);
-bool f_str_to_s64(fString s, u32 radix, s64* out_value);
+// - Works with any base up to 16 (i.e. binary, base-10, hex)
+// - Underscores are allowed and skipped
+bool f_str_to_u64(fString s, uint base, u64* out_value);
+
+// - A single minus or plus is accepted preceding the digits
+// - Works with any base up to 16 (i.e. binary, base-10, hex)
+// - Underscores are allowed and skipped
+bool f_str_to_s64(fString s, uint base, s64* out_value);
+
 bool f_str_to_f64(fString s, f64* out);
 
 fString f_str_from_uint(fString bytes, fAllocator* a);
@@ -774,7 +786,7 @@ fString f_files_pick_file_dialog(fAllocator* allocator);
 
 // -- Time --------------------------------------------------------------------
 
-fTick f_get_tick();
+//fTick f_get_tick();
 
 // -- Random ------------------------------------------------------------------
 
