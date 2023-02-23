@@ -1,3 +1,5 @@
+#ifdef FFZ_BACKEND_TB
+
 #include "foundation/foundation.hpp"
 
 #include "ffz_lib.h"
@@ -269,7 +271,8 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	
 	if (big_return) {
 		// if big return, pass the pointer to the return value as the first argument the same way C does. :BigReturn
-		tb_prototype_add_param(proto, TB_TYPE_PTR);
+		//tb_prototype_add_param(proto, TB_TYPE_PTR);
+		tb_prototype_add_param_named(g->tb, proto, TB_TYPE_PTR, "[return value address]", tb_debug_get_integer(g->tb, false, 64));
 	}
 
 	for (uint i = 0; i < proc_type->Proc.in_params.len; i++) {
@@ -282,7 +285,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 			param_debug_type = tb_debug_create_ptr(g->tb, param_debug_type); // TB doesn't allow parameters > 8 bytes
 		}
 		
-		tb_prototype_add_param_named(proto, param_type, f_str_to_cstr(param->name->name, g->alc), param_debug_type);
+		tb_prototype_add_param_named(g->tb, proto, param_type, f_str_to_cstr(param->name->name, g->alc), param_debug_type);
 	}
 
 	const char* name = make_name(g, IBASE(inst));
@@ -305,6 +308,9 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	
 	g->func_big_return = TB_NULL_REG;
 	if (big_return) {
+		// There's some weird things going on in TB debug info if we don't call tb_inst_param_addr on every parameter. So let's just call it.
+		TB_Reg _param_addr = tb_inst_param_addr(func, 0);
+
 #if FIX_TB_BIG_RETURN_HACK
 		g->func_big_return = tb_inst_local(func, 8, 8);
 		tb_inst_store(func, TB_TYPE_PTR, g->func_big_return, tb_inst_param(func, 0), 8);
@@ -355,14 +361,6 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 
 	return func;
 }
-/*
-static Constant gen_constant(Gen* g, ffzCheckedExpr constant) {
-	ffzConstantHash hash = ffz_hash_constant(constant);
-	if (Constant* existing = map64_get(&g->constant_from_hash, hash)) {
-		return *existing;
-	}
-}*/
-
 
 static SmallOrPtr gen_call(Gen* g, ffzNodeOperatorInst inst) {
 	ffzNodeInst left = ICHILD(inst,left);
@@ -522,7 +520,14 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		switch (checked.type->tag) {
 		case ffzTypeTag_Bool: {
 			F_ASSERT(!address_of);
+#if 0
+			// TODO: message NeGate about this:
+			// e.g.   foo: false   won't work
 			out.small = tb_inst_bool(g->fn, checked.const_val->bool_);
+#else
+			out.small = tb_inst_cmp_ne(g->fn, tb_inst_uint(g->fn, TB_TYPE_I32, 0),
+				tb_inst_uint(g->fn, TB_TYPE_I32, checked.const_val->bool_));
+#endif
 		} break;
 		case ffzTypeTag_SizedInt: // fallthrough
 		case ffzTypeTag_Int: {
@@ -551,6 +556,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			out.small = tb_inst_get_symbol_address(g->fn, proc_sym);
 		} break;
 
+		case ffzTypeTag_Slice: // fallthrough
 		case ffzTypeTag_String: // fallthrough
 		case ffzTypeTag_FixedArray: // fallthrough
 		case ffzTypeTag_Record: {
@@ -576,6 +582,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	}
 
 	bool should_dereference = false;
+	bool should_take_address = false;
 
 	switch (inst.node->kind) {
 	case ffzNodeKind_Identifier: {
@@ -607,6 +614,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		case ffzOperatorKind_GreaterOrEqual:
 		{
 			F_ASSERT(!address_of);
+			//F_HITS(___c, 6);
 			TB_Reg a = gen_expr(g, left).small;
 			TB_Reg b = gen_expr(g, right).small;
 			
@@ -635,8 +643,16 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			out.small = tb_inst_neg(g->fn, gen_expr(g, right).small);
 		} break;
 
-		case ffzOperatorKind_PostRoundBrackets: {
+		case ffzOperatorKind_LogicalNOT: {
 			F_ASSERT(!address_of);
+			// (!x) is equivalent to (x == false)
+			out.small = tb_inst_cmp_eq(g->fn, gen_expr(g, right).small, tb_inst_bool(g->fn, false));
+		} break;
+
+		case ffzOperatorKind_PostRoundBrackets: {
+			// sometimes we need to take the address of a temporary.
+			// e.g.  copy_string("hello").ptr
+			should_take_address = address_of;
 
 			if (left.node->kind == ffzNodeKind_Keyword && ffz_keyword_is_bitwise_op(AS(left.node, Keyword)->keyword)) {
 				ffzKeyword keyword = AS(left.node,Keyword)->keyword;
@@ -651,6 +667,8 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					case ffzKeyword_bit_and: { out.small = tb_inst_and(g->fn, first, second); } break;
 					case ffzKeyword_bit_or: { out.small = tb_inst_or(g->fn, first, second); } break;
 					case ffzKeyword_bit_xor: { out.small = tb_inst_xor(g->fn, first, second); } break;
+					case ffzKeyword_bit_shl: { out.small = tb_inst_shl(g->fn, first, second, (TB_ArithmaticBehavior)0); } break;
+					case ffzKeyword_bit_shr: { out.small = tb_inst_shr(g->fn, first, second); } break;
 					default: F_BP;
 					}
 				}
@@ -658,22 +676,38 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			else {
 				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 				if (left_chk.type->tag == ffzTypeTag_Type) {
-					ffzType* left_type = left_chk.const_val->type;
+					ffzType* dst_type = left_chk.const_val->type;
 					// type cast, e.g. u32(5293900)
 
 					ffzNodeInst arg = ffz_get_child_inst(IBASE(inst), 0);
 					ffzType* arg_type = ffz_expr_get_type(g->project, arg);
 
 					out = gen_expr(g, arg);
-					if (ffz_type_is_pointer_ish(left_type->tag)) { // cast to pointer
+					if (ffz_type_is_pointer_ish(dst_type->tag)) { // cast to pointer
 						if (arg_type->tag == ffzTypeTag_Pointer) {}
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {
 							out.small = tb_inst_int2ptr(g->fn, out.small);
 						}
 					}
-					else if (ffz_type_is_integer_ish(left_type->tag)) { // cast to integer
+					else if (ffz_type_is_integer_ish(dst_type->tag)) { // cast to integer
+						TB_DataType dt = get_tb_basic_type(g, dst_type);
 						if (arg_type->tag == ffzTypeTag_Pointer) {
-							out.small = tb_inst_ptr2int(g->fn, out.small, get_tb_basic_type(g, arg_type));
+							out.small = tb_inst_ptr2int(g->fn, out.small, dt);
+						}
+						else if (ffz_type_is_integer_ish(arg_type->tag)) {
+							// integer -> integer cast
+
+							if (dst_type->size > arg_type->size) {
+								if (ffz_type_is_signed_integer(dst_type->tag)) {
+									out.small = tb_inst_sxt(g->fn, out.small, dt);  // sign extend
+								}
+								else {
+									out.small = tb_inst_zxt(g->fn, out.small, dt);  // zero extend
+								}
+							}
+							else if (dst_type->size < arg_type->size) {
+								out.small = tb_inst_trunc(g->fn, out.small, dt);  // truncate
+							}
 						}
 						else { todo; }
 					}
@@ -829,6 +863,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	}
 	
 	if (should_dereference) {
+		F_ASSERT(!should_take_address);
 		if (checked.type->size > 8) {
 			out.ptr = out.small;
 			out.small = {};
@@ -839,7 +874,22 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		}
 	}
 	
+	if (should_take_address) {
+		F_ASSERT(!should_dereference);
+		if (checked.type->size > 8) {
+			out.small = out.ptr;
+			out.ptr = {};
+		}
+		else {
+			TB_Reg temporary = tb_inst_local(g->fn, checked.type->size, checked.type->align);
+			tb_inst_store(g->fn, get_tb_basic_type(g, checked.type), temporary, out.small, checked.type->align);
+			out.small = temporary;
+		}
+	}
+	
 	F_ASSERT(out.small || out.ptr);
+	F_ASSERT((out.small == NULL) ^ (out.ptr == NULL));
+	// a ^^ b
 	return out;
 }
 
@@ -854,7 +904,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 			inst_loc(g, inst.node, inst.node->loc.start.line_num);
 		}
 	}
-
+	
 	switch (inst.node->kind) {
 		
 	case ffzNodeKind_Declaration: {
@@ -886,10 +936,6 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		ffzNodeInst lhs = ICHILD(assign, lhs);
 		TB_Reg addr_of_lhs = gen_expr(g, lhs, true).small;
 		gen_store(g, addr_of_lhs, ICHILD(assign, rhs));
-		
-		//ffzType* type = ffz_decl_get_type(g->checker, decl);
-		//ffzType* type = ffz_expr_get_type(g->checker, lhs);
-		//tb_inst_store(g->tb_func, get_tb_basic_type(g, type), addr_of_lhs, rhs_value, type->alignment);
 	} break;
 
 	case ffzNodeKind_Scope: {
@@ -902,6 +948,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		ffzNodeIfInst if_stmt = IAS(inst, If);
 		TB_Reg cond = gen_expr(g, ICHILD(if_stmt, condition)).small;
 		
+		//if (inst.node->loc.start.line_num == 108) F_BP;
+
 		TB_Label true_bb = tb_basic_block_create(g->fn);
 		TB_Label else_bb;
 		if (if_stmt.node->else_scope) {
@@ -913,6 +961,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		
 		tb_inst_set_label(g->fn, true_bb);
 		gen_statement(g, ICHILD(if_stmt,true_scope));
+		true_bb = tb_inst_get_label(g->fn); // continue the block where the recursion left off
 		
 		if (!tb_basic_block_is_complete(g->fn, true_bb)) { // TB will otherwise complain
 			inst_loc(g, inst.node, if_stmt.node->true_scope->loc.end.line_num);
@@ -922,6 +971,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		if (if_stmt.node->else_scope) {
 			tb_inst_set_label(g->fn, else_bb);
 			gen_statement(g, ICHILD(if_stmt,else_scope));
+			else_bb = tb_inst_get_label(g->fn); // continue the block where the recursion left off
 			
 			if (!tb_basic_block_is_complete(g->fn, else_bb)) { // TB will otherwise complain
 				inst_loc(g, inst.node, if_stmt.node->else_scope->loc.end.line_num);
@@ -1077,3 +1127,5 @@ static void tb_test() {
 	tb_module_destroy(m);
 }
 #endif
+
+#endif // FFZ_BACKEND_TB

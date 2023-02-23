@@ -55,9 +55,6 @@ const static fString ffzOperatorKind_String[] = {
 	F_LIT_COMP("\0"),
 	F_LIT_COMP("\0"),
 
-	F_LIT_COMP("<<"),
-	F_LIT_COMP(">>"),
-
 	F_LIT_COMP("&&"),
 	F_LIT_COMP("||"),
 
@@ -83,7 +80,7 @@ static uint op_get_precedence(ffzOperatorKind kind) {
 	//if (op == ffzOperatorKind_MemberAccess) return 11;
 	if (kind == ffzOperatorKind_Mul || kind == ffzOperatorKind_Div || kind == ffzOperatorKind_Modulo) return 10;
 	if (kind == ffzOperatorKind_Add || kind == ffzOperatorKind_Sub) return 9;
-	if (kind == ffzOperatorKind_ShiftL || kind == ffzOperatorKind_ShiftR) return 8;
+	//if (kind == ffzOperatorKind_ShiftL || kind == ffzOperatorKind_ShiftR) return 8;
 	if (kind == ffzOperatorKind_Less || kind == ffzOperatorKind_LessOrEqual || kind == ffzOperatorKind_Greater || kind == ffzOperatorKind_GreaterOrEqual) return 7;
 	if (kind == ffzOperatorKind_Equal || kind == ffzOperatorKind_NotEqual) return 6;
 	if (kind == ffzOperatorKind_LogicalAND) return 5;
@@ -917,17 +914,33 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 	Token tok;
 	TRY(eat_next_token(p, &p->pos, true, "parsing a value", &tok));
 
-	s64 numeric;
-	if (f_str_to_s64(tok.str, 10, &numeric)) {
-		ffzNodeIntLiteral* node = NEW_NODE(IntLiteral, p, parent, tok.range);
-		node->value = numeric;
-		*out = BASE(node);
-		return ffz_ok;
-	}
 
 	ffzNode* result = NULL;
 
 	u8 c = tok.str.data[0];
+	
+	if (c >= '0' && c <= '9') {
+		u8 base = 10;
+		if (f_str_starts_with(tok.str, F_LIT("0x"))) {
+			base = 16;
+			f_str_advance(&tok.str, 2);
+		}
+		else if (f_str_starts_with(tok.str, F_LIT("0b"))) {
+			base = 16;
+			f_str_advance(&tok.str, 2);
+		}
+
+		u64 numeric;
+		if (!f_str_to_u64(tok.str, base, &numeric)) {
+			ERR(p, tok.range, "Failed parsing numeric literal.", "");
+		}
+
+		ffzNodeIntLiteral* node = NEW_NODE(IntLiteral, p, parent, tok.range);
+		node->value = numeric;
+		node->was_encoded_in_base = base;
+		*out = BASE(node);
+		return ffz_ok;
+	}
 
 	if (c == '{') {
 		result = NEW_NODE(Scope, p, parent, tok.range);
@@ -1201,8 +1214,6 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 				ffzOperatorKind_LessOrEqual,
 				ffzOperatorKind_Greater,
 				ffzOperatorKind_GreaterOrEqual,
-				ffzOperatorKind_ShiftL,
-				ffzOperatorKind_ShiftR,
 				ffzOperatorKind_LogicalAND,
 				ffzOperatorKind_LogicalOR,
 			};

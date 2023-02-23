@@ -24,6 +24,8 @@
 // Threading?
 // Generic heap allocator?
 
+#ENABLE_DEBUG_CHECKS: true
+
 #Arena: struct {
 	@using allocator: Allocator // NOTE: must be the first field for downcasting!
 	
@@ -31,11 +33,16 @@
 	
 	// virtual memory
 	reserve_base: ^u8
-	reserve_size: uint
 	
-	committed_end: ^u8
 	head: ^u8
+	committed_end: ^u8
 }
+
+// https://physics.nist.gov/cuu/Units/binary.html
+#KiB: proc(x: uint) => (uint) { ret bit_shl(x, 10) }
+#MiB: proc(x: uint) => (uint) { ret bit_shl(x, 20) }
+#GiB: proc(x: uint) => (uint) { ret bit_shl(x, 30) }
+#TiB: proc(x: uint) => (uint) { ret bit_shl(x, 40) }
 
 #arena_allocator_proc: AllocatorProc {
 	dbgbreak
@@ -43,20 +50,26 @@
 }
 
 // `reserve_base` can be NULL for automatically determined address
-#arena_make_virtual_reserve_fixed: proc(reserve_size: uint, reserve_base: ^u8) => (Arena) {
-	out: Arena
-	out.allocator._proc= arena_allocator_proc
-	out.reserve_base= reserve_base
-	out.reserve_size= reserve_size
+#arena_make_virtual_reserve_fixed: proc(reserve_size: uint, reserve_base: ^u8) => (^Arena) {
+	dummy: Arena
+	dummy.allocator._proc= arena_allocator_proc
+	
+	dummy.reserve_base = virtual_reserve(reserve_size, reserve_base)
+	if dummy.reserve_base == (^u8)(0) { dbgbreak }
+	
+	dummy.head = dummy.reserve_base
+	dummy.committed_end = dummy.head
 	
 	sys_info: SYSTEM_INFO
 	GetSystemInfo(&sys_info)
-	out.system_page_size= sys_info.dwPageSize
+	dummy.system_page_size= sys_info.dwPageSize
 	
-	ret out
+	arena: (^Arena)(arena_push_align(&dummy, size_of(Arena), align_of(Arena)).ptr)
+	arena^= dummy
+	ret arena
 }
 
-// If you want to learn more about bit twiddling tricks, such as the ones used in `align_down` and `align_up`,
+// If you want to learn more about bit twiddling tricks, such as `align_down` and `align_up`,
 // a good resource is the book Hacker's Delight by Warren, H. It goes through a lot of these.
 
 // `alignment` must be a power of 2.
@@ -71,24 +84,39 @@
 	ret bit_and(x + alignment - 1, -alignment)
 }
 
-#get_required_alignment_for_size: proc(size: uint) => (uint) {
+#get_default_alignment_for_size: proc(size: uint) => (uint) {
 	#small_aligns: [?]uint{0, 1, 2, 4, 4, 8, 8, 8, 8}
 	if size <= 8 { ret small_aligns[size] }
 	ret 16
 }
 
-#arena_push: proc(arena: ^Arena, size: uint) => ([]u8) {
-	alignment: get_required_alignment_for_size(size)
+// This procedure clears memory to 0xCC to make un/deinitialized-memory-use bugs more
+// obvious, and to trigger possible data breakpoints.
+#debug_clear_memory: proc(ptr: ^u8, size: uint) {
+	memset(ptr, 204 /*0xCC*/, size)
+}
+
+/*#arena_push: proc(arena: ^Arena, size: uint) => ([]u8) {
+	ret arena_push_align(arena, size, get_default_alignment_for_size(size))
+}*/
+
+#arena_push_align: proc(arena: ^Arena, size: uint, alignment: uint) => ([]u8) {
+	allocation_pos: (^u8)(align_up(int(arena.head), alignment))
 	
-	allocation_pos: align_up(int(arena.head), alignment)
-	arena.head = (^u8)(allocation_pos + size)
+	arena.head = (^u8)(uint(allocation_pos) + size)
 	
 	if (uint(arena.head) > uint(arena.committed_end)) {
-		virtual_commit(arena.committed_end, uint(arena.head) - uint(arena.committed_end))
-		// power of 2
-		dbgbreak
-		//arena.committed_end = align_up()
+		ok: virtual_commit(arena.committed_end, uint(arena.head) - uint(arena.committed_end))
+		if !ok { dbgbreak }
+		
+		arena.committed_end= (^u8)(align_up(uint(arena.committed_end), int(arena.system_page_size)))
 	}
+	
+	if ENABLE_DEBUG_CHECKS {
+		debug_clear_memory(allocation_pos, size)
+	}
+	
+	ret form_slice[u8](allocation_pos, size)
 }
 
 //#arena_push_str: proc(arena: ^Arena, size: uint)
@@ -189,6 +217,7 @@
 	wProcessorRevision: u16
 }
 
+#memset: @extern proc(str: ^raw, c: u32, n: uint)
 #VirtualAlloc: @extern proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => (^u8)
 #VirtualFree: @extern proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => (u32)
 #GetSystemInfo: @extern proc(lpSystemInfo: ^SYSTEM_INFO)

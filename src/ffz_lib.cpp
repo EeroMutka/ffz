@@ -6,7 +6,10 @@
 #include "ffz_checker.h"
 
 #include "ffz_backend_c0.h"
+
+#ifdef FFZ_BACKEND_TB
 #include "ffz_backend_tb.h"
+#endif
 
 #include "microsoft_craziness.h"
 
@@ -318,6 +321,7 @@ bool ffz_build_directory(fString directory) {
 	//
 	F_ASSERT(f_os_set_working_dir(ffz_build_dir));
 	//ffz_c0_generate(&project, "generated.c");
+	
 	ffz_tb_generate(&project, objname);
 
 	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();

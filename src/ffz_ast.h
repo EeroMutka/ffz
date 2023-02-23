@@ -77,6 +77,8 @@ typedef enum ffzKeyword { // synced with `ffz_keyword_to_string`
 	ffzKeyword_bit_and,
 	ffzKeyword_bit_or,
 	ffzKeyword_bit_xor,
+	ffzKeyword_bit_shl,
+	ffzKeyword_bit_shr,
 	ffzKeyword_bit_not,
 } ffzKeyword;
 
@@ -105,12 +107,9 @@ typedef enum ffzOperatorKind { // synced with ffzOperatorKind_String
 	ffzOperatorKind_PostSquareBrackets,
 	ffzOperatorKind_PostCurlyBrackets,
 
-	ffzOperatorKind_ShiftL, // maybe we should make bit-shifts like function-calls, the same way as bit_or/bit_and? bit_shl()/bit_shr()?
-	ffzOperatorKind_ShiftR,
-
 	ffzOperatorKind_LogicalAND,
 	ffzOperatorKind_LogicalOR,
-
+	
 	// :OperatorIsPreUnary
 	ffzOperatorKind_UnaryMinus,
 	ffzOperatorKind_UnaryPlus,
@@ -245,6 +244,7 @@ typedef struct ffzNodeReturn {
 typedef struct ffzNodeIntLiteral {
 	FFZ_NODE_BASE;
 	u64 value;
+	u8 was_encoded_in_base; // this is mainly here for if you want to print the AST
 } ffzNodeIntLiteral;
 
 typedef struct ffzNodeStringLiteral {
@@ -325,8 +325,9 @@ const static fString ffz_keyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("bit_and"),
 	F_LIT_COMP("bit_or"),
 	F_LIT_COMP("bit_xor"),
+	F_LIT_COMP("bit_shl"),
+	F_LIT_COMP("bit_shr"),
 	F_LIT_COMP("bit_not"),
-	F_LIT_COMP("%"),
 };
 
 // Parser is responsible for parsing a single file / string of source code
@@ -375,7 +376,7 @@ inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ff
 inline bool ffz_op_is_pre_unary(ffzOperatorKind kind) { return kind >= ffzOperatorKind_UnaryMinus && kind <= ffzOperatorKind_LogicalNOT; }
 inline bool ffz_op_is_post_unary(ffzOperatorKind kind) { return kind == ffzOperatorKind_Dereference; }
 inline bool ffz_op_is_comparison(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Equal && kind <= ffzOperatorKind_GreaterOrEqual; }
-inline bool ffz_op_is_shift(ffzOperatorKind kind) { return kind == ffzOperatorKind_ShiftL || kind == ffzOperatorKind_ShiftR; }
+//inline bool ffz_op_is_shift(ffzOperatorKind kind) { return kind == ffzOperatorKind_ShiftL || kind == ffzOperatorKind_ShiftR; }
 inline bool ffz_op_is_arithmetic(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Add && kind <= ffzOperatorKind_Modulo; }
 
 fOpt(ffzNodeTag*) ffz_node_get_compiler_tag(ffzNode* node, fString tag);

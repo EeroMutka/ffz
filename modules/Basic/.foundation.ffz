@@ -218,9 +218,9 @@
 
 #f_array_free_raw: @extern proc(array: ^fArrayRaw, elem_size: u32)
 
-#f_array_push_raw: @extern proc(array: ^fArrayRaw, elem: ^u8, elem_size: u32) => (uint)
+#f_array_push_raw: @extern proc(array: ^fArrayRaw, elem: ^u8, elem_size: u32, elem_align: u32) => (uint)
 
-#f_array_push_slice_raw: @extern proc(array: ^fArrayRaw, elems: fSliceRaw, elem_size: u32)
+#f_array_push_slice_raw: @extern proc(array: ^fArrayRaw, elems: fSliceRaw, elem_size: u32, elem_align: u32)
 
 #f_array_pop_raw: @extern proc(array: ^fArrayRaw, out_elem: ^u8, elem_size: u32)
 
@@ -405,3 +405,4 @@
 #f_randomu64: @extern proc => (u64)
 
 #f_random_float_in_range: @extern proc(minimum: f32, maximum: f32) => (f32)
+

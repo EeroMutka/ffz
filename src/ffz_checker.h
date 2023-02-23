@@ -240,7 +240,7 @@ struct ffzChecker {
 	fMap64(ffzType*) type_from_hash; // key: TypeHash
 	fMap64(ffzCheckedExpr) cache; // key: ffz_hash_node_inst. Statements have NULL entries.
 	
-	ffzPolymorphIdx toplevel_poly_idx;
+	ffzPolymorphIdx base_poly_idx;
 	fMap64(ffzPolymorph) poly_from_idx; // key: (u64)ffzPolyInstIdx // maybe this should be moved into Project and turned into an array
 	fMap64(ffzPolymorphIdx) poly_idx_from_hash; // key: ffz_hash_poly_inst
 	fMap64(ffzPolymorphIdx) poly_instantiation_sites; // key: ffz_has_node_inst
@@ -300,7 +300,7 @@ ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
 ffzConstantHash ffz_hash_constant(ffzCheckedExpr constant);
 
-inline ffzNodeInst ffz_get_toplevel_inst(ffzChecker* c, ffzNode* node) { return ffzNodeInst{node, c->toplevel_poly_idx}; }
+inline ffzNodeInst ffz_get_toplevel_inst(ffzChecker* c, ffzNode* node) { return ffzNodeInst{node, c->base_poly_idx}; }
 //ffzTypeHash ffz_hash_type(ffzType* type);
 //ffzPolyInstHash ffz_hash_poly_inst(ffzPolyInst inst);
 
@@ -328,7 +328,7 @@ inline ffzChecker* ffz_checker_from_type(ffzProject* p, ffzType* type) { return 
 ffzPolymorph ffz_poly_from_idx(ffzProject* p, ffzPolymorphIdx idx);
 inline ffzPolymorph ffz_poly_from_inst(ffzProject* p, ffzNodeInst inst) { return ffz_poly_from_idx(p, inst.poly_idx); }
 
-inline bool ffz_is_polymorphic(ffzProject* p, ffzNodeInst inst) { return inst.poly_idx.idx != ffz_checker_from_inst(p, inst)->toplevel_poly_idx.idx; }
+inline bool ffz_is_polymorphic(ffzProject* p, ffzNodeInst inst) { return inst.poly_idx.idx != ffz_checker_from_inst(p, inst)->base_poly_idx.idx; }
 
 
 bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeDeclarationInst* out_decl);

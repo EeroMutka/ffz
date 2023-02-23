@@ -5,9 +5,9 @@
 *.vcxproj
 *.vcxproj.filters
 *.vcxproj.user
-
 *.lib
 *.pdb
 *.obj
 *.exe
 *.ilk
+gmmc/zydis

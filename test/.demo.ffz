@@ -1,31 +1,50 @@
-#B: import("../modules/basic")
+// hmm... I guess I could write an x64 backend using zydis assembler. That would be more sane compared
+// to writing the X64 encoding code myself.
 
-#Arr: import("../modules/Array")
+#B: import("../modules/basic")
+//#Arr: import("../modules/Array")
 
 // link crt startup
 @link_system_library: "libcmt.lib"
 
-#draw_thing: proc(integers: [3]int) {
+/*#draw_thing: proc(integers: [3]int) {
 	a: integers[0]
 	b: integers[1]
 	c: integers[2]
+}*/
+
+#V3: struct{x: int, y: int, z: int}
+
+#my_value: 0x5200
+
+#add_v3: proc(input: ^V3) {
+	//dbgbreak
+	
+	input.x = 50
+	
+	//dbgbreak
 }
 
 #main: proc() {
-	//aaa: MyString{&bytes[0], 100}
+	v: V3{2, 5, 6}
+	add_v3(&v)
 	
-	ptr: B.virtual_reserve(4096, (^u8)(0))
+	base_addr: (^u8)(B.TiB(2))
+	size: B.MiB(2)
+	arena: B.arena_make_virtual_reserve_fixed(size, base_addr)
+	
+	/*ptr: B.virtual_reserve(4096, (^u8)(0))
 	
 	arr: Arr.Array[int]
 	Arr.push[int](&arr, 200)
 	
 	arr2: Arr.Array[u32]
 	Arr.push[u32](&arr2, 500)
-	
-	for i: 0, i<64, i=.+1 {
+	*/
+	/*for i: 0, i<64, i=.+1 {
 		B.f_os_print_color("hoi ", B.fConsoleAttributeFlags(B.fConsoleAttribute.Green))
 	}
-	
+	*/
 	dbgbreak
 }
 

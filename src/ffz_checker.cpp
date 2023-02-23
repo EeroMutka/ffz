@@ -174,10 +174,12 @@ u32 get_alignment(ffzChecker* c, ffzType* type) {
 }
 
 ffzType* make_type(ffzChecker* c, ffzType type_desc) {
+	F_ASSERT(type_desc.poly_idx.idx != 0);
 	F_ASSERT(!ffz_type_is_integer(type_desc.tag));
+
 	ffzTypeHash hash = ffz_hash_type(&type_desc);
 	if (ffzType** existing = f_map64_get(&c->type_from_hash, hash)) return *existing;
-
+	
 	ffzType* type_ptr = f_mem_clone(type_desc, c->alc);
 	type_ptr->align = get_alignment(c, type_ptr);
 	
@@ -458,7 +460,7 @@ ffzPolymorph ffz_poly_from_idx(ffzProject* p, ffzPolymorphIdx idx) {
 
 bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeDeclarationInst* out_decl) {
 	ffzNodeIdentifier** def = f_map64_get(&c->definition_map, ffz_hash_declaration_path(ffzDefinitionPath{ NULL, name }));
-	return def && ffz_get_decl_if_definition(ffzNodeIdentifierInst{ *def, c->toplevel_poly_idx }, out_decl);
+	return def && ffz_get_decl_if_definition(ffzNodeIdentifierInst{ *def, c->base_poly_idx }, out_decl);
 }
 
 static ffzType* make_type_fixed_array(ffzChecker* c, ffzType* elem_type, s32 length) {
@@ -466,12 +468,14 @@ static ffzType* make_type_fixed_array(ffzChecker* c, ffzType* elem_type, s32 len
 	if (length >= 0) array_type.size = (u32)length * elem_type->size;
 	array_type.FixedArray.elem_type = elem_type;
 	array_type.FixedArray.length = length;
+	array_type.poly_idx = c->base_poly_idx;
 	return make_type(c, array_type);
 }
 
 ffzType* make_type_ptr(ffzChecker* c, ffzType* pointer_to) {
 	ffzType type = { ffzTypeTag_Pointer, c->pointer_size };
 	type.Pointer.pointer_to = pointer_to;
+	type.poly_idx = c->base_poly_idx;
 	return make_type(c, type);
 }
 
@@ -500,6 +504,7 @@ static ffzOk add_names_to_record_member_map(ffzChecker* c, ffzType* root_type, f
 
 static ffzType* make_type_slice(ffzChecker* c, ffzType* elem_type) {
 	ffzType type = { ffzTypeTag_Slice, 2*c->pointer_size };
+	type.poly_idx = c->base_poly_idx;
 	type.fSlice.elem_type = elem_type;
 	ffzType* out = make_type(c, type);
 	
@@ -1100,8 +1105,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		}
 		
 		fString member_name = AS(right.node,Identifier)->name;
-		
-		bool found = false;
+ 		bool found = false;
 		if (left.node->kind == ffzNodeKind_Identifier && AS(left.node,Identifier)->name == F_LIT("in")) {
 			F_BP;//if (AS(c->current_scope->parent_proc.node,Operator)->left->kind == ffzNodeKind_ProcType) {
 			//	ERR(c, left.node, "`in` is not allowed when the procedure parameters are accessible by name.");
@@ -1460,7 +1464,7 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 	c->imported_modules = f_map64_make<ffzChecker*>(c->alc);
 	c->pointer_size = 8;
 
-	c->toplevel_poly_idx = ffzPolymorphIdx{ (u32)f_array_push(&p->checker_from_poly_idx, c) };
+	c->base_poly_idx = ffzPolymorphIdx{ (u32)f_array_push(&p->checker_from_poly_idx, c) };
 
 	{
 		u32 a = ffzKeyword_u8;
