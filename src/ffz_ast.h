@@ -8,7 +8,11 @@
 extern "C" {
 #endif
 
-//typedef struct ffzProject ffzProject;
+typedef u32 ffzParserID;
+typedef u32 ffzParserLocalID;
+typedef u32 ffzCheckerID;
+typedef u32 ffzCheckerLocalID;
+
 typedef union ffzNode ffzNode;
 
 typedef struct ffzOk { bool ok; } ffzOk;
@@ -44,6 +48,7 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_String`
 
 	ffzNodeKind_COUNT,
 } ffzNodeKind;
+
 
 typedef enum ffzKeyword { // synced with `ffz_keyword_to_string`
 	ffzKeyword_Invalid,
@@ -81,6 +86,7 @@ typedef enum ffzKeyword { // synced with `ffz_keyword_to_string`
 	ffzKeyword_bit_shr,
 	ffzKeyword_bit_not,
 } ffzKeyword;
+
 
 typedef enum ffzOperatorKind { // synced with ffzOperatorKind_String
 	ffzOperatorKind_Invalid = 0,
@@ -128,6 +134,17 @@ typedef struct ffzNodeList {
 	ffzNode* first; // can be NULL
 } ffzNodeList;
 
+typedef struct ffzLoc {
+	u32 line_num; // As in text files, starts at 1
+	u32 column_num;
+	u32 offset;
+} ffzLoc;
+
+typedef struct ffzLocRange {
+	ffzLoc start;
+	ffzLoc end;
+} ffzLocRange;
+
 typedef struct ffzNodeAssignment ffzNodeAssignment;
 typedef struct ffzNodeTag ffzNodeTag;
 typedef struct ffzNodeTagDecl ffzNodeTagDecl;
@@ -144,10 +161,17 @@ typedef struct ffzNodeReturn ffzNodeReturn;
 typedef struct ffzNodeIntLiteral ffzNodeIntLiteral;
 typedef struct ffzNodeStringLiteral ffzNodeStringLiteral;
 
-#define FFZ_NODE_BASE struct {\
-ffzNodeKind kind;\
-ffzParserIndex parser_idx;\
-u32 parser_local_index;\
+typedef union ffzParserRelID {
+	struct {
+		ffzParserID parser_id;
+		ffzParserLocalID local_id;
+	};
+	u64 global_id;
+} ffzParserRelID;
+
+#define FFZ_NODE_BASE struct { \
+ffzNodeKind kind; \
+ffzParserRelID id; \
 ffzLocRange loc;\
 ffzNodeTag* first_tag;\
 ffzNode* parent;\
@@ -330,19 +354,22 @@ const static fString ffz_keyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("bit_not"),
 };
 
+typedef struct ffzProject ffzProject;
+typedef struct ffzChecker ffzChecker;
+
 // Parser is responsible for parsing a single file / string of source code
 typedef struct ffzParser ffzParser;
 struct ffzParser {
-	ffzProject* project;         // unused in the parser stage
-	ffzParserIndex self_idx;     // this index will be saved into the generated AstNode structures
-	ffzCheckerIndex checker_idx; // unused in the parser stage
+	ffzProject* project;     // unused in the parser stage
+	ffzChecker* checker;     // unused in the parser stage
+	ffzParserID id;          // this index will be saved into the generated AstNode structures
 
 	fString source_code;
 	fString source_code_filepath; // The filepath is displayed in error messages, but not used anywhere else.
 
 	ffzNodeScope* root;
-	u32 next_parser_local_node_index;
 	fAllocator* alc;
+	ffzParserLocalID next_local_id;
 
 	fArray(ffzNodeKeyword*) module_imports;
 	fMap64(ffzNodeTagDecl*) tag_decl_lists; // key: str_hash64(tag, 0)

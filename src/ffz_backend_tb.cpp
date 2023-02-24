@@ -2,7 +2,6 @@
 
 #include "foundation/foundation.hpp"
 
-#include "ffz_lib.h"
 #include "ffz_ast.h"
 #include "ffz_checker.h"
 
@@ -72,7 +71,7 @@ struct Gen {
 
 #define IAS(node, kind) FFZ_INST_AS(node, kind)
 #define IBASE(node) FFZ_INST_BASE(node) 
-#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).poly_idx }
+#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).polymorph }
 
 // holds either a value, or a pointer to the value if the size of the type > 8 bytes
 struct SmallOrPtr {
@@ -93,22 +92,23 @@ static const char* make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) 
 	if (inst.node) {
 		f_str_print(&name, ffz_get_parent_decl_name(inst.node));
 		
-		if (ffz_is_polymorphic(g->project, inst)) {
-			if (pretty) {
+		if (inst.polymorph) {
+			/*if (pretty) {
 				f_str_print(&name, F_LIT("["));
 
-				ffzPolymorph poly = ffz_poly_from_inst(g->project, inst);
-				for (uint i = 0; i < poly.parameters.len; i++) {
+				for (uint i = 0; i < inst.polymorph->parameters.len; i++) {
 					if (i > 0) f_str_print(&name, F_LIT(", "));
 
-					f_str_print(&name, ffz_constant_to_string(g->project, poly.parameters[i]));
+					f_str_print(&name, ffz_constant_to_string(g->project, inst.polymorph->parameters[i]));
 				}
 
 				f_str_print(&name, F_LIT("]"));
-			}
-			else {
-				f_str_printf(&name, "$%u", inst.poly_idx.idx);
-			}
+			}*/
+			//else {
+			//	// hmm.. deterministic index for polymorph, how?
+			//	//F_BP; // f_str_printf(&name, "$%u", inst.poly_idx.idx);
+			//}
+			f_str_printf(&name, "$%xll", inst.polymorph->hash);
 		}
 		
 		if (g->checker->_dbg_module_import_name.len > 0) {
@@ -294,7 +294,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	*insertion._unstable_ptr = func;
 
 	// Set function start location
-	tb_inst_loc(func, g->tb_file_from_parser_idx[inst.node->parser_idx], inst.node->loc.start.line_num);
+	tb_inst_loc(func, g->tb_file_from_parser_idx[inst.node->id.parser_id], inst.node->loc.start.line_num);
 	
 	ffzNodeInst left = ICHILD(inst,left);
 	if (left.node->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name) {
@@ -345,7 +345,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	}
 	
 	if (!proc_type->Proc.out_param) { // automatically generate a return statement if the proc doesn't return a value
-		tb_inst_loc(func, g->tb_file_from_parser_idx[inst.node->parser_idx], inst.node->loc.end.line_num);
+		tb_inst_loc(func, g->tb_file_from_parser_idx[inst.node->id.parser_id], inst.node->loc.end.line_num);
 		tb_inst_ret(func, TB_NULL_REG);
 	}
 
@@ -586,8 +586,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 	switch (inst.node->kind) {
 	case ffzNodeKind_Identifier: {
-		// runtime variable and its definition should always have the same polymorph. This won't be true if we add globals though...
-		ffzNodeIdentifierInst def = { ffz_get_definition(g->project, AS(inst.node,Identifier)), inst.poly_idx };
+		ffzNodeIdentifierInst def = ffz_get_definition(g->project, IAS(inst,Identifier));
 		if (def.node->is_constant) F_BP;
 		//if (ffz_definition_is_constant(def.node)) BP;
 
@@ -748,12 +747,10 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 			else {
 				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
-				
 				ffzType* struct_type = left_chk.type->tag == ffzTypeTag_Pointer ? left_chk.type->Pointer.pointer_to : left_chk.type;
 
 				ffzTypeRecordFieldUse field;
 				F_ASSERT(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
-				//F_ASSERT(field.parent == NULL);
 
 				TB_Reg addr_of_struct = gen_expr(g, left, left_chk.type->tag != ffzTypeTag_Pointer).small;
 				F_ASSERT(addr_of_struct != TB_NULL_REG);
@@ -894,7 +891,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 }
 
 static void inst_loc(Gen* g, ffzNode* node, u32 line_num) {
-	tb_inst_loc(g->fn, g->tb_file_from_parser_idx[node->parser_idx], line_num);
+	tb_inst_loc(g->fn, g->tb_file_from_parser_idx[node->id.parser_id], line_num);
 }
 
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
@@ -1083,7 +1080,7 @@ void ffz_tb_generate(ffzProject* project, fString objname) {
 
 	for (u32 i = 0; i < project->parsers_dependency_sorted.len; i++) {
 		ffzParser* parser = project->parsers_dependency_sorted[i];
-		g.checker = project->checkers[parser->checker_idx];
+		g.checker = parser->checker;
 
 		for FFZ_EACH_CHILD(n, parser->root) {
 			gen_statement(&g, ffz_get_toplevel_inst(g.checker, n));

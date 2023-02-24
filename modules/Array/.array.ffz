@@ -4,16 +4,17 @@
 #B: import("../Basic")
 
 // TODO: @alias_module_name
+
+
 #Array: struct[T] {
 	@using slice: []T
 	capacity: uint
 	allocator: ^B.Allocator
 }
 
-#make: proc[T](allocator: ^B.Allocactor) => (Array[T]) {
+#make: proc[T](allocator: ^B.Allocator) => (Array[T]) {
 	a: Array[T]
 	a.allocator= allocator
-	
 	
 	ret a
 }

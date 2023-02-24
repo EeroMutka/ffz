@@ -647,9 +647,9 @@ s64 f_floor_to_s64(float x);
 
 // -- Hash --------------------------------------------------------------------
 
-#define f_hash64(value) ((u64)(value) * 0x9E3779B97F4A7D69LLU) // Multiply by golden ratio (0.61803398874989486662 * 2^64)
+#define f_hash64(value) ((value) * 0x9E3779B97F4A7D69LLU) // Multiply by golden ratio (0.61803398874989486662 * 2^64)
 #define f_hash64_ex(value, seed) (f_hash64(value) ^ (u64)(seed)) // fvn64-style hash
-#define f_hash64_push(hash, value) *(u64*)(hash) = f_hash64_ex((u64)value, *(u64*)hash)
+#define f_hash64_push(hash, value) *(u64*)(hash) = f_hash64_ex(value, *(u64*)hash)
 
 u64 f_hash64_str_ex(fString s, u64 seed);
 #define f_hash64_str(s) f_hash64_str_ex(s, 0) 

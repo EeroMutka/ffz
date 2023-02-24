@@ -1,46 +1,37 @@
-// hmm... I guess I could write an x64 backend using zydis assembler. That would be more sane compared
-// to writing the X64 encoding code myself.
-
 #B: import("../modules/basic")
 //#Arr: import("../modules/Array")
+
 
 // link crt startup
 @link_system_library: "libcmt.lib"
 
-/*#draw_thing: proc(integers: [3]int) {
-	a: integers[0]
-	b: integers[1]
-	c: integers[2]
-}*/
-
-#V3: struct{x: int, y: int, z: int}
-
-#my_value: 0x5200
-
-#add_v3: proc(input: ^V3) {
-	//dbgbreak
-	
-	input.x = 50
-	
-	//dbgbreak
-}
-
 #main: proc() {
-	v: V3{2, 5, 6}
-	add_v3(&v)
+	arena_base: (^u8)(B.TiB(2))
+	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
+	//
+	//arr: Arr.make[int](&arena.allocator)
 	
-	base_addr: (^u8)(B.TiB(2))
-	size: B.MiB(2)
-	arena: B.arena_make_virtual_reserve_fixed(size, base_addr)
+	//aaa: foo[int](50, 21)
+	//bb: foo[u32](11, 4444)
+	//
+	//a: 250
+	//b: a + 2
 	
-	/*ptr: B.virtual_reserve(4096, (^u8)(0))
+	//adder[u32](1, 2)
+	//adder[int](1, 2)
 	
-	arr: Arr.Array[int]
-	Arr.push[int](&arr, 200)
+	//adder[int](1, 2)
+	//adder_int(50, 60)
 	
-	arr2: Arr.Array[u32]
-	Arr.push[u32](&arr2, 500)
+	/*
+	Arr.push[int](&arr, 1)
+	Arr.push[int](&arr, 2)
 	*/
+	
+	//
+	//arr2: Arr.Array[u32]
+	//Arr.push[u32](&arr2, 500)
+	
 	/*for i: 0, i<64, i=.+1 {
 		B.f_os_print_color("hoi ", B.fConsoleAttributeFlags(B.fConsoleAttribute.Green))
 	}

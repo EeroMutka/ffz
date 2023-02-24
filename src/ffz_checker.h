@@ -5,7 +5,82 @@
 // The checker takes in an abstract syntax tree form of a program as input, so it is dependend on "ffz_ast.h".
 // 
 
-struct ffzChecker;
+// 
+// FFZ is a small, statically typed, compiled programming language
+// with the goal of being practical, enjoyable to use, and to give
+// full control to the programmer. And, its reference implementation is
+// written as a modular library in <10k lines of well-commented C++!
+// 
+// A big goal for FFZ is giving the programmer tools to use the
+// programming language as a library, and to deal with the code however they like.
+// Most programming languages nowadays have large and complicated compilers that make anything
+// else than strictly following their rulebook with the compilation process really difficult.
+// What if you want to write an analysis tool for your code? Or make the compiler automatically
+// insert profiling code in every function entry and exit points? Or what if you want to parse your code into
+// an AST, and automatically generate shader code for a graphics card API?
+// What if you want to write a simple text editor, and want to syntax-highlight the code,
+// or a utility that automatically renames an identifier across an entire project?
+// Exposing this kind of functionality is not a difficult problem, yet we somehow feel so powerless
+// with the programming languages of the modern age, and being self-reliant is really difficult.
+// 
+// In addition to bad tooling, the inherent complexity of a programming langage plays a
+// large factor with the ease of writing tools for it. If you wanted to write a static analysis
+// tool for C++ or rust, it'd be an enormous project, whereas if you only need to support
+// a handful of language features, hand-crafting the tools becomes more manageable.
+// 
+// The code you write is YOURS, and you should have competent tools available to inspect, modify and
+// generate it from code in any way you like. Additionally, the compiler should be written in a clear
+// and understandable way, so that a programmer can learn from it or customize the language to
+// their liking. That's just not the reality of programming in C++
+// 
+// Also, the goal isn't to "take over" the programming world, or to convince
+// everyone to use this language. The goal of FFZ is to simply provide
+// a programming toolbox that someone might find value in, even if they were the only
+// person using it, and that the language can be useful even without a giant ecosystem around it.
+// And if that goal is met, this project is a success in my books! Meaningful
+// programs and libraries can absolutely be written in other languages, and FFZ lets you
+// import/export code across languages using the standard C ABI with very little effort.
+// 
+//
+// The compiler will be maintained in C++, even when a self-hosted compiler is implemented.
+// This shouldn't be a problem since the goal is to be simple to implement. The goal is <5k LOC in C++
+// 
+
+// Global, project-wide unique index for ffzNode.
+//typedef u32 ffzNodeIdx;
+
+//#define FFZ_NO_POLYMORPH_IDX 0
+//typedef struct { u32 idx; } ffzPolymorphIdx;
+
+typedef struct ffzChecker ffzChecker;
+typedef struct ffzParser ffzParser;
+typedef struct ffzType ffzType;
+typedef struct ffzConstant ffzConstant;
+typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
+typedef struct ffzPolymorph ffzPolymorph;
+
+typedef struct ffzCheckedExpr {
+	ffzType* /*opt*/ type;
+	ffzConstant* /*opt*/ const_val;
+} ffzCheckedExpr;
+
+// About hashing:
+// Hashes should be fully deterministic across compilations.
+// The hashes shouldn't depend on any runtime address / the compilers memory allocation strategy.
+// Instead, they should only depend on the input program.
+typedef u64 ffzHash; // TODO: increase this to 128 bits.
+typedef ffzHash ffzNodeInstHash;
+typedef ffzHash ffzPolymorphHash; // PolyInstHash should be consistent across modules across identical code!
+typedef ffzHash ffzTypeHash; // Should be consistent across modules across identical code!
+typedef ffzHash ffzConstantHash; // Should be consistent across modules across identical code!
+
+/*typedef union ffzCheckerRelID {
+	struct {
+		ffzCheckerID checker_id;
+		ffzCheckerLocalID local_id;
+	};
+	u64 global_id;
+} ffzCheckerRelID;*/
 
 typedef enum ffzTypeTag {
 	ffzTypeTag_Invalid,
@@ -34,25 +109,18 @@ typedef enum ffzTypeTag {
 	ffzTypeTag_FixedArray,
 } ffzTypeTag;
 
-struct ffzDefinitionPath {
-	ffzNode* parent_scope; // NULL for top-level scope
-	fString name;
-};
+//ffzToken token_from_node(ffzProject* project, ffzNode* node);
 
 
-typedef u64 ffzHash; // TODO: increase this to 128 bits.
-typedef ffzHash ffzNodeInstHash;
-typedef ffzHash ffzPolymorphHash; // PolyInstHash should be consistent across modules across identical code!
-typedef ffzHash ffzTypeHash; // Should be consistent across modules across identical code!
-typedef ffzHash ffzConstantHash; // Should be consistent across modules across identical code!
 
 // Hmm. We could store a compressed version of NodeInst in our data structures (down to 8 bytes from 16)
+// but then we'd have to build atomic arrays
 // typedef struct ffzNodeInstSlim { ffzNodeIdx node; ffzPolyInstIdx poly_inst; } ffzNodeInstSlim;
 
 #define FFZ_DECLARE_NODE_INST_TYPE(T)\
 	struct T##Inst {\
 		T* /*opt*/ node;\
-		ffzPolymorphIdx poly_idx;\
+		ffzPolymorph* polymorph;\
 	}
 
 FFZ_DECLARE_NODE_INST_TYPE(ffzNode);
@@ -75,6 +143,19 @@ FFZ_DECLARE_NODE_INST_TYPE(ffzNodeReturn);
 FFZ_DECLARE_NODE_INST_TYPE(ffzNodeIntLiteral);
 FFZ_DECLARE_NODE_INST_TYPE(ffzNodeStringLiteral);
 
+struct ffzDefinitionPath {
+	ffzNode* parent_scope; // NULL for top-level scope
+	fString name;
+};
+
+typedef struct ffzPolymorph {
+	ffzPolymorphHash hash;
+
+	ffzNodeInst node;
+	fSlice(ffzCheckedExpr) parameters;
+} ffzPolymorph;
+
+
 struct ffzType;
 
 /*typedef struct ffzCheckerStackFrame ffzCheckerStackFrame;
@@ -87,6 +168,8 @@ struct ffzCheckerStackFrame {
 	OPT(ffzNodeInst) current_proc;
 	OPT(ffzType*) current_proc_type;
 };*/
+
+
 
 typedef struct ffzCheckerScope {
 	ffzNode* node;
@@ -120,15 +203,10 @@ typedef struct ffzType {
 	ffzTypeTag tag;
 	u32 size;
 	u32 align;
-	
-	union {
-		// unique_node is available for struct, union, enum, and proc types.
-		ffzNodeInst unique_node;
-		struct {
-			void* _;
-			ffzPolymorphIdx poly_idx; // poly_idx is available for all types. FIXME: currently it's not!!
-		};
-	};
+
+	ffzTypeHash hash;
+	ffzCheckerID checker_id;
+	ffzNodeInst unique_node; // available for struct, union, enum, and proc types.
 
 	fSlice(ffzTypeRecordField) record_fields; // available for struct, union, slice types and the string type.
 
@@ -138,7 +216,7 @@ typedef struct ffzType {
 			fSlice(ffzTypeProcParameter) in_params;
 			ffzTypeProcParameter* /*opt*/ out_param;
 		} Proc, PolyProc;
-		
+
 		struct {
 			//ffzNodeRecordInst /*opt*/ node;
 			bool is_union; // otherwise struct
@@ -149,7 +227,7 @@ typedef struct ffzType {
 			ffzType* internal_type;
 			fSlice(ffzTypeEnumField) fields;
 		} Enum;
-		
+
 		struct {
 			ffzType* elem_type;
 		} fSlice;
@@ -164,6 +242,20 @@ typedef struct ffzType {
 		} Pointer;
 	};
 } ffzType;
+
+
+typedef struct ffzProject {
+	fAllocator* persistent_allocator;
+	fString module_name;
+	fMap64(ffzChecker*) checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
+
+	fArray(fString) linker_inputs;
+
+	fArray(ffzChecker*) checkers; // key: ffzCheckerIndex
+	fArray(ffzParser*) parsers_dependency_sorted; // key: ffzParserIndex // dependency sorted from leaf modules towards higher-level modules	
+
+	u32 pointer_size;
+} ffzProject;
 
 typedef struct ffzConstant {
 	union {
@@ -199,31 +291,20 @@ typedef struct ffzConstant {
 	};
 } ffzConstant;
 
-typedef struct ffzCheckedExpr {
-	ffzType* /*opt*/ type;
-	ffzConstant* /*opt*/ const_val;
-} ffzCheckedExpr;
-
-typedef struct ffzPolymorph {
-	ffzNode* node;
-	fSlice(ffzCheckedExpr) parameters;
-} ffzPolyInst;
-
-typedef u64 ffzMemberHash;
+typedef u64 ffzFieldHash;
 typedef u64 ffzEnumValueHash;
 
 // Checker is responsible for checking some chunk of code (currently must be a single module) and caching information about it.
 struct ffzChecker {
 	ffzProject* project; // should we make this void*?
-	ffzCheckerIndex self_idx;
+	ffzCheckerID id;
 	fAllocator* alc;
-	u32 pointer_size;
+
+	//ffzCheckerLocalID next_local_id;
 
 #ifdef _DEBUG
 	fString _dbg_module_import_name;
 #endif
-
-	ffzType builtin_types[ffzKeyword_string+1 - ffzKeyword_u8];
 
 	// implicit state for the current checker invocation
 	//OPT(ffzNodeInst) parent_proc;
@@ -234,34 +315,35 @@ struct ffzChecker {
 	// "declaration" is when it has a `:` token, e.g.  foo: 20  is a declaration.
 	// "definition" is also a declaration, but it's not parsed into the AST as that form. e.g. in  struct[T]{...}  the polymorphic argument T is a definition.
 	
-	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path.
-	//Map64<ffzNodeIdentifier*> definition_from_node; // key: ffzNode*
+	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
+	//fMap64(ffzNodeIdentifierInst) definition_map; // key: 
 
-	fMap64(ffzType*) type_from_hash; // key: TypeHash
 	fMap64(ffzCheckedExpr) cache; // key: ffz_hash_node_inst. Statements have NULL entries.
+	fMap64(ffzPolymorph*) poly_instantiation_sites; // key: ffz_hash_node_inst
 	
-	ffzPolymorphIdx base_poly_idx;
-	fMap64(ffzPolymorph) poly_from_idx; // key: (u64)ffzPolyInstIdx // maybe this should be moved into Project and turned into an array
-	fMap64(ffzPolymorphIdx) poly_idx_from_hash; // key: ffz_hash_poly_inst
-	fMap64(ffzPolymorphIdx) poly_instantiation_sites; // key: ffz_has_node_inst
+	fMap64(ffzType*) type_from_hash; // key: TypeHash
+	fMap64(ffzPolymorph*) poly_from_hash; // key: ffz_hash_poly_inst
 
-	fMap64(ffzTypeRecordFieldUse*) record_field_from_name; // key: MemberKey
+	fMap64(ffzTypeRecordFieldUse*) field_from_name_map; // key: FieldHash
 
 	// Only required during checking.
-	fMap64(u64) enum_value_from_name; // key: MemberKey.
+	fMap64(u64) enum_value_from_name; // key: FieldHash.
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
-	fMap64(ffzChecker*) imported_modules; // key: *AstNode. Maybe this should be moved into ffzProject since it doesn't change often (thinking about threading)
+	fMap64(ffzChecker*) imported_modules; // key: AstNode.id.global_id
 
 	void(*report_error)(ffzChecker* c, fSlice(ffzNode*) poly_path, ffzNode* at, fString error);
-	//void* report_error_userptr;
+	
+	ffzType* type_type;
+	ffzType* module_type;
+	ffzType* builtin_types[ffzKeyword_string + 1 - ffzKeyword_u8];
 };
 
 #define FFZ_INST_AS(node,kind) (*(ffzNode##kind##Inst*)&(node))
 #define FFZ_INST_BASE(node) (*(ffzNodeInst*)&(node))
 
 #define FFZ_EACH_CHILD_INST(n, parent) (\
-	ffzNodeInst n = {(parent.node) ? FFZ_BASE((parent).node)->children.first : NULL, (parent).poly_idx};\
+	ffzNodeInst n = {(parent.node) ? FFZ_BASE((parent).node)->children.first : NULL, (parent).polymorph};\
 	n.node = ffz_skip_tag_decls(n.node);\
 	n.node = n.node->next)
 
@@ -269,7 +351,13 @@ struct ffzChecker {
 
 //#define FFZ_NODE_INST(p, n) ffzNodeInst{ (n), (p).poly_inst }
 
-// -- Checker utilities  --------------------------------------------------------------
+ffzType* /*opt*/ ffz_builtin_type(ffzChecker* c, ffzKeyword keyword);
+
+void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline);
+
+bool ffz_parse_and_check_directory(ffzProject* p, fString directory);
+
+bool ffz_build_directory(fString directory);
 
 inline bool ffz_type_is_integer(ffzTypeTag tag) { return tag >= ffzTypeTag_SizedInt && tag <= ffzTypeTag_Uint; }
 inline bool ffz_type_is_signed_integer(ffzTypeTag tag) { return tag == ffzTypeTag_SizedInt || tag == ffzTypeTag_Int; }
@@ -300,11 +388,8 @@ ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
 ffzConstantHash ffz_hash_constant(ffzCheckedExpr constant);
 
-inline ffzNodeInst ffz_get_toplevel_inst(ffzChecker* c, ffzNode* node) { return ffzNodeInst{node, c->base_poly_idx}; }
-//ffzTypeHash ffz_hash_type(ffzType* type);
+inline ffzNodeInst ffz_get_toplevel_inst(ffzChecker* c, ffzNode* node) { return ffzNodeInst{node, NULL}; }
 //ffzPolyInstHash ffz_hash_poly_inst(ffzPolyInst inst);
-
-ffzType* /*opt*/ ffz_builtin_type(ffzChecker* c, ffzKeyword keyword);
 
 // -- Checker operations --------------------------------------------------------------
 
@@ -315,21 +400,9 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator);
 
 // -- Accessing cached data -----------------------------------------------------------
 
-inline ffzChecker* ffz_checker_from_poly_idx(ffzProject* p, ffzPolymorphIdx poly_idx) {
-	F_ASSERT(poly_idx.idx != 0);
-	return p->checker_from_poly_idx[poly_idx.idx];
-}
-inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) { return ffz_checker_from_poly_idx(p, inst.poly_idx); }
-
-
-// Currently may return NULL for some basic types! this might be changed though.
-inline ffzChecker* ffz_checker_from_type(ffzProject* p, ffzType* type) { return p->checker_from_poly_idx[type->poly_idx.idx]; }
-
-ffzPolymorph ffz_poly_from_idx(ffzProject* p, ffzPolymorphIdx idx);
-inline ffzPolymorph ffz_poly_from_inst(ffzProject* p, ffzNodeInst inst) { return ffz_poly_from_idx(p, inst.poly_idx); }
-
-inline bool ffz_is_polymorphic(ffzProject* p, ffzNodeInst inst) { return inst.poly_idx.idx != ffz_checker_from_inst(p, inst)->base_poly_idx.idx; }
-
+// hmm.. maybe we should store the checker directly in the Node.
+inline ffzChecker* ffz_checker_from_node(ffzProject* p, ffzNode* node) { return p->parsers_dependency_sorted[node->id.parser_id]->checker; }
+inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) { return ffz_checker_from_node(p, inst.node); }
 
 bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeDeclarationInst* out_decl);
 
@@ -348,7 +421,7 @@ inline ffzConstant* ffz_decl_get_evaluated_constant(ffzProject* p, ffzNodeDeclar
 
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in  foo: int  the "foo" identifier would be a definition.
-ffzNodeIdentifier* ffz_get_definition(ffzProject* p, ffzNodeIdentifier* ident);
+ffzNodeIdentifierInst ffz_get_definition(ffzProject* p, ffzNodeIdentifierInst ident);
 
 bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeDeclarationInst* out_decl); // hmm... this is a bit weird.
 //bool ffz_definition_is_constant(ffzNodeIdentifier* definition);

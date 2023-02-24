@@ -1,6 +1,5 @@
 #include "foundation/foundation.hpp"
 
-#include "ffz_lib.h"
 #include "ffz_ast.h"
 #include "ffz_checker.h"
 
