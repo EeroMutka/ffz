@@ -41,7 +41,7 @@ project "ffz"
 	}
 	
 	-- build with tb?
-	if true then
+	if false then
 		defines "FFZ_BACKEND_TB"
 		
 		includedirs {
@@ -66,7 +66,7 @@ project "ffz"
 	end
 	
 	-- build with gmmc?
-	if false then
+	if true then
 		defines {
 			"FFZ_BACKEND_GMMC",
 			"ZYDIS_STATIC_BUILD",

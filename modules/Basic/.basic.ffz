@@ -47,7 +47,8 @@
 #AllocatorProc: proc(allocator: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => (^raw)
 
 #arena_allocator_proc: AllocatorProc {
-	assert(in.align > 0 && is_power_of_2[uint](in.align))
+	is_pow: is_power_of_2[uint](in.align)
+	//assert(in.align > 0 && )
 	
 	arena: (^Arena)(in.allocator)
 	
@@ -192,14 +193,8 @@
 	ret b
 }
 
-#assert: proc(condition: bool) {
-	if !condition {
-		dbgbreak
-	}
-}
-
 #copy: proc[T](dst: []T, src: []T) {
-	assert(dst.len == src.len)
+	//assert(dst.len == src.len)
 	memmove(dst.ptr, src.ptr, src.len * size_of(T))
 }
 

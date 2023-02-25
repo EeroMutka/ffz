@@ -687,7 +687,7 @@ ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive) { ret
   the structure is a multiple of the alignment of the element that requires the highest
   alignment"
 */
-u32 get_alignment(ffzType* type, uint pointer_size) {
+u32 get_alignment(ffzType* type, u32 pointer_size) {
 	switch (type->tag) {
 	case ffzTypeTag_Uint: // fallthrough
 	case ffzTypeTag_Int: // fallthrough
@@ -2018,7 +2018,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 	directory = f_files_path_to_absolute({}, directory, temp);
 	directory = f_str_to_lower(directory, temp);
 	//F_ASSERT(f_files_path_is_absolute(directory)); // directory is also supposed to be minimal (not contain .././)
-	for f_str_each(directory, r, i) { if (f_str_rune_to_lower(r) != r) F_BP; } // directory must be all lowercase
+	for f_str_each(directory, r, i) { if (f_str_rune_to_lower((rune)r) != r) F_BP; } // directory must be all lowercase
 
 	auto checker_insertion = f_map64_insert(&project->checked_module_from_directory, f_hash64_str_ex(directory, 0),
 		(ffzChecker*)0, fMapInsert_DoNotOverride);
@@ -2248,7 +2248,7 @@ bool ffz_build_directory(fString directory) {
 	F_ASSERT(f_os_set_working_dir(ffz_build_dir));
 	//ffz_c0_generate(&project, "generated.c");
 
-	ffz_tb_generate(p, objname);
+	F_BP; //ffz_tb_generate(p, objname);
 
 	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
 	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, temp); // contains cl.exe, link.exe
