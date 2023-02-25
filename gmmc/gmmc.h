@@ -152,11 +152,13 @@ inline gmmcSymbol* gmmc_global_as_symbol(gmmcGlobal* global) { return (gmmcSymbo
 
 GMMC_API gmmcSymbol* gmmc_make_external_symbol(gmmcModule* m, gmmcString name);
 
-GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_ptr);
+// TODO: is there a way to mark the memory as executable?
+GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, bool readonly, void** out_data);
+
 GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc);
 
 // This will place a 64-bit relocation at the specified offset.
-// When the program is ran, the 64-bit integer that lies at `offset` will be replaced
+// The 64-bit integer that lies at `offset` will be replaced
 // by the sum of itself and the runtime address of `target`.
 GMMC_API void gmmc_global_add_relocation(gmmcGlobal* global, uint32_t offset, gmmcSymbol* target);
 

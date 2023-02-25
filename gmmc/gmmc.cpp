@@ -7,6 +7,7 @@
 #include <Zydis/Zydis.h>
 
 #include <stdio.h>
+#include <stdlib.h> // for qsort
 
 #define VALIDATE(x) F_ASSERT(x)
 
@@ -14,6 +15,8 @@ typedef struct gmmcModule {
 	fAllocator* allocator;
 	
 	fArray(gmmcProcSignature*) proc_signatures;
+	fArray(gmmcGlobal*) globals;
+	fArray(gmmcProc*) procs;
 
 	fArray(u8) code_section;
 	//fArray(gmmcType) type_from_reg;
@@ -57,6 +60,22 @@ typedef struct gmmcProc {
 	//fSlice(u8) built_x64_instructions;
 } gmmcProc;
 
+
+typedef struct gmmcReloc {
+	uint32_t offset;
+	gmmcSymbol* target;
+} gmmcReloc;
+
+typedef struct gmmcGlobal {
+	gmmcSymbol sym; // NOTE: must be the first member!
+
+	u32 size;
+	u32 align;
+	bool readonly;
+	void* data;
+
+	fArray(gmmcReloc) relocations;
+} gmmcGlobal;
 //const fString gmmcOpKind_to_string[] = {
 //	F_LIT_COMP("Invalid"),
 //	F_LIT_COMP("debugbreak"),
@@ -66,6 +85,9 @@ typedef struct gmmcProc {
 //
 //F_STATIC_ASSERT(gmmcOpKind_COUNT == F_LEN(gmmcOpKind_to_string));
 
+GMMC_API void gmmc_global_add_relocation(gmmcGlobal* global, uint32_t offset, gmmcSymbol* target) {
+	f_array_push(&global->relocations, gmmcReloc{offset, target});
+}
 
 inline bool gmmc_op_is_terminating(gmmcOpKind op) { return op >= gmmcOpKind_ret && op <= gmmcOpKind_if; }
 
@@ -194,6 +216,7 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 	gmmcString name, gmmcBasicBlock** out_entry_bb)
 {
 	gmmcProc* proc = f_mem_clone(gmmcProc{}, m->allocator);
+	f_array_push(&m->procs, proc);
 	proc->sym.mod = m;
 	proc->sym.name = name;
 	proc->signature = signature;
@@ -252,15 +275,15 @@ GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 	m->allocator = allocator;
 	m->code_section = f_array_make<u8>(m->allocator);
 	m->proc_signatures = f_array_make<gmmcProcSignature*>(m->allocator);
-	//m->type_from_reg = f_array_make<gmmcType>(m->allocator);
-	//f_array_push(&m->type_from_reg, gmmcType_None); // for GMMG_REG_NONE
-	
+	m->globals = f_array_make<gmmcGlobal*>(m->allocator);
+	f_array_push(&m->globals, (gmmcGlobal*)0); // just to make 0 index invalid
+	m->procs = f_array_make<gmmcProc*>(m->allocator);
 	return m;
 }
 
 
 void print_bb(gmmcBasicBlock* bb, fAllocator* alc) {
-	printf("$B%u:\n", bb->bb_index);
+	printf("b$%u:\n", bb->bb_index);
 
 	for (uint i = 0; i < bb->ops.len; i++) {
 		gmmcOp* op = &bb->ops[i];
@@ -295,11 +318,11 @@ void print_bb(gmmcBasicBlock* bb, fAllocator* alc) {
 		case gmmcOpKind_mod: { printf("_$%u = _$%u %% _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
 		
 		case gmmcOpKind_addr_of_symbol: {
-			printf("_$%u = (void*)%s;\n", op->result, f_str_to_cstr(op->symbol->name, alc));
+			printf("_$%u = %s;\n", op->result, f_str_to_cstr(op->symbol->name, alc));
 		} break;
 
 		case gmmcOpKind_if: {
-			printf("if (_$%u) goto $B%u; else goto $B%u;\n", op->operands[0], op->dst_bb[0]->bb_index, op->dst_bb[1]->bb_index);
+			printf("if (_$%u) goto b$%u; else goto b$%u;\n", op->operands[0], op->dst_bb[0]->bb_index, op->dst_bb[1]->bb_index);
 		} break;
 
 		case gmmcOpKind_debugbreak: {
@@ -369,6 +392,24 @@ GMMC_API void gmmc_proc_print(gmmcProc* proc) {
 	printf("}\n");
 }
 
+GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, bool readonly, void** out_data) {
+	void* data = f_mem_alloc(size, align, m->allocator);
+	memset(data, 0, size);
+
+	gmmcGlobal* global = f_mem_clone(gmmcGlobal{}, m->allocator);
+	u32 idx = (u32)f_array_push(&m->globals, global);
+	global->sym.mod = m;
+	global->sym.name = f_str_format(m->allocator, "g$%u", idx);
+	global->size = size;
+	global->align = align;
+	global->readonly = readonly;
+	global->data = data;
+	global->relocations = f_array_make<gmmcReloc>(m->allocator);
+
+	*out_data = data;
+	return global;
+}
+
 void gmmc_create_coff(gmmcModule* m, fString output_file) {
 	coffDesc coff_desc = {};
 	
@@ -406,12 +447,128 @@ int factorial(int n) {
 }
 */
 
+static int reloc_compare_fn(const void* a, const void* b) {
+	return ((gmmcReloc*)a)->offset - ((gmmcReloc*)b)->offset;
+}
+
+static void gmmc_module_print(gmmcModule* m) {
+	printf("// -- globals -------------\n\n");
+	printf("#pragma pack(push, 1)\n"); // TODO: use alignas instead! for relocations
+
+	fAllocator* alc = m->allocator;
+
+	// forward declare symbols
+
+	printf("\n");
+	for (uint i = 0; i < m->procs.len; i++) {
+		// hmm... do we need to declare procs with the right type?
+		gmmcProc* proc = m->procs[i];
+		const char* name = f_str_to_cstr(m->procs[i]->sym.name, alc);
+		gmmcType ret_type = proc->signature->return_type;
+		printf("static %s %s(", ret_type ? type_to_cstr(ret_type) : "void", name);
+		
+		for (uint i = 0; i < proc->signature->params.len; i++) {
+			if (i > 0) printf(", ");
+			printf("%s", type_to_cstr(proc->signature->params[i]));
+		}
+		printf(");\n");
+	}
+	for (uint i = 1; i < m->globals.len; i++) {
+		printf("static void* const %s;\n", f_str_to_cstr(m->globals[i]->sym.name, alc));
+	}
+	printf("\n");
+
+	for (uint i = 1; i < m->globals.len; i++) {
+		gmmcGlobal* global = m->globals[i];
+		
+		// sort the relocations
+		qsort(global->relocations.data, global->relocations.len, sizeof(gmmcReloc), reloc_compare_fn);
+
+		printf("static struct { ");
+
+		{
+			u32 member_i = 1;
+			u32 next_reloc_idx = 0;
+			u32 offset = 0;
+			for (;;) {
+				u32 bytes_end = next_reloc_idx < global->relocations.len ?
+					global->relocations[next_reloc_idx].offset :
+					global->size;
+
+				if (bytes_end > offset) {
+					printf("i8 _%u[%u]; ", member_i++, bytes_end - offset);
+					offset = bytes_end;
+				}
+
+				if (next_reloc_idx >= global->relocations.len) break;
+				
+				printf("i64 _%u; ", member_i++);
+				offset += 8;
+				next_reloc_idx++;
+			}
+		}
+		printf("}");
+		if (global->readonly) printf(" const");
+		
+		const char* name = f_str_to_cstr(global->sym.name, alc);
+		printf("\n%s_data = {", name);
+		{
+			u32 next_reloc_idx = 0;
+			u32 offset = 0;
+			for (;;) {
+				u32 bytes_end = next_reloc_idx < global->relocations.len ?
+					global->relocations[next_reloc_idx].offset :
+					global->size;
+
+				if (bytes_end > offset) {
+					printf("{");
+					for (; offset < bytes_end;) {
+						printf("%hhu,", ((u8*)global->data)[offset]);
+						offset++;
+					}
+					printf("}, ");
+				}
+				
+				if (next_reloc_idx >= global->relocations.len) break;
+
+				gmmcReloc reloc = global->relocations[next_reloc_idx];
+				u64 reloc_offset = *(u64*)((u8*)global->data + offset);
+
+				printf("(i64)(");
+				if (reloc_offset != 0) printf("(i8*)");
+				printf("%s", f_str_to_cstr(reloc.target->name, alc));
+				if (reloc_offset != 0) printf(" + 0x%llx", reloc_offset);
+				printf("), ");
+				
+				offset += 8;
+				next_reloc_idx++;
+			}
+		}
+		printf("};\n");
+		printf("static void* const %s = (void*) &%s_data;\n", name, name);
+	}
+
+	printf("\n");
+	printf("#pragma pack(pop)\n"); // TODO: use alignas instead! for relocations
+	printf("\n// ------------------------\n\n");
+}
+
 GMMC_API void gmmc_test() {
 	fAllocator* temp = f_temp_push();
 	f_os_set_working_dir(F_LIT("C:\\dev\\ffz\\gmmc\\test"));
 
 	//int x = factorial(10);
+	
+	// need to specify zero padding!
+//#pragma pack(push, 1)
+//	const static struct { u8 _1[3]; u64 _2; u8 _3[4]; u64 _4; u8 _5[5]; } foo = {};
+//#pragma pack(pop)
 
+	//alignas()
+	const u8 my_data[] = {125,05,021,0,0,0,0,0,0,0,0,120,152,125,125,0x10,0,0,0,0,0,0,0,250,0125,0,152,125};
+	//int x = sizeof(foo);
+	//int y = sizeof(my_data);
+	
 	gmmcModule* m = gmmc_init(temp);
 
 	gmmcType params[] = {gmmcType_i32};
@@ -419,6 +576,12 @@ GMMC_API void gmmc_test() {
 	
 	gmmcBasicBlock* bb;
 	gmmcProc* test_proc = gmmc_make_proc(m, sig, F_LIT("factorial"), &bb);
+	
+	void* global_a_data;
+	gmmcGlobal* global_a = gmmc_make_global(m, F_LEN(my_data), 8, true, &global_a_data);
+	memcpy(global_a_data, my_data, F_LEN(my_data));
+	gmmc_global_add_relocation(global_a, 3, gmmc_proc_as_symbol(test_proc));
+	gmmc_global_add_relocation(global_a, 15, gmmc_proc_as_symbol(test_proc));
 
 	gmmcBasicBlock* true_bb = gmmc_make_basic_block(test_proc);
 	gmmcBasicBlock* false_bb = gmmc_make_basic_block(test_proc);
@@ -435,8 +598,11 @@ GMMC_API void gmmc_test() {
 	gmmcReg return_val = gmmc_op_mul(false_bb, param_n, gmmc_op_call(false_bb, test_proc, &n_minus_1, 1), false);
 	gmmc_op_return(false_bb, return_val);
 
-	//gmmc_proc_compile(test_proc);
+
+	gmmc_module_print(m);
 	gmmc_proc_print(test_proc);
+
+	//gmmc_proc_compile(test_proc);
 	
 	//gmmc_create_coff(m, F_LIT("test.obj"));
 	F_BP;
