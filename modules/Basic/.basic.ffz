@@ -44,9 +44,34 @@
 #GiB: proc(x: uint) => (uint) { ret bit_shl(x, 30) }
 #TiB: proc(x: uint) => (uint) { ret bit_shl(x, 40) }
 
+#AllocatorProc: proc(allocator: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => (^raw)
+
 #arena_allocator_proc: AllocatorProc {
-	dbgbreak
-	ret (^raw)(0)
+	assert(in.align > 0 && is_power_of_2[uint](in.align))
+	
+	arena: (^Arena)(in.allocator)
+	
+	if in.size > in.old_size {
+		new_allocation: arena_push(arena, in.size, in.align)
+		
+		if in.old_ptr != (^raw)(0) {
+			memmove(new_allocation.ptr, in.old_ptr, in.old_size) // first do the copy, then fill old with garbage
+			
+			if ENABLE_DEBUG_CHECKS {
+				_debug_clear_memory(in.old_ptr, in.old_size)
+				_debug_clear_memory((^u8)(uint(new_allocation.ptr) + in.old_size), in.size - in.old_size)
+			}
+		}
+		
+		ret new_allocation.ptr
+	}
+	else {
+		if ENABLE_DEBUG_CHECKS { // erase the top
+			_debug_clear_memory((^u8)(uint(in.old_ptr) + in.size), in.old_size - in.size) 
+		}
+	}
+	
+	ret in.old_ptr
 }
 
 // `reserve_base` can be NULL for automatically determined address
@@ -64,7 +89,7 @@
 	GetSystemInfo(&sys_info)
 	dummy.system_page_size= sys_info.dwPageSize
 	
-	arena: (^Arena)(arena_push_align(&dummy, size_of(Arena), align_of(Arena)).ptr)
+	arena: (^Arena)(arena_push(&dummy, size_of(Arena), align_of(Arena)).ptr)
 	arena^= dummy
 	ret arena
 }
@@ -72,19 +97,37 @@
 // If you want to learn more about bit twiddling tricks, such as `align_down` and `align_up`,
 // a good resource is the book Hacker's Delight by Warren, H. It goes through a lot of these.
 
-// `alignment` must be a power of 2.
+// `align` must be a power of 2.
 // `x` is allowed to be positive or negative.
-#align_down: proc(x: int, alignment: int) => (int) {
-	ret bit_and(x, -alignment)
+#align_down: proc(x: int, align: int) => (int) {
+	ret bit_and(x, -align)
 }
 
-// `alignment` must be a power of 2.
+// `align` must be a power of 2.
 // `x` is allowed to be positive or negative.
-#align_up: proc(x: int, alignment: int) => (int) {
-	ret bit_and(x + alignment - 1, -alignment)
+#align_up: proc(x: int, align: int) => (int) {
+	ret bit_and(x + align - 1, -align)
 }
 
-#get_default_alignment_for_size: proc(size: uint) => (uint) {
+// i.e. 0b0010101000
+// =>   0b0010100000
+#flip_rightmost_one_bit: proc[T](x: T) => (T) {
+	ret bit_and(x, x - 1)
+}
+
+// i.e. 0b0010101111
+// =>   0b0010111111
+#flip_rightmost_zero_bit: proc[T](x: T) => (T) {
+	ret bit_or(x, x + 1)
+}
+
+// x == 0 will return 1
+#is_power_of_2: proc[T](x: T) => (bool) {
+	// When x is a power of 2, it must only contain a single 1-bit
+	ret flip_rightmost_one_bit[T](x) == 0
+}
+
+#get_alignment_for_size: proc(size: uint) => (uint) {
 	#small_aligns: [?]uint{0, 1, 2, 4, 4, 8, 8, 8, 8}
 	if size <= 8 { ret small_aligns[size] }
 	ret 16
@@ -92,16 +135,12 @@
 
 // This procedure clears memory to 0xCC to make un/deinitialized-memory-use bugs more
 // obvious, and to trigger possible data breakpoints.
-#debug_clear_memory: proc(ptr: ^u8, size: uint) {
+#_debug_clear_memory: proc(ptr: ^raw, size: uint) {
 	memset(ptr, 204 /*0xCC*/, size)
 }
 
-/*#arena_push: proc(arena: ^Arena, size: uint) => ([]u8) {
-	ret arena_push_align(arena, size, get_default_alignment_for_size(size))
-}*/
-
-#arena_push_align: proc(arena: ^Arena, size: uint, alignment: uint) => ([]u8) {
-	allocation_pos: (^u8)(align_up(int(arena.head), alignment))
+#arena_push: proc(arena: ^Arena, size: uint, align: uint) => ([]u8) {
+	allocation_pos: (^u8)(align_up(int(arena.head), align))
 	
 	arena.head = (^u8)(uint(allocation_pos) + size)
 	
@@ -113,7 +152,7 @@
 	}
 	
 	if ENABLE_DEBUG_CHECKS {
-		debug_clear_memory(allocation_pos, size)
+		_debug_clear_memory(allocation_pos, size)
 	}
 	
 	ret form_slice[u8](allocation_pos, size)
@@ -138,8 +177,11 @@
 	ret VirtualFree(ptr, 0, MEM_RELEASE) == 1
 }
 
+#select: proc[T](select_a: bool, a: T, b: T) => (T) {
+	if select_a { ret a }
+	ret b
+}
 
-// `max` and `min` should really be language level constructs...
 #max: proc[T](a: T, b: T) => (T) {
 	if a > b { ret a }
 	ret b
@@ -150,8 +192,15 @@
 	ret b
 }
 
+#assert: proc(condition: bool) {
+	if !condition {
+		dbgbreak
+	}
+}
+
 #copy: proc[T](dst: []T, src: []T) {
-	dbgbreak
+	assert(dst.len == src.len)
+	memmove(dst.ptr, src.ptr, src.len * size_of(T))
 }
 
 #set: proc[T](dst: []T, value: T) {
@@ -180,7 +229,6 @@
 	ret out
 }
 
-#AllocatorProc: proc(a: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => (^raw)
 
 #Allocator: struct {
 	_proc: AllocatorProc
@@ -217,6 +265,7 @@
 	wProcessorRevision: u16
 }
 
+#memmove: @extern proc(dst: ^raw, src: ^raw, size: uint)
 #memset: @extern proc(str: ^raw, c: u32, n: uint)
 #VirtualAlloc: @extern proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => (^u8)
 #VirtualFree: @extern proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => (u32)

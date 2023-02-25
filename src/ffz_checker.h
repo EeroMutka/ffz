@@ -150,6 +150,7 @@ struct ffzDefinitionPath {
 
 typedef struct ffzPolymorph {
 	ffzPolymorphHash hash;
+	ffzChecker* checker;
 
 	ffzNodeInst node;
 	fSlice(ffzCheckedExpr) parameters;
@@ -402,7 +403,9 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator);
 
 // hmm.. maybe we should store the checker directly in the Node.
 inline ffzChecker* ffz_checker_from_node(ffzProject* p, ffzNode* node) { return p->parsers_dependency_sorted[node->id.parser_id]->checker; }
-inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) { return ffz_checker_from_node(p, inst.node); }
+inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) {
+	return inst.polymorph ? inst.polymorph->checker : ffz_checker_from_node(p, inst.node);
+}
 
 bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeDeclarationInst* out_decl);
 

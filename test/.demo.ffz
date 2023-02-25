@@ -1,36 +1,43 @@
-#B: import("../modules/basic")
+//#B: import("../modules/basic")
 //#Arr: import("../modules/Array")
 
 
 // link crt startup
 @link_system_library: "libcmt.lib"
 
+#foo: proc() => (bool) {
+	dbgbreak
+	dbgbreak
+	ret true
+}
+
+#bar: proc() => (bool) {
+	dbgbreak
+	dbgbreak
+	ret true
+}
+
 #main: proc() {
-	arena_base: (^u8)(B.TiB(2))
-	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
-	//
+	
+	if foo() && bar() {
+		dbgbreak
+	}
+	
+	dbgbreak
+	
+	//arena_base: (^u8)(B.TiB(2))
+	//arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
+	
+	//alloc: B.Allocator
+	//arr: Arr.make[int](&alloc)
+	
 	//arr: Arr.make[int](&arena.allocator)
-	
-	//aaa: foo[int](50, 21)
-	//bb: foo[u32](11, 4444)
-	//
-	//a: 250
-	//b: a + 2
-	
-	//adder[u32](1, 2)
-	//adder[int](1, 2)
+	//Arr.push[int](&arr, 3)
+	//Arr.push[int](&arr, 4)
+	//Arr.push[int](&arr, 5)
 	
 	//adder[int](1, 2)
 	//adder_int(50, 60)
-	
-	/*
-	Arr.push[int](&arr, 1)
-	Arr.push[int](&arr, 2)
-	*/
-	
-	//
-	//arr2: Arr.Array[u32]
-	//Arr.push[u32](&arr2, 500)
 	
 	/*for i: 0, i<64, i=.+1 {
 		B.f_os_print_color("hoi ", B.fConsoleAttributeFlags(B.fConsoleAttribute.Green))

@@ -487,13 +487,14 @@ static ffzOk maybe_peek_next_token(ffzParser* p, ffzLoc pos, bool ignore_newline
 
 static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind, u32 size) {
 	ffzNode* node = f_mem_alloc(size, 8, p->alc);
-	if (node == (void*)0x0000020000000472) F_BP;
+	//if (node == (void*)0x0000020000000472) F_BP;
 	memset(node, 0, size);
 	node->id.parser_id = p->id;
 	node->id.local_id = p->next_local_id++;
 	node->parent = parent;
 	node->kind = kind;
 	node->loc = range;
+	//if (node->loc.start.offset == 4942) F_BP;
 	return node;
 }
 

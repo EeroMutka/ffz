@@ -55,6 +55,7 @@ struct Gen {
 
 	TB_Module* tb;
 	TB_Function* fn;
+	ffzType* proc_type;
 	TB_Reg func_big_return;
 
 	uint dummy_name_counter;
@@ -93,7 +94,7 @@ static const char* make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) 
 		f_str_print(&name, ffz_get_parent_decl_name(inst.node));
 		
 		if (inst.polymorph) {
-			/*if (pretty) {
+			if (pretty) {
 				f_str_print(&name, F_LIT("["));
 
 				for (uint i = 0; i < inst.polymorph->parameters.len; i++) {
@@ -103,12 +104,12 @@ static const char* make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) 
 				}
 
 				f_str_print(&name, F_LIT("]"));
-			}*/
+			}
 			//else {
 			//	// hmm.. deterministic index for polymorph, how?
 			//	//F_BP; // f_str_printf(&name, "$%u", inst.poly_idx.idx);
 			//}
-			f_str_printf(&name, "$%xll", inst.polymorph->hash);
+			//f_str_printf(&name, "$%xll", inst.polymorph->hash);
 		}
 		
 		if (g->checker->_dbg_module_import_name.len > 0) {
@@ -304,8 +305,10 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 
 	TB_Function* func_before = g->fn;
 	TB_Reg func_big_return_before = g->func_big_return;
+	ffzType* proc_type_before = g->proc_type;
 	g->fn = func;
-	
+	g->proc_type = proc_type;
+
 	g->func_big_return = TB_NULL_REG;
 	if (big_return) {
 		// There's some weird things going on in TB debug info if we don't call tb_inst_param_addr on every parameter. So let's just call it.
@@ -319,14 +322,16 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 #endif
 	}
 
-	ffzNodeProcTypeInst proc_type_inst = IAS(proc_type->unique_node,ProcType);
+	///if (inst.node->loc.start.line_num == 176) F_BP;
 
+	ffzNodeProcTypeInst proc_type_inst = IAS(proc_type->unique_node,ProcType);
 	u32 i = 0;
 	for FFZ_EACH_CHILD_INST(n, proc_type_inst) {
 		ffzTypeProcParameter* param = &proc_type->Proc.in_params[i];
 
 		F_ASSERT(n.node->kind == ffzNodeKind_Declaration);
 		ffzNodeIdentifierInst param_definition = ICHILD(IAS(n, Declaration), name);
+		param_definition.polymorph = inst.polymorph; // hmmm...
 		ffzNodeInstHash hash = ffz_hash_node_inst(IBASE(param_definition));
 		
 		TB_Reg param_addr = tb_inst_param_addr(func, i + (u32)big_return); // TB parameter inspection doesn't work if we never call this
@@ -349,12 +354,13 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 		tb_inst_ret(func, TB_NULL_REG);
 	}
 
+	g->proc_type = proc_type_before;
 	g->fn = func_before;
 	g->func_big_return = func_big_return_before;
-
-	//printf("\n");
-	//tb_function_print(func, tb_default_print_callback, stdout, false);
-	//printf("\n");
+	
+	printf("\n");
+	tb_function_print(func, tb_default_print_callback, stdout, false);
+	printf("\n");
 
 	bool ok = tb_module_compile_function(g->tb, func, TB_ISEL_FAST);
 	F_ASSERT(ok);
@@ -510,6 +516,15 @@ static void gen_store(Gen* g, TB_Reg lhs_address, ffzNodeInst rhs) {
 	_gen_store(g, lhs_address, rhs_value, type);
 }
 
+static TB_Reg load_small(Gen* g, TB_Reg ptr, uint size) {
+	if (size == 1) return tb_inst_load(g->fn, TB_TYPE_I8, ptr, 1);
+	else if (size == 2) return tb_inst_load(g->fn, TB_TYPE_I16, ptr, 2);
+	else if (size == 4) return tb_inst_load(g->fn, TB_TYPE_I32, ptr, 4);
+	else if (size == 8) return tb_inst_load(g->fn, TB_TYPE_I64, ptr, 8);
+	else F_BP; // TODO!! i.e. a type could be of size 3, when [3]u8
+	return 0;
+}
+
 static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	SmallOrPtr out = {};
 
@@ -568,11 +583,11 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			tb_global_set_initializer(g->tb, global, init.init);
 			
 			TB_Reg global_addr = tb_inst_get_symbol_address(g->fn, (TB_Symbol*)global);
-			if (checked.type->size > 8) {
-				if (address_of) out.small = global_addr;
-				else out.ptr = global_addr;
+			if (address_of) out.small = global_addr;
+			else {
+				if (checked.type->size > 8) out.ptr = global_addr;
+				else out.small = load_small(g, global_addr, checked.type->size);
 			}
-			else F_BP;
 		} break;
 
 		default: F_BP;
@@ -738,12 +753,13 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 			if (left.node->kind == ffzNodeKind_Identifier && AS(left.node, Identifier)->name == F_LIT("in")) {
 				F_ASSERT(!address_of); // TODO
-				F_BP;//for (u32 i = 0; i < g->curr_proc->proc_type->Proc.in_params.len; i++) {
-				//	ffzTypeProcParameter& param = g->curr_proc->proc_type->Proc.in_params[i];
-				//	if (param.name->name == member_name) {
-				//		result = gmmc_val_param(g->curr_proc->gmmc_proc, param.type->size, i);
-				//	}
-				//}
+				for (int i = 0; i < g->proc_type->Proc.in_params.len; i++) {
+					ffzTypeProcParameter& param = g->proc_type->Proc.in_params[i];
+					if (param.name->name == member_name) {
+						out.small = tb_inst_param(g->fn, i);
+						F_ASSERT(param.type->size <= 8);
+					}
+				}
 			}
 			else {
 				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
@@ -843,6 +859,57 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 				should_dereference = !address_of;
 			}
+		} break;
+
+		case ffzOperatorKind_LogicalOR: // fallthrough
+		case ffzOperatorKind_LogicalAND: {
+			bool AND = derived.node->op_kind == ffzOperatorKind_LogicalAND;
+			TB_Reg left_cond = gen_expr(g, left).small;
+
+			// short-circuiting
+			
+			TB_Label true_bb = tb_basic_block_create(g->fn);
+			TB_Label right_bb = tb_basic_block_create(g->fn);
+			TB_Label after_bb = tb_basic_block_create(g->fn);
+			TB_Label false_bb = tb_basic_block_create(g->fn);
+			
+			if (AND) {
+				tb_inst_if(g->fn, left_cond, right_bb, false_bb);
+			} else {
+				tb_inst_if(g->fn, left_cond, true_bb, right_bb);
+			}
+
+			tb_inst_set_label(g->fn, right_bb);
+			tb_inst_if(g->fn, gen_expr(g, right).small, true_bb, false_bb);
+
+			tb_inst_set_label(g->fn, false_bb);
+			TB_Reg false_val = tb_inst_bool(g->fn, false);
+			tb_inst_goto(g->fn, after_bb);
+
+			tb_inst_set_label(g->fn, true_bb);
+			TB_Reg true_val = tb_inst_bool(g->fn, true);
+			tb_inst_goto(g->fn, after_bb);
+
+			tb_inst_set_label(g->fn, after_bb);
+			out.small = tb_inst_phi2(g->fn, false_bb, false_val, true_bb, true_val);
+
+			// TODO: message negate, this doesn't always work!  i.e. with  foo() || bar()   where foo returns true
+			/*TB_Label left_false = tb_basic_block_create(g->fn);
+			TB_Label left_true = tb_basic_block_create(g->fn);
+			TB_Label after = tb_basic_block_create(g->fn);
+			tb_inst_if(g->fn, left_cond, left_true, left_false);
+
+			tb_inst_set_label(g->fn, left_false);
+			TB_Reg left_false_val = AND ? tb_inst_bool(g->fn, false) : gen_expr(g, right).small;
+
+			tb_inst_goto(g->fn, after);
+
+			tb_inst_set_label(g->fn, left_true);
+			TB_Reg left_true_val = AND ? gen_expr(g, right).small : tb_inst_bool(g->fn, true);
+			tb_inst_goto(g->fn, after);
+
+			tb_inst_set_label(g->fn, after);
+			out.small = tb_inst_phi2(g->fn, left_false, left_false_val, left_true, left_true_val);*/
 		} break;
 
 		default: F_BP;

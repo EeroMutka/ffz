@@ -351,13 +351,13 @@ bool ffz_is_child_of(ffzNode* node, OPT(ffzNode*) parent) {
 }
 
 ffzNodeIdentifierInst ffz_get_definition(ffzProject* project, ffzNodeIdentifierInst ident) {
-	ffzChecker* module = ffz_checker_from_node(project, BASE(ident.node));
+	ffzChecker* base_module = ffz_checker_from_node(project, BASE(ident.node));
 	
 	ffzPolymorph* poly = ident.polymorph;
 	for (ffzNode* n = BASE(ident.node); n; n = n->parent) { // we want to check even with a NULL scope node
 
 		ffzDefinitionPath decl_path = { n->parent, ident.node->name };
-		if (ffzNodeIdentifier** found = f_map64_get(&module->definition_map, ffz_hash_declaration_path(decl_path))) {
+		if (ffzNodeIdentifier** found = f_map64_get(&base_module->definition_map, ffz_hash_declaration_path(decl_path))) {
 			
 			for (; poly && ffz_is_child_of(poly->node.node, n->parent);) {
 				poly = poly->node.polymorph; // move to a higher-up polymorph until its no longer a child of the scope
@@ -446,18 +446,22 @@ bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, 
 
 struct CheckInfer {
 	OPT(ffzType*) target_type;
-	bool testing_target_type;
+	//bool testing_without_target_type;
 	bool expect_constant;
 
 	OPT(ffzType*) infer_decl_type;
 	ffzNode* instantiating_poly_type; // do we need this? isn't it the same as asking if the inst has any polymorph?
 };
 
+static const ffzType _PEEKING_WITHOUT_TARGET_TYPE = {};
+static ffzType* PEEKING_WITHOUT_TARGET_TYPE = (ffzType*)&_PEEKING_WITHOUT_TARGET_TYPE;
+
 static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeInst node, OPT(ffzCheckedExpr*) out = NULL);
 static ffzOk check_code_statement(ffzChecker* c, const CheckInfer& infer, ffzNodeInst node);
 
 static CheckInfer infer_target_type(CheckInfer infer, OPT(ffzType*) target_type) {
 	infer.target_type = target_type;
+	//if (target_type) infer.testing_without_target_type = false;
 	return infer;
 }
 
@@ -512,7 +516,7 @@ static ffzOk check_procedure_call(ffzChecker* c, const CheckInfer& infer, ffzNod
 
 	uint i = 0;
 	for FFZ_EACH_CHILD_INST(arg, inst) {
-		F_HITS(__c, 72);
+		//F_HITS(__c, 68);
 		ffzType* param_type = type->Proc.in_params[i].type;
 		ffzCheckedExpr arg_chk;
 		TRY(check_expression(c, infer_target_type(infer, param_type), arg, &arg_chk));
@@ -530,8 +534,8 @@ static ffzOk check_two_sided(ffzChecker* c, const CheckInfer& infer, ffzNodeInst
 	// first try inferring without the outside context. Then if that doesn't work, try inferring with it.
 
 	CheckInfer input_infer = infer;
-	input_infer.target_type = NULL;
-	input_infer.testing_target_type = true;
+	input_infer.target_type = PEEKING_WITHOUT_TARGET_TYPE;
+	//input_infer.testing_without_target_type = true;
 	
 	for (int i = 0; i < 2; i++) {
 		TRY(check_expression(c, input_infer, left, &left_chk));
@@ -581,7 +585,8 @@ ffzNodeInst ffz_get_child_inst(ffzNodeInst parent, u32 idx) {
 static ffzOk check_expression_defaulting_to_uint(ffzChecker* c, CheckInfer infer, ffzNodeInst inst, OPT(ffzCheckedExpr*) out) {
 	//F_ASSERT(infer.target_type == NULL);
 	CheckInfer peek_infer = infer;
-	peek_infer.testing_target_type = true;
+	peek_infer.target_type = PEEKING_WITHOUT_TARGET_TYPE;
+	//peek_infer.testing_without_target_type = true;
 	TRY(check_expression(c, peek_infer, inst, out));
 	if (!out->type) {
 		TRY(check_expression(c, infer_target_type(infer, ffz_builtin_type(c, ffzKeyword_uint)), inst, out));
@@ -734,8 +739,12 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 }
 
 ffzType* ffz_make_type(ffzChecker* c, ffzType type_desc) {
+	//F_HITS(_c, 35);
+	//F_HITS(_c1, 416);
 	type_desc.checker_id = c->id;
 	type_desc.hash = ffz_hash_type(&type_desc);
+	//if (type_desc.hash == 16688289346569842202) F_BP;
+	//if (type_desc.hash == 14042532921040479959) F_BP;
 
 	auto entry = f_map64_insert(&c->type_from_hash, type_desc.hash, (ffzType*)0, fMapInsert_DoNotOverride);
 	if (entry.added) {
@@ -782,6 +791,26 @@ ffzType* ffz_make_type_fixed_array(ffzChecker* c, ffzType* elem_type, s32 length
 	array_type.FixedArray.elem_type = elem_type;
 	array_type.FixedArray.length = length;
 	return ffz_make_type(c, array_type);
+}
+
+static ffzNodeOperatorInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst inst, ffzType** out_type) {
+	ffzNodeInst parent = inst;
+	parent.node = parent.node->parent;
+	for (; parent.node; parent.node = parent.node->parent) {
+		if (parent.node->kind == ffzNodeKind_Operator) {
+			ffzType* type = ffz_expr_get_type(p, parent);
+
+			// Kind of a hack, but since we can call this function from inside the checker,
+			// the parent expression type might not have been cached yet. But procedures are delay-checked so 
+			// their types should be available.
+			if (type && type->tag == ffzTypeTag_Proc) {
+				*out_type = type;
+				return IAS(parent, Operator);
+			}
+		}
+	}
+	F_ASSERT(false);
+	return {};
 }
 
 static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer infer, ffzCheckedExpr* result, bool* delayed_check_proc) {
@@ -836,7 +865,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				result->type = c->module_type;
 				result->const_val = make_constant(c);
 				
-				ffzChecker* node_module = ffz_checker_from_node(c->project, BASE(inst.node));
+				ffzChecker* node_module = ffz_checker_from_inst(c->project, IBASE(inst));
 				result->const_val->module = *f_map64_get(&node_module->imported_modules, inst.node->id.global_id);
 				fall = false;
 			}
@@ -943,6 +972,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			(inst.polymorph && inst.polymorph->node.node == BASE(inst.node)))
 		{
 			ffzPolymorph poly = {};
+			poly.checker = c;
 			poly.node = left_chk.const_val->type->unique_node;
 			poly.parameters = inst.polymorph->parameters;
 
@@ -1042,6 +1072,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			ffzType* type = ffz_ground_type(left_chk);
 			
 			ffzPolymorph poly = {};
+			poly.checker = c;
 			poly.node = left_type->tag == ffzTypeTag_Type ?
 				IBASE(type->unique_node) :
 				IBASE(left_chk.const_val->proc_node);
@@ -1144,17 +1175,19 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		fString member_name = AS(right.node,Identifier)->name;
  		bool found = false;
 		if (left.node->kind == ffzNodeKind_Identifier && AS(left.node,Identifier)->name == F_LIT("in")) {
-			F_BP;//if (AS(c->current_scope->parent_proc.node,Operator)->left->kind == ffzNodeKind_ProcType) {
-			//	ERR(c, left.node, "`in` is not allowed when the procedure parameters are accessible by name.");
-			//}
-
-			F_BP;//for (uint i = 0; i < c->current_scope->parent_proc_type->Proc.in_params.len; i++) {
-			//	ffzTypeProcParameter& param = c->current_scope->parent_proc_type->Proc.in_params[i];
-			//	if (param.name->name == member_name) {
-			//		found = true;
-			//		result->type = param.type;
-			//	}
-			//}
+			ffzType* proc_type;
+			ffzNodeOperatorInst parent_proc = code_stmt_get_parent_proc(c->project, IBASE(inst), &proc_type);
+			if (parent_proc.node->left->kind == ffzNodeKind_ProcType) {
+				ERR(c, left.node, "`in` is not allowed when the procedure parameters are accessible by name.");
+			}
+			
+			for (uint i = 0; i < proc_type->Proc.in_params.len; i++) {
+				ffzTypeProcParameter& param = proc_type->Proc.in_params[i];
+				if (param.name->name == member_name) {
+					found = true;
+					result->type = param.type;
+				}
+			}
 		}
 		else {
 			ffzCheckedExpr left_chk;
@@ -1287,7 +1320,6 @@ static void checker_cache(ffzChecker* c, ffzNodeInst node, ffzCheckedExpr result
 
 /////// this should return the same CheckedExpr as the left-hand-side expression of the declaration.
 static ffzOk check_declaration(ffzChecker* c, const CheckInfer& infer, ffzNodeDeclarationInst inst) {
-	F_HITS(_c, 2745);
 	if (checker_already_cached(c, IBASE(inst))) return { true };
 	F_ASSERT(infer.target_type == NULL);
 
@@ -1330,24 +1362,6 @@ ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 	}
 	return { true };
 }
-
-static ffzNodeOperatorInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst inst, ffzType** out_type) {
-	ffzNodeInst parent = inst;
-	parent.node = parent.node->parent;
-	for (; parent.node; parent.node = parent.node->parent) {
-		if (parent.node->kind == ffzNodeKind_Operator) {
-			ffzType* type = ffz_expr_get_type(p, parent);
-			F_ASSERT(type);
-			if (type->tag == ffzTypeTag_Proc) {
-				*out_type = type;
-				return IAS(parent, Operator);
-			}
-		}
-	}
-	F_ASSERT(false);
-	return {};
-}
-
 
 static ffzOk check_code_statement(ffzChecker* c, const CheckInfer& infer, ffzNodeInst inst) {
 	F_ASSERT(infer.target_type == NULL && !infer.expect_constant);
@@ -1651,7 +1665,6 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			result = def.polymorph->parameters[ffz_get_child_index(BASE(def.node))];
 		}
 		else {
-			F_HITS(___c, 1588);
 			ffzNodeDeclarationInst decl_inst;
 			F_ASSERT(ffz_get_decl_if_definition(def, &decl_inst));
 
@@ -1812,12 +1825,12 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 
 		//if (!required_type) CHECKER_ERROR(c, node, F_LIT("Cannot infer integer literal."));
 
-		if (infer.target_type) {
+		if (infer.target_type != PEEKING_WITHOUT_TARGET_TYPE) {
 			if (ffz_type_is_integer(infer.target_type->tag)) {
 				result.type = infer.target_type;
 				result.const_val = make_constant_int(c, AS(inst.node, IntLiteral)->value);
 			}
-			else if (!infer.testing_target_type) {
+			else {
 				ERR(c, inst.node, "Unexpected integer literal.");
 			}
 		}
@@ -1862,13 +1875,13 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		f_map64_insert(&c->cache, inst_hash, result);
 	}
 
-	if (!infer.testing_target_type) {
+	if (infer.target_type != PEEKING_WITHOUT_TARGET_TYPE) {
+		if (!result.type) {
+			ERR(c, inst.node, "Expression has no return type, or it cannot be inferred.");
+		}
 		if (infer.target_type) {
 			// make sure the target type matches
 			TRY(check_types_match(c, inst.node, result.type, infer.target_type, "Unexpected type with an expression:"));
-		}
-		if (!result.type) {
-			ERR(c, inst.node, "Expression has no return type, or it cannot be inferred.");
 		}
 	}
 
@@ -1889,7 +1902,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			// infinite loops when checking.
 			
 			// IMPORTANT: We're modifying the type AFTER it was created and hash-deduplicated. So, the things we modify must not change the type hash!
-			//HITS(__c, 2);
+			//F_HITS(___c, 49);
 			ffzNodeRecordInst inst_struct = IAS(inst, Record);
 			ffzType* record_type = ffz_ground_type(result);
 			record_type->record_fields = f_make_slice_garbage<ffzTypeRecordField>(ffz_get_child_count(inst.node), c->alc);
@@ -1999,8 +2012,13 @@ void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc
 }
 
 static bool _parse_and_check_directory(ffzProject* project, fString directory, ffzChecker** out_checker, fString _dbg_module_import_name) {
-	F_ASSERT(f_files_path_is_absolute(directory)); // directory is also supposed to be minimal (not contain .././)
+
 	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
+	
+	directory = f_files_path_to_absolute({}, directory, temp);
+	directory = f_str_to_lower(directory, temp);
+	//F_ASSERT(f_files_path_is_absolute(directory)); // directory is also supposed to be minimal (not contain .././)
+	for f_str_each(directory, r, i) { if (f_str_rune_to_lower(r) != r) F_BP; } // directory must be all lowercase
 
 	auto checker_insertion = f_map64_insert(&project->checked_module_from_directory, f_hash64_str_ex(directory, 0),
 		(ffzChecker*)0, fMapInsert_DoNotOverride);

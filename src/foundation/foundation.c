@@ -1395,15 +1395,15 @@ void f_arena_clear(fArena* arena) {
 static void* arena_allocator_proc(fAllocator* a, OPT(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {
 	//ZoneScoped;
 
-	F_HITS(_c, 0);
+	//F_HITS(_c, 0);
 	fArena* arena = (fArena*)a;
 
-	fArenaBlock* headers[2048] = { 0 };
-	uint _i = 0;
-	for (fArenaBlock* h = arena->first_block; h; h = h->next) {
-		headers[_i] = h;
-		_i++;
-	}
+	//fArenaBlock* headers[2048] = { 0 };
+	//uint _i = 0;
+	//for (fArenaBlock* h = arena->first_block; h; h = h->next) {
+	//	headers[_i] = h;
+	//	_i++;
+	//}
 
 	if (new_size > old_size) {
 		F_ASSERT(new_alignment > 0);
@@ -1411,7 +1411,7 @@ static void* arena_allocator_proc(fAllocator* a, OPT(u8*) old_ptr, uint old_size
 
 		fString new_allocation = f_arena_push(arena, new_size, new_alignment);
 
-		// TODO: Reuse the end of the arena if possible
+		// TODO: Reuse the end of the arena if possible?
 		//if (old_ptr + old_size == arena->internal_base + arena->internal_pos &&
 		//	HAS_ALIGNMENT_POW2((uint)old_ptr, new_alignment))
 		//{

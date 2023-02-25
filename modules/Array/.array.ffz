@@ -33,9 +33,6 @@
 // --
 
 #push_raw: proc(a: ^Array[raw], elem: ^raw, elem_size: uint, elem_align: uint) => (uint) {
-	dbgbreak
-	ret 0
-	/*
 	if (a.len >= a.capacity) { // Do we need to grow the array?
 		new_capacity: B.max[uint](8, a.capacity*2)
 		
@@ -49,5 +46,5 @@
 	
 	out: a.len
 	a.len= .+1
-	ret out*/
+	ret out
 }
