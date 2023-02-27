@@ -5,12 +5,9 @@
 
 #include <stdio.h>
 
-
-#include "gmmc/gmmc.h"
-
 int main(int argc, const char* argv[]) {
 
-	gmmc_test();
+	//gmmc_test();
 
 	//s64 val;
 	//bool ok = f_str_to_s64(F_LIT("259012390"), 16, &val);

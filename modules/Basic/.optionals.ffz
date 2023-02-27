@@ -1,0 +1,62 @@
+// idea: optional types
+/*
+
+if we were to have built-in optionals, i.e. ?^u32, ?int, which would be fine,
+the question would be what about ?u32 or ?u8? Sized types are about requesting
+a specific number of bits, so that promise should be held!
+I guess it's also fine to just settle on a decision
+
+@nil_value(nil_u32_hi)
+#opt_u32_hi: struct {val: u32}
+#nil_u32_hi: opt_u32_hi{0xFFFFFFFF}
+
+@nil_value(nil_s32_hi)
+#opt_s32_hi: struct {val: u32}
+#nil_s32_hi: opt_s32_hi{0x7FFFFFFF}
+
+@nil_value(opt_s32_lo)
+#opt_s32_lo: struct {val: u32}
+#opt_s32_lo: opt_s32_hi{0x80000000}
+
+// Use the highest possible value as the nil value for `uint`
+#opt_uint: struct{val: uint}
+#nil_uint: opt_uint{0x_FFFFFFFF_FFFFFFFF}
+
+// Use the highest possible value as the nil value for `int`
+#opt_int: struct{val: int}
+#nil_int: struct{0x_7FFFFFFF_FFFFFFFF}
+
+// usage:
+// foo: opt_u32_hi{50}
+// if foo != nil_u32 { ... }
+
+#opt_ptr: poly[T] struct{val: ^T}
+#nil_ptr: poly[T] opt_ptr[T]{(^T)(0)}
+
+#opt_bool: struct{val: bool}
+#nil_bool: opt_bool{bool(0xff)}
+
+// NOTE: there needs to be a difference between an empty slice and a nil slice.
+// notice:
+// foo: ^u8   // foo is not in the set of valid values for ^u8
+// bar: []u8  // bar IS in the set of valid values for []u8
+//
+#opt_slice: poly[T] struct{val: []T}
+#nil_slice: poly[T] opt_slice[T]{(^T)(0xffffffffffffffff), 0}
+
+// usage:
+// x: opt_ptr[int]{&test}
+// if x != nil_ptr[int] {
+//    x.val
+// }
+
+@nil_value(Vector3{})
+#Vector3: struct {a: f32, b: f32, c: f32}
+
+#test: proc(x: opt_slice[u32]) {
+	x: opt_bool
+	if x {
+		x? = 50
+	}
+}
+*/

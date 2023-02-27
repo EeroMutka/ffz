@@ -5,11 +5,7 @@
 #include <string.h> // for memcpy
 #include <stdio.h>
 
-#ifdef FFZ_BACKEND_TB
-#include "ffz_backend_tb.h"
-#endif
-
-#include "microsoft_craziness.h"
+#include "ffz_backend.h"
 
 #define TRY(x) { if ((x).ok == false) return ffzOk{false}; }
 
@@ -2221,34 +2217,19 @@ bool ffz_build_directory(fString directory) {
 	p->linker_inputs = f_array_make<fString>(temp);
 	p->pointer_size = 8;
 
-	fString ffz_build_dir = f_files_path_to_absolute(directory, F_LIT(".ffz"), temp);
 	//os_delete_directory(ffz_build_dir); // deleting a directory causes problems when visual studio is attached to the thing. Even if this is allowed to fail, it will still take a long time.
-	F_ASSERT(f_files_make_directory(ffz_build_dir));
 
 	if (!ffz_parse_and_check_directory(p, directory)) return false;
 
-	//ffzBackend gen = {};
-	//gen.project = &project;
-	//gen.gmmc = gmmc_init();
-	//gen.allocator = temp;
-	//gen.proc_gen = make_map64<ffzBackendProcGenerated>(gen.allocator);
-	//gen.gmmc_proc_signature_from_type = make_map64<gmmcProcSignature*>(gen.allocator);
-	//gen.gmmc_definition_value = make_map64<gmmcValue*>(gen.allocator);
-	//gen.to_gmmc_type_idx = make_map64<gmmcDITypeIdx>(gen.allocator);
-	////gen.file_idx_from_parser = make_map64<u32>(gen.allocator);
-	//gen.gmmc_types = make_array_cap<gmmcDIType>(64, gen.allocator);
-	//
-	//static u8 _true = 1;
-	//gen.gmmc_true = gmmc_val_constant(gen.gmmc, 1, &_true);
-	//static u8 _false = 0;
-	//gen.gmmc_false = gmmc_val_constant(gen.gmmc, 1, &_false);
-	//
+	//fString ffz_build_dir = f_files_path_to_absolute(directory, F_LIT(".ffz"), temp);
+	
+	fString exe_filepath = F_STR_JOIN(temp, directory, F_LIT("\\build\\"), p->module_name, F_LIT(".exe"));
+	if (!ffz_backend_gen_executable(p, exe_filepath)) {
+		return 1;
+	}
+	
+#if 0
 	fString objname = F_STR_JOIN(temp, ffz_build_dir, F_LIT("\\"), p->module_name, F_LIT(".obj"));
-	//
-	F_ASSERT(f_os_set_working_dir(ffz_build_dir));
-	//ffz_c0_generate(&project, "generated.c");
-
-	F_BP; //ffz_tb_generate(p, objname);
 
 	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
 	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, temp); // contains cl.exe, link.exe
@@ -2257,6 +2238,7 @@ bool ffz_build_directory(fString directory) {
 	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, temp); // contains libucrt.lib, etc
 	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, temp); // contains MSVCRT.lib etc
 	fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, temp); // contains vcruntime.h
+#endif
 
 #if 0
 	{
@@ -2290,7 +2272,7 @@ bool ffz_build_directory(fString directory) {
 	}
 #endif
 
-#if 1
+#if 0
 	{
 		fArray(fString) linker_args = f_array_make<fString>(temp);
 		f_array_push(&linker_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\link.exe")));
@@ -2327,7 +2309,7 @@ bool ffz_build_directory(fString directory) {
 	}
 #endif
 
-	WinSDK_free_resources(&windows_sdk);
+	//WinSDK_free_resources(&windows_sdk);
 
 	// deinit_leak_tracker();
 	// GMMC_Deinit(gen.gmmc);

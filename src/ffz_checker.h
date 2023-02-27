@@ -260,13 +260,13 @@ typedef struct ffzProject {
 
 typedef struct ffzConstant {
 	union {
-		s64 s8_;
-		s64 s16_;
-		s64 s32_;
+		s8 s8_;
+		s16 s16_;
+		s32 s32_;
 		s64 s64_;
-		u64 u8_;
-		u64 u16_;
-		u64 u32_;
+		u8 u8_;
+		u16 u16_;
+		u32 u32_;
 		u64 u64_;
 		u16 f16_;
 		f32 f32_;

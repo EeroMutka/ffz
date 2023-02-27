@@ -1,4 +1,4 @@
-#ifdef FFZ_BACKEND_TB
+#if 0
 
 #include "foundation/foundation.hpp"
 
@@ -866,7 +866,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			bool AND = derived.node->op_kind == ffzOperatorKind_LogicalAND;
 			TB_Reg left_cond = gen_expr(g, left).small;
 
-			// short-circuiting
+			// implement short-circuiting
 			
 			TB_Label true_bb = tb_basic_block_create(g->fn);
 			TB_Label right_bb = tb_basic_block_create(g->fn);
@@ -1192,4 +1192,4 @@ static void tb_test() {
 }
 #endif
 
-#endif // FFZ_BACKEND_TB
+#endif
