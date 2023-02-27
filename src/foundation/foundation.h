@@ -50,6 +50,9 @@ typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allo
 #define F_LIT(x) F_STRUCT_INIT(fString){ (u8*)x, sizeof(x)-1 }
 #define F_LIT_COMP(x) F_STRUCT_INIT_COMP(fString){ (u8*)x, sizeof(x)-1 }
 
+// If you want to pass an fString into printf, you can do:  printf("%.*s", F_STRF(my_string))
+#define F_STRF(s) (u32)s.len, s.data
+
 #define F_LEN(x) (sizeof(x) / sizeof(x[0]))
 #define F_OFFSET_OF(T, f) ((uint)&((T*)0)->f)
 

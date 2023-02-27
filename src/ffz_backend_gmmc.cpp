@@ -318,6 +318,68 @@ static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
 	}
 }
 
+static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstant* constant) {
+	switch (type->tag) {
+	case ffzTypeTag_Bool: // fallthrough
+	case ffzTypeTag_SizedInt: // fallthrough
+	case ffzTypeTag_Int: // fallthrough
+	case ffzTypeTag_SizedUint: // fallthrough
+	case ffzTypeTag_Uint: {
+		memcpy(base + offset, constant, type->size);
+	} break;
+
+	case ffzTypeTag_Proc: {
+		memset(base + offset, 0, 8);
+		if (constant->proc_node.node) {
+			gmmcSymbol* proc_sym = get_proc_symbol(g, constant->proc_node);
+			gmmc_global_add_relocation(global, offset, proc_sym);
+		}
+	} break;
+
+	case ffzTypeTag_Pointer: {
+		if (constant->ptr) todo;
+		memset(base + offset, 0, 8);
+	} break;
+
+	case ffzTypeTag_String: {
+		fString s = constant->string_zero_terminated;
+		
+		void* str_data;
+		gmmcGlobal* str_data_global = gmmc_make_global(g->gmmc, (u32)s.len, 1, true, &str_data);
+		memcpy(str_data, s.data, s.len);
+
+		memset(base + offset, 0, 8);
+		gmmc_global_add_relocation(global, offset, gmmc_global_as_symbol(str_data_global));
+
+		u64 len = s.len;
+		memcpy(base + offset + 8, &len, 8);
+	} break;
+
+	case ffzTypeTag_Slice: {
+		memset(base + offset, 0, 16);
+	} break;
+
+	case ffzTypeTag_Record: {
+		memset(base + offset, 0, type->size);
+		ffzConstant empty_constant = {};
+		for (uint i = 0; i < type->record_fields.len; i++) {
+			ffzTypeRecordField* field = &type->record_fields[i];
+
+			gen_global_constant(g, global, base, offset + field->offset, field->type,
+				constant->record_fields.len == 0 ? &empty_constant : &constant->record_fields[i]);
+		}
+	} break;
+	case ffzTypeTag_FixedArray: {
+		u32 elem_size = type->FixedArray.elem_type->size;
+		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
+			ffzConstant c = ffz_constant_fixed_array_get(type, constant, i);
+			gen_global_constant(g, global, base, offset + i * elem_size, type->FixedArray.elem_type, &c);
+		}
+	} break;
+	default: F_BP;
+	}
+}
+
 static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	gmmcReg out = {};
 
@@ -349,7 +411,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			else if (checked.type->size == 8) out = gmmc_op_i64(g->bb, checked.const_val->u64_);
 			else F_BP;
 		} break;
-		//case ffzTypeTag_Int: { BP; } break;
+
 		case ffzTypeTag_Proc: {
 			F_ASSERT(!address_of);
 			out = gmmc_op_addr_of_symbol(g->bb, get_proc_symbol(g, checked.const_val->proc_node));
@@ -359,7 +421,17 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		case ffzTypeTag_String: // fallthrough
 		case ffzTypeTag_FixedArray: // fallthrough
 		case ffzTypeTag_Record: {
-			F_BP;
+			void* global_data;
+			gmmcGlobal* global = gmmc_make_global(g->gmmc, checked.type->size, checked.type->align, true, &global_data);
+			
+			gen_global_constant(g, global, (u8*)global_data, 0, checked.type, checked.const_val);
+
+			gmmcReg global_addr = gmmc_op_addr_of_symbol(g->bb, gmmc_global_as_symbol(global));
+			if (address_of) out = global_addr;
+			else {
+				if (checked.type->size > 8) out = global_addr;
+				else out = load_small(g, global_addr, checked.type->size);
+			}
 		} break;
 
 		default: F_BP;

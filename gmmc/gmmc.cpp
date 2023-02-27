@@ -167,6 +167,10 @@ GMMC_API gmmcReg gmmc_op_array_access(gmmcBasicBlock* bb, gmmcReg base, gmmcReg 
 }
 
 GMMC_API void gmmc_op_memmove(gmmcBasicBlock* bb, gmmcReg dst_ptr, gmmcReg src_ptr, gmmcReg size) {
+	VALIDATE(reg_get_type(bb->proc, dst_ptr) == gmmcType_ptr);
+	VALIDATE(reg_get_type(bb->proc, src_ptr) == gmmcType_ptr);
+	VALIDATE(gmmc_type_is_integer(reg_get_type(bb->proc, size)));
+	
 	gmmcOp op = { gmmcOpKind_memmove };
 	op.operands[0] = dst_ptr;
 	op.operands[1] = src_ptr;
@@ -175,6 +179,10 @@ GMMC_API void gmmc_op_memmove(gmmcBasicBlock* bb, gmmcReg dst_ptr, gmmcReg src_p
 }
 
 GMMC_API void gmmc_op_memset(gmmcBasicBlock* bb, gmmcReg dst_ptr, gmmcReg value_i8, gmmcReg size) {
+	VALIDATE(reg_get_type(bb->proc, dst_ptr) == gmmcType_ptr);
+	VALIDATE(reg_get_type(bb->proc, value_i8) == gmmcType_i8);
+	VALIDATE(gmmc_type_is_integer(reg_get_type(bb->proc, size)));
+
 	gmmcOp op = { gmmcOpKind_memset };
 	op.operands[0] = dst_ptr;
 	op.operands[1] = value_i8;
@@ -450,6 +458,14 @@ void print_bb(fArray(u8)* b, gmmcBasicBlock* bb, fAllocator* alc) {
 			f_str_printf(b, "_$%u = $load(%s, _$%u);\n", op->result, type_to_cstr(value_type), op->operands[0]);
 		} break;
 
+		case gmmcOpKind_memmove: {
+			f_str_printf(b, "memmove(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
+		} break;
+
+		case gmmcOpKind_memset: {
+			f_str_printf(b, "memset(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
+		} break;
+
 		case gmmcOpKind_goto: {
 			f_str_printf(b, "goto b$%u;\n", op->goto_.dst_bb->bb_index);
 		} break;
@@ -625,6 +641,10 @@ typedef unsigned long long i64;
 #define $store(T, ptr, value) *(T*)ptr = value
 #define $load(T, ptr) *(T*)ptr
 
+// TODO: have free-standing implementations of these instead of linking to CRT?
+void* memmove(void* dest, void* src, size_t count);
+void* memset(void* dest, int c, size_t count);
+
 )");
 
 	f_str_printf(b, "// -- globals -------------\n\n");
@@ -648,9 +668,9 @@ typedef unsigned long long i64;
 		}
 		f_str_printf(b, ");\n");
 	}
-	for (uint i = 1; i < m->globals.len; i++) {
-		f_str_printf(b, "static void* const %s;\n", f_str_to_cstr(m->globals[i]->sym.name, alc));
-	}
+	//for (uint i = 1; i < m->globals.len; i++) {
+	//	f_str_printf(b, "static void* const %s;\n", f_str_to_cstr(m->globals[i]->sym.name, alc));
+	//}
 	for (uint i = 0; i < m->external_symbols.len; i++) {
 		f_str_printf(b, "extern void* const %s;\n", f_str_to_cstr(m->external_symbols[i]->name, alc));
 	}
@@ -658,11 +678,13 @@ typedef unsigned long long i64;
 
 	for (uint i = 1; i < m->globals.len; i++) {
 		gmmcGlobal* global = m->globals[i];
-		
+		const char* name = f_str_to_cstr(global->sym.name, alc);
+
 		// sort the relocations
 		qsort(global->relocations.data, global->relocations.len, sizeof(gmmcReloc), reloc_compare_fn);
 
-		f_str_printf(b, "static struct { ");
+		//f_str_printf(b, "_Alignas(%u) ", global->align);
+		f_str_printf(b, "struct %s_T {", name);
 
 		{
 			u32 member_i = 1;
@@ -679,17 +701,25 @@ typedef unsigned long long i64;
 				}
 
 				if (next_reloc_idx >= global->relocations.len) break;
-				
+
 				f_str_printf(b, "i64 _%u; ", member_i++);
 				offset += 8;
 				next_reloc_idx++;
 			}
 		}
-		f_str_printf(b, "}");
-		if (global->readonly) f_str_printf(b, " const");
-		
+		f_str_printf(b, "};\n");
+		f_str_printf(b, "static const struct %s_T %s_data;\n", name, name);
+		f_str_printf(b, "static void* const %s = (void*) &%s_data;\n\n", name, name);
+	}
+
+	for (uint i = 1; i < m->globals.len; i++) {
+		gmmcGlobal* global = m->globals[i];
 		const char* name = f_str_to_cstr(global->sym.name, alc);
-		f_str_printf(b, "\n%s_data = {", name);
+
+		//if (global->readonly) f_str_printf(b, " const");
+		f_str_printf(b, "static const struct %s_T %s_data = {", name, name);
+		//f_str_printf(b, "\n%s_data = {", name);
+
 		{
 			u32 next_reloc_idx = 0;
 			u32 offset = 0;
@@ -714,7 +744,7 @@ typedef unsigned long long i64;
 
 				f_str_printf(b, "(i64)(");
 				if (reloc_offset != 0) f_str_printf(b, "(i8*)");
-				f_str_printf(b, "%s", f_str_to_cstr(reloc.target->name, alc));
+				f_str_printf(b, "&%s_data", f_str_to_cstr(reloc.target->name, alc));
 				if (reloc_offset != 0) f_str_printf(b, " + 0x%llx", reloc_offset);
 				f_str_printf(b, "), ");
 				
@@ -723,7 +753,6 @@ typedef unsigned long long i64;
 			}
 		}
 		f_str_printf(b, "};\n");
-		f_str_printf(b, "static void* const %s = (void*) &%s_data;\n", name, name);
 	}
 
 	f_str_printf(b, "\n");

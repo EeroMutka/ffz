@@ -17,14 +17,7 @@
 
 #main: proc() {
 	
-	//b: 1000
-	//c: add_numbers(a, b)
-	//second()
-	
-	if foo() || bar() {
-		dbgbreak
-	}
-	
+	str: "Hello, sailor!"
 	
 	//for i: 0, i<3, i=.+1 {
 	//	result = . * 5
