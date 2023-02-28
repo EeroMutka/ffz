@@ -1,23 +1,50 @@
-//#B: import("../modules/basic")
-//#Arr: import("../modules/Array")
+#B: import("../modules/basic")
+#Arr: import("../modules/Array")
 
+@link_library: "build/c_things.obj"
 
 // link crt startup
 @link_system_library: "libcmt.lib"
-//#test: @extern proc(x: uint)
 
-#foo: proc() => (bool) {
+// testing
+#print_uint: @extern proc(x: uint)
+#print_string: @extern proc(x: string)
+
+/*#foo: proc() => (bool) {
 	ret false
 }
 
 #bar: proc() => (bool) {
 	dbgbreak
 	ret true
-}
+}*/
 
 #main: proc() {
 	
-	str: "Hello, sailor!"
+	print_uint(10)
+	print_uint(52)
+	print_uint(213)
+	print_string("Hello, world!")
+	print_string("I'm doing pretty well.")
+	print_string("How are you?")
+	
+	arena_base: (^u8)(B.TiB(2))
+	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
+	
+	arr: Arr.make[uint](&arena.allocator)
+	Arr.push[uint](&arr, 3)
+	Arr.push[uint](&arr, 4)
+	Arr.push[uint](&arr, 5)
+	
+	print_string("Elements:")
+	print_uint(arr.slice[0])
+	print_uint(arr.slice[1])
+	print_uint(arr.slice[2])
+	
+	print_string("Length is:")
+	print_uint(arr.len)
+	
+	//str: "Hello, sailor!".ptr
 	
 	//for i: 0, i<3, i=.+1 {
 	//	result = . * 5
@@ -25,13 +52,7 @@
 	//	//B.f_os_print_color("hoi ", B.fConsoleAttributeFlags(B.fConsoleAttribute.Green))
 	//}
 	/*
-	arena_base: (^u8)(B.TiB(2))
-	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
 	
-	arr: Arr.make[int](&arena.allocator)
-	Arr.push[int](&arr, 3)
-	Arr.push[int](&arr, 4)
-	Arr.push[int](&arr, 5)
 	*/
 	//adder[int](1, 2)
 	//adder_int(50, 60)

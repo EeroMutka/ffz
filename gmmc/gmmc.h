@@ -63,9 +63,12 @@ typedef enum gmmcOpKind {
 
 	gmmcOpKind_load,
 	gmmcOpKind_store,
+	
+	gmmcOpKind_member_access,
+	gmmcOpKind_array_access,
 
 	// :gmmc_op_is_terminating
-	gmmcOpKind_ret,
+	gmmcOpKind_return,
 	gmmcOpKind_goto,
 	gmmcOpKind_if,
 	
@@ -115,7 +118,7 @@ typedef struct gmmcOp {
 			gmmcReg operands[3];
 			bool is_signed;
 		};
-
+		
 		struct {
 			gmmcReg condition;
 			gmmcBasicBlock* dst_bb[2];
@@ -132,14 +135,14 @@ typedef struct gmmcOp {
 		
 		fString comment;
 		gmmcSymbol* symbol;
-		u64 imm;
 	};
+	u64 imm;
 } gmmcOp;
 
 typedef enum {
 	gmmcType_None = 0,
-	gmmcType_bool = 1,
-	gmmcType_ptr = 2,
+	gmmcType_ptr = 1,
+	gmmcType_bool = 2,
 	
 	// integer types
 	gmmcType_i8 = 3,
@@ -249,6 +252,7 @@ GMMC_API gmmcReg gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value);
 GMMC_API gmmcReg gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value);
 GMMC_API gmmcReg gmmc_op_i32(gmmcBasicBlock* bb, uint32_t value);
 GMMC_API gmmcReg gmmc_op_i64(gmmcBasicBlock* bb, uint64_t value);
+GMMC_API gmmcReg gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, uint64_t value);
 
 // -- Arithmetic --------------------------------
 // Arithmetic ops work on any integer and float type, where both inputs must have the same type.
