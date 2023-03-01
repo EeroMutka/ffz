@@ -2096,7 +2096,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			if (true) {
 				f_os_print(F_LIT("PRINTING AST: ======================================================\n"));
 				fArray(u8) builder = f_array_make_cap<u8>(64, temp);
-				for (ffzNode* n = parser->root->children.first; n; n = n->next) {
+				for (ffzNode* n = parser->root->first_child; n; n = n->next) {
 					f_str_print_il(&builder, { ffz_print_ast(temp, n), F_LIT("\n") });
 				}
 				f_os_print(builder.slice);

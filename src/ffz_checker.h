@@ -340,7 +340,7 @@ struct ffzChecker {
 //#define FFZ_INST_(ffzNode*)node (*(ffzNodeInst*)&(node))
 
 #define FFZ_EACH_CHILD_INST(n, parent) (\
-	ffzNodeInst n = {(parent.node) ? (parent).node->children.first : NULL, (parent).polymorph};\
+	ffzNodeInst n = {(parent.node) ? (parent).node->first_child : NULL, (parent).polymorph};\
 	n.node = ffz_skip_standalone_tags(n.node);\
 	n.node = n.node->next)
 
@@ -426,6 +426,6 @@ bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst
 //bool ffz_definition_is_constant(ffzNodeIdentifier* definition);
 
 //bool ffz_decl_is_constant(ffzNodeDeclaration* decl);
-bool ffz_decl_is_runtime_value(ffzNodeOpDeclareInst* decl);
+bool ffz_decl_is_runtime_value(ffzNodeOpDeclare* decl);
 
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee);

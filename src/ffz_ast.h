@@ -13,7 +13,7 @@ typedef u32 ffzParserLocalID;
 typedef u32 ffzCheckerID;
 typedef u32 ffzCheckerLocalID;
 
-typedef union ffzNode ffzNode;
+typedef struct ffzNode ffzNode;
 
 typedef struct ffzOk { bool ok; } ffzOk;
 
@@ -40,41 +40,41 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	// -- Operators ----------------------
 	// :ffz_node_is_operator
 
-	ffzNodeKind_Declare,            // a:b
-	ffzNodeKind_Assign,             // a=b
+	ffzNodeKind_Declare,            // x : y
+	ffzNodeKind_Assign,             // x = y
 
-	ffzNodeKind_Add,                // a + b
-	ffzNodeKind_Sub,                // a - b
-	ffzNodeKind_Mul,                // a * b
-	ffzNodeKind_Div,                // a / b
-	ffzNodeKind_Modulo,             // a % b
+	ffzNodeKind_Add,                // x + y
+	ffzNodeKind_Sub,                // x - y
+	ffzNodeKind_Mul,                // x * y
+	ffzNodeKind_Div,                // x / y
+	ffzNodeKind_Modulo,             // x % y
 
-	ffzNodeKind_MemberAccess,       // a.b
+	ffzNodeKind_MemberAccess,       // x . y
 
 	// :ffz_op_is_comparison
-	ffzNodeKind_Equal,              // a == b
-	ffzNodeKind_NotEqual,           // a != b
-	ffzNodeKind_Less,               // a < b
-	ffzNodeKind_LessOrEqual,        // a <= b
-	ffzNodeKind_Greater,            // a > b
-	ffzNodeKind_GreaterOrEqual,     // a >= b
+	ffzNodeKind_Equal,              // x == y
+	ffzNodeKind_NotEqual,           // x != y
+	ffzNodeKind_Less,               // x < y
+	ffzNodeKind_LessOrEqual,        // x <= y
+	ffzNodeKind_Greater,            // x > y
+	ffzNodeKind_GreaterOrEqual,     // x >= y
 
-	ffzNodeKind_LogicalAND,         // a && b
-	ffzNodeKind_LogicalOR,          // a || b
+	ffzNodeKind_LogicalAND,         // x && y
+	ffzNodeKind_LogicalOR,          // x || y
 
 	// :ffz_op_is_prefix
-	ffzNodeKind_PreSquareBrackets,  // [...]a
-	ffzNodeKind_UnaryMinus,         // -a
-	ffzNodeKind_UnaryPlus,          // +a
-	ffzNodeKind_AddressOf,          // &a
-	ffzNodeKind_PointerTo,          // ^a
-	ffzNodeKind_LogicalNOT,         // !a
+	ffzNodeKind_PreSquareBrackets,  // [...]x
+	ffzNodeKind_UnaryMinus,         // -x
+	ffzNodeKind_UnaryPlus,          // +x
+	ffzNodeKind_AddressOf,          // &x
+	ffzNodeKind_PointerTo,          // ^x
+	ffzNodeKind_LogicalNOT,         // !x
 
 	// :ffz_op_is_postfix
-	ffzNodeKind_PostSquareBrackets, // a[...]
-	ffzNodeKind_PostRoundBrackets,  // a(...)
-	ffzNodeKind_PostCurlyBrackets,  // a{...}
-	ffzNodeKind_Dereference,        // a^
+	ffzNodeKind_PostSquareBrackets, // x[...]
+	ffzNodeKind_PostRoundBrackets,  // x(...)
+	ffzNodeKind_PostCurlyBrackets,  // x{...}
+	ffzNodeKind_Dereference,        // x^
 
 	ffzNodeKind_COUNT,
 } ffzNodeKind;
@@ -129,10 +129,6 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 //	ffzNodeKind_COUNT,
 //} ffzNodeKind;
 
-typedef struct ffzNodeList {
-	ffzNode* first; // can be NULL
-} ffzNodeList;
-
 typedef struct ffzLoc {
 	u32 line_num; // As in text files, starts at 1
 	u32 column_num;
@@ -172,7 +168,7 @@ typedef ffzNode ffzNodeBlank;
 typedef ffzNode ffzNodeIntLiteral;
 typedef ffzNode ffzNodePolyParamList;
 
-union ffzNode {
+struct ffzNode {
 	ffzNodeKind kind;
 	ffzNodeFlags flags;
 	ffzParserRelID id;
@@ -180,7 +176,7 @@ union ffzNode {
 	ffzNode* first_tag;
 	ffzNode* parent;
 	ffzNode* next;
-	ffzNodeList children;
+	ffzNode* first_child;
 
 	union {
 		struct {
@@ -269,7 +265,7 @@ struct ffzParser {
 //#define FFZ_AS(node,kind) ((ffzNode##kind*)node)
 //#define FFZ_(ffzNode*)node ((ffzNode*)node)
 
-#define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? parent->children.first : NULL; n = ffz_skip_standalone_tags(n); n = n->next)
+#define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? parent->first_child : NULL; n = ffz_skip_standalone_tags(n); n = n->next)
 
 #ifdef __cplusplus
 #define FFZ_STRUCT_INIT(type) type
@@ -292,6 +288,10 @@ inline bool ffz_op_is_postfix(ffzNodeKind kind) { return kind >= ffzNodeKind_Pos
 inline bool ffz_op_is_comparison(ffzNodeKind kind) { return kind >= ffzNodeKind_Equal && kind <= ffzNodeKind_GreaterOrEqual; }
 //inline bool ffz_operator_is_arithmetic(ffzNodeKind kind) { return kind >= ffzNodeKind_Add && kind <= ffzNodeKind_Modulo; }
 
+// 0 is returned if not a bracket operator
+u8 ffz_get_bracket_op_open_char(ffzNodeKind kind);
+u8 ffz_get_bracket_op_close_char(ffzNodeKind kind);
+
 //fOpt(ffzNode*) ffz_get_compiler_tag_by_name(ffzNode* node, fString tag);
 //fOpt(ffzNode*) ffz_get_user_tag_by_name(ffzNode* node, fString tag);
 
@@ -302,6 +302,7 @@ inline bool ffz_op_is_comparison(ffzNodeKind kind) { return kind >= ffzNodeKind_
 //u32 ffz_scope_child_get_index(ffzNode* node);
 
 // should we flatten it so we can talk about ffzNodeDeclarations?
+
 
 fOpt(ffzNodeOpDeclare*) ffz_get_parent_decl(fOpt(ffzNode*) node); // returns NULL if node->parent is not a declaration, or the node itself is NULL
 fString ffz_get_parent_decl_name(fOpt(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
