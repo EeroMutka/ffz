@@ -82,10 +82,10 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			// Currently, we're giving these symbols unique ids and exporting them anyway, because
 			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 
-			if (!ffz_node_get_compiler_tag(inst.node, F_LIT("extern"))) {
-				f_str_print(&name, F_LIT("$$"));
-				f_str_print(&name, g->checker->_dbg_module_import_name);
-			}
+			F_BP; //if (!ffz_get_compiler_tag_by_name(inst.node, F_LIT("extern"))) {
+			//	f_str_print(&name, F_LIT("$$"));
+			//	f_str_print(&name, g->checker->_dbg_module_import_name);
+			//}
 		}
 	}
 	else {
@@ -930,55 +930,107 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 		}
 	}
 
+	// TODO: option for clang/msvc (/gcc?)  ...and what about TCC?
+	// I guess the purpose of the C backend is mainly:
+	//    1. when TB is broken / debugging code-gen
+	//    2. for maximum portability
+	//    3. for optimization
+	// 
+	// so the natural option would be to use clang.
+	// MSVC might be faster to compile, but... if you want fast development builds / compile speeds, use TB
+	// 
 	// Compile with MSVC
 
 	fArray(u8) buf = f_array_make<u8>(temp);
 	gmmc_module_print(&buf, gmmc);
-	f_os_print(buf.slice);
+	
+	if (false) f_os_print(buf.slice);
 
-	if (!f_files_write_whole(F_STR_JOIN(temp, build_dir, F_LIT("/gen.c")), buf.slice)) {
+	if (!f_files_write_whole(F_STR_JOIN(temp, build_dir, F_LIT("/a.c")), buf.slice)) {
 		printf("Failed writing temporary C file to disk!\n");
 		return false;
 	}
 
-	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
-	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, temp); // contains cl.exe, link.exe
-	fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, temp); // contains <string.h>, etc
-	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, temp); // contains kernel32.lib, etc
-	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, temp); // contains libucrt.lib, etc
-	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, temp); // contains MSVCRT.lib etc
-	fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, temp); // contains vcruntime.h
-
-	{
-		fArray(fString) msvc_args = f_array_make<fString>(temp);
-		f_array_push(&msvc_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\cl.exe")));
-		f_array_push(&msvc_args, F_LIT("/Zi"));
-		f_array_push(&msvc_args, F_LIT("/std:c11"));
-		f_array_push(&msvc_args, F_LIT("/Ob1")); // enable inlining
-		f_array_push(&msvc_args, F_LIT("/MDd")); // raylib uses this setting
-		f_array_push(&msvc_args, F_LIT("gen.c"));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
-
-		f_array_push(&msvc_args, F_LIT("/link"));
-		f_array_push(&msvc_args, F_LIT("/INCREMENTAL:NO"));
-		f_array_push(&msvc_args, F_LIT("/MACHINE:X64"));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
-
-		for (uint i = 0; i < project->linker_inputs.len; i++) {
-			f_array_push(&msvc_args, project->linker_inputs[i]);
+	if (true) { // clang
+		fArray(fString) clang_args = f_array_make<fString>(temp);
+		f_array_push(&clang_args, F_LIT("clang"));
+		
+		if (true) { // with debug info?
+			f_array_push(&clang_args, F_LIT("-gcodeview"));
+			f_array_push(&clang_args, F_LIT("--debug"));
+		}
+		else {
+			f_array_push(&clang_args, F_LIT("-O1"));
 		}
 
-		printf("Running cl.exe: \n");
+		f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
+		f_array_push(&clang_args, F_LIT("a.c"));
+		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
+		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
+		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
+		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
+
+		//f_array_push(&clang_args, F_LIT("/link"));
+		//f_array_push(&clang_args, F_LIT("/INCREMENTAL:NO"));
+		//f_array_push(&clang_args, F_LIT("/MACHINE:X64"));
+		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
+		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
+		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
+
+		for (uint i = 0; i < project->linker_inputs.len; i++) {
+			f_array_push(&clang_args, project->linker_inputs[i]);
+		}
+
+		printf("Running clang: \n");
 		u32 exit_code;
-		if (!f_os_run_command(msvc_args.slice, build_dir, &exit_code)) return false;
+		if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
+			printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");
+			return false;
+		}
 		if (exit_code != 0) return false;
 	}
 
-	WinSDK_free_resources(&windows_sdk);
+	if (false) { // msvc
+		WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
+		fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, temp); // contains cl.exe, link.exe
+		fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, temp); // contains <string.h>, etc
+		fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, temp); // contains kernel32.lib, etc
+		fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, temp); // contains libucrt.lib, etc
+		fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, temp); // contains MSVCRT.lib etc
+		fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, temp); // contains vcruntime.h
+
+		{
+			fArray(fString) msvc_args = f_array_make<fString>(temp);
+			f_array_push(&msvc_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\cl.exe")));
+			f_array_push(&msvc_args, F_LIT("/Zi"));
+			f_array_push(&msvc_args, F_LIT("/std:c11"));
+			f_array_push(&msvc_args, F_LIT("/Ob1")); // enable inlining
+			f_array_push(&msvc_args, F_LIT("/MDd")); // raylib uses this setting
+			f_array_push(&msvc_args, F_LIT("a.c"));
+			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
+			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
+			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
+			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
+
+			f_array_push(&msvc_args, F_LIT("/link"));
+			f_array_push(&msvc_args, F_LIT("/INCREMENTAL:NO"));
+			f_array_push(&msvc_args, F_LIT("/MACHINE:X64"));
+			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
+			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
+			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
+			f_array_push(&msvc_args, F_LIT("libcmt.lib")); // link crt startup?
+
+			for (uint i = 0; i < project->linker_inputs.len; i++) {
+				f_array_push(&msvc_args, project->linker_inputs[i]);
+			}
+
+			printf("Running cl.exe: \n");
+			u32 exit_code;
+			if (!f_os_run_command(msvc_args.slice, build_dir, &exit_code)) return false;
+			if (exit_code != 0) return false;
+		}
+		WinSDK_free_resources(&windows_sdk);
+	}
+
 	return true;
 }

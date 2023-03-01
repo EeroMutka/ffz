@@ -408,8 +408,11 @@ static ffzOk add_fields_to_field_from_name_map(ffzChecker* c, ffzType* root_type
 				f_str_to_cstr(field->name, c->alc)); // (*insertion._unstable_ptr)->name->start_pos.line_number);
 		}
 
-		if (field->decl && ffz_node_get_compiler_tag(BASE(field->decl), F_LIT("using"))) {
-			TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
+		if (field->decl) {
+			F_BP;
+			//if (ffz_get_compiler_tag_by_name(BASE(field->decl), F_LIT("using"))) {
+			//	TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
+			//}
 		}
 	}
 	return { true };
@@ -843,14 +846,14 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			}
 			else if (keyword == ffzKeyword_size_of || keyword == ffzKeyword_align_of) {
 				if (ffz_get_child_count(BASE(node)) != 1) {
-					ERR(c, BASE(node), "Incorrect number of arguments to %s.", ffz_keyword_to_string[keyword].data);
+					ERR(c, BASE(node), "Incorrect number of arguments to %s.", ffz_keyword_to_cstring(keyword));
 				}
 
 				ffzCheckedExpr chk;
 				ffzNodeInst first = ffz_get_child_inst(IBASE(inst), 0);
 				TRY(check_expression(c, infer_no_help(infer), first, &chk));
 				if (!chk.type || chk.type->tag != ffzTypeTag_Type) {
-					ERR(c, BASE(node), "Expected a type to %s, but got a value.", ffz_keyword_to_string[keyword].data);
+					ERR(c, BASE(node), "Expected a type to %s, but got a value.", ffz_keyword_to_cstring(keyword));
 				}
 				
 				result->type = ffz_builtin_type(c, ffzKeyword_uint);
@@ -1738,17 +1741,17 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			}
 		}
 		
-		if (ffz_node_get_compiler_tag(BASE(type_node.node), F_LIT("extern"))) {
-			if (proc_type.tag == ffzTypeTag_PolyProc) ERR(c, inst.node, "Polymorphic procedures cannot be @extern.");
-
-			// if it's an extern proc, then don't turn it into a type type!!
-			result.type = ffz_make_type(c, proc_type);
-			result.const_val = make_constant(c);
-			result.const_val->proc_node = inst;
-		}
-		else {
-			result = make_type_constant(c, ffz_make_type(c, proc_type));
-		}
+		F_BP; //if (ffz_get_compiler_tag_by_name(BASE(type_node.node), F_LIT("extern"))) {
+		//	if (proc_type.tag == ffzTypeTag_PolyProc) ERR(c, inst.node, "Polymorphic procedures cannot be @extern.");
+		//
+		//	// if it's an extern proc, then don't turn it into a type type!!
+		//	result.type = ffz_make_type(c, proc_type);
+		//	result.const_val = make_constant(c);
+		//	result.const_val->proc_node = inst;
+		//}
+		//else {
+		//	result = make_type_constant(c, ffz_make_type(c, proc_type));
+		//}
 	} break;
 
 	case ffzNodeKind_Record: {
@@ -1844,7 +1847,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		result.const_val->string_zero_terminated = AS(inst.node,StringLiteral)->zero_terminated_string;
 	} break;
 
-	default: ERR(c, inst.node, "Expected an expression; got [%s]", ffzNodeKind_String[inst.node->kind].data);
+	default: ERR(c, inst.node, "Expected an expression; got [%s]", ffz_node_kind_to_cstring(inst.node->kind));
 	}
 
 	ffzCheckedExpr ungrounded_result = result;
@@ -2079,22 +2082,20 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			parser->checker = checker;
 			parser->source_code = file_contents;
 			parser->source_code_filepath = visit.files[i];
+			parser->keyword_from_string = &project->keyword_from_string;
 			parser->report_error = [](ffzParser* parser, ffzLocRange at, fString error) {
 				ffz_log_pretty_error(parser, F_LIT("Syntax error "), at, error, true);
 				F_BP;
 			};
 
-			parser->pos.offset = 0;
-			parser->pos.line_num = 1;
-			parser->pos.column_num = 1;
+			
 			parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
-			parser->tag_decl_lists = f_map64_make<ffzNodeTagDecl*>(parser->alc);
+			//parser->tag_decl_lists = f_map64_make<ffzNodeTagDecl*>(parser->alc);
 
 			ffzOk ok = ffz_parse(parser);
 			if (!ok.ok) return false;
 
-
-			{ // add linker inputs
+			/*{ // add linker inputs
 				{
 					//f_map64_get(
 					auto foo = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_library"), 0));
@@ -2112,8 +2113,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 						f_array_push(&project->linker_inputs, FFZ_AS(n->rhs, StringLiteral)->zero_terminated_string);
 					}
 				}
-			}
-
+			}*/
 
 			if (true) {
 				f_os_print(F_LIT("PRINTING AST: ======================================================\n"));
@@ -2125,6 +2125,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 				f_os_print(F_LIT("====================================================================\n\n"));
 				int a = 250;
 			}
+			F_BP;
 
 			for (uint i = 0; i < parser->module_imports.len; i++) {
 				ffzNodeKeyword* import_keyword = parser->module_imports[i];
@@ -2203,8 +2204,6 @@ bool ffz_parse_and_check_directory(ffzProject* p, fString directory) {
 	return _parse_and_check_directory(p, directory, &checker, {});
 }
 
-
-
 bool ffz_build_directory(fString directory) {
 	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
 
@@ -2216,6 +2215,16 @@ bool ffz_build_directory(fString directory) {
 	p->parsers_dependency_sorted = f_array_make<ffzParser*>(temp);
 	p->linker_inputs = f_array_make<fString>(temp);
 	p->pointer_size = 8;
+
+	{
+		// initialize constant lookup tables
+
+		p->keyword_from_string = f_map64_make<ffzKeyword>(p->persistent_allocator);
+		for (uint i = 0; i < ffzKeyword_COUNT; i++) {
+			f_map64_insert(&p->keyword_from_string,
+				f_hash64_str(ffz_keyword_to_string((ffzKeyword)i)), (ffzKeyword)i, fMapInsert_DoNotOverride);
+		}
+	}
 
 	//os_delete_directory(ffz_build_dir); // deleting a directory causes problems when visual studio is attached to the thing. Even if this is allowed to fail, it will still take a long time.
 

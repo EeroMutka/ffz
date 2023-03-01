@@ -2384,6 +2384,8 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 	}
 
 	bool f_os_run_command(fSliceRaw args, fString working_dir, u32* out_exit_code) {
+		bool ok = false;
+
 		fAllocator* temp = f_temp_push();
 		fString working_dir_before;
 		if (working_dir.len > 0) {
@@ -2502,14 +2504,14 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		// Close our own handles
 		CloseHandle(IN_Wr);
 		CloseHandle(OUT_Rd);
-
+		ok = true;
 	end:;
 		if (working_dir.len > 0) {
 			f_os_set_working_dir(working_dir_before);
 		}
 
 		f_temp_pop();
-		return true;
+		return ok;
 	}
 
 

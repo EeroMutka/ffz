@@ -20,13 +20,7 @@ typedef struct ffzOk { bool ok; } ffzOk;
 typedef enum ffzNodeKind { // synced with `ffzNodeKind_String`
 	ffzNodeKind_Invalid,
 
-	// CompilerTagDecls and UserTagDecls are skipped by skip_tag_decls()
 	ffzNodeKind_Blank,
-	ffzNodeKind_CompilerTagDecl,
-	ffzNodeKind_UserTagDecl,
-
-	ffzNodeKind_CompilerTag,
-	ffzNodeKind_UserTag,
 
 	ffzNodeKind_Declaration,
 	ffzNodeKind_Assignment,
@@ -49,8 +43,12 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_String`
 	ffzNodeKind_COUNT,
 } ffzNodeKind;
 
+typedef u8 ffzNodeFlags;
+enum {
+	ffzNodeFlag_IsStandaloneTag = 1 << 0,
+};
 
-typedef enum ffzKeyword { // synced with `ffz_keyword_to_string`
+typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_Invalid,
 	ffzKeyword_Underscore,
 	ffzKeyword_QuestionMark,
@@ -85,50 +83,49 @@ typedef enum ffzKeyword { // synced with `ffz_keyword_to_string`
 	ffzKeyword_bit_shl,
 	ffzKeyword_bit_shr,
 	ffzKeyword_bit_not,
+	
+	ffzKeyword_COUNT,
 } ffzKeyword;
 
-
-typedef enum ffzOperatorKind { // synced with ffzOperatorKind_String
+typedef enum ffzOperatorKind { // synced with ffzOperatorKind_to_string
 	ffzOperatorKind_Invalid = 0,
 
-	// :OperatorIsArithmetic
-	ffzOperatorKind_Add,
-	ffzOperatorKind_Sub,
-	ffzOperatorKind_Mul,
-	ffzOperatorKind_Div,
-	ffzOperatorKind_Modulo,
+	ffzOperatorKind_Add,                // a + b
+	ffzOperatorKind_Sub,                // a - b
+	ffzOperatorKind_Mul,                // a * b
+	ffzOperatorKind_Div,                // a / b
+	ffzOperatorKind_Modulo,             // a % b
 
-	ffzOperatorKind_MemberAccess, // the . operator
+	ffzOperatorKind_MemberAccess,       // a.b
 
 	// :OperatorIsComparison
-	ffzOperatorKind_Equal,
-	ffzOperatorKind_NotEqual,
-	ffzOperatorKind_Less,
-	ffzOperatorKind_LessOrEqual,
-	ffzOperatorKind_Greater,
-	ffzOperatorKind_GreaterOrEqual,
+	ffzOperatorKind_Equal,              // a == b
+	ffzOperatorKind_NotEqual,           // a != b
+	ffzOperatorKind_Less,               // a < b
+	ffzOperatorKind_LessOrEqual,        // a <= b
+	ffzOperatorKind_Greater,            // a > b
+	ffzOperatorKind_GreaterOrEqual,     // a >= b
 
-	ffzOperatorKind_PreSquareBrackets,
-	ffzOperatorKind_PostRoundBrackets,
-	ffzOperatorKind_PostSquareBrackets,
-	ffzOperatorKind_PostCurlyBrackets,
-
-	ffzOperatorKind_LogicalAND,
-	ffzOperatorKind_LogicalOR,
+	ffzOperatorKind_LogicalAND,         // a && b
+	ffzOperatorKind_LogicalOR,          // a || b
 	
-	// :OperatorIsPreUnary
-	ffzOperatorKind_UnaryMinus,
-	ffzOperatorKind_UnaryPlus,
-	ffzOperatorKind_UnaryMemberAccess,
-	ffzOperatorKind_AddressOf,
-	ffzOperatorKind_PointerTo,
-	ffzOperatorKind_LogicalNOT,
+	// :operator_is_prefix
+	ffzOperatorKind_PreSquareBrackets,  // [...]a
+	ffzOperatorKind_UnaryMinus,         // -a
+	ffzOperatorKind_UnaryPlus,          // +a
+	ffzOperatorKind_AddressOf,          // &a
+	ffzOperatorKind_PointerTo,          // ^a
+	ffzOperatorKind_LogicalNOT,         // !a
 
-	// :OperatorIsPostUnary
-	ffzOperatorKind_Dereference,
+	// :operator_is_postfix
+	ffzOperatorKind_PostSquareBrackets, // a[...]
+	ffzOperatorKind_PostRoundBrackets,  // a(...)
+	ffzOperatorKind_PostCurlyBrackets,  // a{...}
+	ffzOperatorKind_Dereference,        // a^
 
-	ffzOperatorKind_Count,
+	ffzOperatorKind_COUNT,
 } ffzOperatorKind;
+
 
 typedef struct ffzNodeList {
 	ffzNode* first; // can be NULL
@@ -146,8 +143,8 @@ typedef struct ffzLocRange {
 } ffzLocRange;
 
 typedef struct ffzNodeAssignment ffzNodeAssignment;
-typedef struct ffzNodeTag ffzNodeTag;
-typedef struct ffzNodeTagDecl ffzNodeTagDecl;
+//typedef struct ffzNodeTag ffzNodeTag;
+//typedef struct ffzNodeTagDecl ffzNodeTagDecl;
 typedef struct ffzNodeIdentifier ffzNodeIdentifier;
 typedef struct ffzNodeKeyword ffzNodeKeyword;
 typedef struct ffzNodeOperator ffzNodeOperator;
@@ -171,9 +168,10 @@ typedef union ffzParserRelID {
 
 #define FFZ_NODE_BASE struct { \
 ffzNodeKind kind; \
+ffzNodeFlags flags; \
 ffzParserRelID id; \
 ffzLocRange loc;\
-ffzNodeTag* first_tag;\
+ffzNode* first_tag;\
 ffzNode* parent;\
 ffzNode* next;\
 ffzNodeList children;\
@@ -191,19 +189,19 @@ typedef struct ffzNodeDeclaration {
 	ffzNode* rhs;
 } ffzNodeDeclaration;
 
-typedef struct ffzNodeTag {
-	FFZ_NODE_BASE;
-	fString tag;
-	// TODO: tag argument? it should be able to hold an arbitrary AST tree inside
-} ffzNodeTag;
+//typedef struct ffzNodeTag {
+//	FFZ_NODE_BASE;
+//	fString tag;
+//	// TODO: tag argument? it should be able to hold an arbitrary AST tree inside
+//} ffzNodeTag;
 
-typedef struct ffzNodeTagDecl {
-	FFZ_NODE_BASE;
-	fString tag;
-	ffzNode* rhs;
-
-	ffzNodeTagDecl* same_tag_next;
-} ffzNodeTagDecl;
+//typedef struct ffzNodeTagDecl {
+//	FFZ_NODE_BASE;
+//	fString tag;
+//	ffzNode* rhs;
+//
+//	ffzNodeTagDecl* same_tag_next;
+//} ffzNodeTagDecl;
 
 typedef struct ffzNodeIdentifier {
 	FFZ_NODE_BASE;
@@ -280,8 +278,6 @@ union ffzNode {
 	FFZ_NODE_BASE;
 	ffzNodeAssignment Assignment;
 	ffzNodeDeclaration Declaration;
-	ffzNodeTag Tag;
-	ffzNodeTagDecl TagDecl;
 	ffzNodeIdentifier Identifier;
 	ffzNodeKeyword Keyword;
 	ffzNodeOperator Operator;
@@ -296,63 +292,7 @@ union ffzNode {
 	ffzNodeStringLiteral StringLiteral;
 };
 
-// synced with `ffzNodeKind`
-static const fString ffzNodeKind_String[] = {
-	F_LIT_COMP("invalid"),
-	F_LIT_COMP("blank"),
-	F_LIT_COMP("compiler-tag-declaration"),
-	F_LIT_COMP("user-tag-declaration"),
-	F_LIT_COMP("compiler-tag"),
-	F_LIT_COMP("user-tag"),
-	F_LIT_COMP("declaration"),
-	F_LIT_COMP("assignment"),
-	F_LIT_COMP("identifier"),
-	F_LIT_COMP("polymorphic-parameter"),
-	F_LIT_COMP("keyword"),
-	F_LIT_COMP("dot"),
-	F_LIT_COMP("operator"),
-	F_LIT_COMP("proc-type"),
-	F_LIT_COMP("struct"),
-	F_LIT_COMP("enum"),
-	F_LIT_COMP("return"),
-	F_LIT_COMP("if"),
-	F_LIT_COMP("for"),
-	F_LIT_COMP("scope"),
-	F_LIT_COMP("int-literal"),
-	F_LIT_COMP("string-literal"),
-	F_LIT_COMP("float-literal"),
-};
-
-const static fString ffz_keyword_to_string[] = { // synced with `ffzKeyword`
-	{0},
-	F_LIT_COMP("_"),
-	F_LIT_COMP("?"),
-	F_LIT_COMP("dbgbreak"),
-	F_LIT_COMP("size_of"),
-	F_LIT_COMP("align_of"),
-	F_LIT_COMP("import"),
-	F_LIT_COMP("true"),
-	F_LIT_COMP("false"),
-	F_LIT_COMP("u8"),
-	F_LIT_COMP("u16"),
-	F_LIT_COMP("u32"),
-	F_LIT_COMP("u64"),
-	F_LIT_COMP("s8"),
-	F_LIT_COMP("s16"),
-	F_LIT_COMP("s32"),
-	F_LIT_COMP("s64"),
-	F_LIT_COMP("int"),
-	F_LIT_COMP("uint"),
-	F_LIT_COMP("bool"),
-	F_LIT_COMP("raw"),
-	F_LIT_COMP("string"),
-	F_LIT_COMP("bit_and"),
-	F_LIT_COMP("bit_or"),
-	F_LIT_COMP("bit_xor"),
-	F_LIT_COMP("bit_shl"),
-	F_LIT_COMP("bit_shr"),
-	F_LIT_COMP("bit_not"),
-};
+typedef fMap64(ffzKeyword) KeywordFromStringMap; // key: f_hash64_str(str);
 
 typedef struct ffzProject ffzProject;
 typedef struct ffzChecker ffzChecker;
@@ -363,6 +303,8 @@ struct ffzParser {
 	ffzProject* project;     // unused in the parser stage
 	ffzChecker* checker;     // unused in the parser stage
 	ffzParserID id;          // this index will be saved into the generated AstNode structures
+	
+	KeywordFromStringMap* keyword_from_string;
 
 	fString source_code;
 	fString source_code_filepath; // The filepath is displayed in error messages, but not used anywhere else.
@@ -372,10 +314,10 @@ struct ffzParser {
 	ffzParserLocalID next_local_id;
 
 	fArray(ffzNodeKeyword*) module_imports;
-	fMap64(ffzNodeTagDecl*) tag_decl_lists; // key: str_hash64(tag, 0)
+	//fMap64(ffzNodeTagDecl*) tag_decl_lists; // key: str_hash64(tag, 0)
 
 	bool stop_at_curly_brackets;
-	ffzLoc pos;
+	//ffzLoc pos;
 
 	void(*report_error)(ffzParser* parser, ffzLocRange at, fString error);
 };
@@ -383,7 +325,7 @@ struct ffzParser {
 #define FFZ_AS(node,kind) ((ffzNode##kind*)node)
 #define FFZ_BASE(node) ((ffzNode*)node)
 
-#define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? FFZ_BASE(parent)->children.first : NULL; n = ffz_skip_tag_decls(n); n = n->next)
+#define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? FFZ_BASE(parent)->children.first : NULL; n = ffz_skip_standalone_tags(n); n = n->next)
 
 #ifdef __cplusplus
 #define FFZ_STRUCT_INIT(type) type
@@ -400,14 +342,13 @@ inline ffzLocRange ffz_loc_range_union(ffzLocRange a, ffzLocRange b) {
 
 inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
 
-inline bool ffz_op_is_pre_unary(ffzOperatorKind kind) { return kind >= ffzOperatorKind_UnaryMinus && kind <= ffzOperatorKind_LogicalNOT; }
-inline bool ffz_op_is_post_unary(ffzOperatorKind kind) { return kind == ffzOperatorKind_Dereference; }
-inline bool ffz_op_is_comparison(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Equal && kind <= ffzOperatorKind_GreaterOrEqual; }
-//inline bool ffz_op_is_shift(ffzOperatorKind kind) { return kind == ffzOperatorKind_ShiftL || kind == ffzOperatorKind_ShiftR; }
-inline bool ffz_op_is_arithmetic(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Add && kind <= ffzOperatorKind_Modulo; }
+inline bool ffz_operator_is_prefix(ffzOperatorKind kind) { return kind >= ffzOperatorKind_PreSquareBrackets && kind <= ffzOperatorKind_LogicalNOT; }
+inline bool ffz_operator_is_postfix(ffzOperatorKind kind) { return kind >= ffzOperatorKind_PostSquareBrackets && kind <= ffzOperatorKind_Dereference; }
+inline bool ffz_operator_is_comparison(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Equal && kind <= ffzOperatorKind_GreaterOrEqual; }
+//inline bool ffz_operator_is_arithmetic(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Add && kind <= ffzOperatorKind_Modulo; }
 
-fOpt(ffzNodeTag*) ffz_node_get_compiler_tag(ffzNode* node, fString tag);
-fOpt(ffzNodeTag*) ffz_node_get_user_tag(ffzNode* node, fString tag);
+//fOpt(ffzNode*) ffz_get_compiler_tag_by_name(ffzNode* node, fString tag);
+//fOpt(ffzNode*) ffz_get_user_tag_by_name(ffzNode* node, fString tag);
 
 //u32 ffz_poly_parameter_get_index(ffzNode* node);
 //u32 ffz_parameter_get_index(ffzNode* node);
@@ -423,13 +364,17 @@ ffzNode* ffz_get_child(ffzNode* parent, u32 idx);
 u32 ffz_get_child_count(fOpt(ffzNode*) parent); // returns 0 if parent is NULL
 
 //ffzToken ffz_token_from_node(ffzParser* parser, ffzNode* node);
+u32 ffz_operator_get_precedence(ffzOperatorKind kind);
+
+fString ffz_keyword_to_string(ffzKeyword keyword);
+char* ffz_keyword_to_cstring(ffzKeyword keyword);
 
 fString ffz_node_kind_to_string(ffzNodeKind kind);
-const char* ffz_node_kind_to_cstring(ffzNodeKind kind);
+char* ffz_node_kind_to_cstring(ffzNodeKind kind);
 
 ffzOk ffz_parse(ffzParser* p);
 
-fOpt(ffzNode*) ffz_skip_tag_decls(fOpt(ffzNode*) node);
+fOpt(ffzNode*) ffz_skip_standalone_tags(fOpt(ffzNode*) node);
 
 fString ffz_print_ast(fAllocator* alc, ffzNode* node);
 

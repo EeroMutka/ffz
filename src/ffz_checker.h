@@ -126,8 +126,8 @@ typedef enum ffzTypeTag {
 FFZ_DECLARE_NODE_INST_TYPE(ffzNode);
 FFZ_DECLARE_NODE_INST_TYPE(ffzNodeDeclaration);
 FFZ_DECLARE_NODE_INST_TYPE(ffzNodeAssignment);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeTag);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeTagDecl);
+//FFZ_DECLARE_NODE_INST_TYPE(ffzNodeTag);
+//FFZ_DECLARE_NODE_INST_TYPE(ffzNodeTagDecl);
 FFZ_DECLARE_NODE_INST_TYPE(ffzNodeIdentifier);
 FFZ_DECLARE_NODE_INST_TYPE(ffzNodeDot);
 FFZ_DECLARE_NODE_INST_TYPE(ffzNodePolyParamList);
@@ -244,7 +244,6 @@ typedef struct ffzType {
 	};
 } ffzType;
 
-
 typedef struct ffzProject {
 	fAllocator* persistent_allocator;
 	fString module_name;
@@ -256,6 +255,8 @@ typedef struct ffzProject {
 	fArray(ffzParser*) parsers_dependency_sorted; // key: ffzParserIndex // dependency sorted from leaf modules towards higher-level modules	
 
 	u32 pointer_size;
+
+	KeywordFromStringMap keyword_from_string;
 } ffzProject;
 
 typedef struct ffzConstant {
@@ -345,7 +346,7 @@ struct ffzChecker {
 
 #define FFZ_EACH_CHILD_INST(n, parent) (\
 	ffzNodeInst n = {(parent.node) ? FFZ_BASE((parent).node)->children.first : NULL, (parent).polymorph};\
-	n.node = ffz_skip_tag_decls(n.node);\
+	n.node = ffz_skip_standalone_tags(n.node);\
 	n.node = n.node->next)
 
 #define FFZ_INST_CHILD(T, parent, child_access) T { (parent).node->child_access, (parent).poly_inst }
