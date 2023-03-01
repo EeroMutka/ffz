@@ -2045,135 +2045,135 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		F_BP; // directory doesn't exist!
 	}
 
-		fSlice(ffzParser*) parsers_dependency_sorted = f_make_slice_garbage<ffzParser*>(visit.files.len, temp);
-		for (uint i = 0; i < visit.files.len; i++) {
-			ffzParser* parser = f_mem_clone(ffzParser{}, temp);
-			parsers_dependency_sorted[i] = parser;
+	fSlice(ffzParser*) parsers_dependency_sorted = f_make_slice_garbage<ffzParser*>(visit.files.len, temp);
+	for (uint i = 0; i < visit.files.len; i++) {
+		ffzParser* parser = f_mem_clone(ffzParser{}, temp);
+		parsers_dependency_sorted[i] = parser;
 
-			fString file_contents;
-			F_ASSERT(f_files_read_whole(visit.files[i], temp, &file_contents));
+		fString file_contents;
+		F_ASSERT(f_files_read_whole(visit.files[i], temp, &file_contents));
 
-			parser->project = project;
-			parser->id = (ffzParserID)f_array_push(&project->parsers_dependency_sorted, parser);
+		parser->project = project;
+		parser->id = (ffzParserID)f_array_push(&project->parsers_dependency_sorted, parser);
 
-			parser->alc = temp;
-			parser->checker = checker;
-			parser->source_code = file_contents;
-			parser->source_code_filepath = visit.files[i];
-			parser->keyword_from_string = &project->keyword_from_string;
-			parser->report_error = [](ffzParser* parser, ffzLocRange at, fString error) {
-				ffz_log_pretty_error(parser, F_LIT("Syntax error "), at, error, true);
-				F_BP;
-			};
+		parser->alc = temp;
+		parser->checker = checker;
+		parser->source_code = file_contents;
+		parser->source_code_filepath = visit.files[i];
+		parser->keyword_from_string = &project->keyword_from_string;
+		parser->report_error = [](ffzParser* parser, ffzLocRange at, fString error) {
+			ffz_log_pretty_error(parser, F_LIT("Syntax error "), at, error, true);
+			F_BP;
+		};
 
 			
-			parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
-			//parser->tag_decl_lists = f_map64_make<ffzNodeTagDecl*>(parser->alc);
+		parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
+		//parser->tag_decl_lists = f_map64_make<ffzNodeTagDecl*>(parser->alc);
 
-			ffzOk ok = ffz_parse(parser);
-			if (!ok.ok) return false;
+		ffzOk ok = ffz_parse(parser);
+		if (!ok.ok) return false;
 
-			/*{ // add linker inputs
-				{
-					//f_map64_get(
-					auto foo = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_library"), 0));
-					ffzNodeTagDecl** first_linker_input = foo;
-					for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
-						F_ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
-						fString input = f_files_path_to_absolute(directory, FFZ_AS(n->rhs, StringLiteral)->zero_terminated_string, parser->alc);
-						f_array_push(&project->linker_inputs, input);
-					}
+		/*{ // add linker inputs
+			{
+				//f_map64_get(
+				auto foo = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_library"), 0));
+				ffzNodeTagDecl** first_linker_input = foo;
+				for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
+					F_ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
+					fString input = f_files_path_to_absolute(directory, FFZ_AS(n->rhs, StringLiteral)->zero_terminated_string, parser->alc);
+					f_array_push(&project->linker_inputs, input);
 				}
-				{
-					ffzNodeTagDecl** first_linker_input = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_system_library"), 0));
-					for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
-						F_ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
-						f_array_push(&project->linker_inputs, FFZ_AS(n->rhs, StringLiteral)->zero_terminated_string);
-					}
-				}
-			}*/
-
-			if (true) {
-				f_os_print(F_LIT("PRINTING AST: ======================================================\n"));
-				fArray(u8) builder = f_array_make_cap<u8>(64, temp);
-				for (ffzNode* n = parser->root->first_child; n; n = n->next) {
-					f_str_print_il(&builder, { ffz_print_ast(temp, n), F_LIT("\n") });
-				}
-				f_os_print(builder.slice);
-				f_os_print(F_LIT("====================================================================\n\n"));
-				int a = 250;
 			}
-			F_BP;
+			{
+				ffzNodeTagDecl** first_linker_input = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_system_library"), 0));
+				for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
+					F_ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
+					f_array_push(&project->linker_inputs, FFZ_AS(n->rhs, StringLiteral)->zero_terminated_string);
+				}
+			}
+		}*/
 
-			for (uint i = 0; i < parser->module_imports.len; i++) {
-				ffzNodeKeyword* import_keyword = parser->module_imports[i];
+		if (true) {
+			f_os_print(F_LIT("PRINTING AST: ======================================================\n"));
+			fArray(u8) builder = f_array_make_cap<u8>(64, temp);
+			for (ffzNode* n = parser->root->first_child; n; n = n->next) {
+				f_str_print_il(&builder, { ffz_print_ast(temp, n), F_LIT("\n") });
+			}
+			f_os_print(builder.slice);
+			f_os_print(F_LIT("====================================================================\n\n"));
+			int a = 250;
+		}
+		F_BP;
+
+		for (uint i = 0; i < parser->module_imports.len; i++) {
+			ffzNodeKeyword* import_keyword = parser->module_imports[i];
 				
-				ffzNodeOp* import_op = import_keyword->parent;
-				F_ASSERT(import_op && import_op->kind == ffzNodeKind_PostRoundBrackets && ffz_get_child_count(import_op) == 1);
+			ffzNodeOp* import_op = import_keyword->parent;
+			F_ASSERT(import_op && import_op->kind == ffzNodeKind_PostRoundBrackets && ffz_get_child_count(import_op) == 1);
 
-				ffzNode* import_name_node = ffz_get_child(import_op, 0);
-				F_ASSERT(import_name_node->kind == ffzNodeKind_StringLiteral);
-				fString import_name = import_name_node->StringLiteral.zero_terminated_string;
+			ffzNode* import_name_node = ffz_get_child(import_op, 0);
+			F_ASSERT(import_name_node->kind == ffzNodeKind_StringLiteral);
+			fString import_name = import_name_node->StringLiteral.zero_terminated_string;
 
-				if (f_files_path_is_absolute(import_name)) F_BP;
-				//BP;
-				//String name = n->Statement.lhs_expression->Identifier.name;
-				fString child_directory = f_files_path_to_absolute(directory, import_name, temp);
+			if (f_files_path_is_absolute(import_name)) F_BP;
+			//BP;
+			//String name = n->Statement.lhs_expression->Identifier.name;
+			fString child_directory = f_files_path_to_absolute(directory, import_name, temp);
 
-				// Compile the imported module.
+			// Compile the imported module.
 
-				ffzChecker* child_checker = NULL;
-				bool ok = _parse_and_check_directory(project, child_directory, &child_checker, f_str_path_tail(child_directory));
-				if (!ok) return false;
+			ffzChecker* child_checker = NULL;
+			bool ok = _parse_and_check_directory(project, child_directory, &child_checker, f_str_path_tail(child_directory));
+			if (!ok) return false;
 
-				f_map64_insert(&checker->imported_modules, import_op->id.global_id, child_checker);
-			}
-
-			//if (parser->module_imports) {
-			//	if (parser->module_imports->kind != ffzNodeKind_Scope) BP;
-			//
-			//	for FFZ_EACH_NODE(n, parser->module_imports->Scope.nodes) {
-			//		if (n->kind != ffzNodeKind_Statement) BP;
-			//		if (!stmt_is_constant_decl(n)) BP;
-			//	}
-			//}
+			f_map64_insert(&checker->imported_modules, import_op->id.global_id, child_checker);
 		}
 
-		// checker stage
-		{
-			//ffzCheckerStackFrame root_frame = {};
-			//ffzCheckerScope root_scope = {};
-			//checker->current_scope = &root_scope;
-			//array_push(&checker->stack, &root_frame);
+		//if (parser->module_imports) {
+		//	if (parser->module_imports->kind != ffzNodeKind_Scope) BP;
+		//
+		//	for FFZ_EACH_NODE(n, parser->module_imports->Scope.nodes) {
+		//		if (n->kind != ffzNodeKind_Statement) BP;
+		//		if (!stmt_is_constant_decl(n)) BP;
+		//	}
+		//}
+	}
 
-			// We need to first add top-level declarations from all files before proceeding  :EarlyTopLevelDeclarations
-			for (uint i = 0; i < parsers_dependency_sorted.len; i++) {
-				ffzParser* parser = parsers_dependency_sorted[i];
-				//root_scope.parser = parser;
-				//checker->report_error_userptr = parser;
+	// checker stage
+	{
+		//ffzCheckerStackFrame root_frame = {};
+		//ffzCheckerScope root_scope = {};
+		//checker->current_scope = &root_scope;
+		//array_push(&checker->stack, &root_frame);
 
-				//ffzNodeInst root = ffz_get_toplevel_inst(checker, );
-				if (!ffz_instanceless_check(checker, parser->root, false).ok) {
+		// We need to first add top-level declarations from all files before proceeding  :EarlyTopLevelDeclarations
+		for (uint i = 0; i < parsers_dependency_sorted.len; i++) {
+			ffzParser* parser = parsers_dependency_sorted[i];
+			//root_scope.parser = parser;
+			//checker->report_error_userptr = parser;
+
+			//ffzNodeInst root = ffz_get_toplevel_inst(checker, );
+			if (!ffz_instanceless_check(checker, parser->root, false).ok) {
+				return false;
+			}
+		}
+
+		for (uint i = 0; i < parsers_dependency_sorted.len; i++) {
+			ffzParser* parser = parsers_dependency_sorted[i];
+			//root_scope.parser = parser;
+			//checker->report_error_userptr = parser;
+
+			// Note that the root node of a parser should not introduce a new scope. Instead, the root-scope should be the module scope.
+			for FFZ_EACH_CHILD(n, parser->root) {
+				if (!ffz_check_toplevel_statement(checker, n).ok) {
 					return false;
 				}
 			}
-
-			for (uint i = 0; i < parsers_dependency_sorted.len; i++) {
-				ffzParser* parser = parsers_dependency_sorted[i];
-				//root_scope.parser = parser;
-				//checker->report_error_userptr = parser;
-
-				// Note that the root node of a parser should not introduce a new scope. Instead, the root-scope should be the module scope.
-				for FFZ_EACH_CHILD(n, parser->root) {
-					if (!ffz_check_toplevel_statement(checker, n).ok) {
-						return false;
-					}
-				}
-			}
-			//array_pop(&checker->stack);
 		}
+		//array_pop(&checker->stack);
+	}
 
-		return true;
+	return true;
 }
 
 bool ffz_parse_and_check_directory(ffzProject* p, fString directory) {

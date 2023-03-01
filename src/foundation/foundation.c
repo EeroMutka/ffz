@@ -1674,7 +1674,7 @@ bool f_str_to_u64(fString s, uint base, u64* out_value) {
 		}
 		else return false;
 
-		if (digit > base) return false;
+		if (digit >= base) return false;
 
 		if (f_does_mul_overflow(value, base)) return false;
 		value *= base;

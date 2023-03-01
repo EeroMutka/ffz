@@ -1,2 +1,21 @@
 
-main: hello + 2
+#test: proc(a: int) => int {
+}
+
+\hello
+\testing{}
+
+@howdy(1 + 2)
+\Sailor{a}
+
+
+/*
+asd
+*/
+
+@doc{name: string}
+#main: proc (a: int) => int {
+	a: 5
+}
+
+5 + 5

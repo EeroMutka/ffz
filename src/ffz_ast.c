@@ -182,10 +182,6 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 		//str_print(builder, str_from_uint(AS_BYTES(node->start_pos.line_number), temp));
 		f_str_print(builder, F_LIT(">"));
 	}
-	
-	if (node->flags & ffzNodeFlag_IsStandaloneTag) {
-		f_str_print(builder, F_LIT("\\"));
-	}
 
 	for (ffzNode* tag = node->first_tag; tag; tag = tag->next) {
 		f_str_print(builder, F_LIT("@"));
@@ -193,19 +189,11 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 		f_str_print(builder, F_LIT(" "));
 	}
 
+	if (node->flags & ffzNodeFlag_IsStandaloneTag) {
+		f_str_print(builder, F_LIT("\\"));
+	}
+
 	switch (node->kind) {
-	//case ffzNodeKind_Declare: {
-	//	
-	//	_print_ast(builder, node.Targeted)->lhs, tab_level);
-	//	f_str_print(builder, F_LIT(": "));
-	//	_print_ast(builder, AS(node,Targeted)->rhs, tab_level);
-	//} break;
-	//
-	//case ffzNodeKind_Assignment: {
-	//	_print_ast(builder, AS(node, Targeted)->lhs, tab_level);
-	//	f_str_print(builder, F_LIT("= "));
-	//	_print_ast(builder, AS(node, Targeted)->rhs, tab_level);
-	//} break;
 
 	case ffzNodeKind_Keyword: {
 		f_str_print(builder, ffzKeyword_to_string[node->Keyword.keyword]);
@@ -222,7 +210,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_PostRoundBrackets: // fallthrough
 	case ffzNodeKind_PostSquareBrackets: // fallthrough
 	case ffzNodeKind_PostCurlyBrackets: {
-		f_str_print_rune(builder, '(');
+		//f_str_print_rune(builder, '(');
 		_print_ast(builder, node->Op.left, tab_level);
 
 		u8 open_char = ffz_get_bracket_op_open_char(node->kind);
@@ -248,7 +236,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 			}
 		}
 		f_str_print_rune(builder, close_char);
-		f_str_print_rune(builder, ')');
+		//f_str_print_rune(builder, ')');
 	} break;
 
 	case ffzNodeKind_PreSquareBrackets: {
@@ -266,18 +254,18 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_AddressOf: // fallthrough
 	case ffzNodeKind_PointerTo: // fallthrough
 	case ffzNodeKind_LogicalNOT: {
-		f_str_print_rune(builder,'(');
+		//f_str_print_rune(builder,'(');
 		f_str_print(builder, ffzNodeKind_to_string[node->kind]);
 		_print_ast(builder, node->Op.right, tab_level);
-		f_str_print_rune(builder,')');
+		//f_str_print_rune(builder,')');
 	} break;
 
 	// postfix operator
 	case ffzNodeKind_Dereference: {
-		f_str_print_rune(builder,'(');
+		//f_str_print_rune(builder,'(');
 		_print_ast(builder, node->Op.left, tab_level);
 		f_str_print(builder, ffzNodeKind_to_string[node->kind]);
-		f_str_print_rune(builder,')');
+		//f_str_print_rune(builder,')');
 	} break;
 	
 	case ffzNodeKind_Identifier: {
@@ -427,7 +415,8 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 
 	default: {
 		if (ffz_node_is_operator(node->kind)) {
-			f_str_print(builder, F_LIT("("));
+			bool print_parentheses = node->kind != ffzNodeKind_Assign && node->kind != ffzNodeKind_Declare;
+			if (print_parentheses) f_str_print(builder, F_LIT("("));
 			_print_ast(builder, node->Op.left, tab_level);
 
 			f_str_print(builder, F_LIT(" "));
@@ -435,7 +424,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 			f_str_print(builder, F_LIT(" "));
 
 			_print_ast(builder, node->Op.right, tab_level);
-			f_str_print(builder, F_LIT(")"));
+			if (print_parentheses) f_str_print(builder, F_LIT(")"));
 		}
 		else F_BP;
 	} break;
@@ -457,15 +446,19 @@ fString ffz_print_ast(fAllocator* alc, ffzNode* node) {
 
 typedef struct ParserState {
 	ffzParser* parser;
-	ffzNode* pending_tag;
+	//ffzNode* pending_tag;
 	ffzLoc loc;
 } ParserState;
 
 typedef enum ParseFlags {
-	ParseFlag_NewlineIsWhitespace = 1 << 0,
+	ParseFlag_SkipNewlines = 1 << 0,
+	
+	// This is to resolve an ambiguity, i.e.
+	// if Vector3{1, 2, 3}.x > 0 {...}   or   proc(a: int) => Vector3 {...}
+	ParseFlag_NoPostCurlyBrackets = 1 << 1,
 } ParseFlags;
 
-static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out);
+static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, ffzNode** out);
 
 // https://justine.lol/endian.html
 #define READ32BE(p) (u32)(255 & p[0]) << 24 | (255 & p[1]) << 16 | (255 & p[2]) << 8 | (255 & p[3])
@@ -497,7 +490,7 @@ static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
 		else if (IS_WHITESPACE(r)) {
 			type = CharType_Whitespace;
 		}
-		else if (r == '\n' && (flags & ParseFlag_NewlineIsWhitespace)) {
+		else if (r == '\n' && (flags & ParseFlag_SkipNewlines)) {
 			type = CharType_Whitespace;
 		}
 		
@@ -508,14 +501,36 @@ static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
 			// Or maybe this checking should be done outside of this function?
 			bool join_symbol = false;
 			if (prev_r == '|' && r == '|') join_symbol = true;
-			if (prev_r == '&' && r == '&') join_symbol = true;
-			if (prev_r == '=' && (r == '=' || r == '>')) join_symbol = true; // =>, ==
-			if (prev_r == '<') join_symbol = true; // <<, <=
-			if (prev_r == '>') join_symbol = true; // >>, >=
-			if (prev_r == '!' && r == '=') join_symbol = true; // != should join, but e.g. !! and !~ shouldn't join
-			if (prev_r == '*' && r == '/') join_symbol = true; // join comment block enders
-
-			// We should skip the comments here and insert them to the tree
+			else if (prev_r == '&' && r == '&') join_symbol = true;
+			else if (prev_r == '=' && (r == '=' || r == '>')) join_symbol = true; // =>, ==
+			else if (prev_r == '<') join_symbol = true; // <<, <=
+			else if (prev_r == '>') join_symbol = true; // >>, >=
+			else if (prev_r == '!' && r == '=') join_symbol = true; // != should join, but e.g. !! and !~ shouldn't join
+			else if (prev_r == '*' && r == '/') join_symbol = true; // join comment block enders
+			
+			// Skip comments
+			if (prev_r == '/' && r == '*') {
+				state->loc.offset = (u32)next;
+				state->loc.column_num += 1;
+				for (;;) {
+					Token _tok = maybe_eat_next_token(state, ParseFlag_SkipNewlines);
+					if (_tok.small == '/*' || !_tok.small) break; // :NoteAboutSeqLiterals
+				}
+				tok_start = state->loc;
+				prev_type = CharType_Whitespace;
+				continue;
+			}
+			else if (prev_r == '/' && r == '/') {
+				state->loc.offset = (u32)next;
+				state->loc.column_num += 1;
+				for (;;) {
+					Token _tok = maybe_eat_next_token(state, (ParseFlags)0);
+					if (_tok.small == '\n' || !_tok.small) break;
+				}
+				tok_start = state->loc;
+				prev_type = CharType_Whitespace;
+				continue;
+			}
 
 			if (!join_symbol) {
 				break;
@@ -553,7 +568,7 @@ static ffzOk eat_next_token(ParserState* state, ParseFlags flags, const char* ta
 }
 
 static ffzOk eat_expected_token(ParserState* state, fString expected) {
-	Token tok = maybe_eat_next_token(state, ParseFlag_NewlineIsWhitespace);
+	Token tok = maybe_eat_next_token(state, ParseFlag_SkipNewlines);
 	if (!f_str_equals(tok.str, expected)) ERR(state, tok.range, "Expected \"%.*s\"; got \"%.*s\"", F_STRF(expected), F_STRF(tok.str));
 	return FFZ_OK;
 }
@@ -576,8 +591,6 @@ static ffzOk eat_expected_token(ParserState* state, fString expected) {
 //	return maybe_eat_next_token(p, &pos, ignore_newlines, out);
 //}
 
-#define NEW_NODE(kind, state, parent, range) new_node((state), (parent), (range), ffzNodeKind_##kind)
-
 static void* new_node(ParserState* state, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
 	ffzNode* node = f_mem_clone(ffzNode, (ffzNode){0}, state->parser->alc);
 	//if (node == (void*)0x0000020000001a80) F_BP;
@@ -596,11 +609,10 @@ static ffzOk parse_children(ParserState* state, ffzNode* parent, u8 bracket_clos
 
 	for (u32 i = 0;; i++) {
 		ParserState new_state = *state;
-		Token tok = maybe_eat_next_token(&new_state, ParseFlag_NewlineIsWhitespace);
+		Token tok = maybe_eat_next_token(&new_state, ParseFlag_SkipNewlines);
 
 		if (tok.small == bracket_close_char) {
 			*state = new_state;
-			//parent->loc.end = tok.end;
 			break;
 		}
 		
@@ -619,53 +631,23 @@ static ffzOk parse_children(ParserState* state, ffzNode* parent, u8 bracket_clos
 		ffzNode* n;
 		if ((tok.small == bracket_close_char && was_comma) || tok.small == ',') {
 			// Node lists can have blank nodes, i.e.  {,1,,5,2,,1,}
-			n = NEW_NODE(Blank, state, parent, tok.range);
+			n = new_node(state, parent, tok.range, ffzNodeKind_Blank);
 		}
 		else {
-			TRY(parse_node(state, parent, &n));
+			TRY(parse_node(state, parent, (ParseFlags)0, &n));
 		}
 
 		if (prev) prev->next = n;
 		else parent->first_child = n;
 		prev = n;
 	}
+	parent->loc.end = state->loc;
 	return FFZ_OK;
 }
 
 static bool is_alnum_or_underscore(u8 c) {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c > 127;
 }
-
-/*static ffzOk parse_possible_tags(ffzParser* p, OPT(ffzNode*)* out_first_tag) {
-	ffzNode* first = NULL;
-	ffzNode* prev = NULL;
-	for (;;) {
-		Token tok;
-		TRY(maybe_peek_next_token(p, p->pos, true, &tok));
-		if (tok.str.len == 0 || !f_str_equals(tok.str, F_LIT("@"))) break;
-
-		p->pos = tok.end;
-			
-		// NOTE: the parent is assigned later in assign_possible_tags_to_node
-		ffzNode* tag;
-		TRY(parse_value(p, NULL, &tag));
-				
-		if (!first) first = tag;
-		if (prev) prev->next = tag;
-		prev = tag;
-	}
-	*out_first_tag = first;
-	return ffz_ok;
-}*/
-
-// Normally, we want to parse the tags before parsing and making the node they will be attached to.
-// This procedure allows us to set the tags after the fact.
-/*static void assign_possible_tags_to_node(ffzNode* node, OPT(ffzNode*) first_tag) {
-	node->first_tag = first_tag;
-	for (ffzNode* tag = first_tag; tag; tag = tag->next) {
-		tag->parent = node;
-	}
-}*/
 
 static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	// Find the operator with the lowest precedence (pick the right-most
@@ -735,8 +717,72 @@ static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	return root;
 }
 
-static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
+static ffzOk parse_proc_type(ParserState* state, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
+	ffzNodeProcType* node = new_node(state, parent, range, ffzNodeKind_ProcType);
+	//TRY(maybe_parse_polymorphic_parameter_list(p, node, &_proc->polymorphic_parameters));
+
+	ParserState new_state = *state;
+	Token tok = maybe_eat_next_token(&new_state, (ParseFlags)0);
+
+	if (tok.small == '(') {
+		*state = new_state;
+		TRY(parse_children(state, node, ')'));
+		new_state = *state;
+		tok = maybe_eat_next_token(&new_state, (ParseFlags)0);
+	}
+
+	if (tok.small == '>=') { // :NoteAboutSeqLiterals
+		*state = new_state;
+		TRY(parse_node(state, node, ParseFlag_NoPostCurlyBrackets, &node->ProcType.out_parameter));
+	}
+
+	node->loc.end = state->loc;
+	*out = node;
+	return FFZ_OK;
+}
+
+static void assign_possible_tags(ffzNode* node, OPT(ffzNode*) first_tag) {
+	node->first_tag = first_tag;
+	for (ffzNode* tag = first_tag; tag; tag = tag->next) {
+		tag->parent = node;
+	}
+}
+
+static ffzOk parse_possible_tags(ParserState* state, OPT(ffzNode*)* out_first_tag) {
+	ffzNode* first = NULL;
+	ffzNode* prev = NULL;
+	for (;;) {
+		ParserState new_state = *state;
+		Token tok = maybe_eat_next_token(&new_state, ParseFlag_SkipNewlines);
+		if (tok.small != '@') break;
+
+		ffzNode* tag;
+		*state = new_state;
+		TRY(parse_node(state, NULL, (ParseFlags)0, &tag)); // NOTE: the parent is assigned later in assign_possible_tag
+
+		if (!first) first = tag;
+		if (prev) prev->next = tag;
+		prev = tag;
+	}
+	*out_first_tag = first;
+	return FFZ_OK;
+}
+
+static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, ffzNode** out) {
 	fArray(ffzNodeOp*) operator_chain = f_array_make_raw(state->parser->alc);
+
+	OPT(ffzNode*) first_tag;
+	TRY(parse_possible_tags(state, &first_tag));
+
+	bool standalone_tag = false;
+	{
+		ParserState new_state = *state;
+		Token tok = maybe_eat_next_token(&new_state, ParseFlag_SkipNewlines);
+		if (tok.small == '\\') {
+			*state = new_state;
+			standalone_tag = true;
+		}
+	}
 
 	// Start by parsing the operator chain
 
@@ -746,41 +792,41 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 		ffzNode* node = NULL;
 		
 		ParserState state_before = *state;
-		Token tok = maybe_eat_next_token(state, ParseFlag_NewlineIsWhitespace);
+		Token tok = maybe_eat_next_token(state, ParseFlag_SkipNewlines);
 		if (!prev && tok.str.len == 0) {
 			ERR(state, ffz_loc_to_range(state->loc), "File ended unexpectedly.", "");
 		}
 		
 		if ((tok.small & 0xff) >= '0' && (tok.small & 0xff) <= '9') {
 			u8 base = 10;
+			const char* base_name = "numeric";
 			if ((tok.small & 0xffff) == 'x0') { // :NoteAboutSeqLiterals
 				base = 16;
+				base_name = "hex";
 				f_str_advance(&tok.str, 2);
 			}
 			else if ((tok.small & 0xffff) == 'b0') { // :NoteAboutSeqLiterals
 				base = 2;
+				base_name = "binary";
 				f_str_advance(&tok.str, 2);
 			}
 
 			u64 numeric;
 			if (!f_str_to_u64(tok.str, base, &numeric)) {
-				ERR(state, tok.range, "Failed parsing numeric literal.", "");
+				ERR(state, tok.range, "Invalid %s literal.", base_name);
 			}
 
-			node = NEW_NODE(IntLiteral, state, parent, tok.range);
+			node = new_node(state, parent, tok.range, ffzNodeKind_IntLiteral);
 			node->IntLiteral.value = numeric;
 			node->IntLiteral.was_encoded_in_base = base;
 		}
-
-		if (tok.small == '(') { // parenthesized node
-			TRY(parse_node(state, parent, &node));
-			TRY(eat_expected_token(state, F_LIT(")")));
+		else if (f_str_equals(tok.str, F_LIT("proc"))) {
+			TRY(parse_proc_type(state, parent, tok.range, &node));
 		}
-
-		if (!node && (is_alnum_or_underscore((u8)tok.small) || tok.small == '#' || tok.small == '?')) {
+		else if (is_alnum_or_underscore((u8)tok.small) || tok.small == '#' || tok.small == '?') {
 			ffzKeyword* keyword = f_map64_get_raw(state->parser->keyword_from_string, f_hash64_str(tok.str));
 			if (keyword) {
-				node = NEW_NODE(Keyword, state, parent, tok.range);
+				node = new_node(state, parent, tok.range, ffzNodeKind_Keyword);
 				node->Keyword.keyword = *keyword;
 
 				if (*keyword == ffzKeyword_import) {
@@ -789,7 +835,7 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 			}
 			else {
 				// identifier!
-				node = NEW_NODE(Identifier, state, parent, tok.range);
+				node = new_node(state, parent, tok.range, ffzNodeKind_Identifier);
 				if (tok.small == '#') {
 					node->Identifier.is_constant = true;
 					TRY(eat_next_token(state, true, "parsing an identifier", &tok));
@@ -801,6 +847,16 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 				node->Identifier.name = tok.str;
 			}
 		}
+		
+		//else if (f_str_equals(tok.str, F_LIT("enum"))) {
+		//	TRY(parse_enum(p, parent, tok.range, (ffzNodeEnum**)&result));
+		//}
+		//else if (f_str_equals(tok.str, F_LIT("struct"))) {
+		//	TRY(parse_struct(p, parent, tok.range, false, (ffzNodeRecord**)&result));
+		//}
+		//else if (f_str_equals(tok.str, F_LIT("union"))) {
+		//	TRY(parse_struct(p, parent, tok.range, true, (ffzNodeRecord**)&result));
+		//}
 
 		bool is_prefix_or_postfix = false;
 
@@ -835,6 +891,22 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 					op_kind = ffzNodeKind_PostRoundBrackets;
 					is_prefix_or_postfix = true;
 				}
+				else { // parenthesized expression - not an operator
+					TRY(parse_node(state, parent, (ParseFlags)0, &node));
+					TRY(eat_expected_token(state, F_LIT(")")));
+				}
+			} break;
+			case '{': {
+				if (check_infix_or_postfix) {
+					if (!(flags & ParseFlag_NoPostCurlyBrackets)) {
+						op_kind = ffzNodeKind_PostCurlyBrackets;
+						is_prefix_or_postfix = true;
+					}
+				}
+				else { // scope - not an operator
+					node = new_node(state, parent, tok.range, ffzNodeKind_Scope);
+					TRY(parse_children(state, node, '}'));
+				}
 			} break;
 			case '[': {
 				is_prefix_or_postfix = true;
@@ -859,6 +931,7 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 			if (op_kind) {
 				node = new_node(state, parent, tok.range, op_kind);
 				if (check_infix_or_postfix) node->Op.left = prev;
+				
 				f_array_push(ffzNodeOp*, &operator_chain, node);
 
 				u8 bracket_op_close_char = ffz_get_bracket_op_close_char(op_kind);
@@ -894,9 +967,13 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 		node = (ffzNode*)merge_operator_chain(operator_chain.slice);
 	}
 
+	if (first_tag) assign_possible_tags(node, first_tag);
+	if (standalone_tag) node->flags |= ffzNodeFlag_IsStandaloneTag;
+
 	*out = node;
 	return FFZ_OK;
 }
+
 
 #if 0
 static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_at_curly_brackets) {
@@ -1048,37 +1125,6 @@ static ffzOk parse_struct(ffzParser* p, ffzNode* parent, ffzLocRange range, bool
 
 	node->is_union = is_union;
 	*out = node;
-	return ffz_ok;
-}
-
-
-static ffzOk parse_proc_type(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
-	ffzNodeProcType* _proc = NEW_NODE(ProcType, p, parent, range);
-	TRY(maybe_parse_polymorphic_parameter_list(p, (ffzNode*)_proc, &_proc->polymorphic_parameters));
-
-	Token tok;
-	TRY(peek_next_token(p, p->pos, true, "parsing a procedure", &tok));
-
-	//if (str_equals(tok.str, F_LIT("["))) {
-	//	BP;//p->pos = tok.end;
-	//	//TRY(parse_node_list(p, (ffzNode*)proc, ']', &proc->ProcType.polymorphic_parameters));
-	//	//TRY(maybe_peek_next_token(p, p->pos, true, &tok));
-	//}
-
-	if (f_str_equals(tok.str, F_LIT("("))) {
-		p->pos = tok.end;
-		TRY(parse_node_list(p, (ffzNode*)_proc, ')'));
-		TRY(maybe_peek_next_token(p, p->pos, true, &tok));
-	}
-
-	if (f_str_equals(tok.str, F_LIT("=>"))) {
-		p->pos = tok.end;
-		TRY(eat_expected_token(p, F_LIT("(")));
-		TRY(parse_node(p, (ffzNode*)_proc, &_proc->out_parameter, false));
-		TRY(eat_expected_token(p, F_LIT(")")));
-	}
-	_proc->loc.end = p->pos;
-	*out = _proc;
 	return ffz_ok;
 }
 
@@ -1474,7 +1520,7 @@ ffzOk ffz_parse(ffzParser* p) {
 	state.parser = p;
 	state.loc.line_num = 1;
 	state.loc.column_num = 1;
-	p->root = NEW_NODE(Scope, &state, NULL, (ffzLocRange){0});
+	p->root = new_node(&state, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
 
 	TRY(parse_children(&state, (ffzNode*)p->root, 0));
 	//ffzNode* n;
