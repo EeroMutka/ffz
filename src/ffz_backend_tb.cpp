@@ -254,7 +254,7 @@ TB_DebugType* get_tb_debug_type(Gen* g, ffzType* type) {
 
 #define FIX_TB_BIG_RETURN_HACK 1
 
-static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
+static TB_Function* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	auto insertion = f_map64_insert(&g->func_from_hash, ffz_hash_node_inst(IBASE(inst)), (TB_Function*)0, fMapInsert_DoNotOverride);
 	if (!insertion.added) return *insertion._unstable_ptr;
 
@@ -368,7 +368,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	return func;
 }
 
-static SmallOrPtr gen_call(Gen* g, ffzNodeOperatorInst inst) {
+static SmallOrPtr gen_call(Gen* g, ffzNodeOpInst inst) {
 	ffzNodeInst left = ICHILD(inst,left);
 	ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 	F_ASSERT(left_chk.type->tag == ffzTypeTag_Proc);
@@ -614,18 +614,18 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	} break;
 	case ffzNodeKind_Operator: {
 //		F_HITS(__c, 12);
-		ffzNodeOperatorInst derived = IAS(inst,Operator);
+		ffzNodeOpInst derived = IAS(inst,Operator);
 		ffzNodeInst left = ICHILD(derived,left);
 		ffzNodeInst right = ICHILD(derived,right);
 
 		switch (derived.node->op_kind) {
 
-		case ffzOperatorKind_Add: case ffzOperatorKind_Sub:
-		case ffzOperatorKind_Mul: case ffzOperatorKind_Div:
-		case ffzOperatorKind_Modulo: case ffzOperatorKind_Equal:
-		case ffzOperatorKind_NotEqual: case ffzOperatorKind_Less:
-		case ffzOperatorKind_LessOrEqual: case ffzOperatorKind_Greater:
-		case ffzOperatorKind_GreaterOrEqual:
+		case ffzNodeKind_Add: case ffzNodeKind_Sub:
+		case ffzNodeKind_Mul: case ffzNodeKind_Div:
+		case ffzNodeKind_Modulo: case ffzNodeKind_Equal:
+		case ffzNodeKind_NotEqual: case ffzNodeKind_Less:
+		case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater:
+		case ffzNodeKind_GreaterOrEqual:
 		{
 			F_ASSERT(!address_of);
 			//F_HITS(___c, 6);
@@ -635,35 +635,35 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			bool is_signed = ffz_type_is_signed_integer(checked.type->tag);
 
 			switch (derived.node->op_kind) {
-			case ffzOperatorKind_Add: { out.small = tb_inst_add(g->fn, a, b, (TB_ArithmaticBehavior)0); } break;
-			case ffzOperatorKind_Sub: { out.small = tb_inst_sub(g->fn, a, b, (TB_ArithmaticBehavior)0); } break;
-			case ffzOperatorKind_Mul: { out.small = tb_inst_mul(g->fn, a, b, (TB_ArithmaticBehavior)0); } break;
-			case ffzOperatorKind_Div: { out.small = tb_inst_div(g->fn, a, b, is_signed); } break;
-			case ffzOperatorKind_Modulo: { out.small = tb_inst_mod(g->fn, a, b, is_signed); } break;
+			case ffzNodeKind_Add: { out.small = tb_inst_add(g->fn, a, b, (TB_ArithmaticBehavior)0); } break;
+			case ffzNodeKind_Sub: { out.small = tb_inst_sub(g->fn, a, b, (TB_ArithmaticBehavior)0); } break;
+			case ffzNodeKind_Mul: { out.small = tb_inst_mul(g->fn, a, b, (TB_ArithmaticBehavior)0); } break;
+			case ffzNodeKind_Div: { out.small = tb_inst_div(g->fn, a, b, is_signed); } break;
+			case ffzNodeKind_Modulo: { out.small = tb_inst_mod(g->fn, a, b, is_signed); } break;
 
-			case ffzOperatorKind_Equal: { out.small = tb_inst_cmp_eq(g->fn, a, b); } break;
-			case ffzOperatorKind_NotEqual: { out.small = tb_inst_cmp_ne(g->fn, a, b); } break;
-			case ffzOperatorKind_Less: { out.small = tb_inst_cmp_ilt(g->fn, a, b, is_signed); } break;
-			case ffzOperatorKind_LessOrEqual: { out.small = tb_inst_cmp_ile(g->fn, a, b, is_signed); } break;
-			case ffzOperatorKind_Greater: { out.small = tb_inst_cmp_igt(g->fn, a, b, is_signed); } break;
-			case ffzOperatorKind_GreaterOrEqual: { out.small = tb_inst_cmp_ige(g->fn, a, b, is_signed); } break;
+			case ffzNodeKind_Equal: { out.small = tb_inst_cmp_eq(g->fn, a, b); } break;
+			case ffzNodeKind_NotEqual: { out.small = tb_inst_cmp_ne(g->fn, a, b); } break;
+			case ffzNodeKind_Less: { out.small = tb_inst_cmp_ilt(g->fn, a, b, is_signed); } break;
+			case ffzNodeKind_LessOrEqual: { out.small = tb_inst_cmp_ile(g->fn, a, b, is_signed); } break;
+			case ffzNodeKind_Greater: { out.small = tb_inst_cmp_igt(g->fn, a, b, is_signed); } break;
+			case ffzNodeKind_GreaterOrEqual: { out.small = tb_inst_cmp_ige(g->fn, a, b, is_signed); } break;
 
 			default: F_BP;
 			}
 		} break;
 
-		case ffzOperatorKind_UnaryMinus: {
+		case ffzNodeKind_UnaryMinus: {
 			F_ASSERT(!address_of);
 			out.small = tb_inst_neg(g->fn, gen_expr(g, right).small);
 		} break;
 
-		case ffzOperatorKind_LogicalNOT: {
+		case ffzNodeKind_LogicalNOT: {
 			F_ASSERT(!address_of);
 			// (!x) is equivalent to (x == false)
 			out.small = tb_inst_cmp_eq(g->fn, gen_expr(g, right).small, tb_inst_bool(g->fn, false));
 		} break;
 
-		case ffzOperatorKind_PostRoundBrackets: {
+		case ffzNodeKind_PostRoundBrackets: {
 			// sometimes we need to take the address of a temporary.
 			// e.g.  copy_string("hello").ptr
 			should_take_address = address_of;
@@ -733,12 +733,12 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 		
-		case ffzOperatorKind_AddressOf: {
+		case ffzNodeKind_AddressOf: {
 			F_ASSERT(!address_of);
 			out = gen_expr(g, right, true);
 		} break;
 
-		case ffzOperatorKind_Dereference: {
+		case ffzNodeKind_Dereference: {
 			if (address_of) {
 				out = gen_expr(g, left);
 			}
@@ -748,7 +748,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 
-		case ffzOperatorKind_MemberAccess: {
+		case ffzNodeKind_MemberAccess: {
 			fString member_name = AS(right.node, Identifier)->name;
 
 			if (left.node->kind == ffzNodeKind_Identifier && AS(left.node, Identifier)->name == F_LIT("in")) {
@@ -776,7 +776,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 
-		case ffzOperatorKind_PostCurlyBrackets: {
+		case ffzNodeKind_PostCurlyBrackets: {
 			// dynamic initializer
 			out.ptr = tb_inst_local(g->fn, checked.type->size, checked.type->align);
 			out.ptr_can_be_stolen = true;
@@ -806,7 +806,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			else F_BP;
 		} break;
 
-		case ffzOperatorKind_PostSquareBrackets: {
+		case ffzNodeKind_PostSquareBrackets: {
 			ffzType* left_type = ffz_expr_get_type(g->project, left);
 			F_ASSERT(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
 
@@ -861,9 +861,9 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 
-		case ffzOperatorKind_LogicalOR: // fallthrough
-		case ffzOperatorKind_LogicalAND: {
-			bool AND = derived.node->op_kind == ffzOperatorKind_LogicalAND;
+		case ffzNodeKind_LogicalOR: // fallthrough
+		case ffzNodeKind_LogicalAND: {
+			bool AND = derived.node->op_kind == ffzNodeKind_LogicalAND;
 			TB_Reg left_cond = gen_expr(g, left).small;
 
 			// implement short-circuiting
@@ -1111,7 +1111,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	} break;
 
 	case ffzNodeKind_Operator: {
-		F_ASSERT(AS(inst.node, Operator)->op_kind == ffzOperatorKind_PostRoundBrackets);
+		F_ASSERT(AS(inst.node, Operator)->op_kind == ffzNodeKind_PostRoundBrackets);
 		gen_call(g, IAS(inst, Operator));
 	} break;
 

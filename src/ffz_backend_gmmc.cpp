@@ -1,3 +1,4 @@
+#if 0
 #include "foundation/foundation.hpp"
 
 #include "ffz_ast.h"
@@ -41,16 +42,16 @@ struct Gen {
 
 // Helper macros for ffz
 
-#define AS(node,kind) FFZ_AS(node, kind)
-#define BASE(node) FFZ_BASE(node)
-
-#define IAS(node, kind) FFZ_INST_AS(node, kind)
-#define IBASE(node) FFZ_INST_BASE(node) 
-#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).polymorph }
+//#define AS(node,kind) FFZ_AS(node, kind)
+//#define (ffzNode*)node FFZ_(ffzNode*)node
+//
+//#define node FFZ_INST_AS(node, kind)
+//#define node FFZ_INST_(ffzNode*)node 
+//#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).polymorph }
+#define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
 
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
 static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of = false);
-
 
 static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 	fArray(u8) name = f_array_make<u8>(g->alc);
@@ -146,11 +147,11 @@ static bool has_big_return(ffzType* proc_type) {
 	return proc_type->Proc.out_param && proc_type->Proc.out_param->type->size > 8; // :BigReturn
 }
 
-static gmmcProc* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
-	auto insertion = f_map64_insert(&g->proc_from_hash, ffz_hash_node_inst(IBASE(inst)), (gmmcProc*)0, fMapInsert_DoNotOverride);
+static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
+	auto insertion = f_map64_insert(&g->proc_from_hash, ffz_hash_node_inst(inst), (gmmcProc*)0, fMapInsert_DoNotOverride);
 	if (!insertion.added) return *insertion._unstable_ptr;
 
-	ffzType* proc_type = ffz_expr_get_type(g->project, IBASE(inst));
+	ffzType* proc_type = ffz_expr_get_type(g->project, inst);
 	F_ASSERT(proc_type->tag == ffzTypeTag_Proc);
 
 	ffzType* ret_type = proc_type->Proc.out_param ? proc_type->Proc.out_param->type : NULL;
@@ -174,7 +175,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 		f_array_push(&param_types, param_type);
 	}
 
-	fString name = make_name(g, IBASE(inst));
+	fString name = make_name(g, inst);
 	//if (name == F_LIT("arena_push")) F_BP;
 	gmmcProcSignature* sig = gmmc_make_proc_signature(g->gmmc, ret_type_gmmc, param_types.data, (u32)param_types.len);
 
@@ -182,10 +183,9 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	gmmcProc* proc = gmmc_make_proc(g->gmmc, sig, name, &entry_bb);
 	*insertion._unstable_ptr = proc;
 
-	ffzNodeInst left = ICHILD(inst,left);
-	if (left.node->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name) {
+	if (inst.node->Op.left->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name) {
 		// Default initialize the output value
-		F_BP;//gen_statement(g, ICHILD(IAS(left, ProcType), out_parameter));
+		F_BP;//gen_statement(g, ICHILD(left, out_parameter));
 	}
 
 	gmmcProc* proc_before = g->proc;
@@ -195,15 +195,15 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 	g->proc_type = proc_type;
 	g->bb = entry_bb;
 
-	ffzNodeProcTypeInst proc_type_inst = IAS(proc_type->unique_node,ProcType);
+	ffzNodeProcTypeInst proc_type_inst = proc_type->unique_node;
 	u32 i = 0;
 	for FFZ_EACH_CHILD_INST(n, proc_type_inst) {
 		ffzTypeProcParameter* param = &proc_type->Proc.in_params[i];
 
-		F_ASSERT(n.node->kind == ffzNodeKind_Declaration);
-		ffzNodeIdentifierInst param_definition = ICHILD(IAS(n, Declaration), name);
+		F_ASSERT(n.node->kind == ffzNodeKind_Declare);
+		ffzNodeIdentifierInst param_definition = CHILD(n, Op.left);
 		param_definition.polymorph = inst.polymorph; // hmmm...
-		ffzNodeInstHash hash = ffz_hash_node_inst(IBASE(param_definition));
+		ffzNodeInstHash hash = ffz_hash_node_inst(param_definition);
 
 		gmmcReg param_val = gmmc_op_param(proc, i + (u32)big_return);
 		gmmcReg param_addr = param_val;
@@ -245,7 +245,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOperatorInst inst) {
 }
 
 
-static gmmcReg gen_call(Gen* g, ffzNodeOperatorInst inst) {
+static gmmcReg gen_call(Gen* g, ffzNodeOpInst inst) {
 	ffzNodeInst left = ICHILD(inst,left);
 	ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 	F_ASSERT(left_chk.type->tag == ffzTypeTag_Proc);
@@ -309,7 +309,7 @@ static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
 		return gmmc_make_external_symbol(g->gmmc, name);
 	}
 	else {
-		return gmmc_proc_as_symbol(gen_procedure(g, IAS(proc_node, Operator)));
+		return gmmc_proc_as_symbol(gen_procedure(g, proc_node));
 	}
 }
 
@@ -440,26 +440,26 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 	switch (inst.node->kind) {
 	case ffzNodeKind_Identifier: {
-		ffzNodeIdentifierInst def = ffz_get_definition(g->project, IAS(inst,Identifier));
-		if (def.node->is_constant) F_BP;
+		ffzNodeIdentifierInst def = ffz_get_definition(g->project, inst);
+		if (def.node->Identifier.is_constant) F_BP;
 		
-		out = *f_map64_get(&g->gmmc_local_addr_from_definition, ffz_hash_node_inst(IBASE(def)));
+		out = *f_map64_get(&g->gmmc_local_addr_from_definition, ffz_hash_node_inst(def));
 		should_dereference = !address_of;
 	} break;
 	case ffzNodeKind_Operator: {
 //		F_HITS(__c, 12);
-		ffzNodeOperatorInst derived = IAS(inst,Operator);
+		ffzNodeOpInst derived = inst;
 		ffzNodeInst left = ICHILD(derived,left);
 		ffzNodeInst right = ICHILD(derived,right);
 
 		switch (derived.node->op_kind) {
 
-		case ffzOperatorKind_Add: case ffzOperatorKind_Sub:
-		case ffzOperatorKind_Mul: case ffzOperatorKind_Div:
-		case ffzOperatorKind_Modulo: case ffzOperatorKind_Equal:
-		case ffzOperatorKind_NotEqual: case ffzOperatorKind_Less:
-		case ffzOperatorKind_LessOrEqual: case ffzOperatorKind_Greater:
-		case ffzOperatorKind_GreaterOrEqual:
+		case ffzNodeKind_Add: case ffzNodeKind_Sub:
+		case ffzNodeKind_Mul: case ffzNodeKind_Div:
+		case ffzNodeKind_Modulo: case ffzNodeKind_Equal:
+		case ffzNodeKind_NotEqual: case ffzNodeKind_Less:
+		case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater:
+		case ffzNodeKind_GreaterOrEqual:
 		{
 			F_ASSERT(!address_of);
 			//F_HITS(___c, 6);
@@ -469,36 +469,36 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			bool is_signed = ffz_type_is_signed_integer(checked.type->tag);
 
 			switch (derived.node->op_kind) {
-			case ffzOperatorKind_Add: { out = gmmc_op_add(g->bb, a, b); } break;
-			case ffzOperatorKind_Sub: { out = gmmc_op_sub(g->bb, a, b); } break;
-			case ffzOperatorKind_Mul: { out = gmmc_op_mul(g->bb, a, b, is_signed); } break;
-			case ffzOperatorKind_Div: { out = gmmc_op_div(g->bb, a, b, is_signed); } break;
-			case ffzOperatorKind_Modulo: { out = gmmc_op_mod(g->bb, a, b, is_signed); } break;
+			case ffzNodeKind_Add: { out = gmmc_op_add(g->bb, a, b); } break;
+			case ffzNodeKind_Sub: { out = gmmc_op_sub(g->bb, a, b); } break;
+			case ffzNodeKind_Mul: { out = gmmc_op_mul(g->bb, a, b, is_signed); } break;
+			case ffzNodeKind_Div: { out = gmmc_op_div(g->bb, a, b, is_signed); } break;
+			case ffzNodeKind_Modulo: { out = gmmc_op_mod(g->bb, a, b, is_signed); } break;
 
-			case ffzOperatorKind_Equal: { out = gmmc_op_eq(g->bb, a, b); } break;
-			case ffzOperatorKind_NotEqual: { out = gmmc_op_ne(g->bb, a, b); } break;
-			case ffzOperatorKind_Less: { out = gmmc_op_lt(g->bb, a, b, is_signed); } break;
-			case ffzOperatorKind_LessOrEqual: { out = gmmc_op_le(g->bb, a, b, is_signed); } break;
-			case ffzOperatorKind_Greater: { out = gmmc_op_gt(g->bb, a, b, is_signed); } break;
-			case ffzOperatorKind_GreaterOrEqual: { out = gmmc_op_ge(g->bb, a, b, is_signed); } break;
+			case ffzNodeKind_Equal: { out = gmmc_op_eq(g->bb, a, b); } break;
+			case ffzNodeKind_NotEqual: { out = gmmc_op_ne(g->bb, a, b); } break;
+			case ffzNodeKind_Less: { out = gmmc_op_lt(g->bb, a, b, is_signed); } break;
+			case ffzNodeKind_LessOrEqual: { out = gmmc_op_le(g->bb, a, b, is_signed); } break;
+			case ffzNodeKind_Greater: { out = gmmc_op_gt(g->bb, a, b, is_signed); } break;
+			case ffzNodeKind_GreaterOrEqual: { out = gmmc_op_ge(g->bb, a, b, is_signed); } break;
 
 			default: F_BP;
 			}
 		} break;
 
-		case ffzOperatorKind_UnaryMinus: {
+		case ffzNodeKind_UnaryMinus: {
 			F_ASSERT(!address_of);
 			out = gen_expr(g, right);
 			out = gmmc_op_sub(g->bb, gmmc_op_immediate(g->bb, get_gmmc_type(g, checked.type), 0), out);  // -x = 0 - x
 		} break;
 
-		case ffzOperatorKind_LogicalNOT: {
+		case ffzNodeKind_LogicalNOT: {
 			F_ASSERT(!address_of);
 			// (!x) is equivalent to (x == false)
 			out = gmmc_op_eq(g->bb, gen_expr(g, right), gmmc_op_bool(g->bb, false));
 		} break;
 
-		case ffzOperatorKind_PostRoundBrackets: {
+		case ffzNodeKind_PostRoundBrackets: {
 			// sometimes we need to take the address of a temporary.
 			// e.g.  copy_string("hello").ptr
 			should_take_address = address_of;
@@ -506,12 +506,12 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			if (left.node->kind == ffzNodeKind_Keyword && ffz_keyword_is_bitwise_op(AS(left.node, Keyword)->keyword)) {
 				ffzKeyword keyword = AS(left.node,Keyword)->keyword;
 				
-				gmmcReg first = gen_expr(g, ffz_get_child_inst(IBASE(inst), 0));
+				gmmcReg first = gen_expr(g, ffz_get_child_inst(inst, 0));
 				if (keyword == ffzKeyword_bit_not) {
 					out = gmmc_op_not(g->bb, first);
 				}
 				else {
-					gmmcReg second = gen_expr(g, ffz_get_child_inst(IBASE(inst), 1));
+					gmmcReg second = gen_expr(g, ffz_get_child_inst(inst, 1));
 					switch (keyword) {		
 					case ffzKeyword_bit_and: { out = gmmc_op_and(g->bb, first, second); } break;
 					case ffzKeyword_bit_or:  { out = gmmc_op_or(g->bb, first, second); } break;
@@ -528,7 +528,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					ffzType* dst_type = left_chk.const_val->type;
 					// type cast, e.g. u32(5293900)
 
-					ffzNodeInst arg = ffz_get_child_inst(IBASE(inst), 0);
+					ffzNodeInst arg = ffz_get_child_inst(inst, 0);
 					ffzType* arg_type = ffz_expr_get_type(g->project, arg);
 
 					out = gen_expr(g, arg);
@@ -568,12 +568,12 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 		
-		case ffzOperatorKind_AddressOf: {
+		case ffzNodeKind_AddressOf: {
 			F_ASSERT(!address_of);
 			out = gen_expr(g, right, true);
 		} break;
 
-		case ffzOperatorKind_Dereference: {
+		case ffzNodeKind_Dereference: {
 			if (address_of) {
 				out = gen_expr(g, left);
 			}
@@ -583,7 +583,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 
-		case ffzOperatorKind_MemberAccess: {
+		case ffzNodeKind_MemberAccess: {
 			fString member_name = AS(right.node, Identifier)->name;
 
 			if (left.node->kind == ffzNodeKind_Identifier && AS(left.node, Identifier)->name == F_LIT("in")) {
@@ -611,7 +611,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 
-		case ffzOperatorKind_PostCurlyBrackets: {
+		case ffzNodeKind_PostCurlyBrackets: {
 			// dynamic initializer
 			F_BP;
 			/*out.ptr = tb_inst_local(g->fn, checked.type->size, checked.type->align);
@@ -642,7 +642,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			else F_BP;*/
 		} break;
 
-		case ffzOperatorKind_PostSquareBrackets: {
+		case ffzNodeKind_PostSquareBrackets: {
 			ffzType* left_type = ffz_expr_get_type(g->project, left);
 			F_ASSERT(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
 
@@ -655,9 +655,9 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				array_data = gmmc_op_load(g->bb, gmmcType_ptr, array_data);
 			}
 
-			if (ffz_get_child_count(BASE(inst.node)) == 2) { // slicing
-				ffzNodeInst lo_inst = ffz_get_child_inst(IBASE(inst), 0);
-				ffzNodeInst hi_inst = ffz_get_child_inst(IBASE(inst), 1);
+			if (ffz_get_child_count(inst.node) == 2) { // slicing
+				ffzNodeInst lo_inst = ffz_get_child_inst(inst, 0);
+				ffzNodeInst hi_inst = ffz_get_child_inst(inst, 1);
 
 				gmmcReg lo = lo_inst.node->kind == ffzNodeKind_Blank ? gmmc_op_i64(g->bb, 0) : gen_expr(g, lo_inst);
 				gmmcReg hi;
@@ -682,7 +682,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				gmmc_op_store(g->bb, gmmc_op_member_access(g->bb, out, 8), len);
 			}
 			else { // taking an index
-				ffzNodeInst index_node = ffz_get_child_inst(IBASE(inst), 0);
+				ffzNodeInst index_node = ffz_get_child_inst(inst, 0);
 				//gmmcReg index = gmmc_op_zxt(g->bb, gen_expr(g, index_node), gmmcType_i64);
 				out = gmmc_op_array_access(g->bb, array_data, gen_expr(g, index_node), elem_type->size);
 				
@@ -691,9 +691,9 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 
-		case ffzOperatorKind_LogicalOR: // fallthrough
-		case ffzOperatorKind_LogicalAND: {
-			bool AND = derived.node->op_kind == ffzOperatorKind_LogicalAND;
+		case ffzNodeKind_LogicalOR: // fallthrough
+		case ffzNodeKind_LogicalAND: {
+			bool AND = derived.node->op_kind == ffzNodeKind_LogicalAND;
 			gmmcReg left_val = gen_expr(g, left);
 			
 			// implement short-circuiting
@@ -726,7 +726,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 	case ffzNodeKind_Dot: {
 		ffzNodeInst assignee;
-		F_ASSERT(ffz_dot_get_assignee(IAS(inst, Dot), &assignee));
+		F_ASSERT(ffz_dot_get_assignee(inst, &assignee));
 		out = gen_expr(g, assignee, address_of); 
 	} break;
 
@@ -775,8 +775,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	
 	switch (inst.node->kind) {
 		
-	case ffzNodeKind_Declaration: {
-		ffzNodeDeclarationInst decl = IAS(inst, Declaration);
+	case ffzNodeKind_Declare: {
+		ffzNodeOpDeclareInst decl = inst;
 		ffzNodeIdentifierInst definition = ICHILD(decl, name);
 		ffzType* type = ffz_decl_get_type(g->project, decl);
 
@@ -786,21 +786,21 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 			local = gmmc_op_local(g->proc, type->size, type->align);
 			gen_store(g, local, rhs_value, type);
 
-			f_map64_insert(&g->gmmc_local_addr_from_definition, ffz_hash_node_inst(IBASE(definition)), local);
+			f_map64_insert(&g->gmmc_local_addr_from_definition, ffz_hash_node_inst(definition), local);
 		}
 		else {
 			// need to still generate exported procs
 			if (type->tag == ffzTypeTag_Proc) {
 				ffzNodeInst rhs = ICHILD(decl,rhs);
 				if (rhs.node->kind == ffzNodeKind_Operator) { // @extern procs also have the type ffzTypeTag_Proc
-					gen_procedure(g, IAS(rhs, Operator));
+					gen_procedure(g, rhs);
 				}
 			}
 		}
 	} break;
 
 	case ffzNodeKind_Assignment: {
-		ffzNodeAssignmentInst assign = IAS(inst, Assignment);
+		ffzNodeAssignmentInst assign = inst;
 		ffzNodeInst lhs = ICHILD(assign,lhs);
 		ffzNodeInst rhs = ICHILD(assign,rhs);
 		gmmcReg lhs_addr = gen_expr(g, lhs, true);
@@ -816,7 +816,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	} break;
 
 	case ffzNodeKind_If: {
-		ffzNodeIfInst if_stmt = IAS(inst, If);
+		ffzNodeIfInst if_stmt = inst;
 		gmmcReg cond = gen_expr(g, ICHILD(if_stmt, condition));
 		
 		gmmcBasicBlock* true_bb = gmmc_make_basic_block(g->proc);
@@ -842,7 +842,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	} break;
 
 	case ffzNodeKind_For: {
-		ffzNodeForInst for_loop = IAS(inst,For);
+		ffzNodeForInst for_loop = inst;
 		ffzNodeInst pre = ICHILD(for_loop, header_stmts[0]);
 		ffzNodeInst condition = ICHILD(for_loop, header_stmts[1]);
 		ffzNodeInst post = ICHILD(for_loop, header_stmts[2]);
@@ -876,7 +876,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	} break;
 
 	case ffzNodeKind_Return: {
-		ffzNodeReturnInst ret = IAS(inst, Return);
+		ffzNodeReturnInst ret = inst;
 		gmmcReg val = 0;
 
 		if (ret.node->value) {
@@ -895,8 +895,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	} break;
 
 	case ffzNodeKind_Operator: {
-		F_ASSERT(AS(inst.node, Operator)->op_kind == ffzOperatorKind_PostRoundBrackets);
-		gen_call(g, IAS(inst, Operator));
+		F_ASSERT(AS(inst.node, Operator)->op_kind == ffzNodeKind_PostRoundBrackets);
+		gen_call(g, inst);
 	} break;
 
 	default: F_BP;
@@ -1034,3 +1034,5 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 
 	return true;
 }
+
+#endif

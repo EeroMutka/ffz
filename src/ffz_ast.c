@@ -12,8 +12,8 @@
 	return FFZ_OK; \
 }
 
-#define AS(node,kind) FFZ_AS(node, kind)
-#define BASE(node) FFZ_BASE(node)
+//#define AS(node,kind) FFZ_AS(node, kind)
+//#define (ffzNode*)node FFZ_(ffzNode*)node
 
 #define SLICE_BEFORE(T, slice, mid) (fSliceRaw){(T*)slice.data, (mid)}
 #define SLICE_AFTER(T, slice, mid) (fSliceRaw){(T*)slice.data + (mid), (slice.len) - (mid)}
@@ -26,7 +26,7 @@ typedef struct Token {
 		ffzLocRange range;
 	};
 	fString str;
-	u32 small; // the first 4 bytes of the string in big-endian format
+	u32 small;
 } Token;
 
 const ffzOk FFZ_OK = { true };
@@ -35,13 +35,10 @@ const ffzOk FFZ_OK = { true };
 static const fString ffzNodeKind_to_string[] = {
 	F_LIT_COMP("invalid"),
 	F_LIT_COMP("blank"),
-	F_LIT_COMP("declaration"),
-	F_LIT_COMP("assignment"),
 	F_LIT_COMP("identifier"),
 	F_LIT_COMP("polymorphic-parameter"),
 	F_LIT_COMP("keyword"),
 	F_LIT_COMP("dot"),
-	F_LIT_COMP("operator"),
 	F_LIT_COMP("proc-type"),
 	F_LIT_COMP("struct"),
 	F_LIT_COMP("enum"),
@@ -52,6 +49,32 @@ static const fString ffzNodeKind_to_string[] = {
 	F_LIT_COMP("int-literal"),
 	F_LIT_COMP("string-literal"),
 	F_LIT_COMP("float-literal"),
+	F_LIT_COMP(":"),
+	F_LIT_COMP("="),
+	F_LIT_COMP("+"),
+	F_LIT_COMP("-"),
+	F_LIT_COMP("*"),
+	F_LIT_COMP("/"),
+	F_LIT_COMP("%"),
+	F_LIT_COMP("."),
+	F_LIT_COMP("=="),
+	F_LIT_COMP("!="),
+	F_LIT_COMP("<"),
+	F_LIT_COMP("<="),
+	F_LIT_COMP(">"),
+	F_LIT_COMP(">="),
+	F_LIT_COMP("&&"),
+	F_LIT_COMP("||"),
+	F_LIT_COMP("pre-square-brackets"),
+	F_LIT_COMP("-"),
+	F_LIT_COMP("+"),
+	F_LIT_COMP("&"),
+	F_LIT_COMP("^"),
+	F_LIT_COMP("!"),
+	F_LIT_COMP("post-square-brackets"),
+	F_LIT_COMP("post-round-brackets"),
+	F_LIT_COMP("post-curly-brackets"),
+	F_LIT_COMP("^"),
 };
 
 const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
@@ -85,37 +108,6 @@ const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("bit_not"),
 };
 
-// synced with ffzOperatorKind
-// TODO: make this a switch?
-const static fString ffzOperatorKind_to_string[] = {
-	F_LIT_COMP(""),
-	F_LIT_COMP("+"),
-	F_LIT_COMP("-"),
-	F_LIT_COMP("*"),
-	F_LIT_COMP("/"),
-	F_LIT_COMP("%"),
-	F_LIT_COMP("."),
-	F_LIT_COMP("=="),
-	F_LIT_COMP("!="),
-	F_LIT_COMP("<"),
-	F_LIT_COMP("<="),
-	F_LIT_COMP(">"),
-	F_LIT_COMP(">="),
-	F_LIT_COMP("&&"),
-	F_LIT_COMP("||"),
-	{0},
-	F_LIT_COMP("-"),
-	F_LIT_COMP("+"),
-	F_LIT_COMP("&"),
-	F_LIT_COMP("^"),
-	F_LIT_COMP("!"),
-	{0},
-	{0},
-	{0},
-	F_LIT_COMP("^"),
-};
-
-F_STATIC_ASSERT(F_LEN(ffzOperatorKind_to_string) == ffzOperatorKind_COUNT);
 F_STATIC_ASSERT(F_LEN(ffzNodeKind_to_string) == ffzNodeKind_COUNT);
 F_STATIC_ASSERT(F_LEN(ffzKeyword_to_string) == ffzKeyword_COUNT);
 
@@ -126,32 +118,34 @@ char* ffz_keyword_to_cstring(ffzKeyword keyword) { return (char*)ffzKeyword_to_s
 
 // NOTE: The operators that exist in C have the same precedence as in C
 // https://en.cppreference.com/w/c/language/operator_precedence
-u32 ffz_operator_get_precedence(ffzOperatorKind kind) {
+u32 ffz_operator_get_precedence(ffzNodeKind kind) {
 	switch (kind) {
-	case ffzOperatorKind_MemberAccess: return 13;
-	case ffzOperatorKind_PostSquareBrackets: return 12;
-	case ffzOperatorKind_PointerTo: // fallthrough
-	case ffzOperatorKind_PreSquareBrackets: return 11;
-	case ffzOperatorKind_PostRoundBrackets: // fallthrough
-	case ffzOperatorKind_PostCurlyBrackets: return 10;
-	case ffzOperatorKind_UnaryMinus: // fallthrough
-	case ffzOperatorKind_AddressOf: // fallthrough
-	case ffzOperatorKind_LogicalNOT: // fallthrough
-	case ffzOperatorKind_UnaryPlus: return 9;
-	case ffzOperatorKind_Dereference: return 8;
-	case ffzOperatorKind_Mul: // fallthrough
-	case ffzOperatorKind_Div: // fallthrough
-	case ffzOperatorKind_Modulo: return 7;
-	case ffzOperatorKind_Add: return 6;
-	case ffzOperatorKind_Sub: return 5;
-	case ffzOperatorKind_Less: // fallthrough
-	case ffzOperatorKind_LessOrEqual: // fallthrough
-	case ffzOperatorKind_Greater: // fallthrough
-	case ffzOperatorKind_GreaterOrEqual: return 4;
-	case ffzOperatorKind_Equal: // fallthrough
-	case ffzOperatorKind_NotEqual: return 3;
-	case ffzOperatorKind_LogicalAND: return 2;
-	case ffzOperatorKind_LogicalOR: return 1;
+	case ffzNodeKind_MemberAccess: return 13;
+	case ffzNodeKind_PostSquareBrackets: return 12;
+	case ffzNodeKind_PointerTo: // fallthrough
+	case ffzNodeKind_PreSquareBrackets: return 11;
+	case ffzNodeKind_PostRoundBrackets: // fallthrough
+	case ffzNodeKind_PostCurlyBrackets: return 10;
+	case ffzNodeKind_UnaryMinus: // fallthrough
+	case ffzNodeKind_AddressOf: // fallthrough
+	case ffzNodeKind_LogicalNOT: // fallthrough
+	case ffzNodeKind_UnaryPlus: return 9;
+	case ffzNodeKind_Dereference: return 8;
+	case ffzNodeKind_Mul: // fallthrough
+	case ffzNodeKind_Div: // fallthrough
+	case ffzNodeKind_Modulo: return 7;
+	case ffzNodeKind_Add: return 6;
+	case ffzNodeKind_Sub: return 5;
+	case ffzNodeKind_Less: // fallthrough
+	case ffzNodeKind_LessOrEqual: // fallthrough
+	case ffzNodeKind_Greater: // fallthrough
+	case ffzNodeKind_GreaterOrEqual: return 4;
+	case ffzNodeKind_Equal: // fallthrough
+	case ffzNodeKind_NotEqual: return 3;
+	case ffzNodeKind_LogicalAND: return 2;
+	case ffzNodeKind_LogicalOR: return 1;
+	case ffzNodeKind_Declare: // fallthrough
+	case ffzNodeKind_Assign: return 0;
 	default: F_ASSERT(false);
 	}
 	return 0;
@@ -180,20 +174,21 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	}
 
 	switch (node->kind) {
-	case ffzNodeKind_Declaration: {
-		_print_ast(builder, AS(node,Targeted)->lhs, tab_level);
-		f_str_print(builder, F_LIT(": "));
-		_print_ast(builder, AS(node,Targeted)->rhs, tab_level);
-	} break;
-
-	case ffzNodeKind_Assignment: {
-		_print_ast(builder, AS(node, Targeted)->lhs, tab_level);
-		f_str_print(builder, F_LIT("= "));
-		_print_ast(builder, AS(node, Targeted)->rhs, tab_level);
-	} break;
+	//case ffzNodeKind_Declare: {
+	//	
+	//	_print_ast(builder, node.Targeted)->lhs, tab_level);
+	//	f_str_print(builder, F_LIT(": "));
+	//	_print_ast(builder, AS(node,Targeted)->rhs, tab_level);
+	//} break;
+	//
+	//case ffzNodeKind_Assignment: {
+	//	_print_ast(builder, AS(node, Targeted)->lhs, tab_level);
+	//	f_str_print(builder, F_LIT("= "));
+	//	_print_ast(builder, AS(node, Targeted)->rhs, tab_level);
+	//} break;
 
 	case ffzNodeKind_Keyword: {
-		f_str_print(builder, ffzKeyword_to_string[AS(node,Keyword)->keyword]);
+		f_str_print(builder, ffzKeyword_to_string[node->Keyword.keyword]);
 	} break;
 
 	//case ffzNodeKind_UserTagDecl: // fallthrough
@@ -204,84 +199,78 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	//	_print_ast(builder, AS(node,TagDecl)->rhs, tab_level);
 	//} break;
 
-	case ffzNodeKind_Operator: {
-		ffzNodeOperator* op = AS(node,Operator);
-		if (op->op_kind == ffzOperatorKind_PostRoundBrackets ||
-			op->op_kind == ffzOperatorKind_PostSquareBrackets ||
-			op->op_kind == ffzOperatorKind_PostCurlyBrackets)
-		{
-			_print_ast(builder, op->left, tab_level);
+	case ffzNodeKind_PostRoundBrackets: // fallthrough
+	case ffzNodeKind_PostSquareBrackets: // fallthrough
+	case ffzNodeKind_PostCurlyBrackets: {
+		f_str_print_rune(builder, '(');
+		_print_ast(builder, node->Op.left, tab_level);
 
-			typedef struct { u8 open; u8 close; } BracketChars;
-			BracketChars bracket_chars = op->op_kind == ffzOperatorKind_PostRoundBrackets ? (BracketChars){ '(', ')' } :
-				op->op_kind == ffzOperatorKind_PostSquareBrackets ? (BracketChars){ '[', ']' } : (BracketChars){ '{','}' };
+		typedef struct { u8 open; u8 close; } BracketChars;
+		BracketChars bracket_chars = node->kind  == ffzNodeKind_PostRoundBrackets ? (BracketChars) { '(', ')' } :
+			node->kind == ffzNodeKind_PostSquareBrackets ? (BracketChars) { '[', ']' } : (BracketChars) { '{', '}' };
 
-			bool multi_line = op->op_kind == ffzOperatorKind_PostCurlyBrackets;// node->Operator.arguments.first&& node->Operator.arguments.first->next;
-			if (multi_line) {
-				f_str_print_rune(builder, ' ');
-				f_str_print_rune(builder, bracket_chars.open);
-				f_str_print_rune(builder, '\n');
-				for (ffzNode* n = node->children.first; n; n = n->next) {
-					f_str_print_repeat(builder, F_LIT("\t"), tab_level + 1);
-					_print_ast(builder, n, tab_level + 1);
-					f_str_print(builder, F_LIT("\n"));
-				}
-				f_str_print_repeat(builder, F_LIT("\t"), tab_level);
-			}
-			else {
-				f_str_print_rune(builder, bracket_chars.open);
-				for (ffzNode* n = node->children.first; n; n = n->next) {
-					if (n != node->children.first) f_str_print(builder, F_LIT(", "));
-					_print_ast(builder, n, tab_level + (uint)multi_line);
-				}
-			}
-			f_str_print_rune(builder, bracket_chars.close);
-		}
-		else if (op->op_kind == ffzOperatorKind_PreSquareBrackets) {
-			f_str_print_rune(builder, '[');
+		bool multi_line = node->kind == ffzNodeKind_PostCurlyBrackets;
+		if (multi_line) {
+			f_str_print_rune(builder, ' ');
+			f_str_print_rune(builder, bracket_chars.open);
+			f_str_print_rune(builder, '\n');
 			for (ffzNode* n = node->children.first; n; n = n->next) {
-				if (n != node->children.first) f_str_print(builder, F_LIT(", "));
-				_print_ast(builder, n, tab_level);
+				f_str_print_repeat(builder, F_LIT("\t"), tab_level + 1);
+				_print_ast(builder, n, tab_level + 1);
+				f_str_print(builder, F_LIT("\n"));
 			}
-			f_str_print_rune(builder, ']');
-			_print_ast(builder, op->right, tab_level);
-		}
-		else if (ffz_operator_is_prefix(op->op_kind)) {
-			f_str_print_rune(builder,'(');
-			f_str_print(builder, ffzOperatorKind_to_string[op->op_kind]);
-			_print_ast(builder, op->right, tab_level);
-			f_str_print_rune(builder,')');
-		}
-		else if (ffz_operator_is_postfix(op->op_kind)) {
-			f_str_print_rune(builder,'(');
-			_print_ast(builder, op->left, tab_level);
-			f_str_print(builder, ffzOperatorKind_to_string[op->op_kind]);
-			f_str_print_rune(builder,')');
+			f_str_print_repeat(builder, F_LIT("\t"), tab_level);
 		}
 		else {
-			f_str_print(builder, F_LIT("("));
-			_print_ast(builder, op->left, tab_level);
-
-			f_str_print(builder, F_LIT(" "));
-			f_str_print(builder, ffzOperatorKind_to_string[op->op_kind]);
-			f_str_print(builder, F_LIT(" "));
-
-			_print_ast(builder, op->right, tab_level);
-			f_str_print(builder, F_LIT(")"));
+			f_str_print_rune(builder, bracket_chars.open);
+			for (ffzNode* n = node->children.first; n; n = n->next) {
+				if (n != node->children.first) f_str_print(builder, F_LIT(", "));
+				_print_ast(builder, n, tab_level + (uint)multi_line);
+			}
 		}
+		f_str_print_rune(builder, bracket_chars.close);
+		f_str_print_rune(builder, ')');
 	} break;
 
+	case ffzNodeKind_PreSquareBrackets: {
+		f_str_print_rune(builder, '[');
+		for (ffzNode* n = node->children.first; n; n = n->next) {
+			if (n != node->children.first) f_str_print(builder, F_LIT(", "));
+			_print_ast(builder, n, tab_level);
+		}
+		f_str_print_rune(builder, ']');
+		_print_ast(builder, node->Op.right, tab_level);
+	} break;
+
+	case ffzNodeKind_UnaryMinus: // fallthrough
+	case ffzNodeKind_UnaryPlus: // fallthrough
+	case ffzNodeKind_AddressOf: // fallthrough
+	case ffzNodeKind_PointerTo: // fallthrough
+	case ffzNodeKind_LogicalNOT: {
+		f_str_print_rune(builder,'(');
+		f_str_print(builder, ffzNodeKind_to_string[node->kind]);
+		_print_ast(builder, node->Op.right, tab_level);
+		f_str_print_rune(builder,')');
+	} break;
+
+	// postfix operator
+	case ffzNodeKind_Dereference: {
+		f_str_print_rune(builder,'(');
+		_print_ast(builder, node->Op.left, tab_level);
+		f_str_print(builder, ffzNodeKind_to_string[node->kind]);
+		f_str_print_rune(builder,')');
+	} break;
+	
 	case ffzNodeKind_Identifier: {
-		if (AS(node,Identifier)->is_constant) f_str_print(builder, F_LIT("#"));
-		f_str_print(builder, AS(node,Identifier)->name);
+		if (node->Identifier.is_constant) f_str_print(builder, F_LIT("#"));
+		f_str_print(builder, node->Identifier.name);
 	} break;
 
 	case ffzNodeKind_Record: {
-		ffzNodeRecord* record = AS(node,Record);
-		f_str_print(builder, record->is_union ? F_LIT("union") : F_LIT("struct"));
+		f_str_print(builder, node->Record.is_union ? F_LIT("union") : F_LIT("struct"));
 
-		if (record->polymorphic_parameters) {
-			_print_ast(builder, BASE(record->polymorphic_parameters), tab_level);
+		if (node->Record.polymorphic_parameters) {
+			_print_ast(builder, node->Record.polymorphic_parameters, tab_level);
 		}
 		f_str_print(builder, F_LIT("{"));
 		for (ffzNode* n = node->children.first; n; n = n->next) {
@@ -293,9 +282,9 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 
 	case ffzNodeKind_Enum: {
 		f_str_print(builder, F_LIT("enum"));
-		if (AS(node,Enum)->internal_type) {
+		if (node->Enum.internal_type) {
 			f_str_print(builder, F_LIT(", "));
-			_print_ast(builder, AS(node,Enum)->internal_type, tab_level);
+			_print_ast(builder, node->Enum.internal_type, tab_level);
 		}
 		f_str_print(builder, F_LIT(" {"));
 		for (ffzNode* n = node->children.first; n; n = n->next) {
@@ -306,11 +295,10 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_ProcType: {
-		ffzNodeProcType* node_proc = AS(node,ProcType);
 		f_str_print(builder, F_LIT("proc"));
 		
-		if (node_proc->polymorphic_parameters) {
-			_print_ast(builder, BASE(node_proc->polymorphic_parameters), tab_level);
+		if (node->ProcType.polymorphic_parameters) {
+			_print_ast(builder, node->ProcType.polymorphic_parameters, tab_level);
 		}
 
 		if (node->children.first) {
@@ -322,9 +310,9 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 			f_str_print(builder, F_LIT(")"));
 		}
 
-		if (node_proc->out_parameter) {
+		if (node->ProcType.out_parameter) {
 			f_str_print(builder, F_LIT(" => "));
-			_print_ast(builder, node_proc->out_parameter, tab_level);
+			_print_ast(builder, node->ProcType.out_parameter, tab_level);
 			f_str_print(builder, F_LIT(""));
 		}
 
@@ -343,9 +331,9 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_Return: {
 		f_str_print(builder, F_LIT("ret"));
 
-		if (AS(node,Return)->value) {
+		if (node->Return.value) {
 			f_str_print(builder, F_LIT(" "));
-			_print_ast(builder, AS(node,Return)->value, tab_level);
+			_print_ast(builder, node->Return.value, tab_level);
 		}
 	} break;
 
@@ -364,13 +352,13 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_IntLiteral: {
-		f_str_print(builder, f_str_from_uint(F_AS_BYTES(AS(node,IntLiteral)->value), temp));
+		f_str_print(builder, f_str_from_uint(F_AS_BYTES(node->IntLiteral.value), temp));
 	} break;
 
 	case ffzNodeKind_StringLiteral: {
 		// TODO: print escaped strings
 		f_str_print(builder, F_LIT("\""));
-		f_str_print(builder, AS(node,StringLiteral)->zero_terminated_string);
+		f_str_print(builder, node->StringLiteral.zero_terminated_string);
 		f_str_print(builder, F_LIT("\""));
 	} break;
 
@@ -380,15 +368,15 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 
 	case ffzNodeKind_If: {
 		f_str_print(builder, F_LIT("if "));
-		_print_ast(builder, AS(node,If)->condition, tab_level);
+		_print_ast(builder, node->If.condition, tab_level);
 		f_str_print(builder, F_LIT(" "));
-		F_ASSERT(AS(node,If)->true_scope);
-		_print_ast(builder, AS(node,If)->true_scope, tab_level);
+		F_ASSERT(node->If.true_scope);
+		_print_ast(builder, node->If.true_scope, tab_level);
 
-		if (AS(node,If)->else_scope) {
+		if (node->If.else_scope) {
 			for (int j = 0; j < tab_level; j++) f_str_print(builder, F_LIT("    "));
 			f_str_print(builder, F_LIT("else \n"));
-			_print_ast(builder, AS(node,If)->else_scope, tab_level);
+			_print_ast(builder, node->If.else_scope, tab_level);
 		}
 
 	} break;
@@ -396,14 +384,14 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_For: {
 		f_str_print(builder, F_LIT("for "));
 		for (int i = 0; i < 3; i++) {
-			if (AS(node,For)->header_stmts[i]) {
+			if (node->For.header_stmts[i]) {
 				if (i > 0) f_str_print(builder, F_LIT(", "));
-				_print_ast(builder, AS(node,For)->header_stmts[i], tab_level);
+				_print_ast(builder, node->For.header_stmts[i], tab_level);
 			}
 		}
 
 		f_str_print(builder, F_LIT(" "));
-		_print_ast(builder, AS(node,For)->scope, tab_level);
+		_print_ast(builder, node->For.scope, tab_level);
 	} break;
 
 	case ffzNodeKind_Blank: { f_str_print(builder, F_LIT("_")); } break;
@@ -418,7 +406,21 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 		f_str_print(builder, F_LIT("]"));
 	} break;
 
-	default: F_BP;
+	default: {
+		if (ffz_node_is_operator(node->kind)) {
+			f_str_print(builder, F_LIT("("));
+			_print_ast(builder, node->Op.left, tab_level);
+
+			f_str_print(builder, F_LIT(" "));
+			f_str_print(builder, ffzNodeKind_to_string[node->kind]);
+			f_str_print(builder, F_LIT(" "));
+
+			_print_ast(builder, node->Op.right, tab_level);
+			f_str_print(builder, F_LIT(")"));
+		}
+		else F_BP;
+	} break;
+
 	}
 	f_temp_pop();
 }
@@ -429,8 +431,8 @@ fString ffz_print_ast(fAllocator* alc, ffzNode* node) {
 	return (fString){ builder.data, builder.len };
 }
 
-static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_at_curly_brackets);
-static ffzOk parse_value(ffzParser* p, ffzNode* parent, ffzNode** out);
+//static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_at_curly_brackets);
+//static ffzOk parse_value(ffzParser* p, ffzNode* parent, ffzNode** out);
 
 #define IS_WHITESPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\r')
 
@@ -441,8 +443,10 @@ typedef struct ParserState {
 } ParserState;
 
 typedef enum ParseFlags {
-	ParseFlag_TreatNewlineAsWhitespace = 1 << 0,
+	ParseFlag_NewlineIsWhitespace = 1 << 0,
 } ParseFlags;
+
+static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out);
 
 // https://justine.lol/endian.html
 #define READ32BE(p) (u32)(255 & p[0]) << 24 | (255 & p[1]) << 16 | (255 & p[2]) << 8 | (255 & p[3])
@@ -474,7 +478,7 @@ static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
 		else if (IS_WHITESPACE(r)) {
 			type = CharType_Whitespace;
 		}
-		else if (r == '\n' && (flags & ParseFlag_TreatNewlineAsWhitespace)) {
+		else if (r == '\n' && (flags & ParseFlag_NewlineIsWhitespace)) {
 			type = CharType_Whitespace;
 		}
 		
@@ -517,8 +521,7 @@ static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
 	tok.range.start = tok_start;
 	tok.range.end = state->loc;
 	tok.str = f_str_slice(state->parser->source_code, tok.range.start.offset, tok.range.end.offset);
-	
-	memcpy(&tok.small, tok.str.data, tok.str.len);
+	memcpy(&tok.small, tok.str.data, F_MIN(tok.str.len, sizeof(tok.small)));
 	return tok;
 }
 
@@ -531,7 +534,7 @@ static ffzOk eat_next_token(ParserState* state, ParseFlags flags, const char* ta
 }
 
 static ffzOk eat_expected_token(ParserState* state, fString expected) {
-	Token tok = maybe_eat_next_token(state, ParseFlag_TreatNewlineAsWhitespace);
+	Token tok = maybe_eat_next_token(state, ParseFlag_NewlineIsWhitespace);
 	if (!f_str_equals(tok.str, expected)) ERR(state, tok.range, "Expected \"%.*s\"; got \"%.*s\"", F_STRF(expected), F_STRF(tok.str));
 	return FFZ_OK;
 }
@@ -569,41 +572,39 @@ static void* new_node(ParserState* state, ffzNode* parent, ffzLocRange range, ff
 	return node;
 }
 
-
-//static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_at_curly_brackets);
-
-/*static ffzOk parse_node_list(ffzParser* p, ffzNode* parent, u8 bracket_close_char) {
-	fString bracket_close = bracket_close_char ? (fString){&bracket_close_char, 1} : (fString){0};
-
+static ffzOk parse_node_list(ParserState* state, ffzNode* parent, u8 bracket_close_char) {
 	OPT(ffzNode*) prev = NULL;
 	OPT(ffzNode*) first = NULL;
 
-	for (u32 i = 0;; i++) {		
-		Token tok;
-		TRY(maybe_peek_next_token(p, p->pos, true, &tok));
-		if (f_str_equals(tok.str, bracket_close)) {
-			p->pos = tok.end;
+	for (u32 i = 0;; i++) {
+		ParserState new_state = *state;
+		Token tok = maybe_eat_next_token(&new_state, ParseFlag_NewlineIsWhitespace);
+
+		if (tok.small == bracket_close_char) {
+			*state = new_state;
 			parent->loc.end = tok.end;
 			break;
 		}
 		
 		bool was_comma = false;
 		if (i > 0) {
-			TRY(maybe_peek_next_token(p, p->pos, false, &tok));
-			was_comma = f_str_equals(tok.str, F_LIT(","));
-			if (!f_str_equals(tok.str, F_LIT("\n")) && !was_comma) {
-				ERR(p, tok.range, "Expected a node separator character (either a comma or a newline).", "");
+			Token tok = maybe_eat_next_token(state, (ParseFlags)0);
+			was_comma = tok.small == ',';
+			if (tok.small != '\n' && !was_comma) {
+				ERR(state, tok.range, "Expected a node separator character (either a comma or a newline).", "");
 			}
-			p->pos = tok.end;
 		}
 		
+		new_state = *state;
+		tok = maybe_eat_next_token(&new_state, (ParseFlags)0);
+
 		ffzNode* n;
-		TRY(maybe_peek_next_token(p, p->pos, false, &tok));
-		if ((f_str_equals(tok.str, bracket_close) && was_comma) || f_str_equals(tok.str, F_LIT(","))) {
-			n = NEW_NODE(Blank, p, parent, tok.range);
+		if ((tok.small == bracket_close_char && was_comma) || tok.small == ',') {
+			// Node lists can have blank nodes, i.e.  {,1,,5,2,,1,}
+			n = NEW_NODE(Blank, state, parent, tok.range);
 		}
 		else {
-			TRY(parse_node(p, parent, &n, false));
+			TRY(parse_node(state, parent, &n));
 		}
 
 		if (prev) prev->next = n;
@@ -611,8 +612,8 @@ static void* new_node(ParserState* state, ffzNode* parent, ffzLocRange range, ff
 		prev = n;
 	}
 	parent->children = (ffzNodeList){ first };
-	return ffz_ok;
-}*/
+	return FFZ_OK;
+}
 
 static bool is_alnum_or_underscore(u8 c) {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c > 127;
@@ -649,7 +650,7 @@ static bool is_alnum_or_underscore(u8 c) {
 	}
 }*/
 
-static ffzNodeOperator* merge_operator_chain(fSlice(ffzNodeOperator*) chain) {
+static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	// Find the operator with the lowest precedence (pick the right-most
 	// one if there are multiple operators with the same precedence)
 	// and recursively call merge_operator_chain on both sides until no operators
@@ -671,7 +672,7 @@ static ffzNodeOperator* merge_operator_chain(fSlice(ffzNodeOperator*) chain) {
 	//      /
 	//   (^b)
 
-	ffzNodeOperator** data = chain.data;
+	ffzNodeOp** data = chain.data;
 
 	F_ASSERT(chain.len > 0);
 	if (chain.len == 1) return data[0];
@@ -679,20 +680,20 @@ static ffzNodeOperator* merge_operator_chain(fSlice(ffzNodeOperator*) chain) {
 	uint lowest_prec_i = 0;
 	uint lowest_prec = F_U64_MAX;
 	for (uint i = chain.len - 1; i < chain.len; i--) {
-		F_ASSERT(data[i]->kind == ffzNodeKind_Operator);
-		uint prec = ffz_operator_get_precedence(data[i]->op_kind);
+		F_ASSERT(ffz_node_is_operator(data[i]->kind));
+		uint prec = ffz_operator_get_precedence(data[i]->kind);
 		if (prec < lowest_prec) {
 			lowest_prec = prec;
 			lowest_prec_i = i;
 		}
 	}
 
-	ffzNodeOperator* root = data[lowest_prec_i];
+	ffzNodeOp* root = data[lowest_prec_i];
 	if (lowest_prec_i > 0) {
-		ffzNodeOperator* left = merge_operator_chain(SLICE_BEFORE(ffzNodeOperator*, chain, lowest_prec_i));
-		if (root->left) { // if this is an infix operator
-			left->parent = BASE(root);
-			root->left = BASE(left);
+		ffzNodeOp* left = merge_operator_chain(SLICE_BEFORE(ffzNodeOp*, chain, lowest_prec_i));
+		if (root->Op.left) { // if this is an infix operator
+			left->parent = (ffzNode*)root;
+			root->Op.left = (ffzNode*)left;
 		}
 		else {
 			// wrong asserts
@@ -702,10 +703,10 @@ static ffzNodeOperator* merge_operator_chain(fSlice(ffzNodeOperator*) chain) {
 		}
 	}
 	if (lowest_prec_i < chain.len - 1) {
-		ffzNodeOperator* right = merge_operator_chain(SLICE_AFTER(ffzNodeOperator*, chain, lowest_prec_i + 1));
-		if (root->right) { // if this is an infix operator
-			right->parent = BASE(root);
-			root->right = BASE(right);
+		ffzNodeOp* right = merge_operator_chain(SLICE_AFTER(ffzNodeOp*, chain, lowest_prec_i + 1));
+		if (root->Op.right) { // if this is an infix operator
+			right->parent = (ffzNode*)root;
+			root->Op.right = (ffzNode*)right;
 		}
 		else {
 			// wrong asserts
@@ -718,7 +719,9 @@ static ffzNodeOperator* merge_operator_chain(fSlice(ffzNodeOperator*) chain) {
 }
 
 static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
-	fArray(ffzNodeOperator*) operator_chain = f_array_make_raw(state->parser->alc);
+	fArray(ffzNodeOp*) operator_chain = f_array_make_raw(state->parser->alc);
+
+	// Start by parsing the operator chain
 
 	bool check_infix_or_postfix = false;
 	ffzNode* prev = NULL;
@@ -726,7 +729,7 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 		ffzNode* node = NULL;
 		
 		ParserState state_before = *state;
-		Token tok = maybe_eat_next_token(state, ParseFlag_TreatNewlineAsWhitespace);
+		Token tok = maybe_eat_next_token(state, ParseFlag_NewlineIsWhitespace);
 		if (!prev && tok.str.len == 0) {
 			ERR(state, ffz_loc_to_range(state->loc), "File ended unexpectedly.", "");
 		}
@@ -778,77 +781,75 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 		}
 
 		bool is_prefix_or_postfix = false;
-		
-		// :NoteAboutSeqLiterals
-		// when comparing agains a C character sequence literal, i.e. foo == 'abc', we need to 
-		// flip the byte order of the literal, because C represents them in big-endian format.
 
 		// Check to see if the next token is an operator.
+		ffzNodeKind op_kind = 0;
 		if (!node) {
-			ffzOperatorKind op_kind = 0;
 			switch (tok.small) {
 			case '^': {
-				op_kind = check_infix_or_postfix ? ffzOperatorKind_Dereference : ffzOperatorKind_PointerTo;
+				op_kind = check_infix_or_postfix ? ffzNodeKind_Dereference : ffzNodeKind_PointerTo;
 				is_prefix_or_postfix = true;
 			} break;
 			case '-': {
-				op_kind = check_infix_or_postfix ? ffzOperatorKind_Sub : ffzOperatorKind_UnaryMinus;
+				op_kind = check_infix_or_postfix ? ffzNodeKind_Sub : ffzNodeKind_UnaryMinus;
 				is_prefix_or_postfix = !check_infix_or_postfix;
 			} break;
 			case '+': {
-				op_kind = check_infix_or_postfix ? ffzOperatorKind_Add : ffzOperatorKind_UnaryPlus;
+				op_kind = check_infix_or_postfix ? ffzNodeKind_Add : ffzNodeKind_UnaryPlus;
 				is_prefix_or_postfix = !check_infix_or_postfix;
 			} break;
 			case '&': {
 				if (!check_infix_or_postfix) {
-					op_kind = ffzOperatorKind_AddressOf; is_prefix_or_postfix = true;
+					op_kind = ffzNodeKind_AddressOf; is_prefix_or_postfix = true;
 				}
 			} break;
 			case '!': {
 				if (!check_infix_or_postfix) {
-					op_kind = ffzOperatorKind_LogicalNOT; is_prefix_or_postfix = true;
+					op_kind = ffzNodeKind_LogicalNOT; is_prefix_or_postfix = true;
 				}
 			} break;
 			case '(': {
 				if (check_infix_or_postfix) {
 					TRY(eat_expected_token(state, F_LIT(")")));
-					op_kind = ffzOperatorKind_PostRoundBrackets;
+					op_kind = ffzNodeKind_PostRoundBrackets;
 					is_prefix_or_postfix = true;
 				}
 			} break;
 			case '[': {
 				if (check_infix_or_postfix) {
 					TRY(eat_expected_token(state, F_LIT("]")));
-					op_kind = ffzOperatorKind_PostSquareBrackets;
+					op_kind = ffzNodeKind_PostSquareBrackets;
 					is_prefix_or_postfix = true;
 				}
 				else F_BP; // PreSquareBrackets
 			} break;
-			case '.': { op_kind = ffzOperatorKind_MemberAccess; } break;
-			case '&&': { op_kind = ffzOperatorKind_LogicalAND; } break; // :NoteAboutSeqLiterals
-			case '||': { op_kind = ffzOperatorKind_LogicalOR; } break; // :NoteAboutSeqLiterals
-			case '*': { op_kind = ffzOperatorKind_Mul; } break;
-			case '/': { op_kind = ffzOperatorKind_Div; } break;
-			case '%': { op_kind = ffzOperatorKind_Modulo; } break;
-			case '=<': { op_kind = ffzOperatorKind_LessOrEqual; } break; // :NoteAboutSeqLiterals
-			case '<': { op_kind = ffzOperatorKind_Less; } break;
-			case '=>': { op_kind = ffzOperatorKind_GreaterOrEqual; } break; // :NoteAboutSeqLiterals
-			case '>': { op_kind = ffzOperatorKind_Greater; } break;
-			case '==': { op_kind = ffzOperatorKind_Equal; } break; // :NoteAboutSeqLiterals
-			case '=!': { op_kind = ffzOperatorKind_NotEqual; } break; // :NoteAboutSeqLiterals
+			case ':': { op_kind = ffzNodeKind_Declare; } break;
+			case '=': { op_kind = ffzNodeKind_Assign; } break;
+			case '.': { op_kind = ffzNodeKind_MemberAccess; } break;
+			case '&&': { op_kind = ffzNodeKind_LogicalAND; } break; // :NoteAboutSeqLiterals
+			case '||': { op_kind = ffzNodeKind_LogicalOR; } break; // :NoteAboutSeqLiterals
+			case '*': { op_kind = ffzNodeKind_Mul; } break;
+			case '/': { op_kind = ffzNodeKind_Div; } break;
+			case '%': { op_kind = ffzNodeKind_Modulo; } break;
+			case '=<': { op_kind = ffzNodeKind_LessOrEqual; } break; // :NoteAboutSeqLiterals
+			case '<': { op_kind = ffzNodeKind_Less; } break;
+			case '=>': { op_kind = ffzNodeKind_GreaterOrEqual; } break; // :NoteAboutSeqLiterals
+			case '>': { op_kind = ffzNodeKind_Greater; } break;
+			case '==': { op_kind = ffzNodeKind_Equal; } break; // :NoteAboutSeqLiterals
+			case '=!': { op_kind = ffzNodeKind_NotEqual; } break; // :NoteAboutSeqLiterals
 			}
 
 			if (op_kind) {
-				node = NEW_NODE(Operator, state, parent, tok.range);
-				node->Operator.op_kind = op_kind;
-				if (check_infix_or_postfix) node->Operator.left = prev;
+				node = new_node(state, parent, tok.range, op_kind, sizeof(ffzNodeOp));
+				if (check_infix_or_postfix) node->Op.left = prev;
 
-				f_array_push(ffzNodeOperator*, &operator_chain, node);
+				f_array_push(ffzNodeOp*, &operator_chain, node);
 			}
-			else if (check_infix_or_postfix) { // no more postfix / infix operator. Terminate the chain
-				*state = state_before;
-				break;
-			}
+		}
+		
+		if (!op_kind && check_infix_or_postfix) { // no more postfix / infix operator. Terminate the chain
+			*state = state_before;
+			break;
 		}
 
 		if (!node) {
@@ -857,8 +858,8 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 
 		if (!check_infix_or_postfix) {
 			if (prev) {
-				F_ASSERT(prev->kind == ffzNodeKind_Operator);
-				prev->Operator.right = node;
+				F_ASSERT(ffz_node_is_operator(prev->kind));
+				prev->Op.right = node;
 				node->parent = prev;
 			}
 		}
@@ -867,11 +868,12 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ffzNode** out) {
 		prev = node;
 	}
 	
-	*out = prev;
+	ffzNode* node = prev;
 	if (operator_chain.len > 0) {
-		*out = (ffzNode*)merge_operator_chain(operator_chain.slice);
+		node = (ffzNode*)merge_operator_chain(operator_chain.slice);
 	}
 
+	*out = node;
 	return FFZ_OK;
 }
 
@@ -891,17 +893,17 @@ static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_
 	if (f_str_equals(tok.str, F_LIT("if"))) {
 		p->pos = after_next;
 		ffzNodeIf* if_stmt = NEW_NODE(If, p, parent, tok.range);
-		TRY(parse_expression(p, BASE(if_stmt), &if_stmt->condition, true));
-		TRY(parse_node(p, BASE(if_stmt), &if_stmt->true_scope, false));
+		TRY(parse_expression(p, (ffzNode*)if_stmt, &if_stmt->condition, true));
+		TRY(parse_node(p, (ffzNode*)if_stmt, &if_stmt->true_scope, false));
 
 		after_next = p->pos;
 		TRY(maybe_eat_next_token(p, &after_next, true, &tok));
 		if (f_str_equals(tok.str, F_LIT("else"))) {
 			p->pos = after_next;
-			TRY(parse_node(p, BASE(if_stmt), &if_stmt->else_scope, false));
+			TRY(parse_node(p, (ffzNode*)if_stmt, &if_stmt->else_scope, false));
 		}
 		if_stmt->loc.end = p->pos;
-		result = BASE(if_stmt);
+		result = (ffzNode*)if_stmt;
 	}
 	else if (f_str_equals(tok.str, F_LIT("for"))) {
 		F_BP;//p->pos = after_next;
@@ -921,13 +923,13 @@ static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_
 		//	if (f_str_equals(next_tok.str, F_LIT(","))) continue;
 		//
 		//	ffzNode* stmt;
-		//	TRY(parse_node(p, BASE(for_loop), &stmt, true));
+		//	TRY(parse_node(p, (ffzNode*)for_loop, &stmt, true));
 		//	for_loop->header_stmts[i] = stmt;
 		//}
 		//
-		//TRY(parse_node(p, BASE(for_loop), &for_loop->scope, false));
+		//TRY(parse_node(p, (ffzNode*)for_loop, &for_loop->scope, false));
 		//for_loop->loc.end = p->pos;
-		//result = BASE(for_loop);
+		//result = (ffzNode*)for_loop;
 	}
 	else if (f_str_equals(tok.str, F_LIT("ret"))) {
 		p->pos = after_next;
@@ -938,10 +940,10 @@ static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_
 			p->pos = after_next;
 		}
 		else {
-			TRY(parse_expression(p, BASE(ret), &ret->value, false));
+			TRY(parse_expression(p, (ffzNode*)ret, &ret->value, false));
 		}
 		ret->loc.end = p->pos;
-		result = BASE(ret);
+		result = (ffzNode*)ret;
 	}
 
 	// first parse the expression on the left hand side
@@ -958,23 +960,23 @@ static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_
 			}
 
 			ffzNodeDeclaration* decl = NEW_NODE(Declaration, p, parent, result->loc);
-			result->parent = BASE(decl);
+			result->parent = (ffzNode*)decl;
 			decl->name = AS(result,Identifier);
 			
 			p->pos = after_next;
-			TRY(parse_expression(p, BASE(decl), &decl->rhs, stop_at_curly_brackets));
+			TRY(parse_expression(p, (ffzNode*)decl, &decl->rhs, stop_at_curly_brackets));
 			decl->loc.end = decl->rhs->loc.end;
-			result = BASE(decl);
+			result = (ffzNode*)decl;
 		}
 		else if (tok.str.len == 1 && tok.str.data[0] == '=') {
 			ffzNodeAssignment* assignment = NEW_NODE(Assignment, p, parent, result->loc);
-			result->parent = BASE(assignment);
+			result->parent = (ffzNode*)assignment;
 			assignment->lhs = result;
 
 			p->pos = after_next;
-			TRY(parse_expression(p, BASE(assignment), &assignment->rhs, stop_at_curly_brackets));
+			TRY(parse_expression(p, (ffzNode*)assignment, &assignment->rhs, stop_at_curly_brackets));
 			assignment->loc.end = assignment->rhs->loc.end;
-			result = BASE(assignment);
+			result = (ffzNode*)assignment;
 		}
 	}
 
@@ -990,12 +992,12 @@ static ffzOk parse_enum(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNod
 	TRY(eat_next_token(p, &p->pos, true, "parsing an enum", &tok));
 
 	if (f_str_equals(tok.str, F_LIT(","))) {
-		TRY(parse_expression(p, BASE(node), &node->internal_type, true));
+		TRY(parse_expression(p, (ffzNode*)node, &node->internal_type, true));
 		TRY(eat_next_token(p, &p->pos, true, "parsing an enum", &tok));
 	}
 
 	if (!f_str_equals(tok.str, F_LIT("{"))) ERR(p, tok.range, "Expected a `{`", "");
-	TRY(parse_node_list(p, BASE(node), '}'));
+	TRY(parse_node_list(p, (ffzNode*)node, '}'));
 	
 	*out = node;
 	return ffz_ok;
@@ -1007,7 +1009,7 @@ static ffzOk maybe_parse_polymorphic_parameter_list(ffzParser* p, ffzNode* paren
 	if (f_str_equals(tok.str, F_LIT("["))) {
 		p->pos = tok.end;
 		ffzNodePolyParamList* node = NEW_NODE(PolyParamList, p, parent, tok.range);
-		TRY(parse_node_list(p, BASE(node), ']'));
+		TRY(parse_node_list(p, (ffzNode*)node, ']'));
 		*out = node;
 	}
 	return ffz_ok;
@@ -1015,13 +1017,13 @@ static ffzOk maybe_parse_polymorphic_parameter_list(ffzParser* p, ffzNode* paren
 
 static ffzOk parse_struct(ffzParser* p, ffzNode* parent, ffzLocRange range, bool is_union, ffzNodeRecord** out) {
 	ffzNodeRecord* node = NEW_NODE(Record, p, parent, range);
-	TRY(maybe_parse_polymorphic_parameter_list(p, BASE(node), &node->polymorphic_parameters));
+	TRY(maybe_parse_polymorphic_parameter_list(p, (ffzNode*)node, &node->polymorphic_parameters));
 
 	Token tok;
 	TRY(eat_next_token(p, &p->pos, true, "parsing a struct", &tok));
 	if (!f_str_equals(tok.str, F_LIT("{"))) ERR(p, tok.range, "Expected a `{`", "");
 
-	TRY(parse_node_list(p, BASE(node), '}'));
+	TRY(parse_node_list(p, (ffzNode*)node, '}'));
 
 	node->is_union = is_union;
 	*out = node;
@@ -1031,27 +1033,27 @@ static ffzOk parse_struct(ffzParser* p, ffzNode* parent, ffzLocRange range, bool
 
 static ffzOk parse_proc_type(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
 	ffzNodeProcType* _proc = NEW_NODE(ProcType, p, parent, range);
-	TRY(maybe_parse_polymorphic_parameter_list(p, BASE(_proc), &_proc->polymorphic_parameters));
+	TRY(maybe_parse_polymorphic_parameter_list(p, (ffzNode*)_proc, &_proc->polymorphic_parameters));
 
 	Token tok;
 	TRY(peek_next_token(p, p->pos, true, "parsing a procedure", &tok));
 
 	//if (str_equals(tok.str, F_LIT("["))) {
 	//	BP;//p->pos = tok.end;
-	//	//TRY(parse_node_list(p, BASE(proc), ']', &proc->ProcType.polymorphic_parameters));
+	//	//TRY(parse_node_list(p, (ffzNode*)proc, ']', &proc->ProcType.polymorphic_parameters));
 	//	//TRY(maybe_peek_next_token(p, p->pos, true, &tok));
 	//}
 
 	if (f_str_equals(tok.str, F_LIT("("))) {
 		p->pos = tok.end;
-		TRY(parse_node_list(p, BASE(_proc), ')'));
+		TRY(parse_node_list(p, (ffzNode*)_proc, ')'));
 		TRY(maybe_peek_next_token(p, p->pos, true, &tok));
 	}
 
 	if (f_str_equals(tok.str, F_LIT("=>"))) {
 		p->pos = tok.end;
 		TRY(eat_expected_token(p, F_LIT("(")));
-		TRY(parse_node(p, BASE(_proc), &_proc->out_parameter, false));
+		TRY(parse_node(p, (ffzNode*)_proc, &_proc->out_parameter, false));
 		TRY(eat_expected_token(p, F_LIT(")")));
 	}
 	_proc->loc.end = p->pos;
@@ -1179,7 +1181,7 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 		ffzNodeIntLiteral* node = NEW_NODE(IntLiteral, p, parent, tok.range);
 		node->value = numeric;
 		node->was_encoded_in_base = base;
-		*out = BASE(node);
+		*out = (ffzNode*)node;
 		return ffz_ok;
 	}
 
@@ -1195,7 +1197,7 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 		ffzNodeStringLiteral* lit = NEW_NODE(StringLiteral, p, parent, tok.range);
 		TRY(parse_string_literal(p, &lit->zero_terminated_string));
 		lit->loc.end = p->pos;
-		result = BASE(lit);
+		result = (ffzNode*)lit;
 	}
 	else if (f_str_equals(tok.str, F_LIT("proc"))) {
 		TRY(parse_proc_type(p, parent, tok.range, (ffzNodeProcType**)&result));
@@ -1247,23 +1249,23 @@ static ffzOk parse_value_recursing_to_left(ffzParser* p, ffzNode* parent, ffzNod
 	}
 
 	if (!result) {
-		ffzOperatorKind kind = ffzOperatorKind_Invalid;
-		if (c == '-') kind = ffzOperatorKind_UnaryMinus;
-		else if (c == '+') kind = ffzOperatorKind_UnaryPlus;
-		//else if (c == '.') kind = ffzOperatorKind_UnaryMemberAccess;
-		else if (c == '&') kind = ffzOperatorKind_AddressOf;
-		else if (c == '!') kind = ffzOperatorKind_LogicalNOT;
-		else if (c == '^') kind = ffzOperatorKind_PointerTo;
-		else if (c == '[') kind = ffzOperatorKind_PreSquareBrackets;
+		ffzNodeKind kind = ffzNodeKind_Invalid;
+		if (c == '-') kind = ffzNodeKind_UnaryMinus;
+		else if (c == '+') kind = ffzNodeKind_UnaryPlus;
+		//else if (c == '.') kind = ffzNodeKind_UnaryMemberAccess;
+		else if (c == '&') kind = ffzNodeKind_AddressOf;
+		else if (c == '!') kind = ffzNodeKind_LogicalNOT;
+		else if (c == '^') kind = ffzNodeKind_PointerTo;
+		else if (c == '[') kind = ffzNodeKind_PreSquareBrackets;
 		if (kind) {
 			result = NEW_NODE(Operator, p, parent, tok.range);
 			AS(result,Operator)->op_kind = kind;
 
-			if (kind == ffzOperatorKind_PreSquareBrackets) {
+			if (kind == ffzNodeKind_PreSquareBrackets) {
 				TRY(parse_node_list(p, result, ']'));
 			}
 
-			bool recurse_to_left = /*c == '^' || */kind == ffzOperatorKind_PreSquareBrackets;
+			bool recurse_to_left = /*c == '^' || */kind == ffzNodeKind_PreSquareBrackets;
 
 			// ^int(20) should parse as (^int)(20), while -int(20) should parse as -(int(20))
 			// hmm... and '.' should have even higher priority, i.e.  ^Basic.Allocator should be ^(Basic.Allocator)
@@ -1301,23 +1303,23 @@ static ffzOk parse_value(ffzParser* p, ffzNode* parent, ffzNode** out) {
 		TRY(maybe_eat_next_token(p, &after_next, true, &next));
 		if (next.str.len == 0) break;
 
-		ffzOperatorKind op_kind = ffzOperatorKind_Invalid;
-		if (next.str.data[0] == '^') op_kind = ffzOperatorKind_Dereference;
-		if (next.str.data[0] == '.') op_kind = ffzOperatorKind_MemberAccess;
+		ffzNodeKind op_kind = ffzNodeKind_Invalid;
+		if (next.str.data[0] == '^') op_kind = ffzNodeKind_Dereference;
+		if (next.str.data[0] == '.') op_kind = ffzNodeKind_MemberAccess;
 		if (op_kind) {
 			p->pos = after_next;
 			
 			ffzLocRange range = { result->loc.start, next.range.end };
-			ffzNodeOperator* op = NEW_NODE(Operator, p, parent, range);
+			ffzNodeOp* op = NEW_NODE(Operator, p, parent, range);
 			op->op_kind = op_kind;
 			op->left = result;
-			result->parent = BASE(op);
+			result->parent = (ffzNode*)op;
 
-			if (op_kind == ffzOperatorKind_MemberAccess) {
-				TRY(parse_value_recursing_to_left(p, BASE(op), &op->right));
+			if (op_kind == ffzNodeKind_MemberAccess) {
+				TRY(parse_value_recursing_to_left(p, (ffzNode*)op, &op->right));
 				op->loc.end = op->right->loc.end;
 			}
-			result = BASE(op);
+			result = (ffzNode*)op;
 			continue;
 		}
 
@@ -1332,28 +1334,28 @@ static ffzOk parse_value(ffzParser* p, ffzNode* parent, ffzNode** out) {
 
 		u8 close_bracket_char = 0;
 		if (next.str.data[0] == '(') {
-			op_kind = ffzOperatorKind_PostRoundBrackets;
+			op_kind = ffzNodeKind_PostRoundBrackets;
 			close_bracket_char = ')';
 		}
 		else if (next.str.data[0] == '[') {
-			op_kind = ffzOperatorKind_PostSquareBrackets;
+			op_kind = ffzNodeKind_PostSquareBrackets;
 			close_bracket_char = ']';
 		}
 		else if (!p->stop_at_curly_brackets && next.str.data[0] == '{') {
-			op_kind = ffzOperatorKind_PostCurlyBrackets;
+			op_kind = ffzNodeKind_PostCurlyBrackets;
 			close_bracket_char = '}';
 		}
 		if (op_kind) {
 			p->pos = after_next;
 
 			ffzLocRange range = { result->loc.start, p->pos };
-			ffzNodeOperator* op = NEW_NODE(Operator, p, parent, range);
+			ffzNodeOp* op = NEW_NODE(Operator, p, parent, range);
 			op->op_kind = op_kind;
 			op->left = result;
-			result->parent = BASE(op);
+			result->parent = (ffzNode*)op;
 
-			TRY(parse_node_list(p, BASE(op), close_bracket_char));
-			result = BASE(op);
+			TRY(parse_node_list(p, (ffzNode*)op, close_bracket_char));
+			result = (ffzNode*)op;
 			continue;
 		}
 
@@ -1367,7 +1369,7 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 	bool stop_bef = p->stop_at_curly_brackets;
 	p->stop_at_curly_brackets = stop_at_curly_brackets;
 
-	Array(ffzNodeOperator*) operator_chain = { .alc = p->alc };
+	Array(ffzNodeOp*) operator_chain = { .alc = p->alc };
 
 	ffzNode* prev = NULL;
 	bool expecting_value = true;
@@ -1391,31 +1393,31 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 			if (tok.str.len == 0 || f_str_equals(tok.str, F_LIT(")"))) break;
 
 			// this should be a hash table
-			const ffzOperatorKind TwoSidedOperators[] = {
-				ffzOperatorKind_Add,
-				ffzOperatorKind_Sub,
-				ffzOperatorKind_Mul,
-				ffzOperatorKind_Div,
-				ffzOperatorKind_Modulo,
-				ffzOperatorKind_Equal,
-				ffzOperatorKind_NotEqual,
-				ffzOperatorKind_Less,
-				ffzOperatorKind_LessOrEqual,
-				ffzOperatorKind_Greater,
-				ffzOperatorKind_GreaterOrEqual,
-				ffzOperatorKind_LogicalAND,
-				ffzOperatorKind_LogicalOR,
+			const ffzNodeKind TwoSidedOperators[] = {
+				ffzNodeKind_Add,
+				ffzNodeKind_Sub,
+				ffzNodeKind_Mul,
+				ffzNodeKind_Div,
+				ffzNodeKind_Modulo,
+				ffzNodeKind_Equal,
+				ffzNodeKind_NotEqual,
+				ffzNodeKind_Less,
+				ffzNodeKind_LessOrEqual,
+				ffzNodeKind_Greater,
+				ffzNodeKind_GreaterOrEqual,
+				ffzNodeKind_LogicalAND,
+				ffzNodeKind_LogicalOR,
 			};
 
-			ffzOperatorKind kind = ffzOperatorKind_Invalid;
+			ffzNodeKind kind = ffzNodeKind_Invalid;
 			for (int i = 0; i < F_LEN(TwoSidedOperators); i++) {
-				ffzOperatorKind test = TwoSidedOperators[i];
-				if (f_str_equals(ffzOperatorKind_String[test], tok.str)) {
+				ffzNodeKind test = TwoSidedOperators[i];
+				if (f_str_equals(ffzNodeKind_String[test], tok.str)) {
 					kind = test;
 					break;
 				}
 			}
-			if (kind == ffzOperatorKind_Invalid) break;
+			if (kind == ffzNodeKind_Invalid) break;
 
 			ffzLocRange range = { prev->loc.start, tok.end };
 			node = NEW_NODE(Operator, p, parent, range);
@@ -1423,7 +1425,7 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 			AS(node,Operator)->left = prev;
 			prev->parent = node;
 
-			f_array_push(ffzNodeOperator*, &operator_chain, AS(node,Operator));
+			f_array_push(ffzNodeOp*, &operator_chain, AS(node,Operator));
 			p->pos = after_next;
 		}
 
@@ -1433,7 +1435,7 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 
 	ffzNode* root = prev;
 	if (operator_chain.len > 0) {
-		root = BASE(find_root_operator(operator_chain.slice));
+		root = (ffzNode*)find_root_operator(operator_chain.slice);
 	}
 	root->loc.end = p->pos;
 
@@ -1454,13 +1456,13 @@ ffzOk ffz_parse(ffzParser* p) {
 	state.loc.column_num = 1;
 	p->root = NEW_NODE(Scope, &state, NULL, (ffzLocRange){0});
 
-	ffzNode* n;
-	ffzOk ok = parse_node(&state, (ffzNode*)p->root, &n);
+	TRY(parse_node_list(&state, (ffzNode*)p->root, 0));
+	//ffzNode* n;
+	//ffzOk ok = parse_node(&state, (ffzNode*)p->root, &n);
 
-	p->root->children.first = n;
-	//TRY(parse_node_list(p, BASE(p->root), 0));
+	//p->root->children.first = n;
 	
-	return ok;
+	return FFZ_OK;
 }
 
 OPT(ffzNode*) ffz_skip_standalone_tags(OPT(ffzNode*) node) {
@@ -1495,12 +1497,15 @@ u32 ffz_get_child_index(ffzNode* child) {
 	return F_U32_MAX;
 }
 
-
-OPT(ffzNodeDeclaration*) ffz_get_parent_decl(OPT(ffzNode*) node) {
-	return node && node->parent->kind == ffzNodeKind_Declaration ? AS(node->parent, Declaration) : NULL;
+OPT(ffzNodeOpDeclare*) ffz_get_parent_decl(OPT(ffzNode*) node) {
+	return (node && node->parent->kind == ffzNodeKind_Declare) ? (ffzNodeOpDeclare*)node->parent : NULL;
 }
 
 fString ffz_get_parent_decl_name(OPT(ffzNode*) node) {
-	ffzNodeDeclaration* decl = ffz_get_parent_decl(node);
-	return decl ? decl->name->name : (fString) { 0 };
+	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
+	return decl ? decl->Op.left->Identifier.name : (fString) { 0 };
 }
+
+// :NoteAboutSeqLiterals
+// when comparing agains a C character sequence literal, i.e. foo == 'abc', we need to 
+// flip the byte order of the literal, because C represents them in big-endian format.

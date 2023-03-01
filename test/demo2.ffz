@@ -138,4 +138,26 @@ Also, if there is a node in the same line before the comment, it could be a tag 
 */	
 }
 
+/*
 
+Idea: hierarchical enum types.
+OR allow arbitrary boolean expressions in switch statements. Or both!
+
+#OperatorKind: enum {
+	add,
+	mul,
+	div,
+}
+	
+#NodeKind: enum {
+	Declare,
+	Literal,
+	@using OperatorKind,
+}
+
+switch (node.kind) {
+	OperatorKind = {
+	}
+}
+
+*/

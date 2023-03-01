@@ -117,31 +117,28 @@ typedef enum ffzTypeTag {
 // but then we'd have to build atomic arrays
 // typedef struct ffzNodeInstSlim { ffzNodeIdx node; ffzPolyInstIdx poly_inst; } ffzNodeInstSlim;
 
-#define FFZ_DECLARE_NODE_INST_TYPE(T)\
-	struct T##Inst {\
-		T* /*opt*/ node;\
-		ffzPolymorph* polymorph;\
-	}
+typedef struct ffzNodeInst {
+	ffzNode* node;
+	ffzPolymorph* polymorph;
+} ffzNodeInst;
 
-FFZ_DECLARE_NODE_INST_TYPE(ffzNode);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeDeclaration);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeAssignment);
-//FFZ_DECLARE_NODE_INST_TYPE(ffzNodeTag);
-//FFZ_DECLARE_NODE_INST_TYPE(ffzNodeTagDecl);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeIdentifier);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeDot);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodePolyParamList);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeKeyword);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeOperator);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeIf);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeFor);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeProcType);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeRecord);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeEnum);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeScope);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeReturn);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeIntLiteral);
-FFZ_DECLARE_NODE_INST_TYPE(ffzNodeStringLiteral);
+typedef ffzNodeInst ffzNodeInst;
+typedef ffzNodeInst ffzNodeIdentifierInst;
+typedef ffzNodeInst ffzNodeDotInst;
+typedef ffzNodeInst ffzNodePolyParamListInst;
+typedef ffzNodeInst ffzNodeKeywordInst;
+typedef ffzNodeInst ffzNodeOpInst;
+typedef ffzNodeInst ffzNodeOpDeclareInst;
+typedef ffzNodeInst ffzNodeOpAssignInst;
+typedef ffzNodeInst ffzNodeIfInst;
+typedef ffzNodeInst ffzNodeForInst;
+typedef ffzNodeInst ffzNodeProcTypeInst;
+typedef ffzNodeInst ffzNodeRecordInst;
+typedef ffzNodeInst ffzNodeEnumInst;
+typedef ffzNodeInst ffzNodeScopeInst;
+typedef ffzNodeInst ffzNodeReturnInst;
+typedef ffzNodeInst ffzNodeIntLiteralInst;
+typedef ffzNodeInst ffzNodeStringLiteralInsts;
 
 struct ffzDefinitionPath {
 	ffzNode* parent_scope; // NULL for top-level scope
@@ -170,8 +167,6 @@ struct ffzCheckerStackFrame {
 	OPT(ffzType*) current_proc_type;
 };*/
 
-
-
 typedef struct ffzCheckerScope {
 	ffzNode* node;
 	ffzCheckerScope* parent;
@@ -181,7 +176,7 @@ typedef struct ffzTypeRecordField {
 	fString name;
 	ffzType* type;
 	u32 offset;
-	ffzNodeDeclaration* /*opt*/ decl;
+	ffzNodeOpDeclare* /*opt*/ decl;
 } ffzTypeRecordField;
 
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
@@ -341,11 +336,11 @@ struct ffzChecker {
 	ffzType* builtin_types[ffzKeyword_string + 1 - ffzKeyword_u8];
 };
 
-#define FFZ_INST_AS(node,kind) (*(ffzNode##kind##Inst*)&(node))
-#define FFZ_INST_BASE(node) (*(ffzNodeInst*)&(node))
+//#define FFZ_INST_AS(node,kind) (*(ffzNode##kind##Inst*)&(node))
+//#define FFZ_INST_(ffzNode*)node (*(ffzNodeInst*)&(node))
 
 #define FFZ_EACH_CHILD_INST(n, parent) (\
-	ffzNodeInst n = {(parent.node) ? FFZ_BASE((parent).node)->children.first : NULL, (parent).polymorph};\
+	ffzNodeInst n = {(parent.node) ? (parent).node->children.first : NULL, (parent).polymorph};\
 	n.node = ffz_skip_standalone_tags(n.node);\
 	n.node = n.node->next)
 
@@ -408,7 +403,7 @@ inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) {
 	return inst.polymorph ? inst.polymorph->checker : ffz_checker_from_node(p, inst.node);
 }
 
-bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeDeclarationInst* out_decl);
+bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeOpDeclare* out_decl);
 
 ffzNodeInst ffz_get_instantiated_expression(ffzProject* p, ffzNodeInst node); // do we need this?
 
@@ -419,18 +414,18 @@ ffzCheckedExpr ffz_expr_get_checked(ffzProject* p, ffzNodeInst node);
 inline ffzType* ffz_expr_get_type(ffzProject* p, ffzNodeInst node) { return ffz_expr_get_checked(p, node).type; }
 inline ffzConstant* ffz_expr_get_evaluated_constant(ffzProject* p, ffzNodeInst node) { return ffz_expr_get_checked(p, node).const_val; }
 
-ffzCheckedExpr ffz_decl_get_checked(ffzProject* p, ffzNodeDeclarationInst decl);
-inline ffzType* ffz_decl_get_type(ffzProject* p, ffzNodeDeclarationInst node) { return ffz_decl_get_checked(p, node).type; }
-inline ffzConstant* ffz_decl_get_evaluated_constant(ffzProject* p, ffzNodeDeclarationInst node) { return ffz_decl_get_checked(p, node).const_val; }
+ffzCheckedExpr ffz_decl_get_checked(ffzProject* p, ffzNodeOpDeclareInst decl);
+inline ffzType* ffz_decl_get_type(ffzProject* p, ffzNodeOpDeclareInst node) { return ffz_decl_get_checked(p, node).type; }
+inline ffzConstant* ffz_decl_get_evaluated_constant(ffzProject* p, ffzNodeOpDeclareInst node) { return ffz_decl_get_checked(p, node).const_val; }
 
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in  foo: int  the "foo" identifier would be a definition.
 ffzNodeIdentifierInst ffz_get_definition(ffzProject* p, ffzNodeIdentifierInst ident);
 
-bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeDeclarationInst* out_decl); // hmm... this is a bit weird.
+bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl); // hmm... this is a bit weird.
 //bool ffz_definition_is_constant(ffzNodeIdentifier* definition);
 
 //bool ffz_decl_is_constant(ffzNodeDeclaration* decl);
-bool ffz_decl_is_runtime_value(ffzNodeDeclaration* decl);
+bool ffz_decl_is_runtime_value(ffzNodeOpDeclareInst* decl);
 
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee);

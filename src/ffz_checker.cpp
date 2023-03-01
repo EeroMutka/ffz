@@ -18,14 +18,14 @@
 
 // Helper macros
 
-#define AS(node,kind) FFZ_AS(node, kind)
-#define BASE(node) FFZ_BASE(node)
-
-#define IAS(node, kind) FFZ_INST_AS(node, kind)
-#define IBASE(node) FFZ_INST_BASE(node) 
-#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).polymorph }
-
+#define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
 #define VALIDATE(x) F_ASSERT(x)
+
+//#define AS(node,kind) FFZ_AS(node, kind)
+//#define (ffzNode*)node FFZ_(ffzNode*)node
+//#define node FFZ_INST_AS(node, kind)
+//#define node FFZ_INST_(ffzNode*)node 
+//#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).polymorph }
 
 ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value) {
 	return f_hash64_ex(enum_type->hash, value);
@@ -49,7 +49,7 @@ ffzConstantHash ffz_hash_constant(ffzCheckedExpr constant) {
 
 	case ffzTypeTag_PolyProc: // fallthrough
 	case ffzTypeTag_Proc: {
-		f_hash64_push(&h, ffz_hash_node_inst(IBASE(constant.const_val->proc_node)));
+		f_hash64_push(&h, ffz_hash_node_inst(constant.const_val->proc_node));
 	} break;
 
 	case ffzTypeTag_PolyRecord: // fallthrough
@@ -88,12 +88,12 @@ u64 ffz_hash_declaration_path(ffzDefinitionPath path) {
 }
 
 static ffzOk _add_unique_definition(ffzChecker* c, ffzNodeIdentifier* def) {
-	fString name = def->name;
+	fString name = def->Identifier.name;
 	
 	for (ffzCheckerScope* scope = c->current_scope; scope; scope = scope->parent) {
 		ffzDefinitionPath path = { scope->node, name };
 		if (ffzNodeIdentifier** existing = f_map64_get(&c->definition_map, ffz_hash_declaration_path(path))) {
-			ERR(c, BASE(def), "`%s` is already declared before (at line: %u)",
+			ERR(c, def, "`%s` is already declared before (at line: %u)",
 				f_str_to_cstr(name, c->alc),
 				(*existing)->loc.start.line_num);
 		}
@@ -211,8 +211,8 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 	} break;
 	case ffzTypeTag_Float: {F_BP; } break;
 	case ffzTypeTag_Proc: {
-		ffzNodeProcType* s = AS(type->unique_node.node,ProcType);
-		fString name = ffz_get_parent_decl_name(BASE(s));
+		ffzNodeProcType* s = type->unique_node.node;
+		fString name = ffz_get_parent_decl_name(s);
 		if (name.len > 0) {
 			f_str_print(b, name);
 		}
@@ -220,7 +220,7 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 			f_str_printf(b, "[anonymous proc type defined at line:%u, col:%u]", s->loc.start.line_num, s->loc.start.column_num);
 		}
 
-		if (ffz_get_child_count(BASE(s->polymorphic_parameters)) > 0) {
+		if (ffz_get_child_count(s->ProcType.polymorphic_parameters) > 0) {
 			F_BP;
 			//str_print(builder, F_LIT("["));
 			//PolyInst* inst = map64_get(&c->poly_instantiations, s.poly_inst);
@@ -253,19 +253,18 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 		}
 	} break;
 	case ffzTypeTag_Record: {
-		ffzNodeRecordInst n = IAS(type->unique_node,Record);
-		fString name = ffz_get_parent_decl_name(BASE(n.node));
+		ffzNodeRecordInst n = type->unique_node;
+		fString name = ffz_get_parent_decl_name(n.node);
 		if (name.len > 0) {
 			f_str_print(b, name);
 		}
 		else {
 			f_str_printf(b, "[anonymous %s defined at line:%u, col:%u]",
-				AS(n.node,Record)->is_union ? "union" : "struct", n.node->loc.start.line_num, n.node->loc.start.column_num);
+				n.node->Record.is_union ? "union" : "struct", n.node->loc.start.line_num, n.node->loc.start.column_num);
 		}
 
-		if (ffz_get_child_count(BASE(AS(n.node,Record)->polymorphic_parameters)) > 0) {
+		if (ffz_get_child_count(n.node->Record.polymorphic_parameters) > 0) {
 			f_str_print(b, F_LIT("["));
-			//ffzPolymorph poly = ffz_poly_from_inst(p, IBASE(n));
 			
 			for (uint i = 0; i < n.polymorph->parameters.len; i++) {
 				if (i > 0) f_str_print(b, F_LIT(", "));
@@ -322,20 +321,20 @@ const char* ffz_type_to_cstring(ffzProject* p, ffzType* type) {
 	return (const char*)builder.data;
 }
 
-bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeDeclarationInst* out_decl) {
-	if (node.node->parent->kind != ffzNodeKind_Declaration) return false;
+bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl) {
+	if (node.node->parent->kind != ffzNodeKind_Declare) return false;
 	
-	*out_decl = { AS(node.node->parent,Declaration), node.polymorph };
-	return out_decl->node->name == node.node;
+	*out_decl = { node.node->parent, node.polymorph };
+	return out_decl->node->Op.left == node.node;
 }
 
 //bool ffz_definition_is_constant(ffzNodeIdentifier* definition) { return definition->is_constant || definition->parent->kind == ffzNodeKind_PolyParamList; }
 
-bool ffz_decl_is_runtime_value(ffzNodeDeclaration* decl) {
+bool ffz_decl_is_runtime_value(ffzNodeOpDeclare* decl) {
 	if (decl->parent->kind == ffzNodeKind_Record) return false;
 	if (decl->parent->kind == ffzNodeKind_Enum) return false;
 	if (decl->parent->kind == ffzNodeKind_PolyParamList) return false;
-	if (decl->name->is_constant) return false;
+	if (decl->Op.left->Identifier.is_constant) return false;
 	return true;
 }
 
@@ -347,12 +346,12 @@ bool ffz_is_child_of(ffzNode* node, OPT(ffzNode*) parent) {
 }
 
 ffzNodeIdentifierInst ffz_get_definition(ffzProject* project, ffzNodeIdentifierInst ident) {
-	ffzChecker* base_module = ffz_checker_from_node(project, BASE(ident.node));
+	ffzChecker* base_module = ffz_checker_from_node(project, (ffzNode*)ident.node);
 	
 	ffzPolymorph* poly = ident.polymorph;
-	for (ffzNode* n = BASE(ident.node); n; n = n->parent) { // we want to check even with a NULL scope node
-
-		ffzDefinitionPath decl_path = { n->parent, ident.node->name };
+	for (ffzNode* n = (ffzNode*)ident.node; n; n = n->parent) { // we want to check even with a NULL scope node
+		
+		ffzDefinitionPath decl_path = { n->parent, ident.node->Identifier.name };
 		if (ffzNodeIdentifier** found = f_map64_get(&base_module->definition_map, ffz_hash_declaration_path(decl_path))) {
 			
 			for (; poly && ffz_is_child_of(poly->node.node, n->parent);) {
@@ -376,13 +375,13 @@ ffzConstant* ffz_get_default_value_for_type(ffzChecker* c, ffzType* t) {
 	return (ffzConstant*)&empty;
 }
 
-ffzCheckedExpr ffz_decl_get_checked(ffzProject* p, ffzNodeDeclarationInst decl) {
-	ffzChecker* c = ffz_checker_from_inst(p, IBASE(decl));
-	ffzCheckedExpr* out = f_map64_get(&c->cache, ffz_hash_node_inst(IBASE(decl)));
+ffzCheckedExpr ffz_decl_get_checked(ffzProject* p, ffzNodeOpDeclareInst decl) {
+	ffzChecker* c = ffz_checker_from_inst(p, decl);
+	ffzCheckedExpr* out = f_map64_get(&c->cache, ffz_hash_node_inst(decl));
 	return out ? *out : ffzCheckedExpr{};
 }
 
-bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeDeclarationInst* out_decl) {
+bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeOpDeclareInst* out_decl) {
 	ffzNodeIdentifier** def = f_map64_get(&c->definition_map, ffz_hash_declaration_path(ffzDefinitionPath{ {}, name }));
 	return def && ffz_get_decl_if_definition(ffzNodeIdentifierInst{ *def, NULL }, out_decl);
 }
@@ -404,13 +403,13 @@ static ffzOk add_fields_to_field_from_name_map(ffzChecker* c, ffzType* root_type
 
 		auto insertion = f_map64_insert(&c->field_from_name_map, ffz_hash_field(root_type, field->name), field_use, fMapInsert_DoNotOverride);
 		if (!insertion.added) {
-			ERR(c, BASE(field->decl), "`%s` is already declared before inside (TODO: print struct name) (TODO: print line)",
+			ERR(c, field->decl, "`%s` is already declared before inside (TODO: print struct name) (TODO: print line)",
 				f_str_to_cstr(field->name, c->alc)); // (*insertion._unstable_ptr)->name->start_pos.line_number);
 		}
 
 		if (field->decl) {
 			F_BP;
-			//if (ffz_get_compiler_tag_by_name(BASE(field->decl), F_LIT("using"))) {
+			//if (ffz_get_compiler_tag_by_name((ffzNode*)field->decl, F_LIT("using"))) {
 			//	TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
 			//}
 		}
@@ -494,23 +493,23 @@ static ffzOk error_not_an_expression(ffzChecker* c, ffzNode* node) {
 	ERR(c, node, "Expected an expression, but got a statement or a procedure call with no return value.");
 }
 
-static ffzOk check_procedure_call(ffzChecker* c, const CheckInfer& infer, ffzNodeOperatorInst inst, OPT(ffzType*)* out_type) {
+static ffzOk check_procedure_call(ffzChecker* c, const CheckInfer& infer, ffzNodeOpInst inst, OPT(ffzType*)* out_type) {
 	// if (inst.node->loc.start.line_num == 119) F_BP;
 	
-	ffzNodeInst left = ICHILD(inst, left);
+	ffzNodeInst left = CHILD(inst, Op.left);
 	ffzCheckedExpr left_chk;
 	TRY(check_expression(c, infer_no_help(infer), left, &left_chk));
 
 	ffzType* type = left_chk.type;
 	if (left_chk.type->tag != ffzTypeTag_Proc) {
-		ERR(c, BASE(left.node), "Attempted to call a non-procedure (%s)", ffz_type_to_cstring(c->project, left_chk.type));
+		ERR(c, left.node, "Attempted to call a non-procedure (%s)", ffz_type_to_cstring(c->project, left_chk.type));
 	}
 
 	*out_type = type->Proc.out_param ? type->Proc.out_param->type : NULL;
 
-	if (ffz_get_child_count(BASE(inst.node)) != type->Proc.in_params.len) {
-		ERR(c, BASE(inst.node), "Incorrect number of procedure arguments. (expected %u, got %u)",
-			type->Proc.in_params.len, ffz_get_child_count(BASE(inst.node)));
+	if (ffz_get_child_count(inst.node) != type->Proc.in_params.len) {
+		ERR(c, inst.node, "Incorrect number of procedure arguments. (expected %u, got %u)",
+			type->Proc.in_params.len, ffz_get_child_count(inst.node));
 	}
 
 	uint i = 0;
@@ -606,10 +605,10 @@ ffzConstant ffz_constant_fixed_array_get(ffzType* array_type, ffzConstant* array
 
 ffzOk _ffz_add_possible_definition(ffzChecker* c, ffzNode* n) {
 	if (n->parent->kind == ffzNodeKind_PolyParamList) {
-		TRY(_add_unique_definition(c, AS(n,Identifier)));
+		TRY(_add_unique_definition(c, n));
 	}
-	else if (n->kind == ffzNodeKind_Declaration) {
-		TRY(_add_unique_definition(c, AS(n,Declaration)->name));
+	else if (n->kind == ffzNodeKind_Declare) {
+		TRY(_add_unique_definition(c, n->Op.right));
 	}
 	return { true };
 }
@@ -618,7 +617,6 @@ ffzOk _ffz_add_possible_definitions(ffzChecker* c, OPT(ffzNode*) parent) {
 	for FFZ_EACH_CHILD(n, parent) { TRY(_ffz_add_possible_definition(c, n)); }
 	return { true };
 }
-
 
 ffzOk ffz_instanceless_check_ex(ffzChecker* c, ffzNode* node, bool recursive, bool new_scope) {
 	ffzCheckerScope scope;
@@ -632,32 +630,24 @@ ffzOk ffz_instanceless_check_ex(ffzChecker* c, ffzNode* node, bool recursive, bo
 	}
 
 	if (node->kind == ffzNodeKind_Record) {
-		TRY(_ffz_add_possible_definitions(c, BASE(AS(node,Record)->polymorphic_parameters)));
+		TRY(_ffz_add_possible_definitions(c, node->Record.polymorphic_parameters));
 	}
 	else if (node->kind == ffzNodeKind_ProcType) {
-		ffzNodeProcType* derived = AS(node, ProcType);
-
-		TRY(_ffz_add_possible_definitions(c, BASE(derived->polymorphic_parameters)));
-		if (derived->out_parameter) TRY(_ffz_add_possible_definition(c, derived->out_parameter));
+		TRY(_ffz_add_possible_definitions(c, node->ProcType.polymorphic_parameters));
+		if (node->ProcType.out_parameter) TRY(_ffz_add_possible_definition(c, node->ProcType.out_parameter));
 	}
-	else if (node->kind == ffzNodeKind_Operator) {
-		ffzNodeOperator* derived = AS(node, Operator);
-
-		if (derived->op_kind == ffzOperatorKind_PostCurlyBrackets) {
-			// If the procedure type is anonymous, add the parameters to this scope. Otherwise, the programmer must use the `in` and `out` keywords to access parameters.
-			if (derived->left->kind == ffzNodeKind_ProcType) {
-				ffz_instanceless_check_ex(c, derived->left, recursive, false);
-				//TRY(_ffz_add_possible_definitions(c, derived->left));
-
-				//OPT(ffzNode*) out_parameter = AS(derived->left,ProcType)->out_parameter; // :AddOutParamDeclaration
-				//if (out_parameter) TRY(_ffz_add_possible_definition(c, out_parameter));
-			}
+	else if (node->kind == ffzNodeKind_PostCurlyBrackets) {
+		// If the procedure type is anonymous, add the parameters to this scope. Otherwise, the programmer must use the `in` and `out` keywords to access parameters.
+		if (node->Op.left->kind == ffzNodeKind_ProcType) {
+			ffz_instanceless_check_ex(c, node->Op.left, recursive, false);
+			//TRY(_ffz_add_possible_definitions(c, derived->left));
+			//OPT(ffzNode*) out_parameter = AS(derived->left,ProcType)->out_parameter; // :AddOutParamDeclaration
+			//if (out_parameter) TRY(_ffz_add_possible_definition(c, out_parameter));
 		}
 	}
 	else if (node->kind == ffzNodeKind_For) {
-		ffzNodeFor* derived = AS(node, For);
-		if (derived->header_stmts[0]) { // e.g. `for i: 0, ...`
-			TRY(_ffz_add_possible_definition(c, derived->header_stmts[0]));
+		if (node->For.header_stmts[0]) { // e.g. `for i: 0, ...`
+			TRY(_ffz_add_possible_definition(c, node->For.header_stmts[0]));
 		}
 	}
 
@@ -792,11 +782,11 @@ ffzType* ffz_make_type_fixed_array(ffzChecker* c, ffzType* elem_type, s32 length
 	return ffz_make_type(c, array_type);
 }
 
-static ffzNodeOperatorInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst inst, ffzType** out_type) {
+static ffzNodeOpInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst inst, ffzType** out_type) {
 	ffzNodeInst parent = inst;
 	parent.node = parent.node->parent;
 	for (; parent.node; parent.node = parent.node->parent) {
-		if (parent.node->kind == ffzNodeKind_Operator) {
+		if (parent.node->kind == ffzNodeKind_PostCurlyBrackets) {
 			ffzType* type = ffz_expr_get_type(p, parent);
 
 			// Kind of a hack, but since we can call this function from inside the checker,
@@ -804,7 +794,7 @@ static ffzNodeOperatorInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst 
 			// their types should be available.
 			if (type && type->tag == ffzTypeTag_Proc) {
 				*out_type = type;
-				return IAS(parent, Operator);
+				return parent;
 			}
 		}
 	}
@@ -812,48 +802,48 @@ static ffzNodeOperatorInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst 
 	return {};
 }
 
-static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer infer, ffzCheckedExpr* result, bool* delayed_check_proc) {
-	ffzNodeOperator* node = inst.node;
-	ffzNodeInst left = ICHILD(inst, left);
-	ffzNodeInst right = ICHILD(inst, right);
+static ffzOk _check_operator(ffzChecker* c, ffzNodeOpInst inst, CheckInfer infer, ffzCheckedExpr* result, bool* delayed_check_proc) {
+	ffzNodeOp* node = inst.node;
+	ffzNodeInst left = CHILD(inst, Op.left);
+	ffzNodeInst right = CHILD(inst, Op.right);
 
-	switch (node->op_kind) {
-	case ffzOperatorKind_PostRoundBrackets: {
+	switch (node->kind) {
+	case ffzNodeKind_PostRoundBrackets: {
 		bool fall = true;
 		if (left.node->kind == ffzNodeKind_Keyword) {
-			ffzKeyword keyword = AS(left.node, Keyword)->keyword;
+			ffzKeyword keyword = left.node->Keyword.keyword;
 			if (ffz_keyword_is_bitwise_op(keyword)) {
-				if (ffz_get_child_count(BASE(node)) != (keyword == ffzKeyword_bit_not ? 1 : 2)) {
-					ERR(c, BASE(node), "Incorrect number of arguments to a bitwise operation.");
+				if (ffz_get_child_count(node) != (keyword == ffzKeyword_bit_not ? 1 : 2)) {
+					ERR(c, node, "Incorrect number of arguments to a bitwise operation.");
 				}
 
-				ffzNodeInst first = ffz_get_child_inst(IBASE(inst), 0);
+				ffzNodeInst first = ffz_get_child_inst(inst, 0);
 				if (keyword == ffzKeyword_bit_not) {
 					ffzCheckedExpr chk;
 					TRY(check_expression(c, infer, first, &chk));
 					result->type = chk.type;
 				}
 				else {
-					ffzNodeInst second = ffz_get_child_inst(IBASE(inst), 1);
+					ffzNodeInst second = ffz_get_child_inst(inst, 1);
 					TRY(check_two_sided(c, infer, first, second, &result->type));
 				}
 				
 				if (!is_basic_type_size(result->type->size)) {
-					ERR(c, BASE(node), "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: %u", result->type->size);
+					ERR(c, node, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: %u", result->type->size);
 				}
 
 				fall = false;
 			}
 			else if (keyword == ffzKeyword_size_of || keyword == ffzKeyword_align_of) {
-				if (ffz_get_child_count(BASE(node)) != 1) {
-					ERR(c, BASE(node), "Incorrect number of arguments to %s.", ffz_keyword_to_cstring(keyword));
+				if (ffz_get_child_count(node) != 1) {
+					ERR(c, node, "Incorrect number of arguments to %s.", ffz_keyword_to_cstring(keyword));
 				}
 
 				ffzCheckedExpr chk;
-				ffzNodeInst first = ffz_get_child_inst(IBASE(inst), 0);
+				ffzNodeInst first = ffz_get_child_inst(inst, 0);
 				TRY(check_expression(c, infer_no_help(infer), first, &chk));
 				if (!chk.type || chk.type->tag != ffzTypeTag_Type) {
-					ERR(c, BASE(node), "Expected a type to %s, but got a value.", ffz_keyword_to_cstring(keyword));
+					ERR(c, node, "Expected a type to %s, but got a value.", ffz_keyword_to_cstring(keyword));
 				}
 				
 				result->type = ffz_builtin_type(c, ffzKeyword_uint);
@@ -864,7 +854,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				result->type = c->module_type;
 				result->const_val = make_constant(c);
 				
-				ffzChecker* node_module = ffz_checker_from_inst(c->project, IBASE(inst));
+				ffzChecker* node_module = ffz_checker_from_inst(c->project, inst);
 				result->const_val->module = *f_map64_get(&node_module->imported_modules, inst.node->id.global_id);
 				fall = false;
 			}
@@ -877,15 +867,15 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			if (left_chk.type->tag == ffzTypeTag_Type) {
 				// ffzType casting
 				result->type = left_chk.const_val->type;
-				if (ffz_get_child_count(BASE(node)) != 1) ERR(c, BASE(node), "Incorrect number of arguments in type initializer.");
+				if (ffz_get_child_count(node) != 1) ERR(c, node, "Incorrect number of arguments in type initializer.");
 
-				ffzNodeInst arg = ffz_get_child_inst(IBASE(inst), 0);
+				ffzNodeInst arg = ffz_get_child_inst(inst, 0);
 				ffzCheckedExpr chk;
 
 				// check the expression, but do not enforce the type inference, as the type inference rules are
 				// more strict than a manual cast. For example, an integer cannot implicitly cast to a pointer, but when inside a cast it can.
 				TRY(check_expression_defaulting_to_uint(c, infer_target_type(infer, result->type), arg, &chk));
-				if (chk.type == NULL) ERR(c, BASE(node), "Invalid cast.");
+				if (chk.type == NULL) ERR(c, node, "Invalid cast.");
 				
 				ffzTypeTag dst_tag = result->type->tag, src_tag = chk.type->tag;
 
@@ -899,7 +889,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 
 				if (ffz_type_is_integer_ish(dst_tag) && ffz_type_is_integer_ish(src_tag)) {} // integer-ish types can be casted between
 				else {
-					TRY(check_types_match(c, BASE(node), chk.type, result->type, "The received type cannot be casted to the expected type:"));
+					TRY(check_types_match(c, (ffzNode*)node, chk.type, result->type, "The received type cannot be casted to the expected type:"));
 				}
 			}
 			else {
@@ -908,8 +898,8 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		}
 	} break;
 
-	case ffzOperatorKind_UnaryMinus: // fallthrough
-	case ffzOperatorKind_UnaryPlus: {
+	case ffzNodeKind_UnaryMinus: // fallthrough
+	case ffzNodeKind_UnaryPlus: {
 		ffzCheckedExpr right_chk;
 		TRY(check_expression(c, infer, right, &right_chk));
 
@@ -920,30 +910,30 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		result->type = right_chk.type;
 	} break;
 
-	case ffzOperatorKind_PreSquareBrackets: {
+	case ffzNodeKind_PreSquareBrackets: {
 		ffzCheckedExpr right_chk;
 		TRY(check_expression(c, infer_no_help(infer), right, &right_chk));
 		if (right_chk.type->tag != ffzTypeTag_Type) ERR(c, right.node, "Expected a type after [], but got a value.");
 
-		if (ffz_get_child_count(BASE(node)) == 0) {
+		if (ffz_get_child_count(node) == 0) {
 			*result = make_type_constant(c, ffz_make_type_slice(c, right_chk.const_val->type));
 		}
-		else if (ffz_get_child_count(BASE(node)) == 1) {
-			ffzNode* child = ffz_get_child(BASE(node), 0);
+		else if (ffz_get_child_count(node) == 1) {
+			ffzNode* child = ffz_get_child(node, 0);
 			s32 length = -1;
 			if (child->kind == ffzNodeKind_IntLiteral) {
-				length = (s32)AS(child, IntLiteral)->value;
+				length = (s32)child->IntLiteral.value;
 			}
-			else if (child->kind == ffzNodeKind_Keyword && AS(child,Keyword)->keyword == ffzKeyword_QuestionMark) {}
-			else ERR(c, BASE(node), "Unexpected value inside the brackets of an array type; expected an integer literal or `?`");
+			else if (child->kind == ffzNodeKind_Keyword && child->Keyword.keyword == ffzKeyword_QuestionMark) {}
+			else ERR(c, node, "Unexpected value inside the brackets of an array type; expected an integer literal or `?`");
 
 			ffzType* array_type = ffz_make_type_fixed_array(c, right_chk.const_val->type, length);
 			*result = make_type_constant(c, array_type);
 		}
-		else ERR(c, BASE(node), "Unexpected value inside the brackets of an array type; expected an integer literal or `_`");
+		else ERR(c, node, "Unexpected value inside the brackets of an array type; expected an integer literal or `_`");
 	} break;
 
-	case ffzOperatorKind_PointerTo: {
+	case ffzNodeKind_PointerTo: {
 		ffzCheckedExpr right_chk;
 		TRY(check_expression(c, infer_no_help(infer), right, &right_chk));
 		
@@ -953,7 +943,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		*result = make_type_constant(c, ffz_make_type_ptr(c, right_chk.const_val->type));
 	} break;
 		
-	case ffzOperatorKind_PostCurlyBrackets: {
+	case ffzNodeKind_PostCurlyBrackets: {
 		ffzCheckedExpr left_chk;
 		TRY(check_expression(c, infer_no_help(infer), left, &left_chk));
 		if (left_chk.type->tag != ffzTypeTag_Type) {
@@ -968,7 +958,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		// adder[int](50, 60)
 		//
 		if (left_chk.const_val->type->tag == ffzTypeTag_PolyProc &&
-			(inst.polymorph && inst.polymorph->node.node == BASE(inst.node)))
+			(inst.polymorph && inst.polymorph->node.node == (ffzNode*)inst.node))
 		{
 			ffzPolymorph poly = {};
 			poly.checker = c;
@@ -983,15 +973,15 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			}
 			ffzPolymorph* poly_dedup = *entry._unstable_ptr;
 
-			f_map64_insert(&c->poly_instantiation_sites, ffz_hash_node_inst(IBASE(inst)), poly_dedup);
+			f_map64_insert(&c->poly_instantiation_sites, ffz_hash_node_inst(inst), poly_dedup);
 
-			TRY(check_expression(c, infer, ffzNodeInst{ BASE(poly.node.node), poly_dedup }, &left_chk));
+			TRY(check_expression(c, infer, ffzNodeInst{ (ffzNode*)poly.node.node, poly_dedup }, &left_chk));
 		}
 
 		result->type = ffz_ground_type(left_chk);
 		if (result->type->tag == ffzTypeTag_Proc || result->type->tag == ffzTypeTag_PolyProc) {
 			result->const_val = make_constant(c);
-			result->const_val->proc_node = IBASE(inst);
+			result->const_val->proc_node = inst;
 			if (result->type->tag != ffzTypeTag_PolyProc) {
 				*delayed_check_proc = true;
 			}
@@ -1018,7 +1008,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 					result->type = ffz_make_type_fixed_array(c, elem_type, (s32)elems_chk.len);
 				}
 				else if (elems_chk.len != expected) {
-					ERR(c, BASE(node), "Incorrect number of array initializer arguments. Expected %d, got %d", expected, elems_chk.len);
+					ERR(c, node, "Incorrect number of array initializer arguments. Expected %d, got %d", expected, elems_chk.len);
 				}
 
 				if (all_elems_are_constant) {
@@ -1033,10 +1023,10 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			}
 		}
 		else if (result->type->tag == ffzTypeTag_Record) {
-			if (result->type->Record.is_union) ERR(c, BASE(node), "Union initialization with {} is not currently supported.");
+			if (result->type->Record.is_union) ERR(c, node, "Union initialization with {} is not currently supported.");
 
-			if (ffz_get_child_count(BASE(node)) != result->type->record_fields.len) {
-				ERR(c, BASE(node), "Incorrect number of struct initializer arguments.");
+			if (ffz_get_child_count(node) != result->type->record_fields.len) {
+				ERR(c, node, "Incorrect number of struct initializer arguments.");
 			}
 
 			bool all_fields_are_constant = true;
@@ -1056,10 +1046,10 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				result->const_val->record_fields = field_constants.slice;
 			}
 		}
-		else ERR(c, BASE(node), "{}-initializer is not allowed for `%s`.", ffz_type_to_cstring(c->project, result->type));
+		else ERR(c, node, "{}-initializer is not allowed for `%s`.", ffz_type_to_cstring(c->project, result->type));
 	} break;
 
-	case ffzOperatorKind_PostSquareBrackets: {
+	case ffzNodeKind_PostSquareBrackets: {
 		ffzCheckedExpr left_chk;
 		TRY(check_expression(c, infer_no_help(infer), left, &left_chk));
 
@@ -1073,17 +1063,17 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			ffzPolymorph poly = {};
 			poly.checker = c;
 			poly.node = left_type->tag == ffzTypeTag_Type ?
-				IBASE(type->unique_node) :
-				IBASE(left_chk.const_val->proc_node);
+				type->unique_node :
+				left_chk.const_val->proc_node;
 
-			uint poly_params_len = ffz_get_child_count(BASE(node));
+			uint poly_params_len = ffz_get_child_count(node);
 			//ffz_get_child_count(left_type->tag == ffzTypeTag_PolyProc ?
-			//	BASE(AS(left_type->unique_node.node,ProcType)->polymorphic_parameters) :
-			//	BASE(AS(left_type->unique_node.node,Record)->polymorphic_parameters));
+			//	(ffzNode*)AS(left_type->unique_node.node,ProcType->polymorphic_parameters) :
+			//	(ffzNode*)AS(left_type->unique_node.node,Record->polymorphic_parameters));
 			
 			// TODO!!!!!!!
 			//if ( != poly_params_len) {
-			//	ERR(c, BASE(node), "Incorrect number of polymorphic arguments.");
+			//	ERR(c, node, "Incorrect number of polymorphic arguments.");
 			//}
 
 			poly.parameters = f_make_slice_garbage<ffzCheckedExpr>(poly_params_len, c->alc);
@@ -1105,14 +1095,14 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			}
 			ffzPolymorph* poly_dedup = *entry._unstable_ptr;
 			
-			f_map64_insert(&c->poly_instantiation_sites, ffz_hash_node_inst(IBASE(inst)), poly_dedup);
+			f_map64_insert(&c->poly_instantiation_sites, ffz_hash_node_inst(inst), poly_dedup);
 
 			//inst_infer.instantiating_poly_type = type_node;
 			
 			// NOTE: if we have a polymorphic procedure, we don't want to check the procedure type - instead,
 			// we want to check the procedure body {}-operator.
 			
-			TRY(check_expression(c, infer, ffzNodeInst{ BASE(poly.node.node), poly_dedup }, result));
+			TRY(check_expression(c, infer, ffzNodeInst{ (ffzNode*)poly.node.node, poly_dedup }, result));
 		}
 		else {
 			// Array subscript
@@ -1125,9 +1115,9 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			
 			ffzType* elem_type = left_chk.type->tag == ffzTypeTag_Slice ? left_chk.type->fSlice.elem_type : left_chk.type->FixedArray.elem_type;
 
-			u32 child_count = ffz_get_child_count(BASE(node));
+			u32 child_count = ffz_get_child_count(node);
 			if (child_count == 1) {
-				ffzNodeInst index = ffz_get_child_inst(IBASE(inst), 0);
+				ffzNodeInst index = ffz_get_child_inst(inst, 0);
 				
 				ffzCheckedExpr index_chk;
 				TRY(check_expression_defaulting_to_uint(c, infer_no_help(infer), index, &index_chk));
@@ -1140,8 +1130,8 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				result->type = elem_type;
 			}
 			else if (child_count == 2) {
-				ffzNodeInst lo = ffz_get_child_inst(IBASE(inst), 0);
-				ffzNodeInst hi = ffz_get_child_inst(IBASE(inst), 1);
+				ffzNodeInst lo = ffz_get_child_inst(inst, 0);
+				ffzNodeInst hi = ffz_get_child_inst(inst, 1);
 				
 				ffzCheckedExpr lo_chk, hi_chk;
 				if (lo.node->kind != ffzNodeKind_Blank) {
@@ -1156,14 +1146,14 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 				result->type = ffz_make_type_slice(c, elem_type);
 			}
 			else {
-				ERR(c, BASE(node), "Incorrect number of arguments inside subscript/slice operation.");
+				ERR(c, node, "Incorrect number of arguments inside subscript/slice operation.");
 			}
 		}
 	} break;
 
-	case ffzOperatorKind_MemberAccess: { // :CheckMemberAccess
+	case ffzNodeKind_MemberAccess: { // :CheckMemberAccess
 		if (right.node->kind != ffzNodeKind_Identifier) {
-			ERR(c, BASE(node), "Invalid member access; the right side was not an identifier.");
+			ERR(c, node, "Invalid member access; the right side was not an identifier.");
 		}
 		
 		// Maybe we shouldn't even have the 'in' keyword?
@@ -1171,18 +1161,18 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 		// MyAdderProc{ ret a + b }  as well? I guess the main thing is "where does this variable come from?"
 		// In struct instance it's obvious (since you can't declare/assign to your own variables!)
 
-		fString member_name = AS(right.node,Identifier)->name;
+		fString member_name = right.node->Identifier.name;
  		bool found = false;
-		if (left.node->kind == ffzNodeKind_Identifier && AS(left.node,Identifier)->name == F_LIT("in")) {
+		if (left.node->kind == ffzNodeKind_Identifier && left.node->Identifier.name == F_LIT("in")) {
 			ffzType* proc_type;
-			ffzNodeOperatorInst parent_proc = code_stmt_get_parent_proc(c->project, IBASE(inst), &proc_type);
-			if (parent_proc.node->left->kind == ffzNodeKind_ProcType) {
+			ffzNodeOpInst parent_proc = code_stmt_get_parent_proc(c->project, inst, &proc_type);
+			if (parent_proc.node->Op.left->kind == ffzNodeKind_ProcType) {
 				ERR(c, left.node, "`in` is not allowed when the procedure parameters are accessible by name.");
 			}
 			
 			for (uint i = 0; i < proc_type->Proc.in_params.len; i++) {
 				ffzTypeProcParameter& param = proc_type->Proc.in_params[i];
-				if (param.name->name == member_name) {
+				if (param.name->Identifier.name == member_name) {
 					found = true;
 					result->type = param.type;
 				}
@@ -1194,7 +1184,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 
 			if (left_chk.type->tag == ffzTypeTag_Module) {
 				ffzChecker* left_module = left_chk.const_val->module;
-				ffzNodeDeclarationInst decl;
+				ffzNodeOpDeclareInst decl;
 				if (ffz_find_top_level_declaration(left_module, member_name, &decl)) {
 					*result = ffz_decl_get_checked(c->project, decl);
 					found = true;
@@ -1222,52 +1212,52 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 			}
 		}
 
-		if (!found) ERR(c, BASE(right.node), "Declaration not found for `%s` inside (TODO: print LHS type)", f_str_to_cstr(member_name, c->alc));
+		if (!found) ERR(c, right.node, "Declaration not found for `%s` inside (TODO: print LHS type)", f_str_to_cstr(member_name, c->alc));
 	} break;
 
-	case ffzOperatorKind_LogicalNOT: {
+	case ffzNodeKind_LogicalNOT: {
 		result->type = ffz_builtin_type(c, ffzKeyword_bool);
 		TRY(check_expression(c, infer_target_type(infer, result->type), right));
 	} break;
 
-	case ffzOperatorKind_LogicalAND: // fallthrough
-	case ffzOperatorKind_LogicalOR: {
+	case ffzNodeKind_LogicalAND: // fallthrough
+	case ffzNodeKind_LogicalOR: {
 		result->type = ffz_builtin_type(c, ffzKeyword_bool);
 		TRY(check_expression(c, infer_target_type(infer, result->type), left));
 		TRY(check_expression(c, infer_target_type(infer, result->type), right));
 	} break;
 
-	case ffzOperatorKind_AddressOf: {
+	case ffzNodeKind_AddressOf: {
 		ffzCheckedExpr right_chk;
 		TRY(check_expression(c, infer_no_help(infer), right, &right_chk));
 		result->type = ffz_make_type_ptr(c, right_chk.type);
 	} break;
 
-	case ffzOperatorKind_Dereference: {
+	case ffzNodeKind_Dereference: {
 		ffzCheckedExpr left_chk;
 		TRY(check_expression(c, infer_no_help(infer), left, &left_chk));
-		if (left_chk.type->tag != ffzTypeTag_Pointer) ERR(c, BASE(node), "Attempted to dereference a non-pointer.");
+		if (left_chk.type->tag != ffzTypeTag_Pointer) ERR(c, node, "Attempted to dereference a non-pointer.");
 		result->type = left_chk.type->Pointer.pointer_to;
 	} break;
 		
-	case ffzOperatorKind_Equal: case ffzOperatorKind_NotEqual: case ffzOperatorKind_Less:
-	case ffzOperatorKind_LessOrEqual: case ffzOperatorKind_Greater: case ffzOperatorKind_GreaterOrEqual: {
+	case ffzNodeKind_Equal: case ffzNodeKind_NotEqual: case ffzNodeKind_Less:
+	case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater: case ffzNodeKind_GreaterOrEqual: {
 		OPT(ffzType*) type;
 		TRY(check_two_sided(c, infer, left, right, &type));
 		
 		if (!ffz_type_is_comparable(type)) {
-			ERR(c, BASE(node), "Types cannot be compared. Received: %s", ffz_type_to_cstring(c->project, type));
+			ERR(c, node, "Types cannot be compared. Received: %s", ffz_type_to_cstring(c->project, type));
 		}
 		result->type = ffz_builtin_type(c, ffzKeyword_bool);
 	} break;
 
-	case ffzOperatorKind_Add: case ffzOperatorKind_Sub: case ffzOperatorKind_Mul:
-	case ffzOperatorKind_Div: case ffzOperatorKind_Modulo: {
+	case ffzNodeKind_Add: case ffzNodeKind_Sub: case ffzNodeKind_Mul:
+	case ffzNodeKind_Div: case ffzNodeKind_Modulo: {
 		OPT(ffzType*) type;
 		TRY(check_two_sided(c, infer, left, right, &type));
 		
 		if (type && !ffz_type_is_integer(type->tag)) {
-			ERR(c, BASE(node), "Incorrect arithmetic type; should be an integer.\n    received: ",
+			ERR(c, node, "Incorrect arithmetic type; should be an integer.\n    received: ",
 				ffz_type_to_cstring(c->project, type));
 		}
 		result->type = type;
@@ -1280,7 +1270,7 @@ static ffzOk _check_operator(ffzChecker* c, ffzNodeOperatorInst inst, CheckInfer
 
 //bool ffz_definition_is_constant(ffzNode* def) {
 //	//ASSERT(node_is_definition(def));
-//	return def->kind != ffzNodeKind_Declaration || AS(def,Declaration)->name->is_constant;
+//	return def->kind != ffzNodeKind_Declare || AS(def,Declaration)->name->is_constant;
 //}
 
 static bool is_lvalue(ffzChecker* c, ffzNode* node) {
@@ -1292,10 +1282,10 @@ static bool is_lvalue(ffzChecker* c, ffzNode* node) {
 	//	return true;
 	//} break;
 	//case ffzNodeKind_Operator: {
-	//	ffzNodeOperator* op = AS(node,Operator);
-	//	if (op->op_kind == ffzOperatorKind_MemberAccess) return is_lvalue(c, op->left);
-	//	if (op->op_kind == ffzOperatorKind_PostSquareBrackets) return is_lvalue(c, op->right);
-	//	if (op->op_kind == ffzOperatorKind_Dereference) return true;
+	//	ffzNodeOp* op = AS(node,Operator);
+	//	if (op->op_kind == ffzNodeKind_MemberAccess) return is_lvalue(c, op->left);
+	//	if (op->op_kind == ffzNodeKind_PostSquareBrackets) return is_lvalue(c, op->right);
+	//	if (op->op_kind == ffzNodeKind_Dereference) return true;
 	//} break;
 	//}
 	//return false;
@@ -1318,14 +1308,12 @@ static void checker_cache(ffzChecker* c, ffzNodeInst node, ffzCheckedExpr result
 
 
 /////// this should return the same CheckedExpr as the left-hand-side expression of the declaration.
-static ffzOk check_declaration(ffzChecker* c, const CheckInfer& infer, ffzNodeDeclarationInst inst) {
-	if (checker_already_cached(c, IBASE(inst))) return { true };
+static ffzOk check_declaration(ffzChecker* c, const CheckInfer& infer, ffzNodeOpDeclareInst inst) {
+	if (checker_already_cached(c, inst)) return { true };
 	F_ASSERT(infer.target_type == NULL);
 
-	ffzNodeIdentifierInst name = ICHILD(inst, name);
-	//if(name.node->name == F_LIT("arr")) F_BP;
-
-	ffzNodeInst rhs = ICHILD(inst, rhs);
+	ffzNodeIdentifierInst name = CHILD(inst, Op.left);
+	ffzNodeInst rhs = CHILD(inst, Op.right);
 	
 	CheckInfer child_infer = infer;
 	if (!ffz_decl_is_runtime_value(inst.node)) child_infer.expect_constant = true;
@@ -1343,19 +1331,19 @@ static ffzOk check_declaration(ffzChecker* c, const CheckInfer& infer, ffzNodeDe
 		// hmm... but they should within struct definitions.
 	}
 
-	checker_cache(c, IBASE(inst), out); // the lhs check_expression will recurse into this same check_declaration procedure, so this will prevent it.
-	TRY(check_expression(c, child_infer, IBASE(name), &lhs_chk));
+	checker_cache(c, inst, out); // the lhs check_expression will recurse into this same check_declaration procedure, so this will prevent it.
+	TRY(check_expression(c, child_infer, name, &lhs_chk));
 	return { true };
 }
 
 ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 	switch (node->kind) {
-	case ffzNodeKind_Declaration: {
-		ffzNodeIdentifier* name = AS(node,Declaration)->name;
-		if (!name->is_constant) ERR(c, BASE(name), "Top-level declaration must be constant, but got a non-constant.");
+	case ffzNodeKind_Declare: {
+		ffzNodeIdentifier* name = node->Op.left;
+		if (!name->Identifier.is_constant) ERR(c, name, "Top-level declaration must be constant, but got a non-constant.");
 		
 		ffzNodeInst inst = ffz_get_toplevel_inst(c, node);
-		TRY(check_declaration(c, CheckInfer{}, IAS(inst,Declaration)));
+		TRY(check_declaration(c, CheckInfer{}, inst));
 	} break;
 	default: ERR(c, node, "Top-level node must be a declaration; got: %s", ffz_node_kind_to_cstring(node->kind));
 	}
@@ -1376,14 +1364,14 @@ static ffzOk check_code_statement(ffzChecker* c, const CheckInfer& infer, ffzNod
 	// infer_decl_type is only currently used with enums, where the enum header defines the type of the expressions
 	//HITS(_c, 67);
 	switch (inst.node->kind) {
-	case ffzNodeKind_Declaration: {
-		TRY(check_declaration(c, infer, IAS(inst,Declaration)));
+	case ffzNodeKind_Declare: {
+		TRY(check_declaration(c, infer, inst));
 		return { true };
 	} break;
 
-	case ffzNodeKind_Assignment: {
-		ffzNodeInst lhs = ICHILD(IAS(inst,Assignment), lhs);
-		ffzNodeInst rhs = ICHILD(IAS(inst, Assignment), rhs);
+	case ffzNodeKind_Assign: {
+		ffzNodeInst lhs = CHILD(inst, Op.left);
+		ffzNodeInst rhs = CHILD(inst, Op.right);
 		ffzCheckedExpr lhs_chk, rhs_chk;
 
 		//ffzCheckerStackFrame frame;
@@ -1408,20 +1396,20 @@ static ffzOk check_code_statement(ffzChecker* c, const CheckInfer& infer, ffzNod
 	} break;
 
 	case ffzNodeKind_Keyword: {
-		switch (AS(inst.node,Keyword)->keyword) {
+		switch (inst.node->Keyword.keyword) {
 		case ffzKeyword_dbgbreak: return { true };
 		}
 	} break;
 
 	case ffzNodeKind_Return: {
-		ffzNodeInst return_val = ICHILD(IAS(inst,Return), value);
+		ffzNodeInst return_val = CHILD(inst,Return.value);
 		ffzType* proc_type;
-		ffzNodeOperatorInst proc_node = code_stmt_get_parent_proc(c->project, inst, &proc_type);
+		ffzNodeOpInst proc_node = code_stmt_get_parent_proc(c->project, inst, &proc_type);
 		
 		ffzTypeProcParameter* out_param = proc_type->Proc.out_param;
 		
 		// named returns are only supported if the procedure header is declared alongside the procedure
-		bool has_named_return = out_param && out_param->name && proc_node.node->left->kind == ffzNodeKind_ProcType;
+		bool has_named_return = out_param && out_param->name && proc_node.node->Op.left->kind == ffzNodeKind_ProcType;
 		if (!return_val.node && out_param && !has_named_return) ERR(c, inst.node, "Expected a return value, but none was given.");
 		if (return_val.node && !out_param) ERR(c, return_val.node, "Expected no return value, but one was given.");
 		
@@ -1439,48 +1427,42 @@ static ffzOk check_code_statement(ffzChecker* c, const CheckInfer& infer, ffzNod
 		return { true };
 	} break;
 
-	case ffzNodeKind_Operator: {
-		ffzNodeOperatorInst op = IAS(inst,Operator);
-		if (op.node->op_kind == ffzOperatorKind_PostRoundBrackets) {
-			OPT(ffzType*) return_type = NULL;
-			TRY(check_procedure_call(c, infer, op, &return_type));
-			//if (return_type) ERR(c, inst.node,
-			//	"Procedure returns a value, but it is ignored. I you want to ignore it, you must explicitly state it, e.g. `_= foo()`");
+	case ffzNodeKind_PostRoundBrackets: {
+		OPT(ffzType*) return_type = NULL;
+		TRY(check_procedure_call(c, infer, inst, &return_type));
+		//if (return_type) ERR(c, inst.node,
+		//	"Procedure returns a value, but it is ignored. I you want to ignore it, you must explicitly state it, e.g. `_= foo()`");
 			
-			//if (!out_param) CHECKER_ERROR(c, node.node->Return.value, F_LIT("Procedure is declared to return no value, but a return value was received."));
-			return { true };
-		}
+		//if (!out_param) CHECKER_ERROR(c, node.node->Return.value, F_LIT("Procedure is declared to return no value, but a return value was received."));
+		return { true };
 	} break;
 
 	case ffzNodeKind_If: {
-		ffzNodeIfInst if_stmt = IAS(inst,If);
-		TRY(check_expression(c, infer_target_type(infer, ffz_builtin_type(c, ffzKeyword_bool)), ICHILD(if_stmt,condition)));
-		TRY(check_code_statement(c, infer, ICHILD(if_stmt,true_scope)));
-		if (if_stmt.node->else_scope) {
-			TRY(check_code_statement(c, infer, ICHILD(if_stmt,else_scope)));
+		TRY(check_expression(c, infer_target_type(infer, ffz_builtin_type(c, ffzKeyword_bool)), CHILD(inst,If.condition)));
+		TRY(check_code_statement(c, infer, CHILD(inst,If.true_scope)));
+		if (inst.node->If.else_scope) {
+			TRY(check_code_statement(c, infer, CHILD(inst,If.else_scope)));
 		}
 		return { true };
 	} break;
 
 	case ffzNodeKind_For: {
-		ffzNodeForInst for_loop = IAS(inst,For);
 		//ffzCheckerScope scope;
 		//push_scope(c, inst, &scope); // This scope is for the possible declaration inside the for-loop header.
 
 		for (int i = 0; i < 3; i++) {
-			if (for_loop.node->header_stmts[i]) {
+			if (inst.node->For.header_stmts[i]) {
 				if (i == 1) {
 					TRY(check_expression(c, infer_target_type(infer, ffz_builtin_type(c, ffzKeyword_bool)),
-						ICHILD(for_loop,header_stmts[i])));
+						CHILD(inst,For.header_stmts[i])));
 				}
 				else {
-					//TRY(ffz_add_possible_definition(c, for_loop.node->header_stmts[i]));
-					TRY(check_code_statement(c, infer, ICHILD(for_loop,header_stmts[i])));
+					TRY(check_code_statement(c, infer, CHILD(inst,For.header_stmts[i])));
 				}
 			}
 		}
 
-		TRY(check_code_statement(c, infer, ICHILD(for_loop,scope)));
+		TRY(check_code_statement(c, infer, CHILD(inst,For.scope)));
 		//pop_scope(c);
 		return { true };
 	} break;
@@ -1491,7 +1473,7 @@ static ffzOk check_code_statement(ffzChecker* c, const CheckInfer& infer, ffzNod
 }
 
 ffzNodeInst ffz_get_instantiated_inst(ffzChecker* c, ffzNodeInst node) {
-	if (node.node->kind == ffzNodeKind_Operator && AS(node.node,Operator)->kind == ffzOperatorKind_PostSquareBrackets) {
+	if (node.node->kind == ffzNodeKind_PostSquareBrackets) {
 		if (ffzPolymorph** p_poly = f_map64_get(&c->poly_instantiation_sites, ffz_hash_node_inst(node))) {
 			node = ffzNodeInst{ (*p_poly)->node.node, (*p_poly) };
 		}
@@ -1551,9 +1533,8 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee) {
 	// TODO: we need to check for procedure boundaries.
 	for (ffzNode* p = dot.node->parent; p; p = p->parent) {
-		if (p->kind == ffzNodeKind_Assignment) {
-			ffzNodeAssignmentInst assignment_inst = { AS(p,Assignment), dot.polymorph };
-			*out_assignee = ICHILD(assignment_inst,lhs);
+		if (p->kind == ffzNodeKind_Assign) {
+			*out_assignee = { p->Op.left, dot.polymorph };
 			return true;
 		}
 	}
@@ -1580,7 +1561,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 
 	switch (inst.node->kind) {
 	case ffzNodeKind_Keyword: {
-		ffzKeyword keyword = AS(inst.node,Keyword)->keyword;
+		ffzKeyword keyword = inst.node->Keyword.keyword;
 		OPT(ffzType*) type_expr = ffz_builtin_type(c, keyword);
 		if (type_expr) {
 			result = make_type_constant(c, type_expr);
@@ -1612,16 +1593,16 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 
 	case ffzNodeKind_Dot: {
 		ffzNodeInst assignee;
-		if (!ffz_dot_get_assignee(IAS(inst,Dot), &assignee)) {
+		if (!ffz_dot_get_assignee(inst, &assignee)) {
 			ERR(c, inst.node, "`.` catcher must be used within an assignment, but no assignment was found.");
 		}
 		result.type = ffz_expr_get_type(c->project, assignee); // when checking assignments, the assignee/lhs is always checked first, so this should be ok.
 	} break;
 
 	case ffzNodeKind_Identifier: {
-		fString name = AS(inst.node, Identifier)->name;
+		fString name = inst.node->Identifier.name;
 
-		ffzNodeIdentifierInst def = ffz_get_definition(c->project, IAS(inst,Identifier));
+		ffzNodeIdentifierInst def = ffz_get_definition(c->project, inst);
 		if (!def.node) {
 			ERR(c, inst.node, "Declaration not found for an identifier: \"%s\"", f_str_to_cstr(name, c->alc));
 		}
@@ -1661,14 +1642,14 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 
 		//ffzNodeIdentifierInst def_inst = { def, inst.polymorph };
 		if (def.node->parent->kind == ffzNodeKind_PolyParamList) {
-			result = def.polymorph->parameters[ffz_get_child_index(BASE(def.node))];
+			result = def.polymorph->parameters[ffz_get_child_index((ffzNode*)def.node)];
 		}
 		else {
-			ffzNodeDeclarationInst decl_inst;
+			ffzNodeOpDeclareInst decl_inst;
 			F_ASSERT(ffz_get_decl_if_definition(def, &decl_inst));
 
-			fMapInsertResult circle_chk = f_map64_insert_raw(&c->checked_identifiers, ffz_hash_node_inst(IBASE(inst)), NULL, fMapInsert_DoNotOverride);
-			if (!circle_chk.added) ERR(c, BASE(inst.node), "Circular definition!"); // TODO: elaborate
+			fMapInsertResult circle_chk = f_map64_insert_raw(&c->checked_identifiers, ffz_hash_node_inst(inst), NULL, fMapInsert_DoNotOverride);
+			if (!circle_chk.added) ERR(c, inst.node, "Circular definition!"); // TODO: elaborate
 
 			// Sometimes we need to access a constant declaration that's ahead of us that we haven't yet checked.
 			// In that case we need to completely reset the context back to the declaration's scope, then evaluate the
@@ -1676,27 +1657,22 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			
 			TRY(check_declaration(c, infer_no_help(infer), decl_inst));
 
-			if (BASE(def.node) != inst.node && ffz_decl_is_runtime_value(decl_inst.node) && decl_inst.node->id.local_id > inst.node->id.local_id) {
+			if ((ffzNode*)def.node != inst.node && ffz_decl_is_runtime_value(decl_inst.node) && decl_inst.node->id.local_id > inst.node->id.local_id) {
 				ERR(c, inst.node, "Variable is being used before it is declared.");
 			}
 			
 			result = ffz_decl_get_checked(c->project, decl_inst);
-			if (def.node->is_constant) F_ASSERT(result.const_val);
+			if (def.node->Identifier.is_constant) F_ASSERT(result.const_val);
 		}
 
 	} break;
 
-	case ffzNodeKind_Operator: {
-		TRY(_check_operator(c, IAS(inst,Operator), infer, &result, &delayed_check_proc));
-	} break;
-
 	case ffzNodeKind_ProcType: {
-		ffzNodeProcTypeInst type_node = IAS(inst,ProcType);
 		ffzType proc_type = { ffzTypeTag_Proc };
 		proc_type.unique_node = inst;
-		ffzNodeInst out_param = ICHILD(type_node, out_parameter);
+		ffzNodeInst out_param = CHILD(inst,ProcType.out_parameter);
 
-		if (ffz_get_child_count(BASE(type_node.node->polymorphic_parameters)) > 0 &&
+		if (ffz_get_child_count(inst.node->ProcType.polymorphic_parameters) > 0 &&
 			(!inst.polymorph || inst.polymorph->node.node != inst.node)) {
 			//infer.instantiating_poly_type != inst.node) {
 			proc_type.tag = ffzTypeTag_PolyProc;
@@ -1704,19 +1680,19 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		else {
 			proc_type.size = c->project->pointer_size;
 
-			ffzNodePolyParamListInst poly_params = ICHILD(type_node, polymorphic_parameters);
+			ffzNodePolyParamListInst poly_params = CHILD(inst,ProcType.polymorphic_parameters);
 			for FFZ_EACH_CHILD_INST(n, poly_params) {
 				TRY(check_expression(c, infer_no_help_constant(infer), n));
 			}
 			
 			fArray(ffzTypeProcParameter) in_parameters = f_array_make<ffzTypeProcParameter>(c->alc);
 			for FFZ_EACH_CHILD_INST(param, inst) {
-				if (param.node->kind != ffzNodeKind_Declaration) ERR(c, param.node, "Expected a declaration.");
-				TRY(check_declaration(c, infer_no_help_nonconstant(infer), IAS(param, Declaration)));
+				if (param.node->kind != ffzNodeKind_Declare) ERR(c, param.node, "Expected a declaration.");
+				TRY(check_declaration(c, infer_no_help_nonconstant(infer), param));
 
 				f_array_push(&in_parameters, ffzTypeProcParameter{
-					IAS(param,Declaration).node->name,
-						ffz_decl_get_type(c->project, IAS(param,Declaration)),
+					param.node->Op.left,
+						ffz_decl_get_type(c->project, param),
 					});
 			}
 			proc_type.Proc.in_params = in_parameters.slice;
@@ -1726,11 +1702,11 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 				// Procedure return value can be either a declaration or an anonymous type.
 
 				proc_type.Proc.out_param = f_mem_clone(ffzTypeProcParameter{}, c->alc);
-				if (out_param.node->kind == ffzNodeKind_Declaration) {
-					ffzNodeDeclarationInst out_param_decl = IAS(out_param, Declaration);
+				if (out_param.node->kind == ffzNodeKind_Declare) {
+					ffzNodeOpDeclareInst out_param_decl = out_param;
 					TRY(check_declaration(c, infer_no_help(infer), out_param_decl));
 
-					proc_type.Proc.out_param->name = out_param_decl.node->name;
+					proc_type.Proc.out_param->name = out_param_decl.node->Op.left;
 					proc_type.Proc.out_param->type = ffz_decl_get_type(c->project, out_param_decl);
 				}
 				else {
@@ -1741,7 +1717,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			}
 		}
 		
-		F_BP; //if (ffz_get_compiler_tag_by_name(BASE(type_node.node), F_LIT("extern"))) {
+		F_BP; //if (ffz_get_compiler_tag_by_name((ffzNode*)type_node.node, F_LIT("extern"))) {
 		//	if (proc_type.tag == ffzTypeTag_PolyProc) ERR(c, inst.node, "Polymorphic procedures cannot be @extern.");
 		//
 		//	// if it's an extern proc, then don't turn it into a type type!!
@@ -1755,11 +1731,10 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 	} break;
 
 	case ffzNodeKind_Record: {
-		ffzNodeRecordInst inst_struct = IAS(inst,Record);
 		ffzType struct_type = { ffzTypeTag_Record };
 		struct_type.unique_node = inst;
 
-		if (ffz_get_child_count(BASE(inst_struct.node->polymorphic_parameters)) > 0 &&
+		if (ffz_get_child_count(inst.node->Record.polymorphic_parameters) > 0 &&
 			(!inst.polymorph || inst.polymorph->node.node != inst.node)) {
 			//infer.instantiating_poly_type != inst.node) {
 			struct_type.tag = ffzTypeTag_PolyRecord;
@@ -1772,11 +1747,10 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 
 	case ffzNodeKind_Enum: {
 		ffzCheckedExpr type_chk;
-		ffzNodeEnumInst inst_enum = IAS(inst, Enum);
-		TRY(check_expression(c, infer_no_help(infer), ICHILD(inst_enum,internal_type), &type_chk));
+		TRY(check_expression(c, infer_no_help(infer), CHILD(inst,Enum.internal_type), &type_chk));
 
 		if (type_chk.type->tag != ffzTypeTag_Type || !ffz_type_is_integer(type_chk.const_val->type->tag)) {
-			ERR(c, inst_enum.node->internal_type, "Invalid enum type; expected an integer.");
+			ERR(c, inst.node->Enum.internal_type, "Invalid enum type; expected an integer.");
 		}
 
 		ffzType enum_type = { ffzTypeTag_Enum };
@@ -1793,23 +1767,23 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		decl_infer.infer_decl_type = enum_type.Enum.internal_type;
 
 		uint i = 0;
-		for FFZ_EACH_CHILD_INST(n, inst_enum) {
-			if (n.node->kind != ffzNodeKind_Declaration) ERR(c, BASE(n.node), "Expected a declaration; got: [%s]", ffz_node_kind_to_cstring(n.node->kind));
+		for FFZ_EACH_CHILD_INST(n, inst) {
+			if (n.node->kind != ffzNodeKind_Declare) ERR(c, n.node, "Expected a declaration; got: [%s]", ffz_node_kind_to_cstring(n.node->kind));
 			
-			ffzNodeDeclarationInst decl = IAS(n, Declaration);
+			ffzNodeOpDeclareInst decl = n;
 			TRY(check_declaration(c, decl_infer, decl));
 			ffzCheckedExpr chk = ffz_decl_get_checked(c->project, decl);
 
 			u64 val = chk.const_val->u64_;
-			ffzFieldHash key = ffz_hash_field(enum_type_ptr, decl.node->name->name);
+			ffzFieldHash key = ffz_hash_field(enum_type_ptr, decl.node->Op.left->Identifier.name);
 			f_map64_insert(&c->enum_value_from_name, key, val);
 
-			enum_type.Enum.fields[i] = ffzTypeEnumField{ decl.node->name->name, val };
+			enum_type.Enum.fields[i] = ffzTypeEnumField{ decl.node->Op.left->Identifier.name, val };
 
 			auto val_taken = f_map64_insert(&c->enum_value_is_taken, ffz_hash_enum_value(enum_type_ptr, val), n.node, fMapInsert_DoNotOverride);
 			if (!val_taken.added) {
-				ERR(c, decl.node->rhs, "The enum value `%llu` is already taken by `%s`.", val,
-					f_str_to_cstr(AS(*val_taken._unstable_ptr,Declaration)->name->name, c->alc));
+				fString taken_by = (*val_taken._unstable_ptr)->Op.left->Identifier.name;
+				ERR(c, decl.node->Op.right, "The enum value `%llu` is already taken by `%.*s`.", val, F_STRF(taken_by));
 			}
 			i++;
 		}
@@ -1827,7 +1801,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		if (infer.target_type != PEEKING_WITHOUT_TARGET_TYPE) {
 			if (ffz_type_is_integer(infer.target_type->tag)) {
 				result.type = infer.target_type;
-				result.const_val = make_constant_int(c, AS(inst.node, IntLiteral)->value);
+				result.const_val = make_constant_int(c, inst.node->IntLiteral.value);
 			}
 			else {
 				ERR(c, inst.node, "Unexpected integer literal.");
@@ -1844,10 +1818,17 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		// pointers aren't guaranteed to be valid / non-null, but optional pointers are expected to be null.
 		result.type = ffz_builtin_type(c, ffzKeyword_string);
 		result.const_val = make_constant(c);
-		result.const_val->string_zero_terminated = AS(inst.node,StringLiteral)->zero_terminated_string;
+		result.const_val->string_zero_terminated = inst.node->StringLiteral.zero_terminated_string;
 	} break;
 
-	default: ERR(c, inst.node, "Expected an expression; got [%s]", ffz_node_kind_to_cstring(inst.node->kind));
+	default: {
+		if (ffz_node_is_operator(inst.node->kind)) {
+			TRY(_check_operator(c, inst, infer, &result, &delayed_check_proc));
+		}
+		else {
+			ERR(c, inst.node, "Expected an expression; got [%s]", ffz_node_kind_to_cstring(inst.node->kind));
+		}
+	}
 	}
 
 	ffzCheckedExpr ungrounded_result = result;
@@ -1857,8 +1838,7 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 		}
 		
 		if (result.type->tag == ffzTypeTag_Type &&
-			inst.node->parent->kind == ffzNodeKind_Declaration &&
-			ffz_decl_is_runtime_value(AS(inst.node->parent, Declaration))) {
+			inst.node->parent->kind == ffzNodeKind_Declare && ffz_decl_is_runtime_value(inst.node->parent)) {
 			// If you query the type of the declaration's expression without any context,
 			// it may have a type type. i.e.
 			// ...
@@ -1901,33 +1881,31 @@ static ffzOk check_expression(ffzChecker* c, const CheckInfer& infer, ffzNodeIns
 			// infinite loops when checking.
 			
 			// IMPORTANT: We're modifying the type AFTER it was created and hash-deduplicated. So, the things we modify must not change the type hash!
-			//F_HITS(___c, 49);
-			ffzNodeRecordInst inst_struct = IAS(inst, Record);
 			ffzType* record_type = ffz_ground_type(result);
 			record_type->record_fields = f_make_slice_garbage<ffzTypeRecordField>(ffz_get_child_count(inst.node), c->alc);
 			
 			uint i = 0;
 			u32 offset = 0;
 			u32 alignment = 0;
-			for FFZ_EACH_CHILD_INST(n, inst_struct) {
-				if (n.node->kind != ffzNodeKind_Declaration) ERR(c, n.node, "Expected a declaration.");
+			for FFZ_EACH_CHILD_INST(n, inst) {
+				if (n.node->kind != ffzNodeKind_Declare) ERR(c, n.node, "Expected a declaration.");
 
-				ffzNodeDeclarationInst decl = IAS(n, Declaration);
+				ffzNodeOpDeclareInst decl = n;
 				TRY(check_declaration(c, infer_no_help(infer), decl));
 
 				ffzType* member_type = ffz_ground_type(ffz_decl_get_checked(c->project, decl)); // ffz_decl_get_type(c, decl);
 				F_ASSERT(ffz_type_is_grounded(member_type));
 				alignment = F_MAX(alignment, member_type->align);
 
-				//if (ffz_node_get_compiler_tag(BASE(decl.node), F_LIT("using"))) F_BP; // TODO: bring back @using
+				//if (ffz_node_get_compiler_tag((ffzNode*)decl.node, F_LIT("using"))) F_BP; // TODO: bring back @using
 
 				record_type->record_fields[i] = ffzTypeRecordField{
-					decl.node->name->name,                                      // `name`
+					decl.node->Op.left->Identifier.name,                        // `name`
 					member_type,                                                // `type`
-					inst_struct.node->is_union ? 0 : offset,                    // `offset`
+					inst.node->Record.is_union ? 0 : offset,                    // `offset`
 					decl.node,                                                  // `decl`
 				};
-				F_ASSERT(!inst_struct.node->is_union); // uhh the logic for calculating union offsets is not correct
+				F_ASSERT(!inst.node->Record.is_union); // uhh the logic for calculating union offsets is not correct
 				offset = F_ALIGN_UP_POW2(offset + member_type->size, alignment);
 				i++;
 			}
@@ -2129,14 +2107,13 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 
 			for (uint i = 0; i < parser->module_imports.len; i++) {
 				ffzNodeKeyword* import_keyword = parser->module_imports[i];
-				F_ASSERT(import_keyword->parent && import_keyword->parent->kind == ffzNodeKind_Operator);
+				
+				ffzNodeOp* import_op = import_keyword->parent;
+				F_ASSERT(import_op && import_op->kind == ffzNodeKind_PostRoundBrackets && ffz_get_child_count(import_op) == 1);
 
-				ffzNodeOperator* import_op = FFZ_AS(import_keyword->parent, Operator);
-				F_ASSERT(import_op->op_kind == ffzOperatorKind_PostRoundBrackets && ffz_get_child_count(FFZ_BASE(import_op)) == 1);
-
-				ffzNode* import_name_node = ffz_get_child(FFZ_BASE(import_op), 0);
+				ffzNode* import_name_node = ffz_get_child(import_op, 0);
 				F_ASSERT(import_name_node->kind == ffzNodeKind_StringLiteral);
-				fString import_name = FFZ_AS(import_name_node, StringLiteral)->zero_terminated_string;
+				fString import_name = import_name_node->StringLiteral.zero_terminated_string;
 
 				if (f_files_path_is_absolute(import_name)) F_BP;
 				//BP;
@@ -2176,7 +2153,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 				//checker->report_error_userptr = parser;
 
 				//ffzNodeInst root = ffz_get_toplevel_inst(checker, );
-				if (!ffz_instanceless_check(checker, FFZ_BASE(parser->root), false).ok) {
+				if (!ffz_instanceless_check(checker, parser->root, false).ok) {
 					return false;
 				}
 			}

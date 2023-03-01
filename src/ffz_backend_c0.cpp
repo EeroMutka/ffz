@@ -205,7 +205,7 @@ static C0AggType* get_c0_type(ffzGenC0* g, ffzType* type) {
 	return result;
 }
 
-static C0Proc* gen_procedure(ffzGenC0* g, ffzNodeOperatorInst inst) {
+static C0Proc* gen_procedure(ffzGenC0* g, ffzNodeOpInst inst) {
 	C0String export_name = make_name(g, IBASE(inst));
 
 	ffzType* proc_type = ffz_expr_get_type(g->checker, IBASE(inst));
@@ -250,15 +250,15 @@ static C0Proc* gen_procedure(ffzGenC0* g, ffzNodeOperatorInst inst) {
 }
 
 /*
-static C0Constant gen_operator_const(ffzGen* g, ffzType* type, ffzNodeOperatorInst inst) {
+static C0Constant gen_operator_const(ffzGen* g, ffzType* type, ffzNodeOpInst inst) {
 	ffzNodeInst left = ICHILD(inst, left);
 	ffzNodeInst right = ICHILD(inst, right);
 	C0Constant out = {};
 
-	ffzOperatorKind kind = inst.node->kind;
+	ffzNodeKind kind = inst.node->kind;
 	switch (kind) {
 
-	case ffzOperatorKind_PostCurlyBrackets: {
+	case ffzNodeKind_PostCurlyBrackets: {
 		ffzCheckedExpr left_chk = ffz_expr_get_checked(g->checker, left);
 		ASSERT(left_chk.type->tag == ffzTypeTag_Type);
 		ffzType* left_type = left_chk.const_val->type;
@@ -279,7 +279,7 @@ static C0Constant gen_operator_const(ffzGen* g, ffzType* type, ffzNodeOperatorIn
 		else BP;
 	} break;
 
-	case ffzOperatorKind_MemberAccess: {
+	case ffzNodeKind_MemberAccess: {
 		ffzCheckedExpr left_chk = ffz_expr_get_checked(g->checker, left);
 		ASSERT(left_chk.type->tag == ffzTypeTag_Module);
 		
@@ -344,7 +344,7 @@ static C0Constant gen_operator_const(ffzGen* g, ffzType* type, ffzNodeOperatorIn
 	return out;
 }*/
 
-static C0Instr* gen_call(ffzGenC0* g, ffzNodeOperatorInst inst) {
+static C0Instr* gen_call(ffzGenC0* g, ffzNodeOpInst inst) {
 	ffzNodeInst left = ICHILD(inst,left);
 	ffzCheckedExpr left_chk = ffz_expr_get_checked(g->checker, left);
 	ASSERT(left_chk.const_val && left_chk.type->tag == ffzTypeTag_Proc); // TODO: c0 doesn't support dynamic dispatch yet
@@ -433,16 +433,16 @@ static C0Instr* gen_comparison(ffzGenC0* g, ffzType* comp_type, C0Instr* left, C
 	}
 }
 
-static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOperatorInst inst, bool address_of) {
+static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOpInst inst, bool address_of) {
 	//HITS(_c, 4);
 	ffzNodeInst left = ICHILD(inst,left);
 	ffzNodeInst right = ICHILD(inst,right);
 	C0Instr* out = NULL;
 	
-	ffzOperatorKind kind = inst.node->op_kind;
+	ffzNodeKind kind = inst.node->op_kind;
 	switch (kind) {
 
-	case ffzOperatorKind_MemberAccess: { // :CheckMemberAccess
+	case ffzNodeKind_MemberAccess: { // :CheckMemberAccess
 		// :MemberAccess
 		String member_name = AS(right.node, Identifier)->name;
 
@@ -490,7 +490,7 @@ static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOperatorInst ins
 		}
 	} break;
 
-	case ffzOperatorKind_PostSquareBrackets: { // Array subscript
+	case ffzNodeKind_PostSquareBrackets: { // Array subscript
 		ffzType* left_type = ffz_expr_get_type(g->checker, left);
 		ASSERT(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
 
@@ -562,40 +562,40 @@ static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOperatorInst ins
 		}
 	} break;
 
-	case ffzOperatorKind_Add: case ffzOperatorKind_Sub: case ffzOperatorKind_Mul:
-	case ffzOperatorKind_Div: case ffzOperatorKind_Modulo:
-	case ffzOperatorKind_Equal: case ffzOperatorKind_NotEqual: case ffzOperatorKind_Less:
-	case ffzOperatorKind_LessOrEqual: case ffzOperatorKind_Greater: case ffzOperatorKind_GreaterOrEqual:
+	case ffzNodeKind_Add: case ffzNodeKind_Sub: case ffzNodeKind_Mul:
+	case ffzNodeKind_Div: case ffzNodeKind_Modulo:
+	case ffzNodeKind_Equal: case ffzNodeKind_NotEqual: case ffzNodeKind_Less:
+	case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater: case ffzNodeKind_GreaterOrEqual:
 	{
 		ASSERT(!address_of);
 
 		C0Instr* left_val = gen_expr(g, left);
 		C0Instr* right_val = gen_expr(g, right);
 		switch (kind) {
-		case ffzOperatorKind_Add:            { out = c0_push_add(g->c0_proc, left_val, right_val); } break;
-		case ffzOperatorKind_Sub:            { out = c0_push_sub(g->c0_proc, left_val, right_val); } break;
-		case ffzOperatorKind_Mul:            { out = c0_push_mul(g->c0_proc, left_val, right_val); } break;
-		case ffzOperatorKind_Div:            { out = c0_push_quo(g->c0_proc, left_val, right_val); } break;
-		case ffzOperatorKind_Modulo:         { out = c0_push_rem(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_Add:            { out = c0_push_add(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_Sub:            { out = c0_push_sub(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_Mul:            { out = c0_push_mul(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_Div:            { out = c0_push_quo(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_Modulo:         { out = c0_push_rem(g->c0_proc, left_val, right_val); } break;
 		
-		case ffzOperatorKind_Equal: {
+		case ffzNodeKind_Equal: {
 			ffzType* comp_type = ffz_expr_get_type(g->checker, left);
 			out = gen_comparison(g, comp_type, left_val, right_val, false);
 		} break;
-		case ffzOperatorKind_NotEqual: {
+		case ffzNodeKind_NotEqual: {
 			ffzType* comp_type = ffz_expr_get_type(g->checker, left);
 			out = gen_comparison(g, comp_type, left_val, right_val, false);
 			out = c0_push_notb(g->c0_proc, out);
 		} break;
 		
-		case ffzOperatorKind_Less:           { out = c0_push_lt(g->c0_proc, left_val, right_val); } break;
-		case ffzOperatorKind_LessOrEqual:    { out = c0_push_lteq(g->c0_proc, left_val, right_val); } break;
-		case ffzOperatorKind_Greater:        { out = c0_push_gt(g->c0_proc, left_val, right_val); } break;
-		case ffzOperatorKind_GreaterOrEqual: { out = c0_push_gteq(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_Less:           { out = c0_push_lt(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_LessOrEqual:    { out = c0_push_lteq(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_Greater:        { out = c0_push_gt(g->c0_proc, left_val, right_val); } break;
+		case ffzNodeKind_GreaterOrEqual: { out = c0_push_gteq(g->c0_proc, left_val, right_val); } break;
 		}
 	} break;
 
-	case ffzOperatorKind_LogicalAND: case ffzOperatorKind_LogicalOR: {
+	case ffzNodeKind_LogicalAND: case ffzNodeKind_LogicalOR: {
 		ASSERT(!address_of);
 
 		out = c0_push_decl_basic(g->c0_proc, C0Basic_u8, make_anonymous_name(g));
@@ -603,7 +603,7 @@ static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOperatorInst ins
 		C0Instr* left_val = gen_expr(g, left);
 		
 		// We need to implement short circuiting for the logical operations
-		if (kind == ffzOperatorKind_LogicalAND) {
+		if (kind == ffzNodeKind_LogicalAND) {
 			out->value_u64 = 0;
 
 			c0_push_if(g->c0_proc, left_val);
@@ -623,35 +623,35 @@ static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOperatorInst ins
 		}
 	} break;
 
-	case ffzOperatorKind_AddressOf: {
+	case ffzNodeKind_AddressOf: {
 		ASSERT(!address_of);
 		out = gen_expr(g, right, true);
 	} break;
 
-	case ffzOperatorKind_UnaryPlus: case ffzOperatorKind_UnaryMemberAccess:
-	case ffzOperatorKind_PointerTo: {	
+	case ffzNodeKind_UnaryPlus: case ffzNodeKind_UnaryMemberAccess:
+	case ffzNodeKind_PointerTo: {	
 		BP;
 	} break;
 
-	case ffzOperatorKind_UnaryMinus: {
+	case ffzNodeKind_UnaryMinus: {
 		ASSERT(!address_of);
 		C0Instr* zero = push_zero_value(g, type);
 		out = c0_push_sub(g->c0_proc, zero, gen_expr(g, right));
 	} break;
 
-	case ffzOperatorKind_LogicalNOT: {
+	case ffzNodeKind_LogicalNOT: {
 		ASSERT(!address_of);
 		out = c0_push_notb(g->c0_proc, gen_expr(g, right));
 	} break;
 
-	case ffzOperatorKind_Dereference: {
+	case ffzNodeKind_Dereference: {
 		out = gen_expr(g, left);
 		if (!address_of) {
 			out = c0_push_load(g->c0_proc, get_c0_type(g, type), out);
 		}
 	} break;
 
-	case ffzOperatorKind_PostRoundBrackets: {
+	case ffzNodeKind_PostRoundBrackets: {
 		ASSERT(!address_of);
 		if (left.node->kind == ffzNodeKind_Keyword && ffz_keyword_is_bitwise_op(AS(left.node,Keyword)->keyword)) {
 			ffzKeyword keyword = AS(left.node,Keyword)->keyword;
@@ -698,7 +698,7 @@ static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOperatorInst ins
 		}
 	} break;
 
-	case ffzOperatorKind_PostCurlyBrackets: {
+	case ffzNodeKind_PostCurlyBrackets: {
 		ASSERT(!address_of);
 
 		ffzType* left_type = ffz_expr_get_type(g->checker, left);
@@ -1021,9 +1021,9 @@ static void gen_statement(ffzGenC0* g, ffzNodeInst inst) {
 	} break;
 
 	case ffzNodeKind_Operator: {
-		ASSERT(AS(inst.node, Operator)->kind == ffzOperatorKind_PostRoundBrackets);
+		ASSERT(AS(inst.node, Operator)->kind == ffzNodeKind_PostRoundBrackets);
 		gen_call(g, IAS(inst,Operator));
-		//if (AS(inst.node, Operator)->kind == ffzOperatorKind_PostRoundBrackets) {
+		//if (AS(inst.node, Operator)->kind == ffzNodeKind_PostRoundBrackets) {
 		//	gen_call(g, IAS(inst, Operator));
 		//}
 	} break;

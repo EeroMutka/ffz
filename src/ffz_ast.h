@@ -17,18 +17,15 @@ typedef union ffzNode ffzNode;
 
 typedef struct ffzOk { bool ok; } ffzOk;
 
-typedef enum ffzNodeKind { // synced with `ffzNodeKind_String`
+typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	ffzNodeKind_Invalid,
 
 	ffzNodeKind_Blank,
 
-	ffzNodeKind_Declaration,
-	ffzNodeKind_Assignment,
 	ffzNodeKind_Identifier,
 	ffzNodeKind_PolyParamList,
 	ffzNodeKind_Keyword,
 	ffzNodeKind_Dot,
-	ffzNodeKind_Operator,
 	ffzNodeKind_ProcType,
 	ffzNodeKind_Record,
 	ffzNodeKind_Enum,
@@ -40,6 +37,45 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_String`
 	ffzNodeKind_StringLiteral,
 	ffzNodeKind_FloatLiteral,
 
+	// -- Operators ----------------------
+	// :ffz_node_is_operator
+
+	ffzNodeKind_Declare,            // a:b
+	ffzNodeKind_Assign,             // a=b
+
+	ffzNodeKind_Add,                // a + b
+	ffzNodeKind_Sub,                // a - b
+	ffzNodeKind_Mul,                // a * b
+	ffzNodeKind_Div,                // a / b
+	ffzNodeKind_Modulo,             // a % b
+
+	ffzNodeKind_MemberAccess,       // a.b
+
+	// :ffz_op_is_comparison
+	ffzNodeKind_Equal,              // a == b
+	ffzNodeKind_NotEqual,           // a != b
+	ffzNodeKind_Less,               // a < b
+	ffzNodeKind_LessOrEqual,        // a <= b
+	ffzNodeKind_Greater,            // a > b
+	ffzNodeKind_GreaterOrEqual,     // a >= b
+
+	ffzNodeKind_LogicalAND,         // a && b
+	ffzNodeKind_LogicalOR,          // a || b
+
+	// :ffz_op_is_prefix
+	ffzNodeKind_PreSquareBrackets,  // [...]a
+	ffzNodeKind_UnaryMinus,         // -a
+	ffzNodeKind_UnaryPlus,          // +a
+	ffzNodeKind_AddressOf,          // &a
+	ffzNodeKind_PointerTo,          // ^a
+	ffzNodeKind_LogicalNOT,         // !a
+
+	// :ffz_op_is_postfix
+	ffzNodeKind_PostSquareBrackets, // a[...]
+	ffzNodeKind_PostRoundBrackets,  // a(...)
+	ffzNodeKind_PostCurlyBrackets,  // a{...}
+	ffzNodeKind_Dereference,        // a^
+
 	ffzNodeKind_COUNT,
 } ffzNodeKind;
 
@@ -48,6 +84,7 @@ enum {
 	ffzNodeFlag_IsStandaloneTag = 1 << 0,
 };
 
+// TODO: remove this too
 typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_Invalid,
 	ffzKeyword_Underscore,
@@ -87,45 +124,10 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_COUNT,
 } ffzKeyword;
 
-typedef enum ffzOperatorKind { // synced with ffzOperatorKind_to_string
-	ffzOperatorKind_Invalid = 0,
-
-	ffzOperatorKind_Add,                // a + b
-	ffzOperatorKind_Sub,                // a - b
-	ffzOperatorKind_Mul,                // a * b
-	ffzOperatorKind_Div,                // a / b
-	ffzOperatorKind_Modulo,             // a % b
-
-	ffzOperatorKind_MemberAccess,       // a.b
-
-	// :OperatorIsComparison
-	ffzOperatorKind_Equal,              // a == b
-	ffzOperatorKind_NotEqual,           // a != b
-	ffzOperatorKind_Less,               // a < b
-	ffzOperatorKind_LessOrEqual,        // a <= b
-	ffzOperatorKind_Greater,            // a > b
-	ffzOperatorKind_GreaterOrEqual,     // a >= b
-
-	ffzOperatorKind_LogicalAND,         // a && b
-	ffzOperatorKind_LogicalOR,          // a || b
-	
-	// :operator_is_prefix
-	ffzOperatorKind_PreSquareBrackets,  // [...]a
-	ffzOperatorKind_UnaryMinus,         // -a
-	ffzOperatorKind_UnaryPlus,          // +a
-	ffzOperatorKind_AddressOf,          // &a
-	ffzOperatorKind_PointerTo,          // ^a
-	ffzOperatorKind_LogicalNOT,         // !a
-
-	// :operator_is_postfix
-	ffzOperatorKind_PostSquareBrackets, // a[...]
-	ffzOperatorKind_PostRoundBrackets,  // a(...)
-	ffzOperatorKind_PostCurlyBrackets,  // a{...}
-	ffzOperatorKind_Dereference,        // a^
-
-	ffzOperatorKind_COUNT,
-} ffzOperatorKind;
-
+//typedef enum ffzNodeKind { // synced with ffzNodeKind_to_string
+//	ffzNodeKind_Invalid = 0,
+//	ffzNodeKind_COUNT,
+//} ffzNodeKind;
 
 typedef struct ffzNodeList {
 	ffzNode* first; // can be NULL
@@ -142,22 +144,6 @@ typedef struct ffzLocRange {
 	ffzLoc end;
 } ffzLocRange;
 
-typedef struct ffzNodeAssignment ffzNodeAssignment;
-//typedef struct ffzNodeTag ffzNodeTag;
-//typedef struct ffzNodeTagDecl ffzNodeTagDecl;
-typedef struct ffzNodeIdentifier ffzNodeIdentifier;
-typedef struct ffzNodeKeyword ffzNodeKeyword;
-typedef struct ffzNodeOperator ffzNodeOperator;
-typedef struct ffzNodeIf ffzNodeIf;
-typedef struct ffzNodeFor ffzNodeFor;
-typedef struct ffzNodeProcType ffzNodeProcType;
-typedef struct ffzNodeRecord ffzNodeRecord;
-typedef struct ffzNodeEnum ffzNodeEnum;
-typedef struct ffzNodeScope ffzNodeScope;
-typedef struct ffzNodeReturn ffzNodeReturn;
-typedef struct ffzNodeIntLiteral ffzNodeIntLiteral;
-typedef struct ffzNodeStringLiteral ffzNodeStringLiteral;
-
 typedef union ffzParserRelID {
 	struct {
 		ffzParserID parser_id;
@@ -166,130 +152,89 @@ typedef union ffzParserRelID {
 	u64 global_id;
 } ffzParserRelID;
 
-#define FFZ_NODE_BASE struct { \
-ffzNodeKind kind; \
-ffzNodeFlags flags; \
-ffzParserRelID id; \
-ffzLocRange loc;\
-ffzNode* first_tag;\
-ffzNode* parent;\
-ffzNode* next;\
-ffzNodeList children;\
-}
-
-typedef struct ffzNodeAssignment {
-	FFZ_NODE_BASE;
-	ffzNode* lhs;
-	ffzNode* rhs;
-} ffzNodeTargeted;
-
-typedef struct ffzNodeDeclaration {
-	FFZ_NODE_BASE;
-	ffzNodeIdentifier* name; // TODO: rename this to "definition"?
-	ffzNode* rhs;
-} ffzNodeDeclaration;
-
-//typedef struct ffzNodeTag {
-//	FFZ_NODE_BASE;
-//	fString tag;
-//	// TODO: tag argument? it should be able to hold an arbitrary AST tree inside
-//} ffzNodeTag;
-
-//typedef struct ffzNodeTagDecl {
-//	FFZ_NODE_BASE;
-//	fString tag;
-//	ffzNode* rhs;
-//
-//	ffzNodeTagDecl* same_tag_next;
-//} ffzNodeTagDecl;
-
-typedef struct ffzNodeIdentifier {
-	FFZ_NODE_BASE;
-	fString name;
-	bool is_constant; // has # in front? ... maybe this field should be removed and just be stored in the StmtTargets
-} ffzNodeIdentifier;
-
-typedef struct ffzNodeKeyword {
-	FFZ_NODE_BASE;
-	ffzKeyword keyword;
-} ffzNodeKeyword;
-
-typedef struct ffzNodeOperator {
-	FFZ_NODE_BASE; // if this is a post/pre-scope-op, the nodes inside the scope are stored in `children`
-	ffzOperatorKind op_kind;
-
-	fOpt(ffzNode*) left;
-	fOpt(ffzNode*) right;
-} ffzNodeOperator;
-
-typedef struct ffzNodeIf {
-	FFZ_NODE_BASE;
-	ffzNode* condition;
-	ffzNode* true_scope;
-	fOpt(ffzNode*) else_scope;
-} ffzNodeIf;
-
-typedef struct ffzNodeFor {
-	FFZ_NODE_BASE;
-	ffzNode* header_stmts[3];
-	ffzNode* scope; // hmm... maybe we don't even need a separate scope node?
-} ffzNodeFor;
-
-typedef struct ffzNodePolyParamList { FFZ_NODE_BASE; } ffzNodePolyParamList;
-
-typedef struct ffzNodeProcType {
-	FFZ_NODE_BASE; // the input parameters are encoded in `children`
-	fOpt(ffzNodePolyParamList*) polymorphic_parameters;
-	fOpt(ffzNode*) out_parameter;
-} ffzNodeProcType;
-
-typedef struct ffzNodeRecord {
-	FFZ_NODE_BASE; // the struct fields are encoded in `children`
-	fOpt(ffzNodePolyParamList*) polymorphic_parameters;
-	bool is_union;
-} ffzNodeRecord;
-
-typedef struct ffzNodeEnum {
-	FFZ_NODE_BASE; // the enum fields are encoded in `children`
-	ffzNode* internal_type;
-} ffzNodeEnum;
-
-typedef struct ffzNodeScope { FFZ_NODE_BASE; } ffzNodeScope;
-typedef struct ffzNodeDot { FFZ_NODE_BASE; } ffzNodeDot;
-typedef struct ffzNodeBlank { FFZ_NODE_BASE; } ffzNodeBlank;
-
-typedef struct ffzNodeReturn {
-	FFZ_NODE_BASE;
-	fOpt(ffzNode*) value;
-} ffzNodeReturn;
-
-typedef struct ffzNodeIntLiteral {
-	FFZ_NODE_BASE;
-	u64 value;
-	u8 was_encoded_in_base; // this is mainly here for if you want to print the AST
-} ffzNodeIntLiteral;
-
-typedef struct ffzNodeStringLiteral {
-	FFZ_NODE_BASE;
-	fString zero_terminated_string;
-} ffzNodeStringLiteral;
+typedef ffzNode ffzNodeOpDeclare;
+typedef ffzNode ffzNodeOpAssign;
+typedef ffzNode ffzNodeIdentifier;
+typedef ffzNode ffzNodeKeyword;
+typedef ffzNode ffzNodeOp;
+typedef ffzNode ffzNodeIf;
+typedef ffzNode ffzNodeFor;
+typedef ffzNode ffzNodeProcType;
+typedef ffzNode ffzNodeRecord;
+typedef ffzNode ffzNodeEnum;
+typedef ffzNode ffzNodeScope;
+typedef ffzNode ffzNodeReturn;
+typedef ffzNode ffzNodeIntLiteral;
+typedef ffzNode ffzNodeStringLiteral;
+typedef ffzNode ffzNodeScope;
+typedef ffzNode ffzNodeDot;
+typedef ffzNode ffzNodeBlank;
+typedef ffzNode ffzNodeIntLiteral;
+typedef ffzNode ffzNodePolyParamList;
 
 union ffzNode {
-	FFZ_NODE_BASE;
-	ffzNodeAssignment Assignment;
-	ffzNodeDeclaration Declaration;
-	ffzNodeIdentifier Identifier;
-	ffzNodeKeyword Keyword;
-	ffzNodeOperator Operator;
-	ffzNodeIf If;
-	ffzNodeFor For;
-	ffzNodePolyParamList PolyParamList;
-	ffzNodeProcType ProcType;
-	ffzNodeRecord Record;
-	ffzNodeEnum Enum;
-	ffzNodeReturn Return;
-	ffzNodeIntLiteral IntLiteral;
-	ffzNodeStringLiteral StringLiteral;
+	ffzNodeKind kind;
+	ffzNodeFlags flags;
+	ffzParserRelID id;
+	ffzLocRange loc;
+	ffzNode* first_tag;
+	ffzNode* parent;
+	ffzNode* next;
+	ffzNodeList children;
+
+	union {
+		struct {
+			fString name;
+			bool is_constant; // has # in front? ... maybe this field should be removed and just be stored in the StmtTargets
+		} Identifier; // maybe we should just call this "Name" or "Ident"?
+
+		struct {
+			ffzKeyword keyword;
+		} Keyword;
+
+		struct {
+			fOpt(ffzNode*) left;
+			fOpt(ffzNode*) right;
+		} Op;
+
+		struct {
+			ffzNode* condition;
+			ffzNode* true_scope;
+			fOpt(ffzNode*) else_scope;
+		} If;
+
+		struct {
+			ffzNode* header_stmts[3];
+			ffzNode* scope; // hmm... maybe we don't even need a separate scope node?
+		} For;
+
+		struct {
+			fOpt(ffzNodePolyParamList*) polymorphic_parameters;
+			fOpt(ffzNode*) out_parameter;
+		} ProcType;
+		
+		struct {
+			fOpt(ffzNodePolyParamList*) polymorphic_parameters;
+			bool is_union;
+		} Record;
+		
+		struct {
+			ffzNode* internal_type;
+		} Enum;
+
+		struct {
+			fOpt(ffzNode*) value;
+		} Return;
+		
+		struct {
+			u64 value;
+			u8 was_encoded_in_base; // this is mainly here for if you want to print the AST
+		} IntLiteral;
+		
+		struct {
+			fString zero_terminated_string;
+		} StringLiteral;
+	};
 };
 
 typedef fMap64(ffzKeyword) KeywordFromStringMap; // key: f_hash64_str(str);
@@ -314,7 +259,6 @@ struct ffzParser {
 	ffzParserLocalID next_local_id;
 
 	fArray(ffzNodeKeyword*) module_imports;
-	//fMap64(ffzNodeTagDecl*) tag_decl_lists; // key: str_hash64(tag, 0)
 
 	bool stop_at_curly_brackets;
 	//ffzLoc pos;
@@ -322,10 +266,10 @@ struct ffzParser {
 	void(*report_error)(ffzParser* parser, ffzLocRange at, fString error);
 };
 
-#define FFZ_AS(node,kind) ((ffzNode##kind*)node)
-#define FFZ_BASE(node) ((ffzNode*)node)
+//#define FFZ_AS(node,kind) ((ffzNode##kind*)node)
+//#define FFZ_(ffzNode*)node ((ffzNode*)node)
 
-#define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? FFZ_BASE(parent)->children.first : NULL; n = ffz_skip_standalone_tags(n); n = n->next)
+#define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? parent->children.first : NULL; n = ffz_skip_standalone_tags(n); n = n->next)
 
 #ifdef __cplusplus
 #define FFZ_STRUCT_INIT(type) type
@@ -342,10 +286,11 @@ inline ffzLocRange ffz_loc_range_union(ffzLocRange a, ffzLocRange b) {
 
 inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
 
-inline bool ffz_operator_is_prefix(ffzOperatorKind kind) { return kind >= ffzOperatorKind_PreSquareBrackets && kind <= ffzOperatorKind_LogicalNOT; }
-inline bool ffz_operator_is_postfix(ffzOperatorKind kind) { return kind >= ffzOperatorKind_PostSquareBrackets && kind <= ffzOperatorKind_Dereference; }
-inline bool ffz_operator_is_comparison(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Equal && kind <= ffzOperatorKind_GreaterOrEqual; }
-//inline bool ffz_operator_is_arithmetic(ffzOperatorKind kind) { return kind >= ffzOperatorKind_Add && kind <= ffzOperatorKind_Modulo; }
+inline bool ffz_node_is_operator(ffzNodeKind kind) { return kind >= ffzNodeKind_Declare && kind <= ffzNodeKind_Dereference; }
+inline bool ffz_op_is_prefix(ffzNodeKind kind) { return kind >= ffzNodeKind_PreSquareBrackets && kind <= ffzNodeKind_LogicalNOT; }
+inline bool ffz_op_is_postfix(ffzNodeKind kind) { return kind >= ffzNodeKind_PostSquareBrackets && kind <= ffzNodeKind_Dereference; }
+inline bool ffz_op_is_comparison(ffzNodeKind kind) { return kind >= ffzNodeKind_Equal && kind <= ffzNodeKind_GreaterOrEqual; }
+//inline bool ffz_operator_is_arithmetic(ffzNodeKind kind) { return kind >= ffzNodeKind_Add && kind <= ffzNodeKind_Modulo; }
 
 //fOpt(ffzNode*) ffz_get_compiler_tag_by_name(ffzNode* node, fString tag);
 //fOpt(ffzNode*) ffz_get_user_tag_by_name(ffzNode* node, fString tag);
@@ -356,7 +301,9 @@ inline bool ffz_operator_is_comparison(ffzOperatorKind kind) { return kind >= ff
 //u32 ffz_enum_child_get_index(ffzNode* node);
 //u32 ffz_scope_child_get_index(ffzNode* node);
 
-fOpt(ffzNodeDeclaration*) ffz_get_parent_decl(fOpt(ffzNode*) node); // returns NULL if node->parent is not a declaration, or the node itself is NULL
+// should we flatten it so we can talk about ffzNodeDeclarations?
+
+fOpt(ffzNodeOpDeclare*) ffz_get_parent_decl(fOpt(ffzNode*) node); // returns NULL if node->parent is not a declaration, or the node itself is NULL
 fString ffz_get_parent_decl_name(fOpt(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
 
 u32 ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
@@ -364,7 +311,7 @@ ffzNode* ffz_get_child(ffzNode* parent, u32 idx);
 u32 ffz_get_child_count(fOpt(ffzNode*) parent); // returns 0 if parent is NULL
 
 //ffzToken ffz_token_from_node(ffzParser* parser, ffzNode* node);
-u32 ffz_operator_get_precedence(ffzOperatorKind kind);
+u32 ffz_operator_get_precedence(ffzNodeKind kind);
 
 fString ffz_keyword_to_string(ffzKeyword keyword);
 char* ffz_keyword_to_cstring(ffzKeyword keyword);
