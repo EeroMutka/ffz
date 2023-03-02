@@ -7,8 +7,8 @@
 
 #define OPT(ptr) ptr
 
-#define ERR(state, at, fmt, ...) { \
-	state->parser->report_error(state->parser, at, f_str_format(state->parser->alc, fmt, __VA_ARGS__)); \
+#define ERR(p, at, fmt, ...) { \
+	p->report_error(p, at, f_str_format(p->alc, fmt, __VA_ARGS__)); \
 	return FFZ_OK; \
 }
 
@@ -100,6 +100,7 @@ const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("bool"),
 	F_LIT_COMP("raw"),
 	F_LIT_COMP("string"),
+	F_LIT_COMP("\\extern"),
 	F_LIT_COMP("bit_and"),
 	F_LIT_COMP("bit_or"),
 	F_LIT_COMP("bit_xor"),
@@ -190,7 +191,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	}
 
 	if (node->flags & ffzNodeFlag_IsStandaloneTag) {
-		f_str_print(builder, F_LIT("\\"));
+		f_str_print(builder, F_LIT("$"));
 	}
 
 	switch (node->kind) {
@@ -444,12 +445,6 @@ fString ffz_print_ast(fAllocator* alc, ffzNode* node) {
 
 #define IS_WHITESPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\r')
 
-typedef struct ParserState {
-	ffzParser* parser;
-	//ffzNode* pending_tag;
-	ffzLoc loc;
-} ParserState;
-
 typedef enum ParseFlags {
 	ParseFlag_SkipNewlines = 1 << 0,
 	
@@ -458,13 +453,17 @@ typedef enum ParseFlags {
 	ParseFlag_NoPostCurlyBrackets = 1 << 1,
 } ParseFlags;
 
-static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, ffzNode** out);
+static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out);
 
 // https://justine.lol/endian.html
 #define READ32BE(p) (u32)(255 & p[0]) << 24 | (255 & p[1]) << 16 | (255 & p[2]) << 8 | (255 & p[3])
 
+static bool is_identifier_char(rune r) {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || r == '\\' || r > 127;
+}
+
 // returns an empty token when the end of file is reached.
-static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
+static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 	typedef enum CharType {
 		CharType_Alphanumeric,
 		CharType_Whitespace,
@@ -474,17 +473,17 @@ static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
 	CharType prev_type = CharType_Whitespace;
 	s32 prev_r;
 
-	ffzLoc tok_start = state->loc;
+	ffzLoc tok_start = *loc;
 	//ffzLocRange token_range = ffz_loc_to_range(*pos);
 	//bool inside_line_comment = false;
 
 	for (;;) {
-		uint next = state->loc.offset;
-		rune r = f_str_next_rune(state->parser->source_code, &next);
+		uint next = loc->offset;
+		rune r = f_str_next_rune(p->source_code, &next);
 		if (!r) break;
 
 		CharType type = CharType_Symbol;
-		if ((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r > 128) {
+		if ((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '\\' || r > 127) {
 			type = CharType_Alphanumeric;
 		}
 		else if (IS_WHITESPACE(r)) {
@@ -510,24 +509,24 @@ static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
 			
 			// Skip comments
 			if (prev_r == '/' && r == '*') {
-				state->loc.offset = (u32)next;
-				state->loc.column_num += 1;
+				loc->offset = (u32)next;
+				loc->column_num += 1;
 				for (;;) {
-					Token _tok = maybe_eat_next_token(state, ParseFlag_SkipNewlines);
+					Token _tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
 					if (_tok.small == '/*' || !_tok.small) break; // :NoteAboutSeqLiterals
 				}
-				tok_start = state->loc;
+				tok_start = *loc;
 				prev_type = CharType_Whitespace;
 				continue;
 			}
 			else if (prev_r == '/' && r == '/') {
-				state->loc.offset = (u32)next;
-				state->loc.column_num += 1;
+				loc->offset = (u32)next;
+				loc->column_num += 1;
 				for (;;) {
-					Token _tok = maybe_eat_next_token(state, (ParseFlags)0);
+					Token _tok = maybe_eat_next_token(p, loc, (ParseFlags)0);
 					if (_tok.small == '\n' || !_tok.small) break;
 				}
-				tok_start = state->loc;
+				tok_start = *loc;
 				prev_type = CharType_Whitespace;
 				continue;
 			}
@@ -538,14 +537,14 @@ static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
 		}
 
 		if (r == '\n') {
-			state->loc.line_num += 1;
-			state->loc.column_num = 0;
+			loc->line_num += 1;
+			loc->column_num = 0;
 		}
 
-		state->loc.offset = (u32)next;
-		state->loc.column_num += 1;
+		loc->offset = (u32)next;
+		loc->column_num += 1;
 
-		if (type == CharType_Whitespace) tok_start = state->loc;
+		if (type == CharType_Whitespace) tok_start = *loc;
 
 		prev_type = type;
 		prev_r = r;
@@ -553,23 +552,23 @@ static Token maybe_eat_next_token(ParserState* state, ParseFlags flags) {
 
 	Token tok = { 0 };
 	tok.range.start = tok_start;
-	tok.range.end = state->loc;
-	tok.str = f_str_slice(state->parser->source_code, tok.range.start.offset, tok.range.end.offset);
+	tok.range.end = *loc;
+	tok.str = f_str_slice(p->source_code, tok.range.start.offset, tok.range.end.offset);
 	memcpy(&tok.small, tok.str.data, F_MIN(tok.str.len, sizeof(tok.small)));
 	return tok;
 }
 
-static ffzOk eat_next_token(ParserState* state, ParseFlags flags, const char* task_verb, Token* out) {
-	*out = maybe_eat_next_token(state, flags);
+static ffzOk eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags, const char* task_verb, Token* out) {
+	*out = maybe_eat_next_token(p, loc, flags);
 	if (out->str.len == 0) {
-		ERR(state, ffz_loc_to_range(state->loc), "File ended unexpectedly when %s.", task_verb);
+		ERR(p, ffz_loc_to_range(*loc), "File ended unexpectedly when %s.", task_verb);
 	}
 	return FFZ_OK;
 }
 
-static ffzOk eat_expected_token(ParserState* state, fString expected) {
-	Token tok = maybe_eat_next_token(state, ParseFlag_SkipNewlines);
-	if (!f_str_equals(tok.str, expected)) ERR(state, tok.range, "Expected \"%.*s\"; got \"%.*s\"", F_STRF(expected), F_STRF(tok.str));
+static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
+	Token tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
+	if (!f_str_equals(tok.str, expected)) ERR(p, tok.range, "Expected \"%.*s\"; got \"%.*s\"", F_STRF(expected), F_STRF(tok.str));
 	return FFZ_OK;
 }
 
@@ -591,12 +590,12 @@ static ffzOk eat_expected_token(ParserState* state, fString expected) {
 //	return maybe_eat_next_token(p, &pos, ignore_newlines, out);
 //}
 
-static void* new_node(ParserState* state, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
-	ffzNode* node = f_mem_clone(ffzNode, (ffzNode){0}, state->parser->alc);
+static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
+	ffzNode* node = f_mem_clone(ffzNode, (ffzNode){0}, p->alc);
 	//if (node == (void*)0x0000020000001a80) F_BP;
 	//memset(node, 0, size);
-	node->id.parser_id = state->parser->id;
-	node->id.local_id = state->parser->next_local_id++;
+	node->id.parser_id = p->id;
+	node->id.local_id = p->next_local_id++;
 	node->parent = parent;
 	node->kind = kind;
 	node->loc = range;
@@ -604,49 +603,45 @@ static void* new_node(ParserState* state, ffzNode* parent, ffzLocRange range, ff
 	return node;
 }
 
-static ffzOk parse_children(ParserState* state, ffzNode* parent, u8 bracket_close_char) {
+static ffzOk parse_children(ffzParser* p, ffzLoc* loc, ffzNode* parent, u8 bracket_close_char) {
 	OPT(ffzNode*) prev = NULL;
 
 	for (u32 i = 0;; i++) {
-		ParserState new_state = *state;
-		Token tok = maybe_eat_next_token(&new_state, ParseFlag_SkipNewlines);
-
+		ffzLoc new_loc = *loc;
+		Token tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);
+		
 		if (tok.small == bracket_close_char) {
-			*state = new_state;
+			*loc = new_loc;
 			break;
 		}
 		
 		bool was_comma = false;
 		if (i > 0) {
-			Token tok = maybe_eat_next_token(state, (ParseFlags)0);
+			tok = maybe_eat_next_token(p, loc, (ParseFlags)0);
 			was_comma = tok.small == ',';
 			if (tok.small != '\n' && !was_comma) {
-				ERR(state, tok.range, "Expected a node separator character (either a comma or a newline).", "");
+				ERR(p, tok.range, "Expected a node separator character (either a comma or a newline).", "");
 			}
 		}
 		
-		new_state = *state;
-		tok = maybe_eat_next_token(&new_state, (ParseFlags)0);
+		new_loc = *loc;
+		tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
 
 		ffzNode* n;
 		if ((tok.small == bracket_close_char && was_comma) || tok.small == ',') {
 			// Node lists can have blank nodes, i.e.  {,1,,5,2,,1,}
-			n = new_node(state, parent, tok.range, ffzNodeKind_Blank);
+			n = new_node(p, parent, tok.range, ffzNodeKind_Blank);
 		}
 		else {
-			TRY(parse_node(state, parent, (ParseFlags)0, &n));
+			TRY(parse_node(p, loc, parent, (ParseFlags)0, &n));
 		}
 
 		if (prev) prev->next = n;
 		else parent->first_child = n;
 		prev = n;
 	}
-	parent->loc.end = state->loc;
+	parent->loc.end = *loc;
 	return FFZ_OK;
-}
-
-static bool is_alnum_or_underscore(u8 c) {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c > 127;
 }
 
 static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
@@ -717,26 +712,26 @@ static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	return root;
 }
 
-static ffzOk parse_proc_type(ParserState* state, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
-	ffzNodeProcType* node = new_node(state, parent, range, ffzNodeKind_ProcType);
+static ffzOk parse_proc_type(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
+	ffzNodeProcType* node = new_node(p, parent, range, ffzNodeKind_ProcType);
 	//TRY(maybe_parse_polymorphic_parameter_list(p, node, &_proc->polymorphic_parameters));
 
-	ParserState new_state = *state;
-	Token tok = maybe_eat_next_token(&new_state, (ParseFlags)0);
+	ffzLoc new_loc = *loc;
+	Token tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
 
 	if (tok.small == '(') {
-		*state = new_state;
-		TRY(parse_children(state, node, ')'));
-		new_state = *state;
-		tok = maybe_eat_next_token(&new_state, (ParseFlags)0);
+		*loc = new_loc;
+		TRY(parse_children(p, loc, node, ')'));
+		new_loc = *loc;
+		tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
 	}
 
 	if (tok.small == '>=') { // :NoteAboutSeqLiterals
-		*state = new_state;
-		TRY(parse_node(state, node, ParseFlag_NoPostCurlyBrackets, &node->ProcType.out_parameter));
+		*loc = new_loc;
+		TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->ProcType.out_parameter));
 	}
 
-	node->loc.end = state->loc;
+	node->loc.end = *loc;
 	*out = node;
 	return FFZ_OK;
 }
@@ -748,17 +743,17 @@ static void assign_possible_tags(ffzNode* node, OPT(ffzNode*) first_tag) {
 	}
 }
 
-static ffzOk parse_possible_tags(ParserState* state, OPT(ffzNode*)* out_first_tag) {
+static ffzOk parse_possible_tags(ffzParser* p, ffzLoc* loc, OPT(ffzNode*)* out_first_tag) {
 	ffzNode* first = NULL;
 	ffzNode* prev = NULL;
 	for (;;) {
-		ParserState new_state = *state;
-		Token tok = maybe_eat_next_token(&new_state, ParseFlag_SkipNewlines);
+		ffzLoc new_loc = *loc;
+		Token tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);
 		if (tok.small != '@') break;
 
 		ffzNode* tag;
-		*state = new_state;
-		TRY(parse_node(state, NULL, (ParseFlags)0, &tag)); // NOTE: the parent is assigned later in assign_possible_tag
+		*loc = new_loc;
+		TRY(parse_node(p, loc, NULL, (ParseFlags)0, &tag)); // NOTE: the parent is assigned later in assign_possible_tag
 
 		if (!first) first = tag;
 		if (prev) prev->next = tag;
@@ -768,18 +763,89 @@ static ffzOk parse_possible_tags(ParserState* state, OPT(ffzNode*)* out_first_ta
 	return FFZ_OK;
 }
 
-static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, ffzNode** out) {
-	fArray(ffzNodeOp*) operator_chain = f_array_make_raw(state->parser->alc);
+static ffzOk parse_string_literal(ffzParser* p, ffzLoc* loc, fString* out) {
+	fArrayRaw builder = { .alc = p->alc };
 
-	OPT(ffzNode*) first_tag;
-	TRY(parse_possible_tags(state, &first_tag));
+	ffzLoc start_pos = *loc;
+	for (;;) {
+		uint next = loc->offset;
+		rune r = f_str_next_rune(p->source_code, &next);
+		if (!r) ERR(p, ffz_loc_to_range(start_pos), "File ended unexpectedly; no matching `\"` found for string literal.", "");
+		if (r == '\n') {
+			loc->line_num++;
+			loc->column_num = 0;
+		}
+
+		if (r == '\\') {
+			r = f_str_next_rune(p->source_code, &next);
+			if (!r) ERR(p, ffz_loc_to_range(start_pos), "File ended unexpectedly; no matching `\"` found for string literal.", "");
+			if (r == '\n') {
+				loc->line_num++;
+				loc->column_num = 0;
+			}
+
+			loc->offset = (u32)next;
+			loc->column_num += 1;
+
+			if (r == 'a')       f_str_print_rune(&builder, '\a');
+			else if (r == 'b')  f_str_print_rune(&builder, '\b');
+			else if (r == 'f')  f_str_print_rune(&builder, '\f');
+			else if (r == 'f')  f_str_print_rune(&builder, '\f');
+			else if (r == 'n')  f_str_print_rune(&builder, '\n');
+			else if (r == 'r')  f_str_print_rune(&builder, '\r');
+			else if (r == 't')  f_str_print_rune(&builder, '\t');
+			else if (r == 'v')  f_str_print_rune(&builder, '\v');
+			else if (r == '\\') f_str_print_rune(&builder, '\\');
+			else if (r == '\'') f_str_print_rune(&builder, '\'');
+			else if (r == '\"') f_str_print_rune(&builder, '\"');
+			else if (r == '?')  f_str_print_rune(&builder, '\?');
+			else if (r == '0')  f_str_print_rune(&builder, 0); // parsing octal characters is not supported like in C, with the exception of \0
+			else if (r == 'x') {
+				//if (p->pos.remaining.len < 2) PARSER_ERROR(p, p->pos, F_LIT("File ended unexpectedly when parsing a string literal."));
+				F_ASSERT(loc->offset + 2 <= p->source_code.len);
+
+				fString byte = f_str_slice(p->source_code, loc->offset, loc->offset + 2);
+				loc->offset += 2;
+				loc->column_num += 2;
+
+				s64 byte_value;
+				if (f_str_to_s64(byte, 16, &byte_value)) {
+					f_str_print_rune(&builder, (u8)byte_value);
+				}
+				else ERR(p, ffz_loc_to_range(*loc), "Failed parsing a hexadecimal byte.", "");
+			}
+			else ERR(p, ffz_loc_to_range(*loc), "Invalid escape sequence.", "");
+		}
+		else {
+			fString codepoint = f_str_slice(p->source_code, loc->offset, next);
+			loc->offset = (u32)next;
+			loc->column_num += 1;
+
+			if (r == '\"') break;
+			if (r == '\r') continue; // Ignore carriage returns
+
+			f_str_print(&builder, codepoint);
+		}
+	}
+
+	f_str_print_rune(&builder, '\0');
+	*out = f_str_slice_before(*(fString*)&builder.slice, builder.slice.len - 1);
+	return FFZ_OK;
+}
+
+static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out) {
+	fArray(ffzNodeOp*) operator_chain = f_array_make_raw(p->alc);
+	//F_HITS(_c, 4);
+	
+	//OPT(ffzNode*) first_tag;
+	//TRY(parse_possible_tags(state, &first_tag));
 
 	bool standalone_tag = false;
 	{
-		ParserState new_state = *state;
-		Token tok = maybe_eat_next_token(&new_state, ParseFlag_SkipNewlines);
-		if (tok.small == '\\') {
-			*state = new_state;
+		ffzLoc new_loc = *loc;
+		Token tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);
+		if (tok.small == '$') {
+			*loc = new_loc;
 			standalone_tag = true;
 		}
 	}
@@ -790,11 +856,14 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, f
 	ffzNode* prev = NULL;
 	for (;;) {
 		ffzNode* node = NULL;
+		ffzLoc loc_before = *loc;
 		
-		ParserState state_before = *state;
-		Token tok = maybe_eat_next_token(state, ParseFlag_SkipNewlines);
+		OPT(ffzNode*) first_tag;
+		TRY(parse_possible_tags(p, loc, &first_tag));
+
+		Token tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
 		if (!prev && tok.str.len == 0) {
-			ERR(state, ffz_loc_to_range(state->loc), "File ended unexpectedly.", "");
+			ERR(p, ffz_loc_to_range(*loc), "File ended unexpectedly.", "");
 		}
 		
 		if ((tok.small & 0xff) >= '0' && (tok.small & 0xff) <= '9') {
@@ -813,39 +882,44 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, f
 
 			u64 numeric;
 			if (!f_str_to_u64(tok.str, base, &numeric)) {
-				ERR(state, tok.range, "Invalid %s literal.", base_name);
+				ERR(p, tok.range, "Invalid %s literal.", base_name);
 			}
 
-			node = new_node(state, parent, tok.range, ffzNodeKind_IntLiteral);
+			node = new_node(p, parent, tok.range, ffzNodeKind_IntLiteral);
 			node->IntLiteral.value = numeric;
 			node->IntLiteral.was_encoded_in_base = base;
 		}
 		else if (f_str_equals(tok.str, F_LIT("proc"))) {
-			TRY(parse_proc_type(state, parent, tok.range, &node));
+			TRY(parse_proc_type(p, loc, parent, tok.range, &node));
 		}
-		else if (is_alnum_or_underscore((u8)tok.small) || tok.small == '#' || tok.small == '?') {
-			ffzKeyword* keyword = f_map64_get_raw(state->parser->keyword_from_string, f_hash64_str(tok.str));
+		else if (is_identifier_char((u8)tok.small) || tok.small == '#' || tok.small == '?') {
+			ffzKeyword* keyword = f_map64_get_raw(p->keyword_from_string, f_hash64_str(tok.str));
 			if (keyword) {
-				node = new_node(state, parent, tok.range, ffzNodeKind_Keyword);
+				node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
 				node->Keyword.keyword = *keyword;
 
 				if (*keyword == ffzKeyword_import) {
-					f_array_push(ffzNodeKeyword*, &state->parser->module_imports, node);
+					f_array_push(ffzNodeKeyword*, &p->module_imports, node);
 				}
 			}
 			else {
 				// identifier!
-				node = new_node(state, parent, tok.range, ffzNodeKind_Identifier);
+				node = new_node(p, parent, tok.range, ffzNodeKind_Identifier);
 				if (tok.small == '#') {
 					node->Identifier.is_constant = true;
-					TRY(eat_next_token(state, true, "parsing an identifier", &tok));
+					TRY(eat_next_token(p, loc, true, "parsing an identifier", &tok));
 
-					if (!is_alnum_or_underscore((u8)tok.small)) {
-						ERR(state, tok.range, "Invalid character for constant identifier.", "");
+					if (!is_identifier_char((u8)tok.small)) {
+						ERR(p, tok.range, "Invalid character for constant identifier.", "");
 					}
 				}
 				node->Identifier.name = tok.str;
 			}
+		}
+		else if (tok.small == '\"') {
+			node = new_node(p, parent, tok.range, ffzNodeKind_StringLiteral);
+			TRY(parse_string_literal(p, loc, &node->StringLiteral.zero_terminated_string));
+			node->loc.end = *loc;
 		}
 		
 		//else if (f_str_equals(tok.str, F_LIT("enum"))) {
@@ -860,7 +934,6 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, f
 
 		bool is_prefix_or_postfix = false;
 
-		// Check to see if the next token is an operator.
 		ffzNodeKind op_kind = 0;
 		if (!node) {
 			switch (tok.small) {
@@ -892,8 +965,8 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, f
 					is_prefix_or_postfix = true;
 				}
 				else { // parenthesized expression - not an operator
-					TRY(parse_node(state, parent, (ParseFlags)0, &node));
-					TRY(eat_expected_token(state, F_LIT(")")));
+					TRY(parse_node(p, loc, parent, (ParseFlags)0, &node));
+					TRY(eat_expected_token(p, loc, F_LIT(")")));
 				}
 			} break;
 			case '{': {
@@ -904,8 +977,8 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, f
 					}
 				}
 				else { // scope - not an operator
-					node = new_node(state, parent, tok.range, ffzNodeKind_Scope);
-					TRY(parse_children(state, node, '}'));
+					node = new_node(p, parent, tok.range, ffzNodeKind_Scope);
+					TRY(parse_children(p, loc, node, '}'));
 				}
 			} break;
 			case '[': {
@@ -929,25 +1002,28 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, f
 			}
 
 			if (op_kind) {
-				node = new_node(state, parent, tok.range, op_kind);
-				if (check_infix_or_postfix) node->Op.left = prev;
+				node = new_node(p, parent, tok.range, op_kind);
+				if (check_infix_or_postfix) {
+					node->Op.left = prev;
+					prev->parent = node;
+				}
 				
 				f_array_push(ffzNodeOp*, &operator_chain, node);
 
 				u8 bracket_op_close_char = ffz_get_bracket_op_close_char(op_kind);
 				if (bracket_op_close_char) {
-					TRY(parse_children(state, node, bracket_op_close_char));
+					TRY(parse_children(p, loc, node, bracket_op_close_char));
 				}
 			}
 		}
 		
 		if (!op_kind && check_infix_or_postfix) { // no more postfix / infix operator. Terminate the chain
-			*state = state_before;
+			*loc = loc_before;
 			break;
 		}
 
 		if (!node) {
-			ERR(state, tok.range, "Failed parsing a value; unexpected token `%.*s`\n", F_STRF(tok.str));
+			ERR(p, tok.range, "Failed parsing a value; unexpected token `%.*s`\n", F_STRF(tok.str));
 		}
 
 		if (!check_infix_or_postfix) {
@@ -958,6 +1034,7 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, f
 			}
 		}
 
+		if (first_tag) assign_possible_tags(node, first_tag);
 		if (!is_prefix_or_postfix) check_infix_or_postfix = !check_infix_or_postfix;
 		prev = node;
 	}
@@ -967,13 +1044,11 @@ static ffzOk parse_node(ParserState* state, ffzNode* parent, ParseFlags flags, f
 		node = (ffzNode*)merge_operator_chain(operator_chain.slice);
 	}
 
-	if (first_tag) assign_possible_tags(node, first_tag);
 	if (standalone_tag) node->flags |= ffzNodeFlag_IsStandaloneTag;
 
 	*out = node;
 	return FFZ_OK;
 }
-
 
 #if 0
 static ffzOk parse_node(ffzParser* p, ffzNode* parent, ffzNode** out, bool stop_at_curly_brackets) {
@@ -1127,94 +1202,6 @@ static ffzOk parse_struct(ffzParser* p, ffzNode* parent, ffzLocRange range, bool
 	*out = node;
 	return ffz_ok;
 }
-
-
-static ffzOk parse_string_literal(ffzParser* p, fString* out) {
-	fArrayRaw builder = {.alc = p->alc};
-
-	ffzLoc start_pos = p->pos;
-
-	for (;;) {
-		uint next = p->pos.offset;
-		rune r = f_str_next_rune(p->source_code, &next);
-		if (!r) ERR(p, ffz_loc_to_range(start_pos), "File ended unexpectedly; no matching `\"` found for string literal.", "");
-		if (r == '\n') {
-			p->pos.line_num++;
-			p->pos.column_num = 0;
-		}
-
-		if (r == '\\') {
-			r = f_str_next_rune(p->source_code, &next);
-			if (!r) ERR(p, ffz_loc_to_range(start_pos), "File ended unexpectedly; no matching `\"` found for string literal.", "");
-			if (r == '\n') {
-				p->pos.line_num++;
-				p->pos.column_num = 0;
-			}
-
-			p->pos.offset = (u32)next;
-			p->pos.column_num += 1;
-
-			if (r == 'a')       f_str_print_rune(&builder, '\a');
-			else if (r == 'b')  f_str_print_rune(&builder, '\b');
-			else if (r == 'f')  f_str_print_rune(&builder, '\f');
-			else if (r == 'f')  f_str_print_rune(&builder, '\f');
-			else if (r == 'n')  f_str_print_rune(&builder, '\n');
-			else if (r == 'r')  f_str_print_rune(&builder, '\r');
-			else if (r == 't')  f_str_print_rune(&builder, '\t');
-			else if (r == 'v')  f_str_print_rune(&builder, '\v');
-			else if (r == '\\') f_str_print_rune(&builder, '\\');
-			else if (r == '\'') f_str_print_rune(&builder, '\'');
-			else if (r == '\"') f_str_print_rune(&builder, '\"');
-			else if (r == '?')  f_str_print_rune(&builder, '\?');
-			else if (r == '0')  f_str_print_rune(&builder, 0); // parsing octal characters is not supported like in C, with the exception of \0
-			else if (r == 'x') {
-				//if (p->pos.remaining.len < 2) PARSER_ERROR(p, p->pos, F_LIT("File ended unexpectedly when parsing a string literal."));
-				F_ASSERT(p->pos.offset + 2 <= p->source_code.len);
-
-				fString byte = f_str_slice(p->source_code, p->pos.offset, p->pos.offset + 2);
-				p->pos.offset += 2;
-				p->pos.column_num += 2;
-
-				s64 byte_value;
-				if (f_str_to_s64(byte, 16, &byte_value)) {
-					f_str_print_rune(&builder, (u8)byte_value);
-				}
-				else ERR(p, ffz_loc_to_range(p->pos), "Failed parsing a hexadecimal byte.", "");
-			}
-			else ERR(p, ffz_loc_to_range(p->pos), "Invalid escape sequence.", "");
-		}
-		else {
-			fString codepoint = f_str_slice(p->source_code, p->pos.offset, next);
-			p->pos.offset = (u32)next;
-			p->pos.column_num += 1;
-
-			if (r == '\"') break;
-			if (r == '\r') continue; // Ignore carriage returns
-
-			f_str_print(&builder, codepoint);
-		}
-	}
-
-	f_str_print_rune(&builder, '\0');
-	*out = f_str_slice_before(*(fString*)&builder.slice, builder.slice.len - 1);
-	return ffz_ok;
-}
-
-// TODO: return a boolean saying if there were multiple tags with the same identifier
-//OPT(ffzNodeTag*) ffz_get_compiler_tag_by_name(ffzNode* node, fString tag) {
-//	for (ffzNodeTag* n = node->first_tag; n; n = (ffzNodeTag*)n->next) {
-//		if (n->kind == ffzNodeKind_CompilerTag && f_str_equals(n->tag, tag)) return n;
-//	}
-//	return NULL;
-//}
-//
-//OPT(ffzNodeTag*) ffz_get_user_tag_by_name(ffzNode* node, fString tag) {
-//	for (ffzNodeTag* n = node->first_tag; n; n = (ffzNodeTag*)n->next) {
-//		if (n->kind == ffzNodeKind_UserTag && f_str_equals(n->tag, tag)) return n;
-//	}
-//	return NULL;
-//}
-
 
 
 
@@ -1516,13 +1503,12 @@ static ffzOk parse_expression(ffzParser* p, ffzNode* parent, ffzNode** out, bool
 #endif
 
 ffzOk ffz_parse(ffzParser* p) {
-	ParserState state = {0};
-	state.parser = p;
-	state.loc.line_num = 1;
-	state.loc.column_num = 1;
-	p->root = new_node(&state, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
+	ffzLoc loc = {0};
+	loc.line_num = 1;
+	loc.column_num = 1;
+	p->root = new_node(p, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
 
-	TRY(parse_children(&state, (ffzNode*)p->root, 0));
+	TRY(parse_children(p, &loc, (ffzNode*)p->root, 0));
 	//ffzNode* n;
 	//ffzOk ok = parse_node(&state, (ffzNode*)p->root, &n);
 

@@ -79,8 +79,6 @@ Also, if there is a node in the same line before the comment, it could be a tag 
 //hello, sailor!
 
 // testing
-#print_uint: @extern{50} proc(x: uint)
-#print_string: @extern{100} proc(x: string)
 
 // I suppose we should typecheck the tags too
 // A tag is just a constant value.

@@ -214,12 +214,10 @@ typedef struct ffzType {
 		} Proc, PolyProc;
 
 		struct {
-			//ffzNodeRecordInst /*opt*/ node;
 			bool is_union; // otherwise struct
 		} Record, PolyRecord;
 
 		struct {
-			//ffzNodeEnumInst node;
 			ffzType* internal_type;
 			fSlice(ffzTypeEnumField) fields;
 		} Enum;
@@ -320,7 +318,10 @@ struct ffzChecker {
 	
 	fMap64(ffzType*) type_from_hash; // key: TypeHash
 	fMap64(ffzPolymorph*) poly_from_hash; // key: ffz_hash_poly_inst
-
+	
+	// Contains a list of all tag instances, within this module, of each type.
+	fMap64(fArray(ffzNodeInst)) all_tags_of_type; // key: TypeHash
+	
 	fMap64(ffzTypeRecordFieldUse*) field_from_name_map; // key: FieldHash
 
 	// Only required during checking.
@@ -333,7 +334,7 @@ struct ffzChecker {
 	
 	ffzType* type_type;
 	ffzType* module_type;
-	ffzType* builtin_types[ffzKeyword_string + 1 - ffzKeyword_u8];
+	ffzType* builtin_types[ffzKeyword_ex_extern + 1 - ffzKeyword_u8];
 };
 
 //#define FFZ_INST_AS(node,kind) (*(ffzNode##kind##Inst*)&(node))
@@ -429,3 +430,6 @@ bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst
 bool ffz_decl_is_runtime_value(ffzNodeOpDeclare* decl);
 
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee);
+
+// Returns NULL if not found
+ffzConstant* ffz_get_tag(ffzProject* p, ffzNodeInst node, ffzType* tag_type);

@@ -99,6 +99,7 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_true,
 	ffzKeyword_false,
 
+	// NOTE: remember to update ffz_builtin_type
 	ffzKeyword_u8,
 	ffzKeyword_u16,
 	ffzKeyword_u32,
@@ -112,6 +113,7 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_bool,
 	ffzKeyword_raw,
 	ffzKeyword_string,
+	ffzKeyword_ex_extern,
 
 	// :ffz_keyword_is_bitwise_op
 	ffzKeyword_bit_and,
@@ -293,7 +295,7 @@ u8 ffz_get_bracket_op_open_char(ffzNodeKind kind);
 u8 ffz_get_bracket_op_close_char(ffzNodeKind kind);
 
 //fOpt(ffzNode*) ffz_get_compiler_tag_by_name(ffzNode* node, fString tag);
-//fOpt(ffzNode*) ffz_get_user_tag_by_name(ffzNode* node, fString tag);
+//fOpt(ffzNode*) ffz_get_tag_by_name(ffzNode* node, fString tag);
 
 //u32 ffz_poly_parameter_get_index(ffzNode* node);
 //u32 ffz_parameter_get_index(ffzNode* node);

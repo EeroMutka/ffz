@@ -1,4 +1,133 @@
-// idea: optional types
+// proposal: optional types
+/*
+could we say that ?T is the same as struct{value: T, is: b1}
+with the exception of pointers, slices, strings, int and uint?
+
+Then maybe you could say foo: ?u31 if you wanted to be smart
+
+- on 64-bit, ?int would be ?s63 and ?uint would be ?u63
+*/
+
+#read_file_1: proc(filepath: string) => ?string {
+	...
+	if ... ret nil
+	ret "hello"
+}
+
+#Error: enum { FileDoesNotExist, NoPrivilige, FileIsLocked }
+#Result: union{string, Error}
+
+#read_file_2: proc(filepath: string) => Result {
+	...
+}
+
+#outer: proc(filepath: string) => Result {
+	file: read_file_2(filepath)
+	file as string or_ret
+	
+	// shorthand for before could be:
+	file: read_file_2(filepath) as string or_ret
+}
+
+#bar: proc() {
+	// `as` keyword can be used to get to a more specific type
+	{
+		b: union{int, f32, bool}
+		b as int
+		// now b will be int. if it's not, a runtime assert will fail.
+		
+		c: union{int, f32, bool}
+		c as f32 or_ret
+		
+		d: union{int, f32, bool}
+		if c as f32 {
+			...
+		}
+		
+		e: d as f32
+		f: d as int or_ret
+		
+		if e: d as f32 {...}
+		if (e: d) as f32 {...} // maybe it's like this?
+		
+		g: d.bool // g will be ?bool
+		
+		if d.int != nil {
+			d as int
+		}
+	}
+	
+	// with optional types:
+	{
+		foo: ?^int
+		
+		if foo != nil {
+			foo as ^int
+		}
+		
+		// another way to write:
+		
+		if foo as ^int {
+		}
+		// maybe ?T is semantically equivelant to union{T}
+		
+		color: ?Color
+		if color as Color {
+		}
+		
+		color = Color{50, 50, 20, 0} // assigning a direct value to an optional should be ok
+		color = nil
+		if color != Color{1, 2, 4, 5} { // as well as comparing it
+		}
+	}
+	
+	a: read_file("aaa.txt") // a will be ?string
+	if a as string {...}
+	
+	if b: read_file("hello.txt") as string {
+	}
+	
+	c: read_file("hello.txt") as string or_ret
+}
+
+/*
+// everything makes total sense now! optional is like a slice,
+// except with a maximum of one value.
+// we should totally have optionals built-in.
+// + you should be able to do i.e. if my_optional_int == 200 {...} just fine!
+
+#read_file: proc(file: string) => ?string {
+	if foo == nil {
+	}
+	ret nil
+}
+
+
+if f in read_file("..") {
+	print("file: ", f)
+}
+
+// the same thing should work with down-casting!
+
+// if we have tagged union, maybe when you access a member it will be accessed as if it's an optional
+weird_thing: union{bool, int}{int = 50}
+if i in weird_thing.int {
+	test(weird_thing)
+}
+
+
+
+foo: union{a: int, b: f32}
+foo as a
+if f as string in read_file("okay") {
+}
+f in read_file("okay")
+
+
+*/
+
+
+
 /*
 
 if we were to have built-in optionals, i.e. ?^u32, ?int, which would be fine,

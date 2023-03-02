@@ -1,21 +1,12 @@
 
-#test: proc(a: int) => int {
+$\link_library{"test.lib"}
+
+#print_uint: @\extern{} proc(x: uint)
+#print_string: @\extern{} proc(x: string)
+
+
+#main: proc() {
+	
+	print_uint(50)
+	
 }
-
-\hello
-\testing{}
-
-@howdy(1 + 2)
-\Sailor{a}
-
-
-/*
-asd
-*/
-
-@doc{name: string}
-#main: proc (a: int) => int {
-	a: 5
-}
-
-5 + 5
