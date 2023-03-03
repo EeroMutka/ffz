@@ -109,21 +109,6 @@ Also, if there is a node in the same line before the comment, it could be a tag 
 	print_string("Done!")*/
 	
 /*	
-	arena_base: (^u8)(B.TiB(2))
-	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
-	
-	arr: Arr.make[uint](&arena.allocator)
-	Arr.push[uint](&arr, 3)
-	Arr.push[uint](&arr, 4)
-	Arr.push[uint](&arr, 5)
-	
-	print_string("Elements:")
-	print_uint(arr.slice[0])
-	print_uint(arr.slice[1])
-	print_uint(arr.slice[2])
-	
-	print_string("Length is:")
-	print_uint(arr.len)
 	
 	//str: "Hello, sailor!".ptr
 	

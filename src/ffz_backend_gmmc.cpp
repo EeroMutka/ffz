@@ -67,10 +67,10 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			// Currently, we're giving these symbols unique ids and exporting them anyway, because
 			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 
-			F_BP; //if (!ffz_get_compiler_tag_by_name(inst.node, F_LIT("extern"))) {
-			//	f_str_print(&name, F_LIT("$$"));
-			//	f_str_print(&name, g->checker->_dbg_module_import_name);
-			//}
+			if (!ffz_get_tag(g->project, inst, ffz_builtin_type(g->checker, ffzKeyword_ex_extern))) {
+				f_str_print(&name, F_LIT("$$"));
+				f_str_print(&name, g->checker->_dbg_module_import_name);
+			}
 		}
 	}
 	else {
@@ -959,7 +959,7 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 			f_array_push(&clang_args, project->linker_inputs[i]);
 		}
 
-		printf("Running clang: \n");
+		printf("Running clang\n");
 		u32 exit_code;
 		if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
 			printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");

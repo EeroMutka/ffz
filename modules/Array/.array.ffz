@@ -7,7 +7,7 @@
 
 
 #Array: struct[T] {
-	@using slice: []T
+	@using{} slice: []T
 	capacity: uint
 	allocator: ^B.Allocator
 }

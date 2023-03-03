@@ -27,7 +27,7 @@
 #ENABLE_DEBUG_CHECKS: true
 
 #Arena: struct {
-	@using allocator: Allocator // NOTE: must be the first field for downcasting!
+	@using{} allocator: Allocator // NOTE: must be the first field for downcasting!
 	
 	system_page_size: u32 // practically always 4 KiB
 	
@@ -44,23 +44,23 @@
 #GiB: proc(x: uint) => (uint) { ret bit_shl(x, 30) }
 #TiB: proc(x: uint) => (uint) { ret bit_shl(x, 40) }
 
-#AllocatorProc: proc(allocator: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => (^raw)
+#AllocatorProc: proc(allocator: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => ^raw
 
 #arena_allocator_proc: AllocatorProc {
 	is_pow: is_power_of_2[uint](in.align)
 	//assert(in.align > 0 && )
 	
-	arena: (^Arena)(in.allocator)
+	arena: ^Arena(in.allocator)
 	
 	if in.size > in.old_size {
 		new_allocation: arena_push(arena, in.size, in.align)
 		
-		if in.old_ptr != (^raw)(0) {
+		if in.old_ptr != ^raw(0) {
 			memmove(new_allocation.ptr, in.old_ptr, in.old_size) // first do the copy, then fill old with garbage
 			
 			if ENABLE_DEBUG_CHECKS {
 				_debug_clear_memory(in.old_ptr, in.old_size)
-				_debug_clear_memory((^u8)(uint(new_allocation.ptr) + in.old_size), in.size - in.old_size)
+				_debug_clear_memory(^u8(uint(new_allocation.ptr) + in.old_size), in.size - in.old_size)
 			}
 		}
 		
@@ -68,7 +68,7 @@
 	}
 	else {
 		if ENABLE_DEBUG_CHECKS { // erase the top
-			_debug_clear_memory((^u8)(uint(in.old_ptr) + in.size), in.old_size - in.size) 
+			_debug_clear_memory(^u8(uint(in.old_ptr) + in.size), in.old_size - in.size) 
 		}
 	}
 	
@@ -76,22 +76,22 @@
 }
 
 // `reserve_base` can be NULL for automatically determined address
-#arena_make_virtual_reserve_fixed: proc(reserve_size: uint, reserve_base: ^u8) => (^Arena) {
+#arena_make_virtual_reserve_fixed: proc(reserve_size: uint, reserve_base: ^u8) => ^Arena {
 	dummy: Arena
-	dummy.allocator._proc= arena_allocator_proc
+	dummy.allocator._proc = arena_allocator_proc
 	
 	dummy.reserve_base = virtual_reserve(reserve_size, reserve_base)
-	if dummy.reserve_base == (^u8)(0) { dbgbreak }
+	if dummy.reserve_base == ^u8(0) { dbgbreak }
 	
 	dummy.head = dummy.reserve_base
 	dummy.committed_end = dummy.head
 	
 	sys_info: SYSTEM_INFO
 	GetSystemInfo(&sys_info)
-	dummy.system_page_size= sys_info.dwPageSize
+	dummy.system_page_size = sys_info.dwPageSize
 	
-	arena: (^Arena)(arena_push(&dummy, size_of(Arena), align_of(Arena)).ptr)
-	arena^= dummy
+	arena: ^Arena(arena_push(&dummy, size_of(Arena), align_of(Arena)).ptr)
+	arena^ = dummy
 	ret arena
 }
 
@@ -100,35 +100,35 @@
 
 // `align` must be a power of 2.
 // `x` is allowed to be positive or negative.
-#align_down: proc(x: int, align: int) => (int) {
+#align_down: proc(x: int, align: int) => int {
 	ret bit_and(x, -align)
 }
 
 // `align` must be a power of 2.
 // `x` is allowed to be positive or negative.
-#align_up: proc(x: int, align: int) => (int) {
+#align_up: proc(x: int, align: int) => int {
 	ret bit_and(x + align - 1, -align)
 }
 
 // i.e. 0b0010101000
 // =>   0b0010100000
-#flip_rightmost_one_bit: proc[T](x: T) => (T) {
+#flip_rightmost_one_bit: proc[T](x: T) => T {
 	ret bit_and(x, x - 1)
 }
 
 // i.e. 0b0010101111
 // =>   0b0010111111
-#flip_rightmost_zero_bit: proc[T](x: T) => (T) {
+#flip_rightmost_zero_bit: proc[T](x: T) => T {
 	ret bit_or(x, x + 1)
 }
 
 // x == 0 will return 1
-#is_power_of_2: proc[T](x: T) => (bool) {
+#is_power_of_2: proc[T](x: T) => bool {
 	// When x is a power of 2, it must only contain a single 1-bit
 	ret flip_rightmost_one_bit[T](x) == 0
 }
 
-#get_alignment_for_size: proc(size: uint) => (uint) {
+#get_alignment_for_size: proc(size: uint) => uint {
 	#small_aligns: [?]uint{0, 1, 2, 4, 4, 8, 8, 8, 8}
 	if size <= 8 { ret small_aligns[size] }
 	ret 16
@@ -140,16 +140,16 @@
 	memset(ptr, 204 /*0xCC*/, size)
 }
 
-#arena_push: proc(arena: ^Arena, size: uint, align: uint) => ([]u8) {
-	allocation_pos: (^u8)(align_up(int(arena.head), align))
+#arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
+	allocation_pos: ^u8(align_up(int(arena.head), align))
 	
-	arena.head = (^u8)(uint(allocation_pos) + size)
+	arena.head = ^u8(uint(allocation_pos) + size)
 	
 	if (uint(arena.head) > uint(arena.committed_end)) {
 		ok: virtual_commit(arena.committed_end, uint(arena.head) - uint(arena.committed_end))
 		if !ok { dbgbreak }
 		
-		arena.committed_end= (^u8)(align_up(uint(arena.committed_end), int(arena.system_page_size)))
+		arena.committed_end= ^u8(align_up(uint(arena.committed_end), int(arena.system_page_size)))
 	}
 	
 	if ENABLE_DEBUG_CHECKS {
@@ -162,33 +162,33 @@
 //#arena_push_str: proc(arena: ^Arena, size: uint)
 
 // returns NULL if invalid
-#virtual_reserve: proc(size: uint, optional_address: ^u8) => (^u8) {
+#virtual_reserve: proc(size: uint, optional_address: ^u8) => ^u8 {
 	ret VirtualAlloc(optional_address, size, MEM_RESERVE, PAGE_READWRITE)
 }
 
-#virtual_commit: proc(ptr: ^u8, size: uint) => (bool) {
-	ret VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != (^u8)(0)
+#virtual_commit: proc(ptr: ^u8, size: uint) => bool {
+	ret VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != ^u8(0)
 }
 
-#virtual_decommit: proc(ptr: ^u8, size: uint) => (bool) {
+#virtual_decommit: proc(ptr: ^u8, size: uint) => bool {
 	ret VirtualFree(ptr, size, MEM_DECOMMIT) == 1
 }
 
-#virtual_free: proc(ptr: ^u8) => (bool) {
+#virtual_free: proc(ptr: ^u8) => bool {
 	ret VirtualFree(ptr, 0, MEM_RELEASE) == 1
 }
 
-#select: proc[T](select_a: bool, a: T, b: T) => (T) {
+#select: proc[T](select_a: bool, a: T, b: T) => T {
 	if select_a { ret a }
 	ret b
 }
 
-#max: proc[T](a: T, b: T) => (T) {
+#max: proc[T](a: T, b: T) => T {
 	if a > b { ret a }
 	ret b
 }
 
-#min: proc[T](a: T, b: T) => (T) {
+#min: proc[T](a: T, b: T) => T {
 	if a < b { ret a }
 	ret b
 }
@@ -202,7 +202,7 @@
 	dbgbreak
 }
 
-#as_bytes: proc[T](value: ^T) => ([]u8) {
+#as_bytes: proc[T](value: ^T) => []u8 {
 	out: []u8
 	out.ptr= ^u8(value)
 	out.len= size_of(T)
@@ -217,7 +217,7 @@
 }*/
 
 // hmm... should form_slice be possible by just  []uint{&some_ptr, 50}  ?
-#form_slice: proc[T](ptr: ^T, len: uint) => ([]T) {
+#form_slice: proc[T](ptr: ^T, len: uint) => []T {
 	out: []T
 	out.ptr= ptr
 	out.len= len
@@ -230,9 +230,9 @@
 }
 
 // Note: the returned memory will be uninitialized
-#slice_make: proc[T](len: uint, a: ^Allocator) => ([]T) {
+#slice_make: proc[T](len: uint, a: ^Allocator) => []T {
 	out: []T
-	out.ptr= (^T)(a._proc(a, ^raw(0), 0, len * size_of(T), align_of(T)))
+	out.ptr= ^T(a._proc(a, ^raw(0), 0, len * size_of(T), align_of(T)))
 	out.len= len
 	ret out
 }
@@ -260,11 +260,11 @@
 	wProcessorRevision: u16
 }
 
-#memmove: @extern proc(dst: ^raw, src: ^raw, size: uint)
-#memset: @extern proc(str: ^raw, c: u32, n: uint)
-#VirtualAlloc: @extern proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => (^u8)
-#VirtualFree: @extern proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => (u32)
-#GetSystemInfo: @extern proc(lpSystemInfo: ^SYSTEM_INFO)
+#memmove: @extern{} proc(dst: ^raw, src: ^raw, size: uint)
+#memset: @extern{} proc(str: ^raw, c: u32, n: uint)
+#VirtualAlloc: @extern{} proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => ^u8
+#VirtualFree: @extern{} proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => u32
+#GetSystemInfo: @extern{} proc(lpSystemInfo: ^SYSTEM_INFO)
 
 #MEM_RESERVE: u32(8192)
 #MEM_COMMIT: u32(4096)

@@ -1,27 +1,33 @@
+#B: import("../modules/Basic")
+#Arr: import("../modules/Array")
 
 $link_library{"build/c_things.obj"}
 
 #print_uint: @extern{} proc(x: uint)
 #print_string: @extern{} proc(x: string)
 
-#V3: struct {
-	a: uint
-	b: uint
-	c: uint
-}
-
 #main: proc() {
-	v: V3{1, 2, 3}
-	v.b = 10
+	//v: V3{1, 2, 3}
+	//v.b = 10
 	
-	print_string("hello, world!\n\n\n")
-	print_uint(v.a)
-	print_uint(v.b)
-	print_uint(v.c)
 	
-	dbgbreak
-	dbgbreak
-	dbgbreak
-	dbgbreak
+	
+	arena_base: (^u8)(B.TiB(2))
+	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
+	
+	arr: Arr.make[uint](&arena.allocator)
+	Arr.push[uint](&arr, 3)
+	Arr.push[uint](&arr, 4)
+	Arr.push[uint](&arr, 5)
+	
+	print_uint(999)
+	print_uint(998)
+	
+	print_string("Elements:")
+	print_uint(arr.slice[0])
+	print_uint(arr.slice[1])
+	print_uint(arr.slice[2])
+	
+	print_string("Length is:")
+	print_uint(arr.len)
 }
-

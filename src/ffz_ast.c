@@ -935,6 +935,42 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			node->IntLiteral.value = numeric;
 			node->IntLiteral.was_encoded_in_base = base;
 		}
+		else if (f_str_equals(tok.str, F_LIT("if"))) {
+			// TOOD: I think we should make if, for, etc keywords and call parse_if, parse_for, etc from the keyword codepath
+			node = new_node(p, parent, tok.range, ffzNodeKind_If);
+			TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->If.condition));
+			TRY(parse_node(p, loc, node, 0, &node->If.true_scope));
+
+			ffzLoc new_loc = *loc;
+			tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);
+			if (f_str_equals(tok.str, F_LIT("else"))) {
+				*loc = new_loc;
+				TRY(parse_node(p, loc, node, 0, &node->If.else_scope));
+			}
+		}
+		else if (f_str_equals(tok.str, F_LIT("for"))) {
+			node = new_node(p, parent, tok.range, ffzNodeKind_For);
+			for (uint i = 0; i < 3; i++) {
+				ffzLoc new_loc = *loc;
+				Token next_tok;
+				TRY(eat_next_token(p, &new_loc, 0, "parsing a for-loop header", &next_tok));
+				if (f_str_equals(next_tok.str, F_LIT("{"))) break;
+			
+				if (i > 0) {
+					TRY(eat_expected_token(p, loc, F_LIT(",")));
+				}
+			
+				new_loc = *loc;
+				TRY(eat_next_token(p, &new_loc, 0, "parsing a for-loop header", &next_tok));
+				if (next_tok.small != ',') continue;
+			
+				ffzNode* stmt;
+				TRY(parse_node(p, loc, node, 0, &stmt));
+				node->For.header_stmts[i] = stmt;
+			}
+			
+			TRY(parse_node(p, loc, node, 0, &node->For.scope));
+		}
 		else if (f_str_equals(tok.str, F_LIT("ret"))) {
 			node = new_node(p, parent, tok.range, ffzNodeKind_Return);
 
@@ -945,8 +981,15 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			}
 			else {
 				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->Return.value));
-				node->loc.end = *loc;
 			}
+		}
+		else if (tok.small == '.') {
+			ffzLoc new_loc = *loc;
+			Token next = maybe_eat_next_token(p, &new_loc, 0);
+			if (next.str.len == 0 || !is_identifier_char(f_str_decode_rune(next.str))) {
+				node = new_node(p, parent, tok.range, ffzNodeKind_Dot);
+			}
+			// otherwise it must be unary enum member access, which we don't currently support
 		}
 		else if (f_str_equals(tok.str, F_LIT("proc"))) {
 			TRY(parse_proc_type(p, loc, parent, tok.range, &node));
@@ -1066,6 +1109,9 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 					node->Op.left = prev;
 					node->loc.start = prev->loc.start;
 				}
+				else if (!ffz_op_is_prefix(op_kind)) {
+					ERR(p, tok.range, "Expected a value, but got an operator.", "");
+				}
 				
 				f_array_push(ffzNodeOp*, &operator_chain, node);
 
@@ -1101,7 +1147,6 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 
 	
 	ffzNode* node = prev;
-	if (node->loc.start.line_num == 1) F_BP;
 	if (operator_chain.len > 0) {
 		node = (ffzNode*)merge_operator_chain(operator_chain.slice);
 	}
@@ -1114,6 +1159,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 	}
 
 	if (first_tag) assign_possible_tags(node, first_tag);
+	if (node->parent) node->parent->loc.end = node->loc.end;
 
 	*out = node;
 	return FFZ_OK;
