@@ -754,7 +754,7 @@ typedef long long          $s64;
 #define $sxt(from, to, value) (i##to)(($s##to)(($s##from)value))
 #define $zxt(from, to, value) (i##to)value
 
-// TODO: have free-standing implementations of these instead of linking to CRT?
+// TODO: have a free-standing implementation of these so you could avoid linking to CRT if you wanted to?
 void *memmove(void *s1, const void *s2, size_t n);
 void *memset(void *s, int c, size_t n);
 

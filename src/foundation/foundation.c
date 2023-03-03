@@ -1616,6 +1616,11 @@ uint f_str_encode_rune(u8* output, rune r) {
 	return 0;
 }
 
+rune f_str_decode_rune(fString str) {
+	uint offset = 0;
+	return f_str_next_rune(str, &offset);
+}
+
 // Taken and altered from https://www.cprogramming.com/tutorial/unicode.html
 rune f_str_next_rune(fString str, uint* byteoffset) {
 	//ZoneScoped;

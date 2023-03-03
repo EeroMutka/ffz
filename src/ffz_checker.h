@@ -176,7 +176,7 @@ typedef struct ffzTypeRecordField {
 	fString name;
 	ffzType* type;
 	u32 offset;
-	ffzNodeOpDeclare* /*opt*/ decl;
+	ffzNodeOpDeclareInst decl; // not always used, i.e. for slice type fields
 } ffzTypeRecordField;
 
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;

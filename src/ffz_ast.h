@@ -16,6 +16,7 @@ typedef u32 ffzCheckerLocalID;
 typedef struct ffzNode ffzNode;
 
 typedef struct ffzOk { bool ok; } ffzOk;
+const static ffzOk FFZ_OK = { true };
 
 typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	ffzNodeKind_Invalid,
@@ -113,6 +114,8 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_bool,
 	ffzKeyword_raw,
 	ffzKeyword_string,
+	ffzKeyword_ex_link_library,
+	ffzKeyword_ex_using,
 	ffzKeyword_ex_extern,
 
 	// :ffz_keyword_is_bitwise_op

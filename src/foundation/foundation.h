@@ -731,11 +731,11 @@ wchar_t* f_str_to_utf16(fString str, uint num_null_terminations, fAllocator* a, 
 fString f_str_from_utf16(wchar_t* str_utf16, fAllocator* a);
 
 uint f_str_encode_rune(u8* output, rune r); // returns the number of bytes written
-// TODO: utf8_decode_rune
 
 // Returns the character on `byteoffset`, then increments it.
 // Will returns 0 if byteoffset >= str.len
 rune f_str_next_rune(fString str, uint* byteoffset);
+rune f_str_decode_rune(fString str);
 
 // Decrements `bytecounter`, then returns the character on it.
 // Will returns 0 if byteoffset < 0
