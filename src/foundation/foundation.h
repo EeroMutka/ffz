@@ -560,7 +560,7 @@ void f_arena_pop_to(fArena* arena, fArenaPosition pos);
 // TODO: void arena_shrink_memory(uint base_size) // the memory will not be reduced past base_size
 void f_arena_clear(fArena* arena);
 
-uint_pow2 f_next_pow_of_2(uint v); // todo: move this into the macros section as an inline function?
+uint_pow2 f_round_up_power_of_2(uint v); // todo: move this into the macros section as an inline function?
 
 #define F_MAP64_EMPTY_KEY (0xFFFFFFFFFFFFFFFF)
 #define F_MAP64_DEAD_BUT_REQUIRED_FOR_CHAIN_KEY (0xFFFFFFFFFFFFFFFE)

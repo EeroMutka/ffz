@@ -165,7 +165,7 @@ bool ffz_type_is_grounded(ffzType* type) {
 }
 
 // TODO: store this as a flag in ffzType
-bool ffz_type_is_comparable(ffzType* type) {
+bool ffz_type_can_be_checked_for_equality(ffzType* type) {
 	if (ffz_type_is_integer(type->tag)) return true;
 
 	switch (type->tag) {
@@ -174,14 +174,18 @@ bool ffz_type_is_comparable(ffzType* type) {
 	case ffzTypeTag_Proc: return true;
 	case ffzTypeTag_Enum: return true;
 	case ffzTypeTag_Record: {
-		if (type->Record.is_union) return false;
-
-		for (uint i = 0; i < type->record_fields.len; i++) {
-			if (!ffz_type_is_comparable(type->record_fields[i].type)) return false;
-		}
+		return false; // TODO: implement this in the backends
+		//if (type->Record.is_union) return false;
+		//
+		//for (uint i = 0; i < type->record_fields.len; i++) {
+		//	if (!ffz_type_can_be_checked_for_equality(type->record_fields[i].type)) return false;
+		//}
 	} return true;
 	
-	case ffzTypeTag_FixedArray: return ffz_type_is_comparable(type->FixedArray.elem_type);
+	case ffzTypeTag_FixedArray: {
+		return false; // TODO: implement this in the backends
+		//return ffz_type_can_be_checked_for_equality(type->FixedArray.elem_type);
+	}
 	}
 	return false;
 }
@@ -760,7 +764,18 @@ ffzType* ffz_make_type_fixed_array(ffzChecker* c, ffzType* elem_type, s32 length
 
 	array_type.FixedArray.elem_type = elem_type;
 	array_type.FixedArray.length = length;
-	return ffz_make_type(c, array_type);
+	ffzType* out = ffz_make_type(c, array_type);
+
+	if (length > 0 && length <= 4 && out->record_fields.len == 0) { // this type hasn't been made before
+		out->record_fields = f_make_slice_garbage<ffzTypeRecordField>(length, c->alc);
+		
+		const static fString fields[] = { F_LIT("x"), F_LIT("y"), F_LIT("z"), F_LIT("w") };
+		for (u32 i = 0; i < (u32)length; i++) {
+			out->record_fields[i] = { fields[i], elem_type, elem_type->size * i, NULL };
+		}
+		add_fields_to_field_from_name_map(c, out, out, 0);
+	}
+	return out;
 }
 
 static ffzNodeOpInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst inst, ffzType** out_type) {
@@ -1801,10 +1816,14 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		OPT(ffzType*) type;
 		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), NULL, flags, &type));
 		
-		if (!ffz_type_is_comparable(type)) {
-			ERR(c, inst.node, "Types cannot be compared. Received: %s", ffz_type_to_cstring(c->project, type));
+		bool is_equality_check = inst.node->kind == ffzNodeKind_Equal || inst.node->kind == ffzNodeKind_NotEqual;
+		if ((is_equality_check && ffz_type_can_be_checked_for_equality(type)) || ffz_type_is_integer(type->tag)) {
+			result.type = ffz_builtin_type(c, ffzKeyword_bool);
 		}
-		result.type = ffz_builtin_type(c, ffzKeyword_bool);
+		else {
+			ERR(c, inst.node, "Operator '%s' is not defined for type '%s'",
+				ffz_node_kind_to_op_cstring(inst.node->kind), ffz_type_to_cstring(c->project, type));
+		}
 	} break;
 
 	case ffzNodeKind_Add: case ffzNodeKind_Sub: case ffzNodeKind_Mul:
@@ -2067,7 +2086,6 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			ffz_log_pretty_error(parser, F_LIT("Syntax error "), at, error, true);
 			F_BP;
 		};
-
 			
 		parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
 		//parser->tag_decl_lists = f_map64_make<ffzNodeTagDecl*>(parser->alc);

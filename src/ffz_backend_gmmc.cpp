@@ -379,16 +379,19 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			F_ASSERT(!address_of);
 			out = gmmc_op_bool(g->bb, checked.const_val->bool_);
 		} break;
-		case ffzTypeTag_SizedInt: // fallthrough
-		case ffzTypeTag_Int: {
-			F_ASSERT(!address_of);
-			if (checked.type->size == 1)      out = gmmc_op_i8(g->bb, checked.const_val->u8_);
-			else if (checked.type->size == 2) out = gmmc_op_i16(g->bb, checked.const_val->u16_);
-			else if (checked.type->size == 4) out = gmmc_op_i32(g->bb, checked.const_val->u32_);
-			else if (checked.type->size == 8) out = gmmc_op_i64(g->bb, checked.const_val->u64_);
-			else F_BP;
-		} break;
 
+		/*{
+			F_ASSERT(!address_of);
+			if (checked.type->size == 1)      out = gmmc_op_i8(g->bb, checked.const_val->s8_);
+			else if (checked.type->size == 2) out = gmmc_op_i16(g->bb, checked.const_val->s16_);
+			else if (checked.type->size == 4) out = gmmc_op_i32(g->bb, checked.const_val->s32_);
+			else if (checked.type->size == 8) out = gmmc_op_i64(g->bb, checked.const_val->s64_);
+			else F_BP;
+		} break;*/
+
+		case ffzTypeTag_Enum: // fallthrough
+		case ffzTypeTag_SizedInt: // fallthrough
+		case ffzTypeTag_Int: // fallthrough
 		case ffzTypeTag_SizedUint: // fallthrough
 		case ffzTypeTag_Uint: {
 			F_ASSERT(!address_of);
@@ -442,7 +445,11 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		case ffzNodeKind_GreaterOrEqual:
 		{
 			F_ASSERT(!address_of);
+			ffzType* left_type = ffz_expr_get_type(g->project, left);
 			
+			// TODO: more operator defines. I guess we should do this together with the fix for vector math
+			F_ASSERT(left_type->size <= 8);
+
 			gmmcReg a = gen_expr(g, left);
 			gmmcReg b = gen_expr(g, right);
 			bool is_signed = ffz_type_is_signed_integer(checked.type->tag);

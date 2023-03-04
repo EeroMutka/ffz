@@ -122,6 +122,22 @@
 	ret bit_or(x, x + 1)
 }
 
+#round_up_to_power_of_2: proc(v: uint) => uint {
+	// todo: use the following formula from Tilde Backend
+	// x == 1 ? 1 : 1 << (64 - _lzcnt_u64(x - 1))
+
+	// https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+	v = . - 1
+	v = bit_or(., bit_shr(., 1))
+	v = bit_or(., bit_shr(., 2))
+	v = bit_or(., bit_shr(., 4))
+	v = bit_or(., bit_shr(., 8))
+	v = bit_or(., bit_shr(., 16))
+	v = bit_or(., bit_shr(., 32))
+	v = . + 1
+	ret v
+}
+
 // x == 0 will return 1
 #is_power_of_2: proc[T](x: T) => bool {
 	// When x is a power of 2, it must only contain a single 1-bit

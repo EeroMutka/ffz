@@ -9,8 +9,10 @@ $link_library{"build/c_things.obj"}
 
 
 // Example programs ideas:
-// Ray tracer demo program. Maybe it could render into the terminal for simplicity?
+// Ray tracer demo program
 // Game of life
+// Chess game, maybe even 3d? That would be pretty cool!
+// tetris? breakout? pong? snake?
 
 #main: proc() {
 	

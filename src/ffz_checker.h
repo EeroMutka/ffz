@@ -373,7 +373,7 @@ ffzNodeInst ffz_get_child_inst(ffzNodeInst parent, u32 idx);
 
 ffzType* ffz_ground_type(ffzCheckedExpr checked); // TODO: get rid of this?
 bool ffz_type_is_grounded(ffzType* type); // a type is grounded when a runtime variable may have that type.
-bool ffz_type_is_comparable(ffzType* type);
+bool ffz_type_can_be_checked_for_equality(ffzType* type);
 
 fString ffz_type_to_string(ffzProject* p, ffzType* type);
 const char* ffz_type_to_cstring(ffzProject* p, ffzType* type);

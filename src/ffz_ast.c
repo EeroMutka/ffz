@@ -125,6 +125,10 @@ F_STATIC_ASSERT(F_LEN(ffzKeyword_to_string) == ffzKeyword_COUNT);
 
 fString ffz_node_kind_to_string(ffzNodeKind kind) { return ffzNodeKind_to_name[kind]; }
 char* ffz_node_kind_to_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_name[kind].data; }
+
+fString ffz_node_kind_to_op_string(ffzNodeKind kind) { return ffzNodeKind_to_op_string[kind]; }
+char* ffz_node_kind_to_op_cstring(ffzNodeKind kind) { return ffzNodeKind_to_op_string[kind].data;}
+
 fString ffz_keyword_to_string(ffzKeyword keyword) { return ffzKeyword_to_string[keyword]; }
 char* ffz_keyword_to_cstring(ffzKeyword keyword) { return (char*)ffzKeyword_to_string[keyword].data; }
 
@@ -622,8 +626,8 @@ static ffzOk parse_children(ffzParser* p, ffzLoc* loc, ffzNode* parent, u8 brack
 			tok = maybe_eat_next_token(p, loc, (ParseFlags)0);
 			was_comma = tok.small == ',';
 			if (tok.small != '\n' && !was_comma) {
-				ERR(p, prev->loc, "Expected a separator character (either a comma or a newline) after '%s'.",
-					ffz_node_kind_to_cstring(prev->kind));
+				ERR(p, prev->loc, "Expected a separator character (either a comma or a newline) after '%s', got '%.*s'",
+					ffz_node_kind_to_cstring(prev->kind), F_STRF(tok.str));
 			}
 		}
 		

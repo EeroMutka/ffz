@@ -327,6 +327,9 @@ char* ffz_keyword_to_cstring(ffzKeyword keyword);
 fString ffz_node_kind_to_string(ffzNodeKind kind);
 char* ffz_node_kind_to_cstring(ffzNodeKind kind);
 
+fString ffz_node_kind_to_op_string(ffzNodeKind kind);
+char* ffz_node_kind_to_op_cstring(ffzNodeKind kind);
+
 ffzOk ffz_parse(ffzParser* p);
 
 fOpt(ffzNode*) ffz_skip_standalone_tags(fOpt(ffzNode*) node);

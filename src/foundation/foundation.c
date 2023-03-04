@@ -1112,7 +1112,7 @@ void f_map64_resize_raw(fMap64Raw* map, u32 slot_count_log2) {
 	}
 }
 
-uint_pow2 f_next_pow_of_2(uint v) {
+uint_pow2 f_round_up_power_of_2(uint v) {
 	// todo: use the following formula from Tilde Backend
 	// x == 1 ? 1 : 1 << (64 - _lzcnt_u64(x - 1));
 

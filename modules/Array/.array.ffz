@@ -5,7 +5,6 @@
 
 // TODO: @alias_module_name
 
-
 #Array: struct[T] {
 	@using{} slice: []T
 	capacity: uint
@@ -25,24 +24,56 @@
 }
 
 #push: proc[T](a: ^Array[T], elem: T) => uint {
-	ret push_raw(^Array[raw](a), &elem, size_of(T), align_of(T))
+	ret push_n_raw(^Array[raw](a), &elem, 1, size_of(T), align_of(T))
+}
+
+#push_n: proc[T](a: ^Array[T], elems: []T) => uint {
+	ret push_n_raw(^Array[raw](a), elems.ptr, elems.len, size_of(T), align_of(T))
+}
+
+#insert: proc[T](a: ^Array[T], at: uint, elem: T) {
+	insert_n_raw(^Array[raw](a), at, &elem, 1, size_of(T), align_of(T))
+}
+
+#insert_n: proc[T](a: ^Array[T], at: uint, elems: []T) {
+	insert_n_raw(^Array[raw](a), at, elems.ptr, elems.len, size_of(T), align_of(T))
 }
 
 // --
 // Raw array utilities - these are useful if you don't know the element type statically.
 // --
 
-#push_raw: proc(a: ^Array[raw], elem: ^raw, elem_size: uint, elem_align: uint) => uint {
-	if (a.len >= a.capacity) { // Do we need to grow the array?
-		new_capacity: B.max[uint](8, a.capacity*2)
-		
-		a.ptr= a.allocator._proc(a.allocator, a.ptr, a.capacity*elem_size, new_capacity*elem_size, elem_align)
-		a.capacity= new_capacity
-	}
+#push_n_raw: proc(a: ^Array[raw], elems: ^raw, n: uint, elem_size: uint, elem_align: uint) => uint {
+	reserve_raw(a, a.len + n, elem_size, elem_align)
 	
-	B.memmove(^raw(uint(a.ptr) + elem_size * a.len), elem, elem_size)
+	B.memmove(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
 	
 	out: a.len
 	a.len= .+1
 	ret out
+}
+
+#reserve_raw: proc(a: ^Array[raw], capacity: uint, elem_size: uint, elem_align: uint) {
+	if (capacity > a.capacity) {
+		// the + 7 is to make us start off with 8 elements the first time we're appending to an array
+		new_capacity: B.round_up_to_power_of_2(capacity + 7)
+		
+		if (a.allocator == ^B.Allocator(0)) {
+			dbgbreak // did you forget to call Array.make?
+		}
+		
+		a.ptr= a.allocator._proc(a.allocator, a.ptr, a.capacity*elem_size, new_capacity*elem_size, elem_align)
+		a.capacity= new_capacity
+	}
+}
+
+#insert_n_raw: proc(a: ^Array[raw], at: uint, elem: ^raw, n: uint, elem_size: uint, elem_align: uint) {
+	reserve_raw(a, a.len + n, elem_size, elem_align)
+	
+	// Move existing elements forward
+	offset: uint(a.ptr) + at * elem_size
+	B.memmove(^raw(offset + n * elem_size), ^raw(offset), (a.len - at) * elem_size)
+	
+	B.memmove(^raw(offset), elem, n * elem_size)
+	a.len = .+1
 }
