@@ -1,0 +1,17 @@
+// so I guess the program could return 0 when it succeeds and 1 when it fails,
+// and the test framework would just look at which programs return 0 and don't crash.
+
+// other idea would be to print stuff and have a "ground truth" stdout string to compare to.
+// But idk if that's necessary. Maybe.
+
+// The test-runner should totally use FFZ as a library!
+// Maybe we could even create a custom definition for `ground_truth` from the test runner like:
+
+$ground_truth{"
+asdf
+901 25
+"}
+
+#main: proc() => u32 {
+	ret 0
+}

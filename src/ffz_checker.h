@@ -242,7 +242,8 @@ typedef struct ffzProject {
 	fString module_name;
 	fMap64(ffzChecker*) checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
 
-	fArray(fString) linker_inputs;
+	fArray(fString) link_libraries;
+	fArray(fString) link_system_libraries;
 
 	fArray(ffzChecker*) checkers; // key: ffzCheckerIndex
 	fArray(ffzParser*) parsers_dependency_sorted; // key: ffzParserIndex // dependency sorted from leaf modules towards higher-level modules	

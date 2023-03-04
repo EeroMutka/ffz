@@ -178,7 +178,7 @@ GMMC_API gmmcReg gmmc_op_array_access(gmmcBasicBlock* bb, gmmcReg base, gmmcReg 
 	F_ASSERT(reg_get_type(bb->proc, base) == gmmcType_ptr);
 	F_ASSERT(gmmc_type_is_integer(reg_get_type(bb->proc, index)));
 	
-	gmmcOp op = { gmmcOpKind_member_access };
+	gmmcOp op = { gmmcOpKind_array_access };
 	op.operands[0] = base;
 	op.operands[1] = index;
 	op.imm = stride;
@@ -495,7 +495,10 @@ void print_bb(fArray(u8)* b, gmmcBasicBlock* bb, fAllocator* alc) {
 			f_str_printf(b, "_$%u = $sxt(%u, %u, _$%u);\n", op->result, from_bits, to_bits, op->operands[0]);
 		} break;
 
-		case gmmcOpKind_trunc: { F_BP; } break; // remember to mask!!
+		case gmmcOpKind_trunc: {
+			u32 to_bits = 8 * gmmc_type_get_size(reg_get_type(bb->proc, op->result));
+			f_str_printf(b, "_$%u = (i%u)_$%u;\n", op->result, to_bits, op->operands[0]);
+		} break;
 
 		case gmmcOpKind_and: { f_str_printf(b, "_$%u = _$%u & _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
 		case gmmcOpKind_or: { f_str_printf(b, "_$%u = _$%u | _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;

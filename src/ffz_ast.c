@@ -109,6 +109,7 @@ const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("raw"),
 	F_LIT_COMP("string"),
 	F_LIT_COMP("link_library"),
+	F_LIT_COMP("link_system_library"),
 	F_LIT_COMP("using"),
 	F_LIT_COMP("extern"),
 	F_LIT_COMP("bit_and"),
@@ -569,7 +570,7 @@ static ffzOk eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags, const c
 
 static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 	Token tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
-	if (!f_str_equals(tok.str, expected)) ERR(p, tok.range, "Expected \"%.*s\"; got \"%.*s\"", F_STRF(expected), F_STRF(tok.str));
+	if (!f_str_equals(tok.str, expected)) ERR(p, tok.range, "Expected '%.*s'; got '%.*s'", F_STRF(expected), F_STRF(tok.str));
 	return FFZ_OK;
 }
 
@@ -954,18 +955,18 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				ffzLoc new_loc = *loc;
 				Token next_tok;
 				TRY(eat_next_token(p, &new_loc, 0, "parsing a for-loop header", &next_tok));
-				if (f_str_equals(next_tok.str, F_LIT("{"))) break;
-			
+				if (next_tok.small == '{') break;
+				
 				if (i > 0) {
 					TRY(eat_expected_token(p, loc, F_LIT(",")));
 				}
 			
 				new_loc = *loc;
 				TRY(eat_next_token(p, &new_loc, 0, "parsing a for-loop header", &next_tok));
-				if (next_tok.small != ',') continue;
-			
+				if (next_tok.small == ',') continue;
+
 				ffzNode* stmt;
-				TRY(parse_node(p, loc, node, 0, &stmt));
+				TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &stmt));
 				node->For.header_stmts[i] = stmt;
 			}
 			

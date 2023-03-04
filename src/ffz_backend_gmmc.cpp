@@ -278,11 +278,10 @@ static gmmcReg gen_call(Gen* g, ffzNodeOpInst inst) {
 	return out;
 }
 
-static gmmcReg load_small(Gen* g, gmmcReg ptr, uint size) {
-	if (size == 1) return gmmc_op_load(g->bb, gmmcType_i8, ptr);
-	else if (size == 2) return gmmc_op_load(g->bb, gmmcType_i16, ptr);
-	else if (size == 4) return gmmc_op_load(g->bb, gmmcType_i32, ptr);
-	else if (size == 8) return gmmc_op_load(g->bb, gmmcType_i64, ptr);
+static gmmcReg load_small(Gen* g, gmmcReg ptr, ffzType* type) {
+	if (type->size == 1 || type->size == 2 || type->size == 4 || type->size == 8) {
+		return gmmc_op_load(g->bb, get_gmmc_type(g, type), ptr);
+	}
 	else F_BP; // TODO!! i.e. a type could be of size 3, when [3]u8
 	return 0;
 }
@@ -359,6 +358,15 @@ static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset
 	}
 }
 
+static void gen_store(Gen* g, gmmcReg addr, gmmcReg value, ffzType* type) {
+	if (type->size > 8) {
+		gmmc_op_memmove(g->bb, addr, value, gmmc_op_i32(g->bb, type->size));
+	}
+	else {
+		gmmc_op_store(g->bb, addr, value);
+	}
+}
+
 static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	gmmcReg out = {};
 
@@ -405,11 +413,9 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			
 			gen_global_constant(g, global, (u8*)global_data, 0, checked.type, checked.const_val);
 
-			gmmcReg global_addr = gmmc_op_addr_of_symbol(g->bb, gmmc_global_as_symbol(global));
-			if (address_of) out = global_addr;
-			else {
-				if (checked.type->size > 8) out = global_addr;
-				else out = load_small(g, global_addr, checked.type->size);
+			out = gmmc_op_addr_of_symbol(g->bb, gmmc_global_as_symbol(global));
+			if (!address_of && checked.type->size <= 8) {
+				out = load_small(g, out, checked.type);
 			}
 		} break;
 
@@ -579,26 +585,25 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				gmmcReg addr_of_struct = gen_expr(g, left, left_chk.type->tag != ffzTypeTag_Pointer);
 				F_ASSERT(addr_of_struct);
 
-				out = gmmc_op_member_access(g->bb, addr_of_struct, field.offset);
+				out = field.offset ? gmmc_op_member_access(g->bb, addr_of_struct, field.offset) : addr_of_struct;
 				should_dereference = !address_of;
 			}
 		} break;
 
 		case ffzNodeKind_PostCurlyBrackets: {
 			// dynamic initializer
-			F_BP;
-			/*out.ptr = tb_inst_local(g->fn, checked.type->size, checked.type->align);
-			out.ptr_can_be_stolen = true;
-			F_ASSERT(checked.type->size > 8);
+			out = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
+			//out.ptr_can_be_stolen = true;
+			//F_ASSERT(checked.type->size > 8);
 
 			if (checked.type->tag == ffzTypeTag_Record) {
 				u32 i = 0;
 				for FFZ_EACH_CHILD_INST(n, inst) {
 					ffzTypeRecordField& field = checked.type->record_fields[i];
 
-					SmallOrPtr src = gen_expr(g, n);
-					gmmcReg dst_ptr = tb_inst_member_access(g->fn, out.ptr, field.offset);
-					_gen_store(g, dst_ptr, src, field.type);
+					gmmcReg src = gen_expr(g, n);
+					gmmcReg dst_ptr = gmmc_op_member_access(g->bb, out, field.offset);
+					gen_store(g, dst_ptr, src, field.type);
 					i++;
 				}
 			}
@@ -606,13 +611,18 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				u32 i = 0;
 				ffzType* elem_type = checked.type->FixedArray.elem_type;
 				for FFZ_EACH_CHILD_INST(n, inst) {
-					SmallOrPtr src = gen_expr(g, n, false);
-					gmmcReg dst_ptr = tb_inst_member_access(g->fn, out.ptr, i * elem_type->size);
-					_gen_store(g, dst_ptr, src, elem_type);
+					gmmcReg src = gen_expr(g, n, false);
+					gmmcReg dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
+					gen_store(g, dst_ptr, src, elem_type);
 					i++;
 				}
 			}
-			else F_BP;*/
+			else F_BP;
+
+			should_dereference = !address_of;
+			//if (!address_of && checked.type->size <= 8) {
+			//	out = load_small(g, out, checked.type->size);
+			//}
 		} break;
 
 		case ffzNodeKind_PostSquareBrackets: {
@@ -719,7 +729,8 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	if (should_dereference) {
 		F_ASSERT(!should_take_address);
 		if (checked.type->size <= 8) {
-			out = gmmc_op_load(g->bb, get_gmmc_type(g, checked.type), out);
+			out = load_small(g, out, checked.type);
+			//out = gmmc_op_load(g->bb, get_gmmc_type(g, checked.type), out);
 		}
 	}
 	if (should_take_address) {
@@ -732,14 +743,6 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	}
 
 	return out;
-}
-
-static void gen_store(Gen* g, gmmcReg addr, gmmcReg value, ffzType* type) {
-	if (type->size > 8) {
-		gmmc_op_memmove(g->bb, addr, value, gmmc_op_i32(g->bb, type->size));
-	} else {
-		gmmc_op_store(g->bb, addr, value);
-	}
 }
 
 static bool node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
@@ -908,17 +911,6 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 		}
 	}
 
-	// TODO: option for clang/msvc (/gcc?)  ...and what about TCC?
-	// I guess the purpose of the C backend is mainly:
-	//    1. when TB is broken / debugging code-gen
-	//    2. for maximum portability
-	//    3. for optimization
-	// 
-	// so the natural option would be to use clang.
-	// MSVC might be faster to compile, but... if you want fast development builds / compile speeds, use TB
-	// 
-	// Compile with MSVC
-
 	fArray(u8) buf = f_array_make<u8>(temp);
 	gmmc_module_print(&buf, gmmc);
 	
@@ -929,86 +921,94 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 		return false;
 	}
 
-	if (true) { // clang
-		fArray(fString) clang_args = f_array_make<fString>(temp);
-		f_array_push(&clang_args, F_LIT("clang"));
+	fArray(fString) clang_args = f_array_make<fString>(temp);
+	f_array_push(&clang_args, F_LIT("clang"));
 		
-		if (true) { // with debug info?
-			f_array_push(&clang_args, F_LIT("-gcodeview"));
-			f_array_push(&clang_args, F_LIT("--debug"));
+	if (true) { // with debug info?
+		f_array_push(&clang_args, F_LIT("-gcodeview"));
+		f_array_push(&clang_args, F_LIT("--debug"));
+	}
+	else {
+		f_array_push(&clang_args, F_LIT("-O1"));
+	}
+
+	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
+	f_array_push(&clang_args, F_LIT("a.c"));
+	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
+	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
+	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
+	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
+
+	//f_array_push(&clang_args, F_LIT("/link"));
+	//f_array_push(&clang_args, F_LIT("/INCREMENTAL:NO"));
+	//f_array_push(&clang_args, F_LIT("/MACHINE:X64"));
+	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
+	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
+	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
+
+	for (uint i = 0; i < project->link_libraries.len; i++) {
+		f_array_push(&clang_args, project->link_libraries[i]);
+	}
+	for (uint i = 0; i < project->link_system_libraries.len; i++) {
+		f_array_push(&clang_args, F_LIT("-Xlinker"));
+		f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("-defaultlib:"), project->link_system_libraries[i]));
+	}
+		
+	printf("Running clang: ");
+	for (uint i = 0; i < clang_args.len; i++) {
+		printf("\"%.*s\" ", F_STRF(clang_args[i]));
+	}
+	printf("\n");
+
+	u32 exit_code;
+	if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
+		printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");
+		return false;
+	}
+	if (exit_code != 0) return false;
+
+
+#if 0 // msvc
+	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
+	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, temp); // contains cl.exe, link.exe
+	fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, temp); // contains <string.h>, etc
+	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, temp); // contains kernel32.lib, etc
+	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, temp); // contains libucrt.lib, etc
+	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, temp); // contains MSVCRT.lib etc
+	fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, temp); // contains vcruntime.h
+
+	{
+		fArray(fString) msvc_args = f_array_make<fString>(temp);
+		f_array_push(&msvc_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\cl.exe")));
+		f_array_push(&msvc_args, F_LIT("/Zi"));
+		f_array_push(&msvc_args, F_LIT("/std:c11"));
+		f_array_push(&msvc_args, F_LIT("/Ob1")); // enable inlining
+		f_array_push(&msvc_args, F_LIT("/MDd")); // raylib uses this setting
+		f_array_push(&msvc_args, F_LIT("a.c"));
+		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
+		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
+		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
+		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
+
+		f_array_push(&msvc_args, F_LIT("/link"));
+		f_array_push(&msvc_args, F_LIT("/INCREMENTAL:NO"));
+		f_array_push(&msvc_args, F_LIT("/MACHINE:X64"));
+		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
+		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
+		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
+		f_array_push(&msvc_args, F_LIT("libcmt.lib")); // link crt startup?
+
+		for (uint i = 0; i < project->link_libraries.len; i++) {
+			f_array_push(&msvc_args, project->link_libraries[i]);
 		}
-		else {
-			f_array_push(&clang_args, F_LIT("-O1"));
-		}
 
-		f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
-		f_array_push(&clang_args, F_LIT("a.c"));
-		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
-		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
-		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
-		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
-
-		//f_array_push(&clang_args, F_LIT("/link"));
-		//f_array_push(&clang_args, F_LIT("/INCREMENTAL:NO"));
-		//f_array_push(&clang_args, F_LIT("/MACHINE:X64"));
-		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-		//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
-
-		for (uint i = 0; i < project->linker_inputs.len; i++) {
-			f_array_push(&clang_args, project->linker_inputs[i]);
-		}
-
-		printf("Running clang\n");
+		printf("Running cl.exe: \n");
 		u32 exit_code;
-		if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
-			printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");
-			return false;
-		}
+		if (!f_os_run_command(msvc_args.slice, build_dir, &exit_code)) return false;
 		if (exit_code != 0) return false;
 	}
-
-	if (false) { // msvc
-		WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
-		fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, temp); // contains cl.exe, link.exe
-		fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, temp); // contains <string.h>, etc
-		fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, temp); // contains kernel32.lib, etc
-		fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, temp); // contains libucrt.lib, etc
-		fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, temp); // contains MSVCRT.lib etc
-		fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, temp); // contains vcruntime.h
-
-		{
-			fArray(fString) msvc_args = f_array_make<fString>(temp);
-			f_array_push(&msvc_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\cl.exe")));
-			f_array_push(&msvc_args, F_LIT("/Zi"));
-			f_array_push(&msvc_args, F_LIT("/std:c11"));
-			f_array_push(&msvc_args, F_LIT("/Ob1")); // enable inlining
-			f_array_push(&msvc_args, F_LIT("/MDd")); // raylib uses this setting
-			f_array_push(&msvc_args, F_LIT("a.c"));
-			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
-			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
-			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
-			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
-
-			f_array_push(&msvc_args, F_LIT("/link"));
-			f_array_push(&msvc_args, F_LIT("/INCREMENTAL:NO"));
-			f_array_push(&msvc_args, F_LIT("/MACHINE:X64"));
-			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-			f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
-			f_array_push(&msvc_args, F_LIT("libcmt.lib")); // link crt startup?
-
-			for (uint i = 0; i < project->linker_inputs.len; i++) {
-				f_array_push(&msvc_args, project->linker_inputs[i]);
-			}
-
-			printf("Running cl.exe: \n");
-			u32 exit_code;
-			if (!f_os_run_command(msvc_args.slice, build_dir, &exit_code)) return false;
-			if (exit_code != 0) return false;
-		}
-		WinSDK_free_resources(&windows_sdk);
-	}
+	WinSDK_free_resources(&windows_sdk);
+#endif
 
 	return true;
 }

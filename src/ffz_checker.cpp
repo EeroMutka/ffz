@@ -879,7 +879,7 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 	ffzNodeInst left = CHILD(inst, Op.left);
 
 	ffzCheckedExpr left_chk;
-	TRY(check_node(c, left, NULL, flags, &left_chk));
+	TRY(check_node(c, left, NULL, 0, &left_chk));
 	if (left_chk.type->tag != ffzTypeTag_Type) {
 		ERR(c, left.node, "Invalid {} initializer; expected a type on the left side, but got a value.");
 	}
@@ -1275,17 +1275,18 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 
 		// extras
 		// @copypaste
+		
+		// it'd be neat if we could just parse and check the builtin definition directly here:
+		/*
+			struct { name: string }
+		*/
 		{
-			// it'd be neat if we could just parse and check the builtin definition directly here:
-			/*
-				struct { name: string }
-			*/
 			ffzType type = { ffzTypeTag_Record };
 			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
 			type.unique_node.node->id.global_id = -1; // special magic value...
 
 			type.record_fields = f_make_slice_garbage<ffzTypeRecordField>(1, c->alc);
-			type.record_fields[0] = { F_LIT("name"), ffz_builtin_type(c, ffzKeyword_string), 0, NULL };
+			type.record_fields[0] = { F_LIT("filepath"), ffz_builtin_type(c, ffzKeyword_string), 0, NULL };
 			
 			c->builtin_types[ffzKeyword_ex_link_library - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
 		}
@@ -1294,13 +1295,24 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 			ffzType type = { ffzTypeTag_Record };
 			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
 			type.unique_node.node->id.global_id = -2; // special magic value...
-			c->builtin_types[ffzKeyword_ex_using - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+
+			type.record_fields = f_make_slice_garbage<ffzTypeRecordField>(1, c->alc);
+			type.record_fields[0] = { F_LIT("filepath"), ffz_builtin_type(c, ffzKeyword_string), 0, NULL };
+
+			c->builtin_types[ffzKeyword_ex_link_system_library - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
 		}
 
 		{
 			ffzType type = { ffzTypeTag_Record };
 			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
 			type.unique_node.node->id.global_id = -3; // special magic value...
+			c->builtin_types[ffzKeyword_ex_using - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+		}
+
+		{
+			ffzType type = { ffzTypeTag_Record };
+			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
+			type.unique_node.node->id.global_id = -4; // special magic value...
 			c->builtin_types[ffzKeyword_ex_extern - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
 		}
 	}
@@ -2154,18 +2166,25 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			}
 		}
 
-		// link_library
-		ffzType* link_library_tag_type = ffz_builtin_type(checker, ffzKeyword_ex_link_library);
-		fArray(ffzNodeInst)* link_libraries = f_map64_get(&checker->all_tags_of_type, link_library_tag_type->hash);
+		fArray(ffzNodeInst)* link_libraries = f_map64_get(&checker->all_tags_of_type,
+			ffz_builtin_type(checker, ffzKeyword_ex_link_library)->hash);
 		if (link_libraries) {
 			for (uint i = 0; i < link_libraries->len; i++) {
-				ffzNodeInst n = link_libraries->data[i];
-				ffzConstant* constant = ffz_expr_get_checked(project, n).const_val;
-				ffzConstant lib_path = constant->record_fields[0];
+				ffzConstant* constant = ffz_expr_get_evaluated_constant(project, link_libraries->data[i]);
+				ffzConstant path = constant->record_fields[0];
 				
-				//F_ASSERT(n.rhs->kind == ffzNodeKind_StringLiteral);
-				fString input = f_files_path_to_absolute(directory, lib_path.string_zero_terminated, checker->alc);
-				f_array_push(&project->linker_inputs, input);
+				fString input = f_files_path_to_absolute(directory, path.string_zero_terminated, checker->alc);
+				f_array_push(&project->link_libraries, input);
+			}
+		}
+
+		fArray(ffzNodeInst)* link_system_libraries = f_map64_get(&checker->all_tags_of_type,
+			ffz_builtin_type(checker, ffzKeyword_ex_link_system_library)->hash);
+		if (link_system_libraries) {
+			for (uint i = 0; i < link_system_libraries->len; i++) {
+				ffzConstant* constant = ffz_expr_get_evaluated_constant(project, link_system_libraries->data[i]);
+				ffzConstant path = constant->record_fields[0];
+				f_array_push(&project->link_system_libraries, path.string_zero_terminated);
 			}
 		}
 
@@ -2206,7 +2225,8 @@ bool ffz_build_directory(fString directory) {
 	p->checked_module_from_directory = f_map64_make<ffzChecker*>(temp);
 	p->checkers = f_array_make<ffzChecker*>(temp);
 	p->parsers_dependency_sorted = f_array_make<ffzParser*>(temp);
-	p->linker_inputs = f_array_make<fString>(temp);
+	p->link_libraries = f_array_make<fString>(temp);
+	p->link_system_libraries = f_array_make<fString>(temp);
 	p->pointer_size = 8;
 
 	{

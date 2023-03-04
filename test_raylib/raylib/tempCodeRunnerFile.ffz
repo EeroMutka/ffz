@@ -1,7 +1,0 @@
-#Camera: struct {
-	position: Vector3
-	target: Vector3
-	up: Vector3
-	fovy: f32
-	projection: s32
-}

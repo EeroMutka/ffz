@@ -115,6 +115,7 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_raw,
 	ffzKeyword_string,
 	ffzKeyword_ex_link_library,
+	ffzKeyword_ex_link_system_library,
 	ffzKeyword_ex_using,
 	ffzKeyword_ex_extern,
 

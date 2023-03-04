@@ -1,33 +1,53 @@
 #B: import("../modules/Basic")
-#Arr: import("../modules/Array")
+#Array: import("../modules/Array")
+
+#RL: import("../modules/raylib")
 
 $link_library{"build/c_things.obj"}
-
 #print_uint: @extern{} proc(x: uint)
 #print_string: @extern{} proc(x: string)
 
+
+// Example programs ideas:
+// Ray tracer demo program. Maybe it could render into the terminal for simplicity?
+// Game of life
+
 #main: proc() {
-	//v: V3{1, 2, 3}
-	//v.b = 10
-	
-	
 	
 	arena_base: (^u8)(B.TiB(2))
 	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
 	
-	arr: Arr.make[uint](&arena.allocator)
-	Arr.push[uint](&arr, 3)
-	Arr.push[uint](&arr, 4)
-	Arr.push[uint](&arr, 5)
+	numbers: Array.make[uint](&arena.allocator)
 	
-	print_uint(999)
-	print_uint(998)
+	for i: 0, i < 16, i= .+1 {
+		Array.push[uint](&numbers, i + i)
+	}
 	
-	print_string("Elements:")
-	print_uint(arr.slice[0])
-	print_uint(arr.slice[1])
-	print_uint(arr.slice[2])
+	print_string("Printing array:")
+	for i: 0, i < numbers.len, i= .+1 {
+		print_uint(numbers.slice[i])
+	}
+	print_string("Done!")
 	
-	print_string("Length is:")
-	print_uint(arr.len)
+	window_width: uint(512)
+	RL.InitWindow(s32(window_width), s32(window_width), "Hello".ptr)
+	
+	RL.SetTargetFPS(60)
+	
+	i: u8(0)
+	
+	for, !RL.WindowShouldClose() {
+		RL.BeginDrawing()
+		
+		print_string("frame")
+		
+		RL.ClearBackground(RL.Color{200, 200, i, 255})
+		
+		i= . + 1
+		if i > 250 {
+			i = 0
+		}
+		
+		RL.EndDrawing()
+	}
 }
