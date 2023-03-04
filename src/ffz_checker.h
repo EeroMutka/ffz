@@ -239,6 +239,7 @@ typedef struct ffzType {
 
 typedef struct ffzProject {
 	fAllocator* persistent_allocator;
+	fString compiler_install_dir;
 	fString module_name;
 	fMap64(ffzChecker*) checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
 
@@ -356,7 +357,7 @@ void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc
 
 bool ffz_parse_and_check_directory(ffzProject* p, fString directory);
 
-bool ffz_build_directory(fString directory);
+bool ffz_build_directory(fString directory, fString compiler_install_dir);
 
 inline bool ffz_type_is_integer(ffzTypeTag tag) { return tag >= ffzTypeTag_SizedInt && tag <= ffzTypeTag_Uint; }
 inline bool ffz_type_is_signed_integer(ffzTypeTag tag) { return tag == ffzTypeTag_SizedInt || tag == ffzTypeTag_Int; }

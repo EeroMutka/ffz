@@ -2073,6 +2073,12 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		return f_str_from_utf16(buf, a);
 	}
 
+	fString f_os_get_executable_path(fAllocator* allocator) {
+		wchar_t buf[MAX_PATH];
+		u32 n = GetModuleFileNameW(NULL, buf, MAX_PATH);
+		return f_str_from_utf16(buf, allocator);
+	}
+
 	fString f_os_clipboard_get_text(fAllocator* a) {
 		fString text = (fString){0};
 		if (OpenClipboard(NULL)) {

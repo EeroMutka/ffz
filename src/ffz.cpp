@@ -18,7 +18,7 @@ int main(int argc, const char* argv[]) {
 	//	printf("\"%s\", ", argv[i]);
 	//}
 	//printf("\n");
-	
+	printf("yo\n");
 	fAllocator* temp = f_temp_push();
 	
 	if (argc <= 1) {
@@ -27,7 +27,9 @@ int main(int argc, const char* argv[]) {
 	}
 
 	fString dir = f_files_path_to_absolute(fString{}, f_str_from_cstr(argv[1]), temp);
-	if (!ffz_build_directory(dir)) return 1;
+	fString compiler_install_dir = f_str_path_dir(f_str_path_dir(f_os_get_executable_path(temp)));
+	printf("Hello! %.*s\n", F_STRF(compiler_install_dir));
+	if (!ffz_build_directory(dir, compiler_install_dir)) return 1;
 	
 	return 0;
 }

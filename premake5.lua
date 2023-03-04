@@ -27,7 +27,7 @@ workspace "ffz"
 	rtti "Off"
 	
 	location "build"
-	objdir "build/bin"
+	targetdir "bin"
 
 project "ffz"
 	kind "ConsoleApp"

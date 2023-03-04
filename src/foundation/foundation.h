@@ -635,6 +635,8 @@ bool f_os_run_command(fSlice(fString) args, fString working_dir, u32* out_exit_c
 bool f_os_set_working_dir(fString dir);
 fString f_os_get_working_dir(fAllocator* allocator);
 
+fString f_os_get_executable_path(fAllocator* allocator);
+
 // these strings do not currently convert slashes - they will be windows specific `\`
 //fSlice(fString) os_file_picker_multi(); // allocated with temp_allocator
 

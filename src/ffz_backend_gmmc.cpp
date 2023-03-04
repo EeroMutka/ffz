@@ -323,8 +323,9 @@ static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset
 		fString s = constant->string_zero_terminated;
 		
 		void* str_data;
-		gmmcGlobal* str_data_global = gmmc_make_global(g->gmmc, (u32)s.len, 1, true, &str_data);
+		gmmcGlobal* str_data_global = gmmc_make_global(g->gmmc, (u32)s.len + 1, 1, true, &str_data);
 		memcpy(str_data, s.data, s.len);
+		((u8*)str_data)[s.len] = 0; // zero-termination
 
 		memset(base + offset, 0, 8);
 		gmmc_global_add_relocation(global, offset, gmmc_global_as_symbol(str_data_global));

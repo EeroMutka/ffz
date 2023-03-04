@@ -1,10 +1,6 @@
-#B: import("../modules/Basic")
-#Array: import("../modules/Array")
-#RL: import("../modules/raylib")
-
-$link_library{"build/c_things.obj"}
-#print_uint: @extern{} proc(x: uint)
-#print_string: @extern{} proc(x: string)
+#B: import(":Basic")
+#Array: import(":Array")
+#RL: import(":vendor/raylib")
 
 // hmm... maybe types should automatically become one-way distinct.
 // my_int IS an int, but int is not necessarily my_int
@@ -51,13 +47,6 @@ $link_library{"build/c_things.obj"}
 	}
 	
 	if game.frame_index % 15 == 0 {
-		if game.lost {
-			print_string("lost!")
-		}
-		else {
-			print_string("still going")
-		}
-		
 		if !equals_v2(game.next_input, V2{0, 0}) {
 			game.snake_direction= game.next_input
 			game.next_input= V2{0, 0}

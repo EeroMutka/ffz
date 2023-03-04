@@ -2055,15 +2055,16 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		[](const fVisitDirectoryInfo* info, void* userptr) -> fVisitDirectoryResult {
 			FileVisitData* visit = (FileVisitData*)userptr;
 
-	if (!info->is_directory && f_str_path_extension(info->name) == F_LIT("ffz") && info->name.data[0] == '.') {
-		fString filepath = f_str_join_il(visit->files.alc, { visit->directory, F_LIT("\\"), info->name });
-		f_array_push(&visit->files, filepath);
-	}
+			if (!info->is_directory && f_str_path_extension(info->name) == F_LIT("ffz") && info->name.data[0] != '!') {
+				fString filepath = f_str_join_il(visit->files.alc, { visit->directory, F_LIT("\\"), info->name });
+				f_array_push(&visit->files, filepath);
+			}
 
-	return fVisitDirectoryResult_Continue;
+			return fVisitDirectoryResult_Continue;
 		}, &visit))
 	{
-		F_BP; // directory doesn't exist!
+		printf("Directory `%.*s` does not exist!\n", F_STRF(directory));
+		return false;
 	}
 
 	fSlice(ffzParser*) parsers_dependency_sorted = f_make_slice_garbage<ffzParser*>(visit.files.len, temp);
@@ -2113,8 +2114,13 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			ffzNode* import_name_node = ffz_get_child(import_op, 0);
 			F_ASSERT(import_name_node->kind == ffzNodeKind_StringLiteral);
 			fString import_name = import_name_node->StringLiteral.zero_terminated_string;
+			
+			// : means that the path is relative to the modules directory shipped with the compiler
+			if (f_str_starts_with(import_name, F_LIT(":"))) {
+				import_name = F_STR_JOIN(temp, project->compiler_install_dir, F_LIT("/modules/"), f_str_slice_after(import_name, 1));
+			}
 
-			if (f_files_path_is_absolute(import_name)) F_BP;
+			//if (f_files_path_is_absolute(import_name)) F_BP;
 			//BP;
 			//String name = n->Statement.lhs_expression->Identifier.name;
 			fString child_directory = f_files_path_to_absolute(directory, import_name, temp);
@@ -2234,12 +2240,13 @@ bool ffz_parse_and_check_directory(ffzProject* p, fString directory) {
 	return _parse_and_check_directory(p, directory, &checker, {});
 }
 
-bool ffz_build_directory(fString directory) {
+bool ffz_build_directory(fString directory, fString compiler_install_dir) {
 	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
 
 	ffzProject* p = f_mem_clone(ffzProject{}, temp);
 	p->persistent_allocator = temp;
 	p->module_name = f_str_path_tail(directory);
+	p->compiler_install_dir = compiler_install_dir;
 	p->checked_module_from_directory = f_map64_make<ffzChecker*>(temp);
 	p->checkers = f_array_make<ffzChecker*>(temp);
 	p->parsers_dependency_sorted = f_array_make<ffzParser*>(temp);
