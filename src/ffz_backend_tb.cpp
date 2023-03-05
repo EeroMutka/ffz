@@ -703,14 +703,14 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 					out = gen_expr(g, arg);
 					if (ffz_type_is_pointer_ish(dst_type->tag)) { // cast to pointer
-						if (arg_type->tag == ffzTypeTag_Pointer) {}
+						if (ffz_type_is_pointer_ish(arg_type->tag)) {}
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {
 							out.small = tb_inst_int2ptr(g->fn, out.small);
 						}
 					}
 					else if (ffz_type_is_integer_ish(dst_type->tag)) { // cast to integer
 						TB_DataType dt = get_tb_basic_type(g, dst_type);
-						if (arg_type->tag == ffzTypeTag_Pointer) {
+						if (ffz_type_is_pointer_ish(arg_type->tag)) {
 							out.small = tb_inst_ptr2int(g->fn, out.small, dt);
 						}
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {

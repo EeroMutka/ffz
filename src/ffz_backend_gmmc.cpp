@@ -520,14 +520,14 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 					out = gen_expr(g, arg);
 					if (ffz_type_is_pointer_ish(dst_type->tag)) { // cast to pointer
-						if (arg_type->tag == ffzTypeTag_Pointer) {}
+						if (ffz_type_is_pointer_ish(arg_type->tag)) {}
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {
 							out = gmmc_op_int2ptr(g->bb, out);
 						}
 					}
 					else if (ffz_type_is_integer_ish(dst_type->tag)) { // cast to integer
 						gmmcType dt = get_gmmc_type(g, dst_type);
-						if (arg_type->tag == ffzTypeTag_Pointer) {
+						if (ffz_type_is_pointer_ish(arg_type->tag)) {
 							out = gmmc_op_ptr2int(g->bb, out, dt);
 						}
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {

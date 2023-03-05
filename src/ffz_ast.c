@@ -914,7 +914,12 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 		OPT(ffzNode*) operand_first_tag;
 		TRY(parse_possible_tags(p, loc, &operand_first_tag));
 
-		Token tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
+		// skip newlines when NOT parsing for post/infix operators.
+		// i.e. to make the following work (otherwise it'd be a dereference of aaa):
+		// foo(aaa
+		//     ^int(0))
+
+		Token tok = maybe_eat_next_token(p, loc, check_infix_or_postfix ? 0 : ParseFlag_SkipNewlines);
 		if (!prev && tok.str.len == 0) {
 			ERR(p, parent->loc, "File ended unexpectedly when parsing child-list.", "");
 		}

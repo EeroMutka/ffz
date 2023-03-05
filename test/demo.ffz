@@ -58,18 +58,16 @@ $link_library{"build/c_things.obj"}
 
 #WNDPROC: proc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: s64) => s64
 
-#window_proc: WNDPROC {
-	dbgbreak
+#my_window_proc: WNDPROC {
+	//dbgbreak
 	ret 0
 }
 
+#WINDOW_CLASS_NAME: "ffz_window_module_class_name"
 
-//#WinMain: proc(hInstance: HINSTANCE, hPrevInstance: HINSTANCE, lpCmdLine: ^u8, nShowCmd: u32) => u32 {
-#main: proc() {
-	
-	arena_base: ^u8(Basic.TiB(2))
-	arena: Basic.arena_make_virtual_reserve_fixed(Basic.MiB(2), arena_base)
-	temp: &arena.allocator
+#register_window_class: proc(temp: ^Basic.Allocator) {
+	// Windows requires us to first register a "window class" with a given name,
+	// which will be used in subsequent calls to CreateWindowExW()
 	
 	hInstance: GetModuleHandleW(^u16(0))
 	
@@ -79,18 +77,56 @@ $link_library{"build/c_things.obj"}
 	// TODO: fix size_of
 	wnd_class.cbSize         = u32(size_of(WNDCLASSEXW))
 	wnd_class.style          = bit_or(CS_HREDRAW, bit_or(CS_VREDRAW, CS_OWNDC))
-	wnd_class.lpfnWndProc    = window_proc
+	wnd_class.lpfnWndProc    = WNDPROC(DefWindowProcW)
+	//my_window_proc
 	wnd_class.hInstance      = hInstance
 	//wnd_class.hIcon
-	wnd_class.hCursor        = LoadCursorW(^HINSTANCE(0), ^u16(IDC_ARROW))
+	wnd_class.hCursor        = LoadCursorW(HINSTANCE(0), ^u16(IDC_ARROW))
 	wnd_class.hbrBackground  = bg_brush
 	
-	wnd_class.lpszClassName  = str_to_utf16("MyCoolWindow", temp).ptr
+	wnd_class.lpszClassName  = str_to_utf16(WINDOW_CLASS_NAME, temp).ptr
 	
 	atom: RegisterClassExW(&wnd_class)
-	err: GetLastError()
+	Basic.assert(atom != 0)
+}
+
+// TODO: implicit temp allocator
+#create_window: proc(width: uint, height: uint, name: string, temp: ^Basic.Allocator) => HWND {
+	// NOTE: register_window_class must have been called before this!
 	
-	if atom == 0 { dbgbreak } // failed
+	x: s32(100)
+	y: s32(100)
+	
+	hwnd: CreateWindowExW(0
+		str_to_utf16(WINDOW_CLASS_NAME, temp).ptr
+		str_to_utf16(name, temp).ptr
+		WS_OVERLAPPEDWINDOW
+		x, y
+		s32(width)
+		s32(height)
+		HWND(0)
+		HMENU(0)
+		HINSTANCE(0)
+		^raw(0))
+	
+	if hwnd == HWND(0) { dbgbreak } // failed
+	
+	UpdateWindow(hwnd)
+	ShowWindow(hwnd, SW_SHOW)
+	
+	ret hwnd
+}
+
+#WinMain: proc(hInstance: HINSTANCE, hPrevInstance: HINSTANCE, lpCmdLine: ^u8, nShowCmd: u32) => u32 {
+//#main: proc() {
+	
+	arena_base: ^u8(Basic.TiB(2))
+	arena: Basic.arena_make_virtual_reserve_fixed(Basic.MiB(2), arena_base)
+	temp: &arena.allocator
+	
+	register_window_class(temp)
+	
+	hwnd: create_window(512, 512, "Hulabaloo", temp)
 	
 	dbgbreak
 	
@@ -116,6 +152,7 @@ $link_library{"build/c_things.obj"}
 #HBRUSH: ^raw
 #HWND: ^raw
 #HMODULE: ^raw
+#HMENU: ^raw
 
 #IDC_ARROW: 32512
 
@@ -141,23 +178,44 @@ $link_library{"build/c_things.obj"}
 
 #CS_VREDRAW:          u32(0x0001)
 #CS_HREDRAW:          u32(0x0002)
-#CS_DBLCLKS:          u32(0x0008)
+//#CS_DBLCLKS:          u32(0x0008)
 #CS_OWNDC:            u32(0x0020)
-#CS_CLASSDC:          u32(0x0040)
-#CS_PARENTDC:         u32(0x0080)
-#CS_NOCLOSE:          u32(0x0200)
-#CS_SAVEBITS:         u32(0x0800)
-#CS_BYTEALIGNCLIENT:  u32(0x1000)
-#CS_BYTEALIGNWINDOW:  u32(0x2000)
-#CS_GLOBALCLASS:      u32(0x4000)
+//#CS_CLASSDC:          u32(0x0040)
+//#CS_PARENTDC:         u32(0x0080)
+//#CS_NOCLOSE:          u32(0x0200)
+//#CS_SAVEBITS:         u32(0x0800)
+//#CS_BYTEALIGNCLIENT:  u32(0x1000)
+//#CS_BYTEALIGNWINDOW:  u32(0x2000)
+//#CS_GLOBALCLASS:      u32(0x4000)
+
+#WS_OVERLAPPEDWINDOW: u32(0x00cf0000)
 
 #MultiByteToWideChar: @Kernel32 proc(CodePage: u32, dwFlags: u32, lpMultiByteStr: ^u8, cbMultiByte: s32, lpWideCharStr: ^u16, cchWideChar: s32) => s32
 #GetModuleHandleW: @Kernel32 proc(lpModuleName: ^u16) => HMODULE
+//#GetLastError: @Kernel32 proc => u32
+
+#UpdateWindow: @User32 proc(hWnd: HWND) => s32
+#ShowWindow: @User32 proc(hWnd: HWND, nCmdShow: s32) => s32
+
+#SW_SHOW: s32(5)
+
+#CreateWindowExW: @User32 proc(
+	dwExStyle: u32
+	lpClassName: ^u16
+	lpWindowName: ^u16
+	dwStyle: u32
+	X: s32
+	Y: s32
+	nWidth: s32
+	nHeight: s32
+	hWndParent: HWND
+	hMenu: HMENU
+	hInstance: HINSTANCE
+	lpParam: ^raw) => HWND
 
 #RegisterClassExW: @User32 proc(lpWndClass: ^WNDCLASSEXW) => ATOM
 #LoadCursorW: @User32 proc(hInstance: HINSTANCE, lpCursorName: ^u16) => HCURSOR
-
-#GetLastError: @Kernel32 proc => u32
+#DefWindowProcW: @User32 proc(hWnd: HWND, Msg: u32, wParam: u64, lParam: s64) => s64
 
 #CreateSolidBrush: @Gdi32 proc(color: u32) => HBRUSH
 
@@ -168,5 +226,4 @@ $link_library{"build/c_things.obj"}
 
 $link_system_library{"User32.lib"}
 $link_system_library{"Gdi32.lib"}
-
 

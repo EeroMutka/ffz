@@ -8,7 +8,7 @@
 #include <Windows.h>
 
 int main(int argc, const char* argv[]) {
-	//WNDCLASSEXW www = {};
+	u32 style = WS_OVERLAPPEDWINDOW;
 	//int x = F_OFFSET_OF(WNDCLASSEXW, hInstance);
 	//gmmc_test();
 	//wchar_t* test = IDC_ARROW;
