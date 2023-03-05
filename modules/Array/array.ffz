@@ -51,7 +51,7 @@
 	B.memmove(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
 	
 	out: a.len
-	a.len= .+1
+	a.len= .+n
 	ret out
 }
 
@@ -77,5 +77,5 @@
 	B.memmove(^raw(offset + n * elem_size), ^raw(offset), (a.len - at) * elem_size)
 	
 	B.memmove(^raw(offset), elem, n * elem_size)
-	a.len = .+1
+	a.len = .+n
 }

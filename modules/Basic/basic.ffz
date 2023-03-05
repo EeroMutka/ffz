@@ -260,6 +260,9 @@
 	a._proc(a, (^raw)(slice.ptr), slice.len, 0, 0)
 }
 
+#assert: proc(x: bool) {
+	if !x { dbgbreak }
+}
 
 // -- OS-specific defines -----------------------------------------------------
 

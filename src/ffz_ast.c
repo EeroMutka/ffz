@@ -916,7 +916,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 
 		Token tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
 		if (!prev && tok.str.len == 0) {
-			ERR(p, ffz_loc_to_range(*loc), "File ended unexpectedly.", "");
+			ERR(p, parent->loc, "File ended unexpectedly when parsing child-list.", "");
 		}
 		
 		if ((tok.small & 0xff) >= '0' && (tok.small & 0xff) <= '9') {
@@ -1025,7 +1025,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				node = new_node(p, parent, tok.range, ffzNodeKind_Identifier);
 				if (tok.small == '#') {
 					node->Identifier.is_constant = true;
-					TRY(eat_next_token(p, loc, true, "parsing an identifier", &tok));
+					TRY(eat_next_token(p, loc, 0, "parsing an identifier", &tok));
 
 					if (!is_identifier_char(f_str_decode_rune(tok.str))) {
 						ERR(p, tok.range, "Invalid character for constant identifier.", "");
@@ -1033,6 +1033,15 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				}
 				node->Identifier.name = tok.str;
 			}
+		}
+		else if (tok.small == '\'') {
+			node = new_node(p, parent, tok.range, ffzNodeKind_IntLiteral);
+			TRY(eat_next_token(p, loc, 0, "parsing a character literal", &tok));
+			TRY(eat_expected_token(p, loc, F_LIT("'")));
+
+			if (tok.small > 127) ERR(p, tok.range, "TODO: better support for character literals", "");
+			node->IntLiteral.value = tok.small;
+			node->loc.end = *loc;
 		}
 		else if (tok.small == '\"') {
 			node = new_node(p, parent, tok.range, ffzNodeKind_StringLiteral);

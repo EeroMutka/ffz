@@ -37,13 +37,20 @@ $link_library{"build/c_things.obj"}
 	}*/
 	
 	
-	print_string("AAIII")
 	
-	my_string: str.from_int(5021, temp)
+	my_string: str.from_int(-2900, temp)
 	print_string(my_string)
+	
+	my_strings: [?]string{"the", "modulo"}
+	s: str.joinf("%* %* operator (%%) returns %1 remainder of a division. %* rocks!", my_strings[,], temp)
+	print_string(s)
+	
+	
+	//str.joinf("%* %* %* %*", {str.from_int(50)}
 	
 	//print_string("addd")
 	
+	//str.to_int()
 	
 	/*window_width: uint(512)
 	RL.InitWindow(s32(window_width), s32(window_width), "Hello".ptr)
