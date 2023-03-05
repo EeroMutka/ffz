@@ -39,7 +39,6 @@
 #push_integer: proc(builder: ^Builder, value: uint, base: uint) {
 	i: builder.len
 	
-	// TODO: fix for loop without post-statement
 	for loop: true, loop, loop = value > 0 {
 		tmp: value
 		value = . / base
@@ -49,10 +48,9 @@
 	}
 	
 	// It's now printed in reverse, so let's reverse the digits
-	_dummy: bool
 	
 	j: builder.len - 1
-	for , i < j, _dummy=true {
+	for , i < j {
 		tmp: builder.slice[j]
 		builder.slice[j] = builder.slice[i]
 		builder.slice[i] = tmp

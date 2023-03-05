@@ -188,6 +188,7 @@ u8 ffz_get_bracket_op_close_char(ffzNodeKind kind) {
 }
 
 static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
+	const fString tab_str = F_LIT("    ");
 	fAllocator* temp = f_temp_push();
 	if (false) {
 		f_str_print(builder, F_LIT(" <"));
@@ -226,23 +227,24 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 		u8 open_char = ffz_get_bracket_op_open_char(node->kind);
 		u8 close_char = ffz_get_bracket_op_close_char(node->kind);
 
-		bool multi_line = node->kind == ffzNodeKind_PostCurlyBrackets;
+		
+		bool multi_line = node->kind == ffzNodeKind_PostCurlyBrackets; //ffz_get_child_count(node) >= 3 ||
 		if (multi_line) {
 			f_str_print_rune(builder, ' ');
 			f_str_print_rune(builder, open_char);
 			f_str_print_rune(builder, '\n');
 			for (ffzNode* n = node->first_child; n; n = n->next) {
-				f_str_print_repeat(builder, F_LIT("\t"), tab_level + 1);
+				f_str_print_repeat(builder, tab_str, tab_level + 1);
 				_print_ast(builder, n, tab_level + 1);
 				f_str_print(builder, F_LIT("\n"));
 			}
-			f_str_print_repeat(builder, F_LIT("\t"), tab_level);
+			f_str_print_repeat(builder, tab_str, tab_level);
 		}
 		else {
 			f_str_print_rune(builder, open_char);
 			for (ffzNode* n = node->first_child; n; n = n->next) {
 				if (n != node->first_child) f_str_print(builder, F_LIT(", "));
-				_print_ast(builder, n, tab_level + (uint)multi_line);
+				_print_ast(builder, n, tab_level);
 			}
 		}
 		f_str_print_rune(builder, close_char);
@@ -358,13 +360,12 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 		f_str_print(builder, F_LIT("{\n"));
 
 		for (ffzNode* n = node->first_child; n; n = n->next) {
-			for (int j = 0; j < tab_level + 1; j++) f_str_print(builder, F_LIT("    "));
+			f_str_print_repeat(builder, tab_str, tab_level + 1);
 			_print_ast(builder, n, tab_level + 1);
-
 			f_str_print(builder, F_LIT("\n"));
 		}
 
-		for (int j = 0; j < tab_level; j++) f_str_print(builder, F_LIT("    "));
+		f_str_print_repeat(builder, tab_str, tab_level);
 		f_str_print(builder, F_LIT("}\n"));
 	} break;
 
@@ -399,6 +400,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_For: {
+		//if (node->loc.start.line_num == 54) F_BP;
 		f_str_print(builder, F_LIT("for "));
 		for (int i = 0; i < 3; i++) {
 			if (node->For.header_stmts[i]) {
@@ -955,19 +957,19 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 		}
 		else if (f_str_equals(tok.str, F_LIT("for"))) {
 			node = new_node(p, parent, tok.range, ffzNodeKind_For);
-			for (uint i = 0; i < 3; i++) {
-				ffzLoc new_loc = *loc;
-				Token next_tok;
-				TRY(eat_next_token(p, &new_loc, 0, "parsing a for-loop header", &next_tok));
-				if (next_tok.small == '{') break;
-				
+			for (uint i = 0; i < 3; i++) {				
 				if (i > 0) {
-					TRY(eat_expected_token(p, loc, F_LIT(",")));
+					ffzLoc new_loc = *loc;
+					tok = maybe_eat_next_token(p, &new_loc, 0);
+					if (tok.small == '{') break;
+					if (tok.small != ',') ERR(p, tok.range, "Invalid for-loop; expected ',' or '{'", "");
+					*loc = new_loc;
 				}
 			
-				new_loc = *loc;
-				TRY(eat_next_token(p, &new_loc, 0, "parsing a for-loop header", &next_tok));
-				if (next_tok.small == ',') continue;
+				ffzLoc new_loc = *loc;
+				tok = maybe_eat_next_token(p, &new_loc, 0);
+				if (tok.small == '{') break;
+				if (tok.small == ',') continue;
 
 				ffzNode* stmt;
 				TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &stmt));
