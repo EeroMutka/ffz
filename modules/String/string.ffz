@@ -1,5 +1,8 @@
 // Common string utilities for utf8-encoded strings.
 
+// TODO:
+// https://gist.github.com/d7samurai/c3e85e08f2a32d2fb3bc9d157c066be9
+
 #Basic: import(":Basic")
 #Array: import(":Array")
 
@@ -127,3 +130,4 @@
 	push_joinf(&builder, format, args)
 	ret string(builder.slice)
 }
+

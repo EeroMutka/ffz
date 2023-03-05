@@ -5,10 +5,13 @@
 
 #include <stdio.h>
 
+#include <Windows.h>
+
 int main(int argc, const char* argv[]) {
-
+	//WNDCLASSEXW www = {};
+	//int x = F_OFFSET_OF(WNDCLASSEXW, hInstance);
 	//gmmc_test();
-
+	//wchar_t* test = IDC_ARROW;
 	//s64 val;
 	//bool ok = f_str_to_s64(F_LIT("259012390"), 16, &val);
 	//s64 test = 0x259012390;

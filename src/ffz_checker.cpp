@@ -1913,7 +1913,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 
 			uint i = 0;
 			u32 offset = 0;
-			u32 alignment = 0;
+			u32 max_align = 0;
 			for FFZ_EACH_CHILD_INST(n, inst) {
 				if (n.node->kind != ffzNodeKind_Declare) ERR(c, n.node, "Expected a declaration.");
 
@@ -1922,21 +1922,22 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 
 				ffzType* member_type = ffz_ground_type(chk); // ffz_decl_get_type(c, decl);
 				F_ASSERT(ffz_type_is_grounded(member_type));
-				alignment = F_MAX(alignment, member_type->align);
+				max_align = F_MAX(max_align, member_type->align);
 
+				fString name = n.node->Op.left->Identifier.name;
 				record_type->record_fields[i] = ffzTypeRecordField{
-					n.node->Op.left->Identifier.name,                        // `name`
+					name,                                                    // `name`
 					member_type,                                             // `type`
 					inst.node->Record.is_union ? 0 : offset,                 // `offset`
 					n,                                                       // `decl`
 				};
 				F_ASSERT(!inst.node->Record.is_union); // uhh the logic for calculating union offsets is not correct
-				offset = F_ALIGN_UP_POW2(offset + member_type->size, alignment);
+				offset = F_ALIGN_UP_POW2(offset + member_type->size, member_type->align);
 				i++;
 			}
 
-			record_type->size = F_ALIGN_UP_POW2(offset, alignment); // Align the struct size up to the largest member alignment
-			record_type->align = alignment; // :ComputeRecordAlignment
+			record_type->size = F_ALIGN_UP_POW2(offset, max_align); // Align the struct size up to the largest member alignment
+			record_type->align = max_align; // :ComputeRecordAlignment
 			TRY(add_fields_to_field_from_name_map(c, record_type, record_type));
 		}
 	}

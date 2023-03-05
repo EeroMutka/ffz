@@ -1,4 +1,4 @@
-#B: import(":Basic")
+#Basic: import(":Basic")
 #Array: import(":Array")
 #str: import(":String")
 
@@ -9,8 +9,24 @@ $link_library{"build/c_things.obj"}
 #print_string: @extern{} proc(x: string)
 
 // TODO:
-// Let's make it possible to convert from int to string!
 // break, continue
+// make the braces in extern{} not necessary
+// make .slice[] not necessary for Arrays
+// bring back TB
+
+// anonymous struct and array literals?
+// automatic slicing for array types? i.e. make this possible: []string({"hi", "bye"})
+// 
+
+// OpenGL + Win32
+// keyboard / mouse input
+// Goal #1: Basic 2D drawing library + demo app for it
+
+// Goal #2: 3D chess game with OpenGL with no third-party dependencies, except
+// cgltf, miniaudio, stbi, stbtt
+// this game should include cool PBR graphics and sounds
+
+// towards a 3D level editor / engine!!
 
 // Example programs ideas:
 // Ray tracer demo program
@@ -18,25 +34,69 @@ $link_library{"build/c_things.obj"}
 // Chess game, maybe even 3d? That would be pretty cool!
 // tetris? breakout? pong? snake?
 
+
+
+
+// https://www.khronos.org/opengl/wiki/Creating_an_OpenGL_Context_(WGL)
+
+
+#str_to_utf16: proc(str: string, allocator: ^Basic.Allocator) => []u16 {
+	out: []u16
+	if str.len == 0 { ret out }
+	
+	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
+	Basic.assert(len != 0)
+	
+	out = Basic.slice_make[u16](uint(len) + 1, allocator)
+	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
+	
+	// null terminator
+	out[len] = 0
+	
+	ret out
+}
+
+#WNDPROC: proc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: s64) => s64
+
+#window_proc: WNDPROC {
+	dbgbreak
+	ret 0
+}
+
+
+//#WinMain: proc(hInstance: HINSTANCE, hPrevInstance: HINSTANCE, lpCmdLine: ^u8, nShowCmd: u32) => u32 {
 #main: proc() {
 	
-	arena_base: (^u8)(B.TiB(2))
-	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
+	arena_base: ^u8(Basic.TiB(2))
+	arena: Basic.arena_make_virtual_reserve_fixed(Basic.MiB(2), arena_base)
 	temp: &arena.allocator
 	
-	numbers: Array.make[uint](temp)
-	 
+	hInstance: GetModuleHandleW(^u16(0))
+	
+	bg_brush: CreateSolidBrush(0)
+	
+	wnd_class: WNDCLASSEXW
+	// TODO: fix size_of
+	wnd_class.cbSize         = u32(size_of(WNDCLASSEXW))
+	wnd_class.style          = bit_or(CS_HREDRAW, bit_or(CS_VREDRAW, CS_OWNDC))
+	wnd_class.lpfnWndProc    = window_proc
+	wnd_class.hInstance      = hInstance
+	//wnd_class.hIcon
+	wnd_class.hCursor        = LoadCursorW(^HINSTANCE(0), ^u16(IDC_ARROW))
+	wnd_class.hbrBackground  = bg_brush
+	
+	wnd_class.lpszClassName  = str_to_utf16("MyCoolWindow", temp).ptr
+	
+	atom: RegisterClassExW(&wnd_class)
+	err: GetLastError()
+	
+	if atom == 0 { dbgbreak } // failed
+	
+	dbgbreak
+	
 	/*
-	for i: 0, i < 16, i= .+1 {
-		Array.push[uint](&numbers, i + i)
-	}
 	
-	print_string("Printing array:")
-	for i: 0, i < numbers.len, i= .+1 {
-		print_uint(numbers.slice[i])
-	}*/
-	
-	
+	numbers: Array.make[uint](temp)
 	
 	my_string: str.from_int(-2900, temp)
 	print_string(my_string)
@@ -44,33 +104,69 @@ $link_library{"build/c_things.obj"}
 	my_strings: [?]string{"the", "modulo"}
 	s: str.joinf("%* %* operator (%%) returns %1 remainder of a division. %* rocks!", my_strings[,], temp)
 	print_string(s)
-	
-	
-	//str.joinf("%* %* %* %*", {str.from_int(50)}
-	
-	//print_string("addd")
-	
-	//str.to_int()
-	
-	/*window_width: uint(512)
-	RL.InitWindow(s32(window_width), s32(window_width), "Hello".ptr)
-	
-	RL.SetTargetFPS(60)
-	
-	i: u8(0)
-	
-	for, !RL.WindowShouldClose() {
-		RL.BeginDrawing()
-		
-		print_string("frame")
-		
-		RL.ClearBackground(RL.Color{200, 200, i, 255})
-		
-		i= . + 1
-		if i > 250 {
-			i = 0
-		}
-		
-		RL.EndDrawing()
-	}*/
+	*/
 }
+
+
+// ------------------ Windows.h ------------------
+
+#HINSTANCE: ^raw
+#HICON: ^raw
+#HCURSOR: ^raw
+#HBRUSH: ^raw
+#HWND: ^raw
+#HMODULE: ^raw
+
+#IDC_ARROW: 32512
+
+#ATOM: u16
+
+#CP_UTF8: u32(65001)
+#MB_ERR_INVALID_CHARS: u32(0x00000008)
+
+#WNDCLASSEXW: struct {
+	cbSize: u32
+	style: u32
+	lpfnWndProc: WNDPROC
+	cbClsExtra: s32
+	cbWndExtra: s32
+	hInstance: HINSTANCE
+	hIcon: HICON
+	hCursor: HCURSOR
+	hbrBackground: HBRUSH
+	lpszMenuName: ^u16
+	lpszClassName: ^u16
+	hIconSm: HICON
+}
+
+#CS_VREDRAW:          u32(0x0001)
+#CS_HREDRAW:          u32(0x0002)
+#CS_DBLCLKS:          u32(0x0008)
+#CS_OWNDC:            u32(0x0020)
+#CS_CLASSDC:          u32(0x0040)
+#CS_PARENTDC:         u32(0x0080)
+#CS_NOCLOSE:          u32(0x0200)
+#CS_SAVEBITS:         u32(0x0800)
+#CS_BYTEALIGNCLIENT:  u32(0x1000)
+#CS_BYTEALIGNWINDOW:  u32(0x2000)
+#CS_GLOBALCLASS:      u32(0x4000)
+
+#MultiByteToWideChar: @Kernel32 proc(CodePage: u32, dwFlags: u32, lpMultiByteStr: ^u8, cbMultiByte: s32, lpWideCharStr: ^u16, cchWideChar: s32) => s32
+#GetModuleHandleW: @Kernel32 proc(lpModuleName: ^u16) => HMODULE
+
+#RegisterClassExW: @User32 proc(lpWndClass: ^WNDCLASSEXW) => ATOM
+#LoadCursorW: @User32 proc(hInstance: HINSTANCE, lpCursorName: ^u16) => HCURSOR
+
+#GetLastError: @Kernel32 proc => u32
+
+#CreateSolidBrush: @Gdi32 proc(color: u32) => HBRUSH
+
+// TODO: improve FFZ with this
+#Gdi32: extern{}
+#User32: extern{}
+#Kernel32: extern{}
+
+$link_system_library{"User32.lib"}
+$link_system_library{"Gdi32.lib"}
+
+
