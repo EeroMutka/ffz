@@ -458,6 +458,10 @@ GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 	return m;
 }
 
+static u32 operand_bits(gmmcBasicBlock* bb, gmmcOp* op) {
+	return 8 * gmmc_type_get_size(reg_get_type(bb->proc, op->operands[0]));
+}
+
 void print_bb(fArray(u8)* b, gmmcBasicBlock* bb, fAllocator* alc) {
 	f_str_printf(b, "b$%u:\n", bb->bb_index);
 
@@ -469,7 +473,8 @@ void print_bb(fArray(u8)* b, gmmcBasicBlock* bb, fAllocator* alc) {
 		
 		//f_str_printf(pr, "
 		//gmmcOpKind_to_string[op->kind].data
-		u32 bits = 8 * gmmc_type_get_size(reg_get_type(bb->proc, op->result));
+		u32 result_bits = 8 * gmmc_type_get_size(reg_get_type(bb->proc, op->result));
+		const char* sign_postfix = op->is_signed ? "signed" : "unsigned";
 
 		switch (op->kind) {
 		case gmmcOpKind_bool: { f_str_printf(b, "_$%u = %s;\n", op->result, op->imm ? "1" : "0"); } break;
@@ -484,18 +489,8 @@ void print_bb(fArray(u8)* b, gmmcBasicBlock* bb, fAllocator* alc) {
 			f_str_printf(b, "_$%u = (%s)_$%u;\n", op->result, gmmc_type_get_cstr(value_type), op->operands[0]);
 		} break;
 
-		case gmmcOpKind_zxt: {
-			u32 from_bits = 8 * gmmc_type_get_size(reg_get_type(bb->proc, op->operands[0]));
-			f_str_printf(b, "_$%u = $zxt(%u, %u, _$%u);\n", op->result, from_bits, bits, op->operands[0]);
-		} break;
-
-		case gmmcOpKind_sxt: {
-			u32 from_bits = 8 * gmmc_type_get_size(reg_get_type(bb->proc, op->operands[0]));
-			f_str_printf(b, "_$%u = $sxt(%u, %u, _$%u);\n", op->result, from_bits, bits, op->operands[0]);
-		} break;
-
 		case gmmcOpKind_trunc: {
-			f_str_printf(b, "_$%u = (i%u)_$%u;\n", op->result, bits, op->operands[0]);
+			f_str_printf(b, "_$%u = (i%u)_$%u;\n", op->result, result_bits, op->operands[0]);
 		} break;
 
 		case gmmcOpKind_and: { f_str_printf(b, "_$%u = _$%u & _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
@@ -512,25 +507,44 @@ void print_bb(fArray(u8)* b, gmmcBasicBlock* bb, fAllocator* alc) {
 		// $mul_s32 / $mul_u32
 		case gmmcOpKind_eq: { f_str_printf(b, "_$%u = _$%u == _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
 		case gmmcOpKind_ne: { f_str_printf(b, "_$%u = _$%u != _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_lt: { f_str_printf(b, "_$%u = _$%u < _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_le: { f_str_printf(b, "_$%u = _$%u <= _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_gt: { f_str_printf(b, "_$%u = _$%u > _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_ge: { f_str_printf(b, "_$%u = _$%u >= _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
+		
+		case gmmcOpKind_lt: {
+			f_str_printf(b, "_$%u = $op_%s(%u, <, _$%u, _$%u);\n", op->result, sign_postfix,
+				operand_bits(bb, op), op->operands[0], op->operands[1]);
+		} break;
+		case gmmcOpKind_le: {
+			f_str_printf(b, "_$%u = $op_%s(%u, <=, _$%u, _$%u);\n", op->result, sign_postfix,
+				operand_bits(bb, op), op->operands[0], op->operands[1]);
+		} break;
+		case gmmcOpKind_gt: {
+			f_str_printf(b, "_$%u = $op_%s(%u, >, _$%u, _$%u);\n", op->result, sign_postfix,
+				operand_bits(bb, op), op->operands[0], op->operands[1]);
+		} break;
+		case gmmcOpKind_ge: {
+			f_str_printf(b, "_$%u = $op_%s(%u, >=, _$%u, _$%u);\n", op->result, sign_postfix,
+				operand_bits(bb, op), op->operands[0], op->operands[1]);
+		} break;
+		case gmmcOpKind_zxt: {
+			f_str_printf(b, "_$%u = $zxt(%u, %u, _$%u);\n", op->result,
+				operand_bits(bb, op), result_bits, op->operands[0]);
+		} break;
+		case gmmcOpKind_sxt: {
+			f_str_printf(b, "_$%u = $sxt(%u, %u, _$%u);\n", op->result,
+				operand_bits(bb, op), result_bits, op->operands[0]);
+		} break;
+
 
 		// TODO: make signed overflow not UB
 		case gmmcOpKind_add: { f_str_printf(b, "_$%u = _$%u + _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
 		case gmmcOpKind_sub: { f_str_printf(b, "_$%u = _$%u - _$%u;\n", op->result, op->operands[0], op->operands[1]); } break;
 		case gmmcOpKind_mul: {
-			f_str_printf(b, "_$%u = %s(%u, _$%u, _$%u);\n", op->result, op->is_signed ? "$mul_signed" : "$mul_unsigned",
-				bits, op->operands[0], op->operands[1]);
+			f_str_printf(b, "_$%u = $op_%s(%u, *, _$%u, _$%u);\n", op->result, sign_postfix, result_bits, op->operands[0], op->operands[1]);
 		} break;
 		case gmmcOpKind_div: {
-			f_str_printf(b, "_$%u = %s(%u, _$%u, _$%u);\n", op->result, op->is_signed ? "$div_signed" : "$div_unsigned",
-				bits, op->operands[0], op->operands[1]);
+			f_str_printf(b, "_$%u = $op_%s(%u, /, _$%u, _$%u);\n", op->result, sign_postfix, result_bits, op->operands[0], op->operands[1]);
 		} break;
 		case gmmcOpKind_mod: {
-			f_str_printf(b, "_$%u = %s(%u, _$%u, _$%u);\n", op->result, op->is_signed ? "$mod_signed" : "$mod_unsigned",
-				bits, op->operands[0], op->operands[1]);
+			f_str_printf(b, "_$%u = $op_%s(%u, %, _$%u, _$%u);\n", op->result, sign_postfix, result_bits, op->operands[0], op->operands[1]);
 		} break;
 		
 		case gmmcOpKind_addr_of_symbol: {
@@ -668,6 +682,7 @@ GMMC_API void gmmc_proc_print(fArray(u8)* b, gmmcProc* proc) {
 	for (uint i = 0; i < proc->basic_blocks.len; i++) {
 		print_bb(b, proc->basic_blocks[i], alc);
 	}
+	f_str_printf(b, "char _;\n"); // goto: at the end with nothing after it is illegal, this is just a dumb fix for it
 	f_str_printf(b, "}\n");
 }
 
@@ -752,12 +767,8 @@ typedef long long          $s64;
 #define $array_access(base, index, stride) (i8*)base + index * stride
 #define $member_access(base, offset) (i8*)base + offset
 
-#define $mul_unsigned(bits, a, b) a * b
-#define $mul_signed(bits, a, b) (i##bits) (($s##bits)a * ($s##bits)b)
-#define $div_unsigned(bits, a, b) a / b
-#define $div_signed(bits, a, b) (i##bits) (($s##bits)a / ($s##bits)b)
-#define $mod_unsigned(bits, a, b) a % b
-#define $mod_signed(bits, a, b) (i##bits) (($s##bits)a % ($s##bits)b)
+#define $op_unsigned(bits, op, a, b) a op b
+#define $op_signed(bits, op, a, b) (i##bits) (($s##bits)a op ($s##bits)b)
 
 #define $sxt(from, to, value) (i##to)(($s##to)(($s##from)value))
 #define $zxt(from, to, value) (i##to)value

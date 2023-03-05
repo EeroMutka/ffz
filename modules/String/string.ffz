@@ -1,11 +1,74 @@
-#Basic: import("../basic")
+#Basic: import(":Basic")
+#Array: import(":Array")
 
-str.from_int()
-str.to_int()
+//str.from_int()
+//str.to_int()
+
+#Builder: Array.Array[u8]
+#builder_make: Array.make[u8]
+#builder_push: Array.push[u8]
 
 // allocator: temp_alc
 
-#from_int: proc(value: int, a: ^Basic.Allocator) => (string) {
-	ret Basic.str_from_int(value, a)
+/*#from_integer: proc(value: uint, negative: bool, a: ^Basic.Allocator) => string {
+	builder: builder_make(a)
+	if negative { /* push minus */ }
+	
+}*/
+
+#numeric_to_char: proc(n: uint) => u8 {
+	// TODO: ret [?]u8{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'}[n]
+	ret ^u8(uint("0123456789abcdef".ptr) + n)^
 }
 
+#push_uint: proc(builder: ^Builder, value: uint) {
+	push_integer(builder, value, 10)
+}
+
+#push_int: proc(builder: ^Builder, value: int) {
+	if value >= 0 {
+		push_integer(builder, uint(value), 10)
+	}
+	else {
+		// '-'
+		builder_push(builder, 0x2D)
+		push_integer(builder, uint(-value), 10)
+	}
+}
+
+#push_integer: proc(builder: ^Builder, value: uint, base: uint) {
+	i: builder.len
+	
+	// TODO: fix for loop without post-statement
+	for loop: true, loop, loop = value > 0 {
+		tmp: value
+		value = . / base
+		
+		digit: tmp - value * base
+		builder_push(builder, numeric_to_char(digit))
+	}
+	
+	// It's now printed in reverse, so let's reverse the digits
+	_dummy: bool
+	
+	j: builder.len - 1
+	for , i < j, _dummy=true {
+		tmp: builder.slice[j]
+		builder.slice[j] = builder.slice[i]
+		builder.slice[i] = tmp
+		i = .+1
+		j = .-1
+	}
+}
+
+#from_int: proc(value: int, a: ^Basic.Allocator) => string {
+	builder: builder_make(a)
+	push_int(&builder, value)
+	ret string(builder.slice)
+}
+
+#from_uint: proc(value: uint, a: ^Basic.Allocator) => string {
+	builder: builder_make(a)
+	push_uint(&builder, value)
+	ret string(builder.slice)
+}

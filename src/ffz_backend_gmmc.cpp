@@ -446,14 +446,14 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		case ffzNodeKind_GreaterOrEqual:
 		{
 			F_ASSERT(!address_of);
-			ffzType* left_type = ffz_expr_get_type(g->project, left);
+			ffzType* input_type = ffz_expr_get_type(g->project, left);
+			bool is_signed = ffz_type_is_signed_integer(input_type->tag);
 			
 			// TODO: more operator defines. I guess we should do this together with the fix for vector math
-			F_ASSERT(left_type->size <= 8);
+			F_ASSERT(input_type->size <= 8);
 
 			gmmcReg a = gen_expr(g, left);
 			gmmcReg b = gen_expr(g, right);
-			bool is_signed = ffz_type_is_signed_integer(checked.type->tag);
 
 			switch (inst.node->kind) {
 			case ffzNodeKind_Add: { out = gmmc_op_add(g->bb, a, b); } break;
@@ -547,6 +547,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 						}
 						else { todo; }
 					}
+					else if (ffz_type_is_slice_ish(dst_type->tag) && ffz_type_is_slice_ish(arg_type->tag)) {} // only a semantic cast
 					else todo;
 				}
 				else {
@@ -561,13 +562,8 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 
 		case ffzNodeKind_Dereference: {
-			if (address_of) {
-				out = gen_expr(g, left);
-			}
-			else {
-				out = gen_expr(g, left, true);
-				should_dereference = true;
-			}
+			out = gen_expr(g, left);
+			should_dereference = !address_of;
 		} break;
 
 		case ffzNodeKind_MemberAccess: {
@@ -637,7 +633,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			ffzType* left_type = ffz_expr_get_type(g->project, left);
 			F_ASSERT(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
 
-			ffzType* elem_type = left_type->tag == ffzTypeTag_Slice ? left_type->fSlice.elem_type : left_type->FixedArray.elem_type;
+			ffzType* elem_type = left_type->tag == ffzTypeTag_Slice ? left_type->Slice.elem_type : left_type->FixedArray.elem_type;
 
 			gmmcReg left_value = gen_expr(g, left, true);
 			gmmcReg array_data = left_value;

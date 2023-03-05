@@ -1,12 +1,16 @@
-#B: import("../modules/Basic")
-#Array: import("../modules/Array")
+#B: import(":Basic")
+#Array: import(":Array")
+#str: import(":String")
 
-#RL: import("../modules/raylib")
+// #RL: import(":vendor/raylib")
 
 $link_library{"build/c_things.obj"}
 #print_uint: @extern{} proc(x: uint)
 #print_string: @extern{} proc(x: string)
 
+// TODO:
+// Let's make it possible to convert from int to string!
+// break, continue
 
 // Example programs ideas:
 // Ray tracer demo program
@@ -18,9 +22,11 @@ $link_library{"build/c_things.obj"}
 	
 	arena_base: (^u8)(B.TiB(2))
 	arena: B.arena_make_virtual_reserve_fixed(B.MiB(2), arena_base)
+	temp: &arena.allocator
 	
-	numbers: Array.make[uint](&arena.allocator)
-	
+	numbers: Array.make[uint](temp)
+	 
+	/*
 	for i: 0, i < 16, i= .+1 {
 		Array.push[uint](&numbers, i + i)
 	}
@@ -28,10 +34,18 @@ $link_library{"build/c_things.obj"}
 	print_string("Printing array:")
 	for i: 0, i < numbers.len, i= .+1 {
 		print_uint(numbers.slice[i])
-	}
-	print_string("Done!")
+	}*/
 	
-	window_width: uint(512)
+	
+	print_string("AAIII")
+	
+	my_string: str.from_int(5021, temp)
+	print_string(my_string)
+	
+	//print_string("addd")
+	
+	
+	/*window_width: uint(512)
 	RL.InitWindow(s32(window_width), s32(window_width), "Hello".ptr)
 	
 	RL.SetTargetFPS(60)
@@ -51,5 +65,5 @@ $link_library{"build/c_things.obj"}
 		}
 		
 		RL.EndDrawing()
-	}
+	}*/
 }

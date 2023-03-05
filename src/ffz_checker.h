@@ -224,7 +224,7 @@ typedef struct ffzType {
 
 		struct {
 			ffzType* elem_type;
-		} fSlice;
+		} Slice;
 
 		struct {
 			ffzType* elem_type;
@@ -363,6 +363,7 @@ inline bool ffz_type_is_integer(ffzTypeTag tag) { return tag >= ffzTypeTag_Sized
 inline bool ffz_type_is_signed_integer(ffzTypeTag tag) { return tag == ffzTypeTag_SizedInt || tag == ffzTypeTag_Int; }
 
 inline bool ffz_type_is_pointer_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Pointer || tag == ffzTypeTag_Proc; }
+inline bool ffz_type_is_slice_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Slice || tag == ffzTypeTag_String; }
 inline bool ffz_type_is_integer_ish(ffzTypeTag tag) {
 	return ffz_type_is_integer(tag) || tag == ffzTypeTag_Enum || tag == ffzTypeTag_Bool || tag == ffzTypeTag_Pointer || tag == ffzTypeTag_Proc;
 }

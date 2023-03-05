@@ -627,12 +627,17 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater:
 		case ffzNodeKind_GreaterOrEqual:
 		{
+			ffzType* input_type = ffz_expr_get_type(g->project, left);
+			bool is_signed = ffz_type_is_signed_integer(input_type->tag);
+
+			// TODO: more operator defines. I guess we should do this together with the fix for vector math
+			F_ASSERT(input_type->size <= 8);
+
 			F_ASSERT(!address_of);
 			//F_HITS(___c, 6);
 			TB_Reg a = gen_expr(g, left).small;
 			TB_Reg b = gen_expr(g, right).small;
 			
-			bool is_signed = ffz_type_is_signed_integer(checked.type->tag);
 
 			switch (derived.node->op_kind) {
 			case ffzNodeKind_Add: { out.small = tb_inst_add(g->fn, a, b, (TB_ArithmaticBehavior)0); } break;
@@ -739,13 +744,8 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 
 		case ffzNodeKind_Dereference: {
-			if (address_of) {
-				out = gen_expr(g, left);
-			}
-			else {
-				out = gen_expr(g, left, true);
-				should_dereference = true;
-			}
+			out = gen_expr(g, left);
+			should_dereference = !address_of;
 		} break;
 
 		case ffzNodeKind_MemberAccess: {

@@ -39,6 +39,8 @@
 	insert_n_raw(^Array[raw](a), at, elems.ptr, elems.len, size_of(T), align_of(T))
 }
 
+// reverse?
+
 // --
 // Raw array utilities - these are useful if you don't know the element type statically.
 // --

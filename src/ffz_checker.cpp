@@ -289,7 +289,7 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 	} break;
 	case ffzTypeTag_Slice: {
 		f_str_print(b, F_LIT("[]"));
-		_print_type(p, b, type->fSlice.elem_type);
+		_print_type(p, b, type->Slice.elem_type);
 	} break;
 	case ffzTypeTag_String: {
 		f_str_print(b, F_LIT("string"));
@@ -688,7 +688,7 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 	case ffzTypeTag_PolyRecord: // fallthrough
 	case ffzTypeTag_Record: { f_hash64_push(&h, ffz_hash_node_inst(type->unique_node)); } break;
 
-	case ffzTypeTag_Slice: { f_hash64_push(&h, ffz_hash_type(type->fSlice.elem_type)); } break;
+	case ffzTypeTag_Slice: { f_hash64_push(&h, ffz_hash_type(type->Slice.elem_type)); } break;
 	case ffzTypeTag_FixedArray: {
 		f_hash64_push(&h, ffz_hash_type(type->FixedArray.elem_type));
 		f_hash64_push(&h, type->FixedArray.length);
@@ -745,7 +745,7 @@ OPT(ffzType*) ffz_builtin_type(ffzChecker* c, ffzKeyword keyword) {
 
 ffzType* ffz_make_type_slice(ffzChecker* c, ffzType* elem_type) {
 	ffzType type = { ffzTypeTag_Slice, 2 * c->project->pointer_size };
-	type.fSlice.elem_type = elem_type;
+	type.Slice.elem_type = elem_type;
 	ffzType* out = ffz_make_type(c, type);
 
 	if (out->record_fields.len == 0) { // this type hasn't been made before
@@ -798,6 +798,11 @@ static ffzNodeOpInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst inst, 
 	return {};
 }
 
+static bool type_can_be_casted_to(ffzType* from, ffzType* to) {
+	if (ffz_type_is_integer_ish(from->tag) && ffz_type_is_integer_ish(to->tag)) return true;
+	if (ffz_type_is_slice_ish(from->tag)&& ffz_type_is_slice_ish(to->tag)) return true;
+	return false;
+}
 
 static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType* require_type, InferFlags flags, ffzCheckedExpr* result) {
 	ffzNodeInst left = CHILD(inst, Op.left);
@@ -869,8 +874,8 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 			TRY(check_node(c, arg, result->type, InferFlag_ExplicitCastToRequiredType, &chk));
 			F_ASSERT(chk.type); //if (chk.type == NULL) ERR(c, inst.node, "Invalid cast.");
 
-			ffzTypeTag dst_tag = result->type->tag, src_tag = chk.type->tag;
-			if (!ffz_type_is_pointer_ish(dst_tag) && !ffz_type_is_pointer_ish(src_tag)) {
+			//ffzTypeTag dst_tag = result->type->tag, src_tag = chk.type->tag;
+			if (!ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(chk.type->tag)) {
 				// the following shouldn't be allowed:
 				// #foo: false
 				// #bar: u32(&foo)
@@ -878,8 +883,7 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 				result->const_val = chk.const_val;
 			}
 
-			if (ffz_type_is_integer_ish(dst_tag) && ffz_type_is_integer_ish(src_tag)) {} // integer-ish types can be casted between
-			else {
+			if (!type_can_be_casted_to(chk.type, result->type)) {
 				TRY(check_types_match(c, inst.node, chk.type, result->type, "The received type cannot be casted to the expected type:"));
 			}
 		}
@@ -936,7 +940,7 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 	}
 	else if (result->type->tag == ffzTypeTag_Slice || result->type->tag == ffzTypeTag_FixedArray) {
 		// Array initialization
-		ffzType* elem_type = result->type->tag == ffzTypeTag_Slice ? result->type->fSlice.elem_type : result->type->FixedArray.elem_type;
+		ffzType* elem_type = result->type->tag == ffzTypeTag_Slice ? result->type->Slice.elem_type : result->type->FixedArray.elem_type;
 
 		fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
 		fArray(ffzCheckedExpr) elems_chk = f_array_make<ffzCheckedExpr>(temp);
@@ -1064,7 +1068,7 @@ static ffzOk check_post_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzChec
 				ffz_type_to_cstring(c->project, left_chk.type));
 		}
 
-		ffzType* elem_type = left_chk.type->tag == ffzTypeTag_Slice ? left_chk.type->fSlice.elem_type : left_chk.type->FixedArray.elem_type;
+		ffzType* elem_type = left_chk.type->tag == ffzTypeTag_Slice ? left_chk.type->Slice.elem_type : left_chk.type->FixedArray.elem_type;
 
 		u32 child_count = ffz_get_child_count(inst.node);
 		if (child_count == 1) {
