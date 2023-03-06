@@ -94,15 +94,9 @@ gmmcType get_gmmc_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_Proc: // fallthrough
 	case ffzTypeTag_Pointer: return gmmcType_ptr;
 
+	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_SizedInt: // fallthrough
-	case ffzTypeTag_Int: {
-		if (type->size == 1) return gmmcType_i8;
-		else if (type->size == 2) return gmmcType_i16;
-		else if (type->size == 4) return gmmcType_i32;
-		else if (type->size == 8) return gmmcType_i64;
-		else F_BP;
-	} break;
-
+	case ffzTypeTag_Int: // fallthrough
 	case ffzTypeTag_SizedUint: // fallthrough
 	case ffzTypeTag_Uint: {
 		if (type->size == 1) return gmmcType_i8;
@@ -915,15 +909,15 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 		}
 	}
 
-	fArray(u8) buf = f_array_make<u8>(temp);
-	gmmc_module_print(&buf, gmmc);
-	
-	if (false) f_os_print(buf.slice);
-
-	if (!f_files_write_whole(F_STR_JOIN(temp, build_dir, F_LIT("/a.c")), buf.slice)) {
+	fString c_file_path = F_STR_JOIN(temp, build_dir, F_LIT("/a.c"));
+	FILE* c_file = fopen(f_str_to_cstr(c_file_path, temp), "wb");
+	if (!c_file) {
 		printf("Failed writing temporary C file to disk!\n");
 		return false;
 	}
+
+	gmmc_module_print(c_file, gmmc);
+	fclose(c_file);
 
 	fArray(fString) clang_args = f_array_make<fString>(temp);
 	f_array_push(&clang_args, F_LIT("clang"));

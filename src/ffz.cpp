@@ -8,18 +8,12 @@
 #include <Windows.h>
 
 int main(int argc, const char* argv[]) {
-	u32 style = WS_OVERLAPPEDWINDOW;
-	//int x = F_OFFSET_OF(WNDCLASSEXW, hInstance);
-	//gmmc_test();
-	//wchar_t* test = IDC_ARROW;
-	//s64 val;
-	//bool ok = f_str_to_s64(F_LIT("259012390"), 16, &val);
-	//s64 test = 0x259012390;
-
+	int x = -21;
 	//printf("args: ");
 	//for (uint i = 0; i < argc; i++) {
 	//	printf("\"%s\", ", argv[i]);
 	//}
+	//COLOR_BACKGROUND
 	//printf("\n");
 	fAllocator* temp = f_temp_push();
 	

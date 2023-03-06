@@ -1064,7 +1064,7 @@ static ffzOk check_post_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzChec
 
 		if (!(left_chk.type->tag == ffzTypeTag_Slice || left_chk.type->tag == ffzTypeTag_FixedArray)) {
 			ERR(c, inst.node->Op.left,
-				"Expected an array, a slice, or a polymorphic type.\n    received: %s",
+				"Expected an array, a slice, or a polymorphic type as the target of 'post-square-brackets'.\n    received: %s",
 				ffz_type_to_cstring(c->project, left_chk.type));
 		}
 
@@ -1821,7 +1821,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), NULL, flags, &type));
 		
 		bool is_equality_check = inst.node->kind == ffzNodeKind_Equal || inst.node->kind == ffzNodeKind_NotEqual;
-		if ((is_equality_check && ffz_type_can_be_checked_for_equality(type)) || ffz_type_is_integer(type->tag)) {
+		if ((is_equality_check && ffz_type_can_be_checked_for_equality(type)) || ffz_type_is_integer_ish(type->tag)) {
 			result.type = ffz_builtin_type(c, ffzKeyword_bool);
 		}
 		else {

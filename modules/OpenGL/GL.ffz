@@ -1,0 +1,868 @@
+
+// Useful resources:
+// https://github.com/Eversmile12/OpenGLNative
+
+// https://www.khronos.org/opengl/wiki/Creating_an_Open_Context_(WGL)
+
+#Version: enum, u32 {
+	_1_0: 0
+	_1_1: 1
+	_1_2: 2
+	_1_3: 3
+	_1_4: 4
+	_1_5: 5
+	_2_0: 6
+	_2_1: 7
+	_3_0: 8
+	_3_1: 9
+	_3_2: 10
+	_3_3: 11
+	// TODO: later versions?
+}
+
+#API: struct {
+	// GL 1.0
+	CullFace: PFNGLCULLFACEPROC
+	FrontFace: PFNGLFRONTFACEPROC
+	Hint: PFNGLHINTPROC
+	LineWidth: PFNGLLINEWIDTHPROC
+	PointSize: PFNGLPOINTSIZEPROC
+	PolygonMode: PFNGLPOLYGONMODEPROC
+	Scissor: PFNGLSCISSORPROC
+	TexParameterf: PFNGLTEXPARAMETERFPROC
+	TexParameterfv: PFNGLTEXPARAMETERFVPROC
+	TexParameteri: PFNGLTEXPARAMETERIPROC
+	TexParameteriv: PFNGLTEXPARAMETERIVPROC
+	TexImage1D: PFNGLTEXIMAGE1DPROC
+	TexImage2D: PFNGLTEXIMAGE2DPROC
+	DrawBuffer: PFNGLDRAWBUFFERPROC
+	Clear: PFNGLCLEARPROC
+	ClearColor: PFNGLCLEARCOLORPROC
+	ClearStencil: PFNGLCLEARSTENCILPROC
+	ClearDepth: PFNGLCLEARDEPTHPROC
+	StencilMask: PFNGLSTENCILMASKPROC
+	ColorMask: PFNGLCOLORMASKPROC
+	DepthMask: PFNGLDEPTHMASKPROC
+	Disable: PFNGLDISABLEPROC
+	Enable: PFNGLENABLEPROC
+	Finish: PFNGLFINISHPROC
+	Flush: PFNGLFLUSHPROC
+	BlendFunc: PFNGLBLENDFUNCPROC
+	LogicOp: PFNGLLOGICOPPROC
+	StencilFunc: PFNGLSTENCILFUNCPROC
+	StencilOp: PFNGLSTENCILOPPROC
+	DepthFunc: PFNGLDEPTHFUNCPROC
+	PixelStoref: PFNGLPIXELSTOREFPROC
+	PixelStorei: PFNGLPIXELSTOREIPROC
+	ReadBuffer: PFNGLREADBUFFERPROC
+	ReadPixels: PFNGLREADPIXELSPROC
+	GetBooleanv: PFNGLGETBOOLEANVPROC
+	GetDoublev: PFNGLGETDOUBLEVPROC
+	GetError: PFNGLGETERRORPROC
+	GetFloatv: PFNGLGETFLOATVPROC
+	GetIntegerv: PFNGLGETINTEGERVPROC
+	GetString: PFNGLGETSTRINGPROC
+	GetTexImage: PFNGLGETTEXIMAGEPROC
+	GetTexParameterfv: PFNGLGETTEXPARAMETERFVPROC
+	GetTexParameteriv: PFNGLGETTEXPARAMETERIVPROC
+	GetTexLevelParameterfv: PFNGLGETTEXLEVELPARAMETERFVPROC
+	GetTexLevelParameteriv: PFNGLGETTEXLEVELPARAMETERIVPROC
+	IsEnabled: PFNGLISENABLEDPROC
+	DepthRange: PFNGLDEPTHRANGEPROC
+	Viewport: PFNGLVIEWPORTPROC
+	
+	// GL 1.1
+	DrawArrays: PFNGLDRAWARRAYSPROC
+	DrawElements: PFNGLDRAWELEMENTSPROC
+	PolygonOffset: PFNGLPOLYGONOFFSETPROC
+	CopyTexImage1D: PFNGLCOPYTEXIMAGE1DPROC
+	CopyTexImage2D: PFNGLCOPYTEXIMAGE2DPROC
+	CopyTexSubImage1D: PFNGLCOPYTEXSUBIMAGE1DPROC
+	CopyTexSubImage2D: PFNGLCOPYTEXSUBIMAGE2DPROC
+	TexSubImage1D: PFNGLTEXSUBIMAGE1DPROC
+	TexSubImage2D: PFNGLTEXSUBIMAGE2DPROC
+	BindTexture: PFNGLBINDTEXTUREPROC
+	DeleteTextures: PFNGLDELETETEXTURESPROC
+	GenTextures: PFNGLGENTEXTURESPROC
+	IsTexture: PFNGLISTEXTUREPROC
+	
+	// GL 1.2
+	DrawRangeElements: PFNGLDRAWRANGEELEMENTSPROC
+	TexImage3D: PFNGLTEXIMAGE3DPROC
+	TexSubImage3D: PFNGLTEXSUBIMAGE3DPROC
+	CopyTexSubImage3D: PFNGLCOPYTEXSUBIMAGE3DPROC
+	
+	// GL 1.3
+	ActiveTexture: PFNGLACTIVETEXTUREPROC
+	SampleCoverage: PFNGLSAMPLECOVERAGEPROC
+	CompressedTexImage3D: PFNGLCOMPRESSEDTEXIMAGE3DPROC
+	CompressedTexImage2D: PFNGLCOMPRESSEDTEXIMAGE2DPROC
+	CompressedTexImage1D: PFNGLCOMPRESSEDTEXIMAGE1DPROC
+	CompressedTexSubImage3D: PFNGLCOMPRESSEDTEXSUBIMAGE3DPROC
+	CompressedTexSubImage2D: PFNGLCOMPRESSEDTEXSUBIMAGE2DPROC
+	CompressedTexSubImage1D: PFNGLCOMPRESSEDTEXSUBIMAGE1DPROC
+	GetCompressedTexImage: PFNGLGETCOMPRESSEDTEXIMAGEPROC
+	
+	// GL 1.4
+	BlendFuncSeparate: PFNGLBLENDFUNCSEPARATEPROC
+	MultiDrawArrays: PFNGLMULTIDRAWARRAYSPROC
+	MultiDrawElements: PFNGLMULTIDRAWELEMENTSPROC
+	PointParameterf: PFNGLPOINTPARAMETERFPROC
+	PointParameterfv: PFNGLPOINTPARAMETERFVPROC
+	PointParameteri: PFNGLPOINTPARAMETERIPROC
+	PointParameteriv: PFNGLPOINTPARAMETERIVPROC
+	BlendColor: PFNGLBLENDCOLORPROC
+	BlendEquation: PFNGLBLENDEQUATIONPROC
+	
+	// GL 1.5
+	GenQueries: PFNGLGENQUERIESPROC
+	DeleteQueries: PFNGLDELETEQUERIESPROC
+	IsQuery: PFNGLISQUERYPROC
+	BeginQuery: PFNGLBEGINQUERYPROC
+	EndQuery: PFNGLENDQUERYPROC
+	GetQueryiv: PFNGLGETQUERYIVPROC
+	GetQueryObjectiv: PFNGLGETQUERYOBJECTIVPROC
+	GetQueryObjectuiv: PFNGLGETQUERYOBJECTUIVPROC
+	BindBuffer: PFNGLBINDBUFFERPROC
+	DeleteBuffers: PFNGLDELETEBUFFERSPROC
+	GenBuffers: PFNGLGENBUFFERSPROC
+	IsBuffer: PFNGLISBUFFERPROC
+	BufferData: PFNGLBUFFERDATAPROC
+	BufferSubData: PFNGLBUFFERSUBDATAPROC
+	GetBufferSubData: PFNGLGETBUFFERSUBDATAPROC
+	MapBuffer: PFNGLMAPBUFFERPROC
+	UnmapBuffer: PFNGLUNMAPBUFFERPROC
+	GetBufferParameteriv: PFNGLGETBUFFERPARAMETERIVPROC
+	GetBufferPointerv: PFNGLGETBUFFERPOINTERVPROC
+	
+	// GL 2.0
+	BlendEquationSeparate: PFNGLBLENDEQUATIONSEPARATEPROC
+	DrawBuffers: PFNGLDRAWBUFFERSPROC
+	StencilOpSeparate: PFNGLSTENCILOPSEPARATEPROC
+	StencilFuncSeparate: PFNGLSTENCILFUNCSEPARATEPROC
+	StencilMaskSeparate: PFNGLSTENCILMASKSEPARATEPROC
+	AttachShader: PFNGLATTACHSHADERPROC
+	BindAttribLocation: PFNGLBINDATTRIBLOCATIONPROC
+	CompileShader: PFNGLCOMPILESHADERPROC
+	CreateProgram: PFNGLCREATEPROGRAMPROC
+	CreateShader: PFNGLCREATESHADERPROC
+	DeleteProgram: PFNGLDELETEPROGRAMPROC
+	DeleteShader: PFNGLDELETESHADERPROC
+	DetachShader: PFNGLDETACHSHADERPROC
+	DisableVertexAttribArray: PFNGLDISABLEVERTEXATTRIBARRAYPROC
+	EnableVertexAttribArray: PFNGLENABLEVERTEXATTRIBARRAYPROC
+	GetActiveAttrib: PFNGLGETACTIVEATTRIBPROC
+	GetActiveUniform: PFNGLGETACTIVEUNIFORMPROC
+	GetAttachedShaders: PFNGLGETATTACHEDSHADERSPROC
+	GetAttribLocation: PFNGLGETATTRIBLOCATIONPROC
+	GetProgramiv: PFNGLGETPROGRAMIVPROC
+	GetProgramInfoLog: PFNGLGETPROGRAMINFOLOGPROC
+	GetShaderiv: PFNGLGETSHADERIVPROC
+	GetShaderInfoLog: PFNGLGETSHADERINFOLOGPROC
+	GetShaderSource: PFNGLGETSHADERSOURCEPROC
+	GetUniformLocation: PFNGLGETUNIFORMLOCATIONPROC
+	GetUniformfv: PFNGLGETUNIFORMFVPROC
+	GetUniformiv: PFNGLGETUNIFORMIVPROC
+	GetVertexAttribdv: PFNGLGETVERTEXATTRIBDVPROC
+	GetVertexAttribfv: PFNGLGETVERTEXATTRIBFVPROC
+	GetVertexAttribiv: PFNGLGETVERTEXATTRIBIVPROC
+	GetVertexAttribPointerv: PFNGLGETVERTEXATTRIBPOINTERVPROC
+	IsProgram: PFNGLISPROGRAMPROC
+	IsShader: PFNGLISSHADERPROC
+	LinkProgram: PFNGLLINKPROGRAMPROC
+	ShaderSource: PFNGLSHADERSOURCEPROC
+	UseProgram: PFNGLUSEPROGRAMPROC
+	Uniform1f: PFNGLUNIFORM1FPROC
+	Uniform2f: PFNGLUNIFORM2FPROC
+	Uniform3f: PFNGLUNIFORM3FPROC
+	Uniform4f: PFNGLUNIFORM4FPROC
+	Uniform1i: PFNGLUNIFORM1IPROC
+	Uniform2i: PFNGLUNIFORM2IPROC
+	Uniform3i: PFNGLUNIFORM3IPROC
+	Uniform4i: PFNGLUNIFORM4IPROC
+	Uniform1fv: PFNGLUNIFORM1FVPROC
+	Uniform2fv: PFNGLUNIFORM2FVPROC
+	Uniform3fv: PFNGLUNIFORM3FVPROC
+	Uniform4fv: PFNGLUNIFORM4FVPROC
+	Uniform1iv: PFNGLUNIFORM1IVPROC
+	Uniform2iv: PFNGLUNIFORM2IVPROC
+	Uniform3iv: PFNGLUNIFORM3IVPROC
+	Uniform4iv: PFNGLUNIFORM4IVPROC
+	UniformMatrix2fv: PFNGLUNIFORMMATRIX2FVPROC
+	UniformMatrix3fv: PFNGLUNIFORMMATRIX3FVPROC
+	UniformMatrix4fv: PFNGLUNIFORMMATRIX4FVPROC
+	ValidateProgram: PFNGLVALIDATEPROGRAMPROC
+	VertexAttrib1d: PFNGLVERTEXATTRIB1DPROC
+	VertexAttrib1dv: PFNGLVERTEXATTRIB1DVPROC
+	VertexAttrib1f: PFNGLVERTEXATTRIB1FPROC
+	VertexAttrib1fv: PFNGLVERTEXATTRIB1FVPROC
+	VertexAttrib1s: PFNGLVERTEXATTRIB1SPROC
+	VertexAttrib1sv: PFNGLVERTEXATTRIB1SVPROC
+	VertexAttrib2d: PFNGLVERTEXATTRIB2DPROC
+	VertexAttrib2dv: PFNGLVERTEXATTRIB2DVPROC
+	VertexAttrib2f: PFNGLVERTEXATTRIB2FPROC
+	VertexAttrib2fv: PFNGLVERTEXATTRIB2FVPROC
+	VertexAttrib2s: PFNGLVERTEXATTRIB2SPROC
+	VertexAttrib2sv: PFNGLVERTEXATTRIB2SVPROC
+	VertexAttrib3d: PFNGLVERTEXATTRIB3DPROC
+	VertexAttrib3dv: PFNGLVERTEXATTRIB3DVPROC
+	VertexAttrib3f: PFNGLVERTEXATTRIB3FPROC
+	VertexAttrib3fv: PFNGLVERTEXATTRIB3FVPROC
+	VertexAttrib3s: PFNGLVERTEXATTRIB3SPROC
+	VertexAttrib3sv: PFNGLVERTEXATTRIB3SVPROC
+	VertexAttrib4Nbv: PFNGLVERTEXATTRIB4NBVPROC
+	VertexAttrib4Niv: PFNGLVERTEXATTRIB4NIVPROC
+	VertexAttrib4Nsv: PFNGLVERTEXATTRIB4NSVPROC
+	VertexAttrib4Nub: PFNGLVERTEXATTRIB4NUBPROC
+	VertexAttrib4Nubv: PFNGLVERTEXATTRIB4NUBVPROC
+	VertexAttrib4Nuiv: PFNGLVERTEXATTRIB4NUIVPROC
+	VertexAttrib4Nusv: PFNGLVERTEXATTRIB4NUSVPROC
+	VertexAttrib4bv: PFNGLVERTEXATTRIB4BVPROC
+	VertexAttrib4d: PFNGLVERTEXATTRIB4DPROC
+	VertexAttrib4dv: PFNGLVERTEXATTRIB4DVPROC
+	VertexAttrib4f: PFNGLVERTEXATTRIB4FPROC
+	VertexAttrib4fv: PFNGLVERTEXATTRIB4FVPROC
+	VertexAttrib4iv: PFNGLVERTEXATTRIB4IVPROC
+	VertexAttrib4s: PFNGLVERTEXATTRIB4SPROC
+	VertexAttrib4sv: PFNGLVERTEXATTRIB4SVPROC
+	VertexAttrib4ubv: PFNGLVERTEXATTRIB4UBVPROC
+	VertexAttrib4uiv: PFNGLVERTEXATTRIB4UIVPROC
+	VertexAttrib4usv: PFNGLVERTEXATTRIB4USVPROC
+	VertexAttribPointer: PFNGLVERTEXATTRIBPOINTERPROC
+	
+	// GL 2.1
+	UniformMatrix2x3fv: PFNGLUNIFORMMATRIX2X3FVPROC
+	UniformMatrix3x2fv: PFNGLUNIFORMMATRIX3X2FVPROC
+	UniformMatrix2x4fv: PFNGLUNIFORMMATRIX2X4FVPROC
+	UniformMatrix4x2fv: PFNGLUNIFORMMATRIX4X2FVPROC
+	UniformMatrix3x4fv: PFNGLUNIFORMMATRIX3X4FVPROC
+	UniformMatrix4x3fv: PFNGLUNIFORMMATRIX4X3FVPROC
+	
+	// GL 3.0
+	ColorMaski: PFNGLCOLORMASKIPROC
+	GetBooleani_v: PFNGLGETBOOLEANI_VPROC
+	GetIntegeri_v: PFNGLGETINTEGERI_VPROC
+	Enablei: PFNGLENABLEIPROC
+	Disablei: PFNGLDISABLEIPROC
+	IsEnabledi: PFNGLISENABLEDIPROC
+	BeginTransformFeedback: PFNGLBEGINTRANSFORMFEEDBACKPROC
+	EndTransformFeedback: PFNGLENDTRANSFORMFEEDBACKPROC
+	BindBufferRange: PFNGLBINDBUFFERRANGEPROC
+	BindBufferBase: PFNGLBINDBUFFERBASEPROC
+	TransformFeedbackVaryings: PFNGLTRANSFORMFEEDBACKVARYINGSPROC
+	GetTransformFeedbackVarying: PFNGLGETTRANSFORMFEEDBACKVARYINGPROC
+	ClampColor: PFNGLCLAMPCOLORPROC
+	BeginConditionalRender: PFNGLBEGINCONDITIONALRENDERPROC
+	EndConditionalRender: PFNGLENDCONDITIONALRENDERPROC
+	VertexAttribIPointer: PFNGLVERTEXATTRIBIPOINTERPROC
+	GetVertexAttribIiv: PFNGLGETVERTEXATTRIBIIVPROC
+	GetVertexAttribIuiv: PFNGLGETVERTEXATTRIBIUIVPROC
+	VertexAttribI1i: PFNGLVERTEXATTRIBI1IPROC
+	VertexAttribI2i: PFNGLVERTEXATTRIBI2IPROC
+	VertexAttribI3i: PFNGLVERTEXATTRIBI3IPROC
+	VertexAttribI4i: PFNGLVERTEXATTRIBI4IPROC
+	VertexAttribI1ui: PFNGLVERTEXATTRIBI1UIPROC
+	VertexAttribI2ui: PFNGLVERTEXATTRIBI2UIPROC
+	VertexAttribI3ui: PFNGLVERTEXATTRIBI3UIPROC
+	VertexAttribI4ui: PFNGLVERTEXATTRIBI4UIPROC
+	VertexAttribI1iv: PFNGLVERTEXATTRIBI1IVPROC
+	VertexAttribI2iv: PFNGLVERTEXATTRIBI2IVPROC
+	VertexAttribI3iv: PFNGLVERTEXATTRIBI3IVPROC
+	VertexAttribI4iv: PFNGLVERTEXATTRIBI4IVPROC
+	VertexAttribI1uiv: PFNGLVERTEXATTRIBI1UIVPROC
+	VertexAttribI2uiv: PFNGLVERTEXATTRIBI2UIVPROC
+	VertexAttribI3uiv: PFNGLVERTEXATTRIBI3UIVPROC
+	VertexAttribI4uiv: PFNGLVERTEXATTRIBI4UIVPROC
+	VertexAttribI4bv: PFNGLVERTEXATTRIBI4BVPROC
+	VertexAttribI4sv: PFNGLVERTEXATTRIBI4SVPROC
+	VertexAttribI4ubv: PFNGLVERTEXATTRIBI4UBVPROC
+	VertexAttribI4usv: PFNGLVERTEXATTRIBI4USVPROC
+	GetUniformuiv: PFNGLGETUNIFORMUIVPROC
+	BindFragDataLocation: PFNGLBINDFRAGDATALOCATIONPROC
+	GetFragDataLocation: PFNGLGETFRAGDATALOCATIONPROC
+	Uniform1ui: PFNGLUNIFORM1UIPROC
+	Uniform2ui: PFNGLUNIFORM2UIPROC
+	Uniform3ui: PFNGLUNIFORM3UIPROC
+	Uniform4ui: PFNGLUNIFORM4UIPROC
+	Uniform1uiv: PFNGLUNIFORM1UIVPROC
+	Uniform2uiv: PFNGLUNIFORM2UIVPROC
+	Uniform3uiv: PFNGLUNIFORM3UIVPROC
+	Uniform4uiv: PFNGLUNIFORM4UIVPROC
+	TexParameterIiv: PFNGLTEXPARAMETERIIVPROC
+	TexParameterIuiv: PFNGLTEXPARAMETERIUIVPROC
+	GetTexParameterIiv: PFNGLGETTEXPARAMETERIIVPROC
+	GetTexParameterIuiv: PFNGLGETTEXPARAMETERIUIVPROC
+	ClearBufferiv: PFNGLCLEARBUFFERIVPROC
+	ClearBufferuiv: PFNGLCLEARBUFFERUIVPROC
+	ClearBufferfv: PFNGLCLEARBUFFERFVPROC
+	ClearBufferfi: PFNGLCLEARBUFFERFIPROC
+	GetStringi: PFNGLGETSTRINGIPROC
+	IsRenderbuffer: PFNGLISRENDERBUFFERPROC
+	BindRenderbuffer: PFNGLBINDRENDERBUFFERPROC
+	DeleteRenderbuffers: PFNGLDELETERENDERBUFFERSPROC
+	GenRenderbuffers: PFNGLGENRENDERBUFFERSPROC
+	RenderbufferStorage: PFNGLRENDERBUFFERSTORAGEPROC
+	GetRenderbufferParameteriv: PFNGLGETRENDERBUFFERPARAMETERIVPROC
+	IsFramebuffer: PFNGLISFRAMEBUFFERPROC
+	BindFramebuffer: PFNGLBINDFRAMEBUFFERPROC
+	DeleteFramebuffers: PFNGLDELETEFRAMEBUFFERSPROC
+	GenFramebuffers: PFNGLGENFRAMEBUFFERSPROC
+	CheckFramebufferStatus: PFNGLCHECKFRAMEBUFFERSTATUSPROC
+	FramebufferTexture1D: PFNGLFRAMEBUFFERTEXTURE1DPROC
+	FramebufferTexture2D: PFNGLFRAMEBUFFERTEXTURE2DPROC
+	FramebufferTexture3D: PFNGLFRAMEBUFFERTEXTURE3DPROC
+	FramebufferRenderbuffer: PFNGLFRAMEBUFFERRENDERBUFFERPROC
+	GetFramebufferAttachmentParameteriv: PFNGLGETFRAMEBUFFERATTACHMENTPARAMETERIVPROC
+	GenerateMipmap: PFNGLGENERATEMIPMAPPROC
+	BlitFramebuffer: PFNGLBLITFRAMEBUFFERPROC
+	RenderbufferStorageMultisample: PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC
+	FramebufferTextureLayer: PFNGLFRAMEBUFFERTEXTURELAYERPROC
+	MapBufferRange: PFNGLMAPBUFFERRANGEPROC
+	FlushMappedBufferRange: PFNGLFLUSHMAPPEDBUFFERRANGEPROC
+	BindVertexArray: PFNGLBINDVERTEXARRAYPROC
+	DeleteVertexArrays: PFNGLDELETEVERTEXARRAYSPROC
+	GenVertexArrays: PFNGLGENVERTEXARRAYSPROC
+	IsVertexArray: PFNGLISVERTEXARRAYPROC
+	
+	// GL 3.1
+	DrawArraysInstanced: PFNGLDRAWARRAYSINSTANCEDPROC
+	DrawElementsInstanced: PFNGLDRAWELEMENTSINSTANCEDPROC
+	TexBuffer: PFNGLTEXBUFFERPROC
+	PrimitiveRestartIndex: PFNGLPRIMITIVERESTARTINDEXPROC
+	CopyBufferSubData: PFNGLCOPYBUFFERSUBDATAPROC
+	GetUniformIndices: PFNGLGETUNIFORMINDICESPROC
+	GetActiveUniformsiv: PFNGLGETACTIVEUNIFORMSIVPROC
+	GetActiveUniformName: PFNGLGETACTIVEUNIFORMNAMEPROC
+	GetUniformBlockIndex: PFNGLGETUNIFORMBLOCKINDEXPROC
+	GetActiveUniformBlockiv: PFNGLGETACTIVEUNIFORMBLOCKIVPROC
+	GetActiveUniformBlockName: PFNGLGETACTIVEUNIFORMBLOCKNAMEPROC
+	UniformBlockBinding: PFNGLUNIFORMBLOCKBINDINGPROC
+	
+	// GL 3.2
+	DrawElementsBaseVertex: PFNGLDRAWELEMENTSBASEVERTEXPROC
+	DrawRangeElementsBaseVertex: PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC
+	DrawElementsInstancedBaseVertex: PFNGLDRAWELEMENTSINSTANCEDBASEVERTEXPROC
+	MultiDrawElementsBaseVertex: PFNGLMULTIDRAWELEMENTSBASEVERTEXPROC
+	ProvokingVertex: PFNGLPROVOKINGVERTEXPROC
+	FenceSync: PFNGLFENCESYNCPROC
+	IsSync: PFNGLISSYNCPROC
+	DeleteSync: PFNGLDELETESYNCPROC
+	ClientWaitSync: PFNGLCLIENTWAITSYNCPROC
+	WaitSync: PFNGLWAITSYNCPROC
+	GetInteger64v: PFNGLGETINTEGER64VPROC
+	GetSynciv: PFNGLGETSYNCIVPROC
+	GetInteger64i_v: PFNGLGETINTEGER64I_VPROC
+	GetBufferParameteri64v: PFNGLGETBUFFERPARAMETERI64VPROC
+	FramebufferTexture: PFNGLFRAMEBUFFERTEXTUREPROC
+	TexImage2DMultisample: PFNGLTEXIMAGE2DMULTISAMPLEPROC
+	TexImage3DMultisample: PFNGLTEXIMAGE3DMULTISAMPLEPROC
+	GetMultisamplefv: PFNGLGETMULTISAMPLEFVPROC
+	SampleMaski: PFNGLSAMPLEMASKIPROC
+	
+	// GL 3.3
+	BindFragDataLocationIndexed: PFNGLBINDFRAGDATALOCATIONINDEXEDPROC
+	GetFragDataIndex: PFNGLGETFRAGDATAINDEXPROC
+	GenSamplers: PFNGLGENSAMPLERSPROC
+	DeleteSamplers: PFNGLDELETESAMPLERSPROC
+	IsSampler: PFNGLISSAMPLERPROC
+	BindSampler: PFNGLBINDSAMPLERPROC
+	SamplerParameteri: PFNGLSAMPLERPARAMETERIPROC
+	SamplerParameteriv: PFNGLSAMPLERPARAMETERIVPROC
+	SamplerParameterf: PFNGLSAMPLERPARAMETERFPROC
+	SamplerParameterfv: PFNGLSAMPLERPARAMETERFVPROC
+	SamplerParameterIiv: PFNGLSAMPLERPARAMETERIIVPROC
+	SamplerParameterIuiv: PFNGLSAMPLERPARAMETERIUIVPROC
+	GetSamplerParameteriv: PFNGLGETSAMPLERPARAMETERIVPROC
+	GetSamplerParameterIiv: PFNGLGETSAMPLERPARAMETERIIVPROC
+	GetSamplerParameterfv: PFNGLGETSAMPLERPARAMETERFVPROC
+	GetSamplerParameterIuiv: PFNGLGETSAMPLERPARAMETERIUIVPROC
+	QueryCounter: PFNGLQUERYCOUNTERPROC
+	GetQueryObjecti64v: PFNGLGETQUERYOBJECTI64VPROC
+	GetQueryObjectui64v: PFNGLGETQUERYOBJECTUI64VPROC
+	VertexAttribDivisor: PFNGLVERTEXATTRIBDIVISORPROC
+	VertexAttribP1ui: PFNGLVERTEXATTRIBP1UIPROC
+	VertexAttribP1uiv: PFNGLVERTEXATTRIBP1UIVPROC
+	VertexAttribP2ui: PFNGLVERTEXATTRIBP2UIPROC
+	VertexAttribP2uiv: PFNGLVERTEXATTRIBP2UIVPROC
+	VertexAttribP3ui: PFNGLVERTEXATTRIBP3UIPROC
+	VertexAttribP3uiv: PFNGLVERTEXATTRIBP3UIVPROC
+	VertexAttribP4ui: PFNGLVERTEXATTRIBP4UIPROC
+	VertexAttribP4uiv: PFNGLVERTEXATTRIBP4UIVPROC
+	VertexP2ui: PFNGLVERTEXP2UIPROC
+	VertexP2uiv: PFNGLVERTEXP2UIVPROC
+	VertexP3ui: PFNGLVERTEXP3UIPROC
+	VertexP3uiv: PFNGLVERTEXP3UIVPROC
+	VertexP4ui: PFNGLVERTEXP4UIPROC
+	VertexP4uiv: PFNGLVERTEXP4UIVPROC
+	TexCoordP1ui: PFNGLTEXCOORDP1UIPROC
+	TexCoordP1uiv: PFNGLTEXCOORDP1UIVPROC
+	TexCoordP2ui: PFNGLTEXCOORDP2UIPROC
+	TexCoordP2uiv: PFNGLTEXCOORDP2UIVPROC
+	TexCoordP3ui: PFNGLTEXCOORDP3UIPROC
+	TexCoordP3uiv: PFNGLTEXCOORDP3UIVPROC
+	TexCoordP4ui: PFNGLTEXCOORDP4UIPROC
+	TexCoordP4uiv: PFNGLTEXCOORDP4UIVPROC
+	MultiTexCoordP1ui: PFNGLMULTITEXCOORDP1UIPROC
+	MultiTexCoordP1uiv: PFNGLMULTITEXCOORDP1UIVPROC
+	MultiTexCoordP2ui: PFNGLMULTITEXCOORDP2UIPROC
+	MultiTexCoordP2uiv: PFNGLMULTITEXCOORDP2UIVPROC
+	MultiTexCoordP3ui: PFNGLMULTITEXCOORDP3UIPROC
+	MultiTexCoordP3uiv: PFNGLMULTITEXCOORDP3UIVPROC
+	MultiTexCoordP4ui: PFNGLMULTITEXCOORDP4UIPROC
+	MultiTexCoordP4uiv: PFNGLMULTITEXCOORDP4UIVPROC
+	NormalP3ui: PFNGLNORMALP3UIPROC
+	NormalP3uiv: PFNGLNORMALP3UIVPROC
+	ColorP3ui: PFNGLCOLORP3UIPROC
+	ColorP3uiv: PFNGLCOLORP3UIVPROC
+	ColorP4ui: PFNGLCOLORP4UIPROC
+	ColorP4uiv: PFNGLCOLORP4UIVPROC
+	SecondaryColorP3ui: PFNGLSECONDARYCOLORP3UIPROC
+	SecondaryColorP3uiv: PFNGLSECONDARYCOLORP3UIVPROC
+}
+
+#get_proc: proc(lib: HMODULE, name: ^u8) => ^raw {
+	// Taken from glad.c (get_proc)
+	
+	result: wglGetProcAddress(name)
+	if result != ^raw(0) { ret result }
+	
+	result = GetProcAddress(lib, name)
+	if result == ^raw(0) { dbgbreak }
+	
+	ret result
+}
+
+#load_api_procs: proc(api: ^API, version: Version) {
+	lib: LoadLibraryA("opengl32.dll".ptr)
+	if lib == HMODULE(0) {dbgbreak}
+	
+	if version >= Version._1_0 {
+		api.CullFace = PFNGLCULLFACEPROC(get_proc(lib, "glCullFace".ptr))
+		api.FrontFace = PFNGLFRONTFACEPROC(get_proc(lib, "glFrontFace".ptr))
+		api.Hint = PFNGLHINTPROC(get_proc(lib, "glHint".ptr))
+		api.LineWidth = PFNGLLINEWIDTHPROC(get_proc(lib, "glLineWidth".ptr))
+		api.PointSize = PFNGLPOINTSIZEPROC(get_proc(lib, "glPointSize".ptr))
+		api.PolygonMode = PFNGLPOLYGONMODEPROC(get_proc(lib, "glPolygonMode".ptr))
+		api.Scissor = PFNGLSCISSORPROC(get_proc(lib, "glScissor".ptr))
+		api.TexParameterf = PFNGLTEXPARAMETERFPROC(get_proc(lib, "glTexParameterf".ptr))
+		api.TexParameterfv = PFNGLTEXPARAMETERFVPROC(get_proc(lib, "glTexParameterfv".ptr))
+		api.TexParameteri = PFNGLTEXPARAMETERIPROC(get_proc(lib, "glTexParameteri".ptr))
+		api.TexParameteriv = PFNGLTEXPARAMETERIVPROC(get_proc(lib, "glTexParameteriv".ptr))
+		api.TexImage1D = PFNGLTEXIMAGE1DPROC(get_proc(lib, "glTexImage1D".ptr))
+		api.TexImage2D = PFNGLTEXIMAGE2DPROC(get_proc(lib, "glTexImage2D".ptr))
+		api.DrawBuffer = PFNGLDRAWBUFFERPROC(get_proc(lib, "glDrawBuffer".ptr))
+		api.Clear = PFNGLCLEARPROC(get_proc(lib, "glClear".ptr))
+		api.ClearColor = PFNGLCLEARCOLORPROC(get_proc(lib, "glClearColor".ptr))
+		api.ClearStencil = PFNGLCLEARSTENCILPROC(get_proc(lib, "glClearStencil".ptr))
+		api.ClearDepth = PFNGLCLEARDEPTHPROC(get_proc(lib, "glClearDepth".ptr))
+		api.StencilMask = PFNGLSTENCILMASKPROC(get_proc(lib, "glStencilMask".ptr))
+		api.ColorMask = PFNGLCOLORMASKPROC(get_proc(lib, "glColorMask".ptr))
+		api.DepthMask = PFNGLDEPTHMASKPROC(get_proc(lib, "glDepthMask".ptr))
+		api.Disable = PFNGLDISABLEPROC(get_proc(lib, "glDisable".ptr))
+		api.Enable = PFNGLENABLEPROC(get_proc(lib, "glEnable".ptr))
+		api.Finish = PFNGLFINISHPROC(get_proc(lib, "glFinish".ptr))
+		api.Flush = PFNGLFLUSHPROC(get_proc(lib, "glFlush".ptr))
+		api.BlendFunc = PFNGLBLENDFUNCPROC(get_proc(lib, "glBlendFunc".ptr))
+		api.LogicOp = PFNGLLOGICOPPROC(get_proc(lib, "glLogicOp".ptr))
+		api.StencilFunc = PFNGLSTENCILFUNCPROC(get_proc(lib, "glStencilFunc".ptr))
+		api.StencilOp = PFNGLSTENCILOPPROC(get_proc(lib, "glStencilOp".ptr))
+		api.DepthFunc = PFNGLDEPTHFUNCPROC(get_proc(lib, "glDepthFunc".ptr))
+		api.PixelStoref = PFNGLPIXELSTOREFPROC(get_proc(lib, "glPixelStoref".ptr))
+		api.PixelStorei = PFNGLPIXELSTOREIPROC(get_proc(lib, "glPixelStorei".ptr))
+		api.ReadBuffer = PFNGLREADBUFFERPROC(get_proc(lib, "glReadBuffer".ptr))
+		api.ReadPixels = PFNGLREADPIXELSPROC(get_proc(lib, "glReadPixels".ptr))
+		api.GetBooleanv = PFNGLGETBOOLEANVPROC(get_proc(lib, "glGetBooleanv".ptr))
+		api.GetDoublev = PFNGLGETDOUBLEVPROC(get_proc(lib, "glGetDoublev".ptr))
+		api.GetError = PFNGLGETERRORPROC(get_proc(lib, "glGetError".ptr))
+		api.GetFloatv = PFNGLGETFLOATVPROC(get_proc(lib, "glGetFloatv".ptr))
+		api.GetIntegerv = PFNGLGETINTEGERVPROC(get_proc(lib, "glGetIntegerv".ptr))
+		api.GetString = PFNGLGETSTRINGPROC(get_proc(lib, "glGetString".ptr))
+		api.GetTexImage = PFNGLGETTEXIMAGEPROC(get_proc(lib, "glGetTexImage".ptr))
+		api.GetTexParameterfv = PFNGLGETTEXPARAMETERFVPROC(get_proc(lib, "glGetTexParameterfv".ptr))
+		api.GetTexParameteriv = PFNGLGETTEXPARAMETERIVPROC(get_proc(lib, "glGetTexParameteriv".ptr))
+		api.GetTexLevelParameterfv = PFNGLGETTEXLEVELPARAMETERFVPROC(get_proc(lib, "glGetTexLevelParameterfv".ptr))
+		api.GetTexLevelParameteriv = PFNGLGETTEXLEVELPARAMETERIVPROC(get_proc(lib, "glGetTexLevelParameteriv".ptr))
+		api.IsEnabled = PFNGLISENABLEDPROC(get_proc(lib, "glIsEnabled".ptr))
+		api.DepthRange = PFNGLDEPTHRANGEPROC(get_proc(lib, "glDepthRange".ptr))
+		api.Viewport = PFNGLVIEWPORTPROC(get_proc(lib, "glViewport".ptr))
+	}
+	
+	if version >= Version._1_1 {
+		api.DrawArrays = PFNGLDRAWARRAYSPROC(get_proc(lib, "glDrawArrays".ptr))
+		api.DrawElements = PFNGLDRAWELEMENTSPROC(get_proc(lib, "glDrawElements".ptr))
+		api.PolygonOffset = PFNGLPOLYGONOFFSETPROC(get_proc(lib, "glPolygonOffset".ptr))
+		api.CopyTexImage1D = PFNGLCOPYTEXIMAGE1DPROC(get_proc(lib, "glCopyTexImage1D".ptr))
+		api.CopyTexImage2D = PFNGLCOPYTEXIMAGE2DPROC(get_proc(lib, "glCopyTexImage2D".ptr))
+		api.CopyTexSubImage1D = PFNGLCOPYTEXSUBIMAGE1DPROC(get_proc(lib, "glCopyTexSubImage1D".ptr))
+		api.CopyTexSubImage2D = PFNGLCOPYTEXSUBIMAGE2DPROC(get_proc(lib, "glCopyTexSubImage2D".ptr))
+		api.TexSubImage1D = PFNGLTEXSUBIMAGE1DPROC(get_proc(lib, "glTexSubImage1D".ptr))
+		api.TexSubImage2D = PFNGLTEXSUBIMAGE2DPROC(get_proc(lib, "glTexSubImage2D".ptr))
+		api.BindTexture = PFNGLBINDTEXTUREPROC(get_proc(lib, "glBindTexture".ptr))
+		api.DeleteTextures = PFNGLDELETETEXTURESPROC(get_proc(lib, "glDeleteTextures".ptr))
+		api.GenTextures = PFNGLGENTEXTURESPROC(get_proc(lib, "glGenTextures".ptr))
+		api.IsTexture = PFNGLISTEXTUREPROC(get_proc(lib, "glIsTexture".ptr))
+	}
+	
+	if version >= Version._1_2 {
+		api.DrawRangeElements = PFNGLDRAWRANGEELEMENTSPROC(get_proc(lib, "glDrawRangeElements".ptr))
+		api.TexImage3D = PFNGLTEXIMAGE3DPROC(get_proc(lib, "glTexImage3D".ptr))
+		api.TexSubImage3D = PFNGLTEXSUBIMAGE3DPROC(get_proc(lib, "glTexSubImage3D".ptr))
+		api.CopyTexSubImage3D = PFNGLCOPYTEXSUBIMAGE3DPROC(get_proc(lib, "glCopyTexSubImage3D".ptr))
+	}
+	
+	if version >= Version._1_3 {
+		api.ActiveTexture = PFNGLACTIVETEXTUREPROC(get_proc(lib, "glActiveTexture".ptr))
+		api.SampleCoverage = PFNGLSAMPLECOVERAGEPROC(get_proc(lib, "glSampleCoverage".ptr))
+		api.CompressedTexImage3D = PFNGLCOMPRESSEDTEXIMAGE3DPROC(get_proc(lib, "glCompressedTexImage3D".ptr))
+		api.CompressedTexImage2D = PFNGLCOMPRESSEDTEXIMAGE2DPROC(get_proc(lib, "glCompressedTexImage2D".ptr))
+		api.CompressedTexImage1D = PFNGLCOMPRESSEDTEXIMAGE1DPROC(get_proc(lib, "glCompressedTexImage1D".ptr))
+		api.CompressedTexSubImage3D = PFNGLCOMPRESSEDTEXSUBIMAGE3DPROC(get_proc(lib, "glCompressedTexSubImage3D".ptr))
+		api.CompressedTexSubImage2D = PFNGLCOMPRESSEDTEXSUBIMAGE2DPROC(get_proc(lib, "glCompressedTexSubImage2D".ptr))
+		api.CompressedTexSubImage1D = PFNGLCOMPRESSEDTEXSUBIMAGE1DPROC(get_proc(lib, "glCompressedTexSubImage1D".ptr))
+		api.GetCompressedTexImage = PFNGLGETCOMPRESSEDTEXIMAGEPROC(get_proc(lib, "glGetCompressedTexImage".ptr))
+	}
+	
+	if version >= Version._1_4 {
+		api.BlendFuncSeparate = PFNGLBLENDFUNCSEPARATEPROC(get_proc(lib, "glBlendFuncSeparate".ptr))
+		api.MultiDrawArrays = PFNGLMULTIDRAWARRAYSPROC(get_proc(lib, "glMultiDrawArrays".ptr))
+		api.MultiDrawElements = PFNGLMULTIDRAWELEMENTSPROC(get_proc(lib, "glMultiDrawElements".ptr))
+		api.PointParameterf = PFNGLPOINTPARAMETERFPROC(get_proc(lib, "glPointParameterf".ptr))
+		api.PointParameterfv = PFNGLPOINTPARAMETERFVPROC(get_proc(lib, "glPointParameterfv".ptr))
+		api.PointParameteri = PFNGLPOINTPARAMETERIPROC(get_proc(lib, "glPointParameteri".ptr))
+		api.PointParameteriv = PFNGLPOINTPARAMETERIVPROC(get_proc(lib, "glPointParameteriv".ptr))
+		api.BlendColor = PFNGLBLENDCOLORPROC(get_proc(lib, "glBlendColor".ptr))
+		api.BlendEquation = PFNGLBLENDEQUATIONPROC(get_proc(lib, "glBlendEquation".ptr))
+	}
+	
+	if version >= Version._1_5 {
+		api.GenQueries = PFNGLGENQUERIESPROC(get_proc(lib, "glGenQueries".ptr))
+		api.DeleteQueries = PFNGLDELETEQUERIESPROC(get_proc(lib, "glDeleteQueries".ptr))
+		api.IsQuery = PFNGLISQUERYPROC(get_proc(lib, "glIsQuery".ptr))
+		api.BeginQuery = PFNGLBEGINQUERYPROC(get_proc(lib, "glBeginQuery".ptr))
+		api.EndQuery = PFNGLENDQUERYPROC(get_proc(lib, "glEndQuery".ptr))
+		api.GetQueryiv = PFNGLGETQUERYIVPROC(get_proc(lib, "glGetQueryiv".ptr))
+		api.GetQueryObjectiv = PFNGLGETQUERYOBJECTIVPROC(get_proc(lib, "glGetQueryObjectiv".ptr))
+		api.GetQueryObjectuiv = PFNGLGETQUERYOBJECTUIVPROC(get_proc(lib, "glGetQueryObjectuiv".ptr))
+		api.BindBuffer = PFNGLBINDBUFFERPROC(get_proc(lib, "glBindBuffer".ptr))
+		api.DeleteBuffers = PFNGLDELETEBUFFERSPROC(get_proc(lib, "glDeleteBuffers".ptr))
+		api.GenBuffers = PFNGLGENBUFFERSPROC(get_proc(lib, "glGenBuffers".ptr))
+		api.IsBuffer = PFNGLISBUFFERPROC(get_proc(lib, "glIsBuffer".ptr))
+		api.BufferData = PFNGLBUFFERDATAPROC(get_proc(lib, "glBufferData".ptr))
+		api.BufferSubData = PFNGLBUFFERSUBDATAPROC(get_proc(lib, "glBufferSubData".ptr))
+		api.GetBufferSubData = PFNGLGETBUFFERSUBDATAPROC(get_proc(lib, "glGetBufferSubData".ptr))
+		api.MapBuffer = PFNGLMAPBUFFERPROC(get_proc(lib, "glMapBuffer".ptr))
+		api.UnmapBuffer = PFNGLUNMAPBUFFERPROC(get_proc(lib, "glUnmapBuffer".ptr))
+		api.GetBufferParameteriv = PFNGLGETBUFFERPARAMETERIVPROC(get_proc(lib, "glGetBufferParameteriv".ptr))
+		api.GetBufferPointerv = PFNGLGETBUFFERPOINTERVPROC(get_proc(lib, "glGetBufferPointerv".ptr))
+	}
+	
+	if version >= Version._2_0 {
+		api.BlendEquationSeparate = PFNGLBLENDEQUATIONSEPARATEPROC(get_proc(lib, "glBlendEquationSeparate".ptr))
+		api.DrawBuffers = PFNGLDRAWBUFFERSPROC(get_proc(lib, "glDrawBuffers".ptr))
+		api.StencilOpSeparate = PFNGLSTENCILOPSEPARATEPROC(get_proc(lib, "glStencilOpSeparate".ptr))
+		api.StencilFuncSeparate = PFNGLSTENCILFUNCSEPARATEPROC(get_proc(lib, "glStencilFuncSeparate".ptr))
+		api.StencilMaskSeparate = PFNGLSTENCILMASKSEPARATEPROC(get_proc(lib, "glStencilMaskSeparate".ptr))
+		api.AttachShader = PFNGLATTACHSHADERPROC(get_proc(lib, "glAttachShader".ptr))
+		api.BindAttribLocation = PFNGLBINDATTRIBLOCATIONPROC(get_proc(lib, "glBindAttribLocation".ptr))
+		api.CompileShader = PFNGLCOMPILESHADERPROC(get_proc(lib, "glCompileShader".ptr))
+		api.CreateProgram = PFNGLCREATEPROGRAMPROC(get_proc(lib, "glCreateProgram".ptr))
+		api.CreateShader = PFNGLCREATESHADERPROC(get_proc(lib, "glCreateShader".ptr))
+		api.DeleteProgram = PFNGLDELETEPROGRAMPROC(get_proc(lib, "glDeleteProgram".ptr))
+		api.DeleteShader = PFNGLDELETESHADERPROC(get_proc(lib, "glDeleteShader".ptr))
+		api.DetachShader = PFNGLDETACHSHADERPROC(get_proc(lib, "glDetachShader".ptr))
+		api.DisableVertexAttribArray = PFNGLDISABLEVERTEXATTRIBARRAYPROC(get_proc(lib, "glDisableVertexAttribArray".ptr))
+		api.EnableVertexAttribArray = PFNGLENABLEVERTEXATTRIBARRAYPROC(get_proc(lib, "glEnableVertexAttribArray".ptr))
+		api.GetActiveAttrib = PFNGLGETACTIVEATTRIBPROC(get_proc(lib, "glGetActiveAttrib".ptr))
+		api.GetActiveUniform = PFNGLGETACTIVEUNIFORMPROC(get_proc(lib, "glGetActiveUniform".ptr))
+		api.GetAttachedShaders = PFNGLGETATTACHEDSHADERSPROC(get_proc(lib, "glGetAttachedShaders".ptr))
+		api.GetAttribLocation = PFNGLGETATTRIBLOCATIONPROC(get_proc(lib, "glGetAttribLocation".ptr))
+		api.GetProgramiv = PFNGLGETPROGRAMIVPROC(get_proc(lib, "glGetProgramiv".ptr))
+		api.GetProgramInfoLog = PFNGLGETPROGRAMINFOLOGPROC(get_proc(lib, "glGetProgramInfoLog".ptr))
+		api.GetShaderiv = PFNGLGETSHADERIVPROC(get_proc(lib, "glGetShaderiv".ptr))
+		api.GetShaderInfoLog = PFNGLGETSHADERINFOLOGPROC(get_proc(lib, "glGetShaderInfoLog".ptr))
+		api.GetShaderSource = PFNGLGETSHADERSOURCEPROC(get_proc(lib, "glGetShaderSource".ptr))
+		api.GetUniformLocation = PFNGLGETUNIFORMLOCATIONPROC(get_proc(lib, "glGetUniformLocation".ptr))
+		api.GetUniformfv = PFNGLGETUNIFORMFVPROC(get_proc(lib, "glGetUniformfv".ptr))
+		api.GetUniformiv = PFNGLGETUNIFORMIVPROC(get_proc(lib, "glGetUniformiv".ptr))
+		api.GetVertexAttribdv = PFNGLGETVERTEXATTRIBDVPROC(get_proc(lib, "glGetVertexAttribdv".ptr))
+		api.GetVertexAttribfv = PFNGLGETVERTEXATTRIBFVPROC(get_proc(lib, "glGetVertexAttribfv".ptr))
+		api.GetVertexAttribiv = PFNGLGETVERTEXATTRIBIVPROC(get_proc(lib, "glGetVertexAttribiv".ptr))
+		api.GetVertexAttribPointerv = PFNGLGETVERTEXATTRIBPOINTERVPROC(get_proc(lib, "glGetVertexAttribPointerv".ptr))
+		api.IsProgram = PFNGLISPROGRAMPROC(get_proc(lib, "glIsProgram".ptr))
+		api.IsShader = PFNGLISSHADERPROC(get_proc(lib, "glIsShader".ptr))
+		api.LinkProgram = PFNGLLINKPROGRAMPROC(get_proc(lib, "glLinkProgram".ptr))
+		api.ShaderSource = PFNGLSHADERSOURCEPROC(get_proc(lib, "glShaderSource".ptr))
+		api.UseProgram = PFNGLUSEPROGRAMPROC(get_proc(lib, "glUseProgram".ptr))
+		api.Uniform1f = PFNGLUNIFORM1FPROC(get_proc(lib, "glUniform1f".ptr))
+		api.Uniform2f = PFNGLUNIFORM2FPROC(get_proc(lib, "glUniform2f".ptr))
+		api.Uniform3f = PFNGLUNIFORM3FPROC(get_proc(lib, "glUniform3f".ptr))
+		api.Uniform4f = PFNGLUNIFORM4FPROC(get_proc(lib, "glUniform4f".ptr))
+		api.Uniform1i = PFNGLUNIFORM1IPROC(get_proc(lib, "glUniform1i".ptr))
+		api.Uniform2i = PFNGLUNIFORM2IPROC(get_proc(lib, "glUniform2i".ptr))
+		api.Uniform3i = PFNGLUNIFORM3IPROC(get_proc(lib, "glUniform3i".ptr))
+		api.Uniform4i = PFNGLUNIFORM4IPROC(get_proc(lib, "glUniform4i".ptr))
+		api.Uniform1fv = PFNGLUNIFORM1FVPROC(get_proc(lib, "glUniform1fv".ptr))
+		api.Uniform2fv = PFNGLUNIFORM2FVPROC(get_proc(lib, "glUniform2fv".ptr))
+		api.Uniform3fv = PFNGLUNIFORM3FVPROC(get_proc(lib, "glUniform3fv".ptr))
+		api.Uniform4fv = PFNGLUNIFORM4FVPROC(get_proc(lib, "glUniform4fv".ptr))
+		api.Uniform1iv = PFNGLUNIFORM1IVPROC(get_proc(lib, "glUniform1iv".ptr))
+		api.Uniform2iv = PFNGLUNIFORM2IVPROC(get_proc(lib, "glUniform2iv".ptr))
+		api.Uniform3iv = PFNGLUNIFORM3IVPROC(get_proc(lib, "glUniform3iv".ptr))
+		api.Uniform4iv = PFNGLUNIFORM4IVPROC(get_proc(lib, "glUniform4iv".ptr))
+		api.UniformMatrix2fv = PFNGLUNIFORMMATRIX2FVPROC(get_proc(lib, "glUniformMatrix2fv".ptr))
+		api.UniformMatrix3fv = PFNGLUNIFORMMATRIX3FVPROC(get_proc(lib, "glUniformMatrix3fv".ptr))
+		api.UniformMatrix4fv = PFNGLUNIFORMMATRIX4FVPROC(get_proc(lib, "glUniformMatrix4fv".ptr))
+		api.ValidateProgram = PFNGLVALIDATEPROGRAMPROC(get_proc(lib, "glValidateProgram".ptr))
+		api.VertexAttrib1d = PFNGLVERTEXATTRIB1DPROC(get_proc(lib, "glVertexAttrib1d".ptr))
+		api.VertexAttrib1dv = PFNGLVERTEXATTRIB1DVPROC(get_proc(lib, "glVertexAttrib1dv".ptr))
+		api.VertexAttrib1f = PFNGLVERTEXATTRIB1FPROC(get_proc(lib, "glVertexAttrib1f".ptr))
+		api.VertexAttrib1fv = PFNGLVERTEXATTRIB1FVPROC(get_proc(lib, "glVertexAttrib1fv".ptr))
+		api.VertexAttrib1s = PFNGLVERTEXATTRIB1SPROC(get_proc(lib, "glVertexAttrib1s".ptr))
+		api.VertexAttrib1sv = PFNGLVERTEXATTRIB1SVPROC(get_proc(lib, "glVertexAttrib1sv".ptr))
+		api.VertexAttrib2d = PFNGLVERTEXATTRIB2DPROC(get_proc(lib, "glVertexAttrib2d".ptr))
+		api.VertexAttrib2dv = PFNGLVERTEXATTRIB2DVPROC(get_proc(lib, "glVertexAttrib2dv".ptr))
+		api.VertexAttrib2f = PFNGLVERTEXATTRIB2FPROC(get_proc(lib, "glVertexAttrib2f".ptr))
+		api.VertexAttrib2fv = PFNGLVERTEXATTRIB2FVPROC(get_proc(lib, "glVertexAttrib2fv".ptr))
+		api.VertexAttrib2s = PFNGLVERTEXATTRIB2SPROC(get_proc(lib, "glVertexAttrib2s".ptr))
+		api.VertexAttrib2sv = PFNGLVERTEXATTRIB2SVPROC(get_proc(lib, "glVertexAttrib2sv".ptr))
+		api.VertexAttrib3d = PFNGLVERTEXATTRIB3DPROC(get_proc(lib, "glVertexAttrib3d".ptr))
+		api.VertexAttrib3dv = PFNGLVERTEXATTRIB3DVPROC(get_proc(lib, "glVertexAttrib3dv".ptr))
+		api.VertexAttrib3f = PFNGLVERTEXATTRIB3FPROC(get_proc(lib, "glVertexAttrib3f".ptr))
+		api.VertexAttrib3fv = PFNGLVERTEXATTRIB3FVPROC(get_proc(lib, "glVertexAttrib3fv".ptr))
+		api.VertexAttrib3s = PFNGLVERTEXATTRIB3SPROC(get_proc(lib, "glVertexAttrib3s".ptr))
+		api.VertexAttrib3sv = PFNGLVERTEXATTRIB3SVPROC(get_proc(lib, "glVertexAttrib3sv".ptr))
+		api.VertexAttrib4Nbv = PFNGLVERTEXATTRIB4NBVPROC(get_proc(lib, "glVertexAttrib4Nbv".ptr))
+		api.VertexAttrib4Niv = PFNGLVERTEXATTRIB4NIVPROC(get_proc(lib, "glVertexAttrib4Niv".ptr))
+		api.VertexAttrib4Nsv = PFNGLVERTEXATTRIB4NSVPROC(get_proc(lib, "glVertexAttrib4Nsv".ptr))
+		api.VertexAttrib4Nub = PFNGLVERTEXATTRIB4NUBPROC(get_proc(lib, "glVertexAttrib4Nub".ptr))
+		api.VertexAttrib4Nubv = PFNGLVERTEXATTRIB4NUBVPROC(get_proc(lib, "glVertexAttrib4Nubv".ptr))
+		api.VertexAttrib4Nuiv = PFNGLVERTEXATTRIB4NUIVPROC(get_proc(lib, "glVertexAttrib4Nuiv".ptr))
+		api.VertexAttrib4Nusv = PFNGLVERTEXATTRIB4NUSVPROC(get_proc(lib, "glVertexAttrib4Nusv".ptr))
+		api.VertexAttrib4bv = PFNGLVERTEXATTRIB4BVPROC(get_proc(lib, "glVertexAttrib4bv".ptr))
+		api.VertexAttrib4d = PFNGLVERTEXATTRIB4DPROC(get_proc(lib, "glVertexAttrib4d".ptr))
+		api.VertexAttrib4dv = PFNGLVERTEXATTRIB4DVPROC(get_proc(lib, "glVertexAttrib4dv".ptr))
+		api.VertexAttrib4f = PFNGLVERTEXATTRIB4FPROC(get_proc(lib, "glVertexAttrib4f".ptr))
+		api.VertexAttrib4fv = PFNGLVERTEXATTRIB4FVPROC(get_proc(lib, "glVertexAttrib4fv".ptr))
+		api.VertexAttrib4iv = PFNGLVERTEXATTRIB4IVPROC(get_proc(lib, "glVertexAttrib4iv".ptr))
+		api.VertexAttrib4s = PFNGLVERTEXATTRIB4SPROC(get_proc(lib, "glVertexAttrib4s".ptr))
+		api.VertexAttrib4sv = PFNGLVERTEXATTRIB4SVPROC(get_proc(lib, "glVertexAttrib4sv".ptr))
+		api.VertexAttrib4ubv = PFNGLVERTEXATTRIB4UBVPROC(get_proc(lib, "glVertexAttrib4ubv".ptr))
+		api.VertexAttrib4uiv = PFNGLVERTEXATTRIB4UIVPROC(get_proc(lib, "glVertexAttrib4uiv".ptr))
+		api.VertexAttrib4usv = PFNGLVERTEXATTRIB4USVPROC(get_proc(lib, "glVertexAttrib4usv".ptr))
+		api.VertexAttribPointer = PFNGLVERTEXATTRIBPOINTERPROC(get_proc(lib, "glVertexAttribPointer".ptr))
+	}
+	
+	if version >= Version._2_1 {
+		api.UniformMatrix2x3fv = PFNGLUNIFORMMATRIX2X3FVPROC(get_proc(lib, "glUniformMatrix2x3fv".ptr))
+		api.UniformMatrix3x2fv = PFNGLUNIFORMMATRIX3X2FVPROC(get_proc(lib, "glUniformMatrix3x2fv".ptr))
+		api.UniformMatrix2x4fv = PFNGLUNIFORMMATRIX2X4FVPROC(get_proc(lib, "glUniformMatrix2x4fv".ptr))
+		api.UniformMatrix4x2fv = PFNGLUNIFORMMATRIX4X2FVPROC(get_proc(lib, "glUniformMatrix4x2fv".ptr))
+		api.UniformMatrix3x4fv = PFNGLUNIFORMMATRIX3X4FVPROC(get_proc(lib, "glUniformMatrix3x4fv".ptr))
+		api.UniformMatrix4x3fv = PFNGLUNIFORMMATRIX4X3FVPROC(get_proc(lib, "glUniformMatrix4x3fv".ptr))
+	}
+	
+	if version >= Version._3_0 {
+		api.ColorMaski = PFNGLCOLORMASKIPROC(get_proc(lib, "glColorMaski".ptr))
+		api.GetBooleani_v = PFNGLGETBOOLEANI_VPROC(get_proc(lib, "glGetBooleani_v".ptr))
+		api.GetIntegeri_v = PFNGLGETINTEGERI_VPROC(get_proc(lib, "glGetIntegeri_v".ptr))
+		api.Enablei = PFNGLENABLEIPROC(get_proc(lib, "glEnablei".ptr))
+		api.Disablei = PFNGLDISABLEIPROC(get_proc(lib, "glDisablei".ptr))
+		api.IsEnabledi = PFNGLISENABLEDIPROC(get_proc(lib, "glIsEnabledi".ptr))
+		api.BeginTransformFeedback = PFNGLBEGINTRANSFORMFEEDBACKPROC(get_proc(lib, "glBeginTransformFeedback".ptr))
+		api.EndTransformFeedback = PFNGLENDTRANSFORMFEEDBACKPROC(get_proc(lib, "glEndTransformFeedback".ptr))
+		api.BindBufferRange = PFNGLBINDBUFFERRANGEPROC(get_proc(lib, "glBindBufferRange".ptr))
+		api.BindBufferBase = PFNGLBINDBUFFERBASEPROC(get_proc(lib, "glBindBufferBase".ptr))
+		api.TransformFeedbackVaryings = PFNGLTRANSFORMFEEDBACKVARYINGSPROC(get_proc(lib, "glTransformFeedbackVaryings".ptr))
+		api.GetTransformFeedbackVarying = PFNGLGETTRANSFORMFEEDBACKVARYINGPROC(get_proc(lib, "glGetTransformFeedbackVarying".ptr))
+		api.ClampColor = PFNGLCLAMPCOLORPROC(get_proc(lib, "glClampColor".ptr))
+		api.BeginConditionalRender = PFNGLBEGINCONDITIONALRENDERPROC(get_proc(lib, "glBeginConditionalRender".ptr))
+		api.EndConditionalRender = PFNGLENDCONDITIONALRENDERPROC(get_proc(lib, "glEndConditionalRender".ptr))
+		api.VertexAttribIPointer = PFNGLVERTEXATTRIBIPOINTERPROC(get_proc(lib, "glVertexAttribIPointer".ptr))
+		api.GetVertexAttribIiv = PFNGLGETVERTEXATTRIBIIVPROC(get_proc(lib, "glGetVertexAttribIiv".ptr))
+		api.GetVertexAttribIuiv = PFNGLGETVERTEXATTRIBIUIVPROC(get_proc(lib, "glGetVertexAttribIuiv".ptr))
+		api.VertexAttribI1i = PFNGLVERTEXATTRIBI1IPROC(get_proc(lib, "glVertexAttribI1i".ptr))
+		api.VertexAttribI2i = PFNGLVERTEXATTRIBI2IPROC(get_proc(lib, "glVertexAttribI2i".ptr))
+		api.VertexAttribI3i = PFNGLVERTEXATTRIBI3IPROC(get_proc(lib, "glVertexAttribI3i".ptr))
+		api.VertexAttribI4i = PFNGLVERTEXATTRIBI4IPROC(get_proc(lib, "glVertexAttribI4i".ptr))
+		api.VertexAttribI1ui = PFNGLVERTEXATTRIBI1UIPROC(get_proc(lib, "glVertexAttribI1ui".ptr))
+		api.VertexAttribI2ui = PFNGLVERTEXATTRIBI2UIPROC(get_proc(lib, "glVertexAttribI2ui".ptr))
+		api.VertexAttribI3ui = PFNGLVERTEXATTRIBI3UIPROC(get_proc(lib, "glVertexAttribI3ui".ptr))
+		api.VertexAttribI4ui = PFNGLVERTEXATTRIBI4UIPROC(get_proc(lib, "glVertexAttribI4ui".ptr))
+		api.VertexAttribI1iv = PFNGLVERTEXATTRIBI1IVPROC(get_proc(lib, "glVertexAttribI1iv".ptr))
+		api.VertexAttribI2iv = PFNGLVERTEXATTRIBI2IVPROC(get_proc(lib, "glVertexAttribI2iv".ptr))
+		api.VertexAttribI3iv = PFNGLVERTEXATTRIBI3IVPROC(get_proc(lib, "glVertexAttribI3iv".ptr))
+		api.VertexAttribI4iv = PFNGLVERTEXATTRIBI4IVPROC(get_proc(lib, "glVertexAttribI4iv".ptr))
+		api.VertexAttribI1uiv = PFNGLVERTEXATTRIBI1UIVPROC(get_proc(lib, "glVertexAttribI1uiv".ptr))
+		api.VertexAttribI2uiv = PFNGLVERTEXATTRIBI2UIVPROC(get_proc(lib, "glVertexAttribI2uiv".ptr))
+		api.VertexAttribI3uiv = PFNGLVERTEXATTRIBI3UIVPROC(get_proc(lib, "glVertexAttribI3uiv".ptr))
+		api.VertexAttribI4uiv = PFNGLVERTEXATTRIBI4UIVPROC(get_proc(lib, "glVertexAttribI4uiv".ptr))
+		api.VertexAttribI4bv = PFNGLVERTEXATTRIBI4BVPROC(get_proc(lib, "glVertexAttribI4bv".ptr))
+		api.VertexAttribI4sv = PFNGLVERTEXATTRIBI4SVPROC(get_proc(lib, "glVertexAttribI4sv".ptr))
+		api.VertexAttribI4ubv = PFNGLVERTEXATTRIBI4UBVPROC(get_proc(lib, "glVertexAttribI4ubv".ptr))
+		api.VertexAttribI4usv = PFNGLVERTEXATTRIBI4USVPROC(get_proc(lib, "glVertexAttribI4usv".ptr))
+		api.GetUniformuiv = PFNGLGETUNIFORMUIVPROC(get_proc(lib, "glGetUniformuiv".ptr))
+		api.BindFragDataLocation = PFNGLBINDFRAGDATALOCATIONPROC(get_proc(lib, "glBindFragDataLocation".ptr))
+		api.GetFragDataLocation = PFNGLGETFRAGDATALOCATIONPROC(get_proc(lib, "glGetFragDataLocation".ptr))
+		api.Uniform1ui = PFNGLUNIFORM1UIPROC(get_proc(lib, "glUniform1ui".ptr))
+		api.Uniform2ui = PFNGLUNIFORM2UIPROC(get_proc(lib, "glUniform2ui".ptr))
+		api.Uniform3ui = PFNGLUNIFORM3UIPROC(get_proc(lib, "glUniform3ui".ptr))
+		api.Uniform4ui = PFNGLUNIFORM4UIPROC(get_proc(lib, "glUniform4ui".ptr))
+		api.Uniform1uiv = PFNGLUNIFORM1UIVPROC(get_proc(lib, "glUniform1uiv".ptr))
+		api.Uniform2uiv = PFNGLUNIFORM2UIVPROC(get_proc(lib, "glUniform2uiv".ptr))
+		api.Uniform3uiv = PFNGLUNIFORM3UIVPROC(get_proc(lib, "glUniform3uiv".ptr))
+		api.Uniform4uiv = PFNGLUNIFORM4UIVPROC(get_proc(lib, "glUniform4uiv".ptr))
+		api.TexParameterIiv = PFNGLTEXPARAMETERIIVPROC(get_proc(lib, "glTexParameterIiv".ptr))
+		api.TexParameterIuiv = PFNGLTEXPARAMETERIUIVPROC(get_proc(lib, "glTexParameterIuiv".ptr))
+		api.GetTexParameterIiv = PFNGLGETTEXPARAMETERIIVPROC(get_proc(lib, "glGetTexParameterIiv".ptr))
+		api.GetTexParameterIuiv = PFNGLGETTEXPARAMETERIUIVPROC(get_proc(lib, "glGetTexParameterIuiv".ptr))
+		api.ClearBufferiv = PFNGLCLEARBUFFERIVPROC(get_proc(lib, "glClearBufferiv".ptr))
+		api.ClearBufferuiv = PFNGLCLEARBUFFERUIVPROC(get_proc(lib, "glClearBufferuiv".ptr))
+		api.ClearBufferfv = PFNGLCLEARBUFFERFVPROC(get_proc(lib, "glClearBufferfv".ptr))
+		api.ClearBufferfi = PFNGLCLEARBUFFERFIPROC(get_proc(lib, "glClearBufferfi".ptr))
+		api.GetStringi = PFNGLGETSTRINGIPROC(get_proc(lib, "glGetStringi".ptr))
+		api.IsRenderbuffer = PFNGLISRENDERBUFFERPROC(get_proc(lib, "glIsRenderbuffer".ptr))
+		api.BindRenderbuffer = PFNGLBINDRENDERBUFFERPROC(get_proc(lib, "glBindRenderbuffer".ptr))
+		api.DeleteRenderbuffers = PFNGLDELETERENDERBUFFERSPROC(get_proc(lib, "glDeleteRenderbuffers".ptr))
+		api.GenRenderbuffers = PFNGLGENRENDERBUFFERSPROC(get_proc(lib, "glGenRenderbuffers".ptr))
+		api.RenderbufferStorage = PFNGLRENDERBUFFERSTORAGEPROC(get_proc(lib, "glRenderbufferStorage".ptr))
+		api.GetRenderbufferParameteriv = PFNGLGETRENDERBUFFERPARAMETERIVPROC(get_proc(lib, "glGetRenderbufferParameteriv".ptr))
+		api.IsFramebuffer = PFNGLISFRAMEBUFFERPROC(get_proc(lib, "glIsFramebuffer".ptr))
+		api.BindFramebuffer = PFNGLBINDFRAMEBUFFERPROC(get_proc(lib, "glBindFramebuffer".ptr))
+		api.DeleteFramebuffers = PFNGLDELETEFRAMEBUFFERSPROC(get_proc(lib, "glDeleteFramebuffers".ptr))
+		api.GenFramebuffers = PFNGLGENFRAMEBUFFERSPROC(get_proc(lib, "glGenFramebuffers".ptr))
+		api.CheckFramebufferStatus = PFNGLCHECKFRAMEBUFFERSTATUSPROC(get_proc(lib, "glCheckFramebufferStatus".ptr))
+		api.FramebufferTexture1D = PFNGLFRAMEBUFFERTEXTURE1DPROC(get_proc(lib, "glFramebufferTexture1D".ptr))
+		api.FramebufferTexture2D = PFNGLFRAMEBUFFERTEXTURE2DPROC(get_proc(lib, "glFramebufferTexture2D".ptr))
+		api.FramebufferTexture3D = PFNGLFRAMEBUFFERTEXTURE3DPROC(get_proc(lib, "glFramebufferTexture3D".ptr))
+		api.FramebufferRenderbuffer = PFNGLFRAMEBUFFERRENDERBUFFERPROC(get_proc(lib, "glFramebufferRenderbuffer".ptr))
+		api.GetFramebufferAttachmentParameteriv = PFNGLGETFRAMEBUFFERATTACHMENTPARAMETERIVPROC(get_proc(lib, "glGetFramebufferAttachmentParameteriv".ptr))
+		api.GenerateMipmap = PFNGLGENERATEMIPMAPPROC(get_proc(lib, "glGenerateMipmap".ptr))
+		api.BlitFramebuffer = PFNGLBLITFRAMEBUFFERPROC(get_proc(lib, "glBlitFramebuffer".ptr))
+		api.RenderbufferStorageMultisample = PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC(get_proc(lib, "glRenderbufferStorageMultisample".ptr))
+		api.FramebufferTextureLayer = PFNGLFRAMEBUFFERTEXTURELAYERPROC(get_proc(lib, "glFramebufferTextureLayer".ptr))
+		api.MapBufferRange = PFNGLMAPBUFFERRANGEPROC(get_proc(lib, "glMapBufferRange".ptr))
+		api.FlushMappedBufferRange = PFNGLFLUSHMAPPEDBUFFERRANGEPROC(get_proc(lib, "glFlushMappedBufferRange".ptr))
+		api.BindVertexArray = PFNGLBINDVERTEXARRAYPROC(get_proc(lib, "glBindVertexArray".ptr))
+		api.DeleteVertexArrays = PFNGLDELETEVERTEXARRAYSPROC(get_proc(lib, "glDeleteVertexArrays".ptr))
+		api.GenVertexArrays = PFNGLGENVERTEXARRAYSPROC(get_proc(lib, "glGenVertexArrays".ptr))
+		api.IsVertexArray = PFNGLISVERTEXARRAYPROC(get_proc(lib, "glIsVertexArray".ptr))
+	}
+	
+	if version >= Version._3_1 {
+		api.DrawArraysInstanced = PFNGLDRAWARRAYSINSTANCEDPROC(get_proc(lib, "glDrawArraysInstanced".ptr))
+		api.DrawElementsInstanced = PFNGLDRAWELEMENTSINSTANCEDPROC(get_proc(lib, "glDrawElementsInstanced".ptr))
+		api.TexBuffer = PFNGLTEXBUFFERPROC(get_proc(lib, "glTexBuffer".ptr))
+		api.PrimitiveRestartIndex = PFNGLPRIMITIVERESTARTINDEXPROC(get_proc(lib, "glPrimitiveRestartIndex".ptr))
+		api.CopyBufferSubData = PFNGLCOPYBUFFERSUBDATAPROC(get_proc(lib, "glCopyBufferSubData".ptr))
+		api.GetUniformIndices = PFNGLGETUNIFORMINDICESPROC(get_proc(lib, "glGetUniformIndices".ptr))
+		api.GetActiveUniformsiv = PFNGLGETACTIVEUNIFORMSIVPROC(get_proc(lib, "glGetActiveUniformsiv".ptr))
+		api.GetActiveUniformName = PFNGLGETACTIVEUNIFORMNAMEPROC(get_proc(lib, "glGetActiveUniformName".ptr))
+		api.GetUniformBlockIndex = PFNGLGETUNIFORMBLOCKINDEXPROC(get_proc(lib, "glGetUniformBlockIndex".ptr))
+		api.GetActiveUniformBlockiv = PFNGLGETACTIVEUNIFORMBLOCKIVPROC(get_proc(lib, "glGetActiveUniformBlockiv".ptr))
+		api.GetActiveUniformBlockName = PFNGLGETACTIVEUNIFORMBLOCKNAMEPROC(get_proc(lib, "glGetActiveUniformBlockName".ptr))
+		api.UniformBlockBinding = PFNGLUNIFORMBLOCKBINDINGPROC(get_proc(lib, "glUniformBlockBinding".ptr))
+		api.BindBufferRange = PFNGLBINDBUFFERRANGEPROC(get_proc(lib, "glBindBufferRange".ptr))
+		api.BindBufferBase = PFNGLBINDBUFFERBASEPROC(get_proc(lib, "glBindBufferBase".ptr))
+		api.GetIntegeri_v = PFNGLGETINTEGERI_VPROC(get_proc(lib, "glGetIntegeri_v".ptr))
+	}
+	
+	if version >= Version._3_2 {
+		api.DrawElementsBaseVertex = PFNGLDRAWELEMENTSBASEVERTEXPROC(get_proc(lib, "glDrawElementsBaseVertex".ptr))
+		api.DrawRangeElementsBaseVertex = PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC(get_proc(lib, "glDrawRangeElementsBaseVertex".ptr))
+		api.DrawElementsInstancedBaseVertex = PFNGLDRAWELEMENTSINSTANCEDBASEVERTEXPROC(get_proc(lib, "glDrawElementsInstancedBaseVertex".ptr))
+		api.MultiDrawElementsBaseVertex = PFNGLMULTIDRAWELEMENTSBASEVERTEXPROC(get_proc(lib, "glMultiDrawElementsBaseVertex".ptr))
+		api.ProvokingVertex = PFNGLPROVOKINGVERTEXPROC(get_proc(lib, "glProvokingVertex".ptr))
+		api.FenceSync = PFNGLFENCESYNCPROC(get_proc(lib, "glFenceSync".ptr))
+		api.IsSync = PFNGLISSYNCPROC(get_proc(lib, "glIsSync".ptr))
+		api.DeleteSync = PFNGLDELETESYNCPROC(get_proc(lib, "glDeleteSync".ptr))
+		api.ClientWaitSync = PFNGLCLIENTWAITSYNCPROC(get_proc(lib, "glClientWaitSync".ptr))
+		api.WaitSync = PFNGLWAITSYNCPROC(get_proc(lib, "glWaitSync".ptr))
+		api.GetInteger64v = PFNGLGETINTEGER64VPROC(get_proc(lib, "glGetInteger64v".ptr))
+		api.GetSynciv = PFNGLGETSYNCIVPROC(get_proc(lib, "glGetSynciv".ptr))
+		api.GetInteger64i_v = PFNGLGETINTEGER64I_VPROC(get_proc(lib, "glGetInteger64i_v".ptr))
+		api.GetBufferParameteri64v = PFNGLGETBUFFERPARAMETERI64VPROC(get_proc(lib, "glGetBufferParameteri64v".ptr))
+		api.FramebufferTexture = PFNGLFRAMEBUFFERTEXTUREPROC(get_proc(lib, "glFramebufferTexture".ptr))
+		api.TexImage2DMultisample = PFNGLTEXIMAGE2DMULTISAMPLEPROC(get_proc(lib, "glTexImage2DMultisample".ptr))
+		api.TexImage3DMultisample = PFNGLTEXIMAGE3DMULTISAMPLEPROC(get_proc(lib, "glTexImage3DMultisample".ptr))
+		api.GetMultisamplefv = PFNGLGETMULTISAMPLEFVPROC(get_proc(lib, "glGetMultisamplefv".ptr))
+		api.SampleMaski = PFNGLSAMPLEMASKIPROC(get_proc(lib, "glSampleMaski".ptr))
+	}
+	
+	if version >= Version._3_3 {
+		api.BindFragDataLocationIndexed = PFNGLBINDFRAGDATALOCATIONINDEXEDPROC(get_proc(lib, "glBindFragDataLocationIndexed".ptr))
+		api.GetFragDataIndex = PFNGLGETFRAGDATAINDEXPROC(get_proc(lib, "glGetFragDataIndex".ptr))
+		api.GenSamplers = PFNGLGENSAMPLERSPROC(get_proc(lib, "glGenSamplers".ptr))
+		api.DeleteSamplers = PFNGLDELETESAMPLERSPROC(get_proc(lib, "glDeleteSamplers".ptr))
+		api.IsSampler = PFNGLISSAMPLERPROC(get_proc(lib, "glIsSampler".ptr))
+		api.BindSampler = PFNGLBINDSAMPLERPROC(get_proc(lib, "glBindSampler".ptr))
+		api.SamplerParameteri = PFNGLSAMPLERPARAMETERIPROC(get_proc(lib, "glSamplerParameteri".ptr))
+		api.SamplerParameteriv = PFNGLSAMPLERPARAMETERIVPROC(get_proc(lib, "glSamplerParameteriv".ptr))
+		api.SamplerParameterf = PFNGLSAMPLERPARAMETERFPROC(get_proc(lib, "glSamplerParameterf".ptr))
+		api.SamplerParameterfv = PFNGLSAMPLERPARAMETERFVPROC(get_proc(lib, "glSamplerParameterfv".ptr))
+		api.SamplerParameterIiv = PFNGLSAMPLERPARAMETERIIVPROC(get_proc(lib, "glSamplerParameterIiv".ptr))
+		api.SamplerParameterIuiv = PFNGLSAMPLERPARAMETERIUIVPROC(get_proc(lib, "glSamplerParameterIuiv".ptr))
+		api.GetSamplerParameteriv = PFNGLGETSAMPLERPARAMETERIVPROC(get_proc(lib, "glGetSamplerParameteriv".ptr))
+		api.GetSamplerParameterIiv = PFNGLGETSAMPLERPARAMETERIIVPROC(get_proc(lib, "glGetSamplerParameterIiv".ptr))
+		api.GetSamplerParameterfv = PFNGLGETSAMPLERPARAMETERFVPROC(get_proc(lib, "glGetSamplerParameterfv".ptr))
+		api.GetSamplerParameterIuiv = PFNGLGETSAMPLERPARAMETERIUIVPROC(get_proc(lib, "glGetSamplerParameterIuiv".ptr))
+		api.QueryCounter = PFNGLQUERYCOUNTERPROC(get_proc(lib, "glQueryCounter".ptr))
+		api.GetQueryObjecti64v = PFNGLGETQUERYOBJECTI64VPROC(get_proc(lib, "glGetQueryObjecti64v".ptr))
+		api.GetQueryObjectui64v = PFNGLGETQUERYOBJECTUI64VPROC(get_proc(lib, "glGetQueryObjectui64v".ptr))
+		api.VertexAttribDivisor = PFNGLVERTEXATTRIBDIVISORPROC(get_proc(lib, "glVertexAttribDivisor".ptr))
+		api.VertexAttribP1ui = PFNGLVERTEXATTRIBP1UIPROC(get_proc(lib, "glVertexAttribP1ui".ptr))
+		api.VertexAttribP1uiv = PFNGLVERTEXATTRIBP1UIVPROC(get_proc(lib, "glVertexAttribP1uiv".ptr))
+		api.VertexAttribP2ui = PFNGLVERTEXATTRIBP2UIPROC(get_proc(lib, "glVertexAttribP2ui".ptr))
+		api.VertexAttribP2uiv = PFNGLVERTEXATTRIBP2UIVPROC(get_proc(lib, "glVertexAttribP2uiv".ptr))
+		api.VertexAttribP3ui = PFNGLVERTEXATTRIBP3UIPROC(get_proc(lib, "glVertexAttribP3ui".ptr))
+		api.VertexAttribP3uiv = PFNGLVERTEXATTRIBP3UIVPROC(get_proc(lib, "glVertexAttribP3uiv".ptr))
+		api.VertexAttribP4ui = PFNGLVERTEXATTRIBP4UIPROC(get_proc(lib, "glVertexAttribP4ui".ptr))
+		api.VertexAttribP4uiv = PFNGLVERTEXATTRIBP4UIVPROC(get_proc(lib, "glVertexAttribP4uiv".ptr))
+		api.VertexP2ui = PFNGLVERTEXP2UIPROC(get_proc(lib, "glVertexP2ui".ptr))
+		api.VertexP2uiv = PFNGLVERTEXP2UIVPROC(get_proc(lib, "glVertexP2uiv".ptr))
+		api.VertexP3ui = PFNGLVERTEXP3UIPROC(get_proc(lib, "glVertexP3ui".ptr))
+		api.VertexP3uiv = PFNGLVERTEXP3UIVPROC(get_proc(lib, "glVertexP3uiv".ptr))
+		api.VertexP4ui = PFNGLVERTEXP4UIPROC(get_proc(lib, "glVertexP4ui".ptr))
+		api.VertexP4uiv = PFNGLVERTEXP4UIVPROC(get_proc(lib, "glVertexP4uiv".ptr))
+		api.TexCoordP1ui = PFNGLTEXCOORDP1UIPROC(get_proc(lib, "glTexCoordP1ui".ptr))
+		api.TexCoordP1uiv = PFNGLTEXCOORDP1UIVPROC(get_proc(lib, "glTexCoordP1uiv".ptr))
+		api.TexCoordP2ui = PFNGLTEXCOORDP2UIPROC(get_proc(lib, "glTexCoordP2ui".ptr))
+		api.TexCoordP2uiv = PFNGLTEXCOORDP2UIVPROC(get_proc(lib, "glTexCoordP2uiv".ptr))
+		api.TexCoordP3ui = PFNGLTEXCOORDP3UIPROC(get_proc(lib, "glTexCoordP3ui".ptr))
+		api.TexCoordP3uiv = PFNGLTEXCOORDP3UIVPROC(get_proc(lib, "glTexCoordP3uiv".ptr))
+		api.TexCoordP4ui = PFNGLTEXCOORDP4UIPROC(get_proc(lib, "glTexCoordP4ui".ptr))
+		api.TexCoordP4uiv = PFNGLTEXCOORDP4UIVPROC(get_proc(lib, "glTexCoordP4uiv".ptr))
+		api.MultiTexCoordP1ui = PFNGLMULTITEXCOORDP1UIPROC(get_proc(lib, "glMultiTexCoordP1ui".ptr))
+		api.MultiTexCoordP1uiv = PFNGLMULTITEXCOORDP1UIVPROC(get_proc(lib, "glMultiTexCoordP1uiv".ptr))
+		api.MultiTexCoordP2ui = PFNGLMULTITEXCOORDP2UIPROC(get_proc(lib, "glMultiTexCoordP2ui".ptr))
+		api.MultiTexCoordP2uiv = PFNGLMULTITEXCOORDP2UIVPROC(get_proc(lib, "glMultiTexCoordP2uiv".ptr))
+		api.MultiTexCoordP3ui = PFNGLMULTITEXCOORDP3UIPROC(get_proc(lib, "glMultiTexCoordP3ui".ptr))
+		api.MultiTexCoordP3uiv = PFNGLMULTITEXCOORDP3UIVPROC(get_proc(lib, "glMultiTexCoordP3uiv".ptr))
+		api.MultiTexCoordP4ui = PFNGLMULTITEXCOORDP4UIPROC(get_proc(lib, "glMultiTexCoordP4ui".ptr))
+		api.MultiTexCoordP4uiv = PFNGLMULTITEXCOORDP4UIVPROC(get_proc(lib, "glMultiTexCoordP4uiv".ptr))
+		api.NormalP3ui = PFNGLNORMALP3UIPROC(get_proc(lib, "glNormalP3ui".ptr))
+		api.NormalP3uiv = PFNGLNORMALP3UIVPROC(get_proc(lib, "glNormalP3uiv".ptr))
+		api.ColorP3ui = PFNGLCOLORP3UIPROC(get_proc(lib, "glColorP3ui".ptr))
+		api.ColorP3uiv = PFNGLCOLORP3UIVPROC(get_proc(lib, "glColorP3uiv".ptr))
+		api.ColorP4ui = PFNGLCOLORP4UIPROC(get_proc(lib, "glColorP4ui".ptr))
+		api.ColorP4uiv = PFNGLCOLORP4UIVPROC(get_proc(lib, "glColorP4uiv".ptr))
+		api.SecondaryColorP3ui = PFNGLSECONDARYCOLORP3UIPROC(get_proc(lib, "glSecondaryColorP3ui".ptr))
+		api.SecondaryColorP3uiv = PFNGLSECONDARYCOLORP3UIVPROC(get_proc(lib, "glSecondaryColorP3uiv".ptr))
+	}
+	
+	FreeLibrary(lib)
+}
+
+#COLOR_BUFFER_BIT: u32(0x00004000)
+
+
+#HMODULE: ^raw
+
+#Kernel32: extern{}
+#LoadLibraryA: @Kernel32 proc(lpLibFileName: ^u8) => HMODULE
+#FreeLibrary: @Kernel32 proc(hLibModule: HMODULE) => s32
+#GetProcAddress: @Kernel32 proc(hModule: HMODULE, lpProcName: ^u8) => ^raw
+
+#Opengl32: extern{}
+$link_system_library{"Opengl32.lib"}
+
+#wglGetProcAddress: @Opengl32 proc(rc: ^u8) => ^raw

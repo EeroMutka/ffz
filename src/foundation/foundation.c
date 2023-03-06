@@ -2565,7 +2565,7 @@ fAllocator* f_temp_push() {
 	if (_f_temp_arena == NULL) {
 		F_ASSERT(_f_temp_arena_scope_counter == 0);
 		// Allocate temp arena at a deterministic memory address
-		_f_temp_arena = f_arena_make_virtual_reserve_fixed(F_GIB(1), (void*)F_TIB(2));
+		_f_temp_arena = f_arena_make_virtual_reserve_fixed(F_GIB(16), (void*)F_TIB(2));
 	}
 	
 	_f_temp_arena_scope_counter += 1;

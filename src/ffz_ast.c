@@ -532,7 +532,11 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 				loc->column_num += 1;
 				for (;;) {
 					Token _tok = maybe_eat_next_token(p, loc, (ParseFlags)0);
-					if (_tok.small == '\n' || !_tok.small) break;
+					if (_tok.small == '\n' || !_tok.small) {
+						// we don't want to skip the newline, because sometimes newlines are significant
+						*loc = _tok.start;
+						break;
+					}
 				}
 				tok_start = *loc;
 				prev_type = CharType_Whitespace;
