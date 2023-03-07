@@ -94,6 +94,12 @@ gmmcType get_gmmc_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_Proc: // fallthrough
 	case ffzTypeTag_Pointer: return gmmcType_ptr;
 
+	case ffzTypeTag_Float: {
+		if (type->size == 4) return gmmcType_f32;
+		else if (type->size == 8) return gmmcType_f64;
+		else F_BP;
+	} break;
+
 	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_Sint: // fallthrough
 	case ffzTypeTag_DefaultSint: // fallthrough
@@ -292,6 +298,7 @@ static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
 
 static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstant* constant) {
 	switch (type->tag) {
+	case ffzTypeTag_Float: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
 	case ffzTypeTag_Sint: // fallthrough
 	case ffzTypeTag_DefaultSint: // fallthrough

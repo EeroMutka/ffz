@@ -834,13 +834,14 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 
 			ffzCheckedExpr chk;
 			ffzNodeInst first = ffz_get_child_inst(inst, 0);
-			TRY(check_node(c, first, NULL, InferFlag_RequireConstant, &chk));
-			if (chk.type->tag != ffzTypeTag_Type) {
-				ERR(c, inst.node, "Expected a type to %s, but got a value.", ffz_keyword_to_cstring(keyword));
-			}
+			TRY(check_node(c, first, NULL, 0, &chk));
+			ffzType* type = ffz_ground_type(chk);
+			//if (chk.type->tag != ffzTypeTag_Type) {
+			//	ERR(c, inst.node, "Expected a type to %s, but got a value.", ffz_keyword_to_cstring(keyword));
+			//}
 
 			result->type = ffz_builtin_type(c, ffzKeyword_uint);
-			result->const_val = make_constant_int(c, keyword == ffzKeyword_align_of ? chk.const_val->type->align : chk.const_val->type->size);
+			result->const_val = make_constant_int(c, keyword == ffzKeyword_align_of ? type->align : type->size);
 			fall = false;
 		}
 		else if (keyword == ffzKeyword_import) {
@@ -980,13 +981,15 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 		bool all_fields_are_constant = true;
 		fArray(ffzConstant) field_constants = f_array_make<ffzConstant>(c->alc);
 
+		u32 i = 0;
 		for FFZ_EACH_CHILD_INST(arg, inst) {
-			ffzType* member_type = result->type->record_fields[field_constants.len].type;
+			ffzType* member_type = result->type->record_fields[i].type;
 			ffzCheckedExpr chk;
 			TRY(check_node(c, arg, member_type, 0, &chk));
 
 			if (chk.const_val) f_array_push(&field_constants, *chk.const_val);
 			else all_fields_are_constant = false;
+			i++;
 		}
 
 		if (all_fields_are_constant) {
@@ -1768,8 +1771,8 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		ffzCheckedExpr right_chk;
 		TRY(check_node(c, CHILD(inst, Op.right), require_type, flags, &right_chk));
 		
-		if (!ffz_type_is_integer(right_chk.type->tag)) {
-			ERR(c, inst.node->Op.right, "Incorrect arithmetic type; should be an integer.\n    received: %s",
+		if (!ffz_type_is_integer(right_chk.type->tag) && !ffz_type_is_float(right_chk.type->tag)) {
+			ERR(c, inst.node->Op.right, "Incorrect arithmetic type; should be an integer or a float.\n    received: %s",
 				ffz_type_to_cstring(c->project, right_chk.type));
 		}
 		result.type = right_chk.type;

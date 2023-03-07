@@ -1,10 +1,12 @@
-#WindowHandle: import(":Window/WindowHandle")
-#Window: WindowHandle.Window
+// For an example on how to use this module, see examples/gl_triangle
 
-// Useful resources:
+// Useful internal resources:
 // https://github.com/Eversmile12/OpenGLNative
 
 // https://www.khronos.org/opengl/wiki/Creating_an_Open_Context_(WGL)
+
+#WindowHandle: import(":Window/WindowHandle")
+#Window: WindowHandle.Window
 
 #Version: enum, u32 {
 	_1_0: 0

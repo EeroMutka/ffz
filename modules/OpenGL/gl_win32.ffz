@@ -91,13 +91,10 @@
 	dwDamageMask: u32
 }
 
-#COLOR_BUFFER_BIT: u32(0x00004000)
-
 #HDC: ^raw
 #HGLRC: ^raw
 #HMODULE: ^raw
 #HWND: ^raw
-
 
 #WGL_CONTEXT_MAJOR_VERSION_ARB:           s32(0x2091)
 #WGL_CONTEXT_MINOR_VERSION_ARB:           s32(0x2092)
