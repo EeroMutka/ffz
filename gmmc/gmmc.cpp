@@ -168,7 +168,7 @@ GMMC_API gmmcReg gmmc_op_member_access(gmmcBasicBlock* bb, gmmcReg base, uint32_
 
 	gmmcOp op = { gmmcOpKind_member_access };
 	op.operands[0] = base;
-	op.imm = offset;
+	op.imm_raw = offset;
 	op.result = make_reg(bb->proc, gmmcType_ptr);
 	f_array_push(&bb->ops, op);
 	return op.result;
@@ -181,7 +181,7 @@ GMMC_API gmmcReg gmmc_op_array_access(gmmcBasicBlock* bb, gmmcReg base, gmmcReg 
 	gmmcOp op = { gmmcOpKind_array_access };
 	op.operands[0] = base;
 	op.operands[1] = index;
-	op.imm = stride;
+	op.imm_raw = stride;
 	op.result = make_reg(bb->proc, gmmcType_ptr);
 	f_array_push(&bb->ops, op);
 	return op.result;
@@ -255,21 +255,39 @@ GMMC_API gmmcReg gmmc_op_param(gmmcProc* proc, uint32_t index) {
 	return proc->params[index];
 }
 
-gmmcReg gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, u64 value) {
+static u32 gmmc_type_size(gmmcType type) {
+	switch (type) {
+	case gmmcType_None: return 0;
+	case gmmcType_bool: return 1;
+	case gmmcType_ptr: return 8;
+	case gmmcType_i8: return 1;
+	case gmmcType_i16: return 2;
+	case gmmcType_i32: return 4;
+	case gmmcType_i64: return 8;
+	case gmmcType_i128: return 16;
+	case gmmcType_f32: return 4;
+	case gmmcType_f64: return 8;
+	default: F_BP;
+	}
+	return 0;
+}
+
+gmmcReg gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, void* data) {
 	gmmcOpKind op_kind = (gmmcOpKind)(gmmcOpKind_bool + (type - gmmcType_bool));
 	gmmcOp op = { op_kind };
-	op.imm = value;
+	memcpy(&op.imm_raw, data, gmmc_type_size(type));
 	op.result = make_reg(bb->proc, type);
 	f_array_push(&bb->ops, op);
 	return op.result;
 }
 
-GMMC_API gmmcReg gmmc_op_bool(gmmcBasicBlock* bb, bool value) { return gmmc_op_immediate(bb, gmmcType_bool, (u64)value); }
-GMMC_API gmmcReg gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value) { return gmmc_op_immediate(bb, gmmcType_i8, (u64)value); }
-GMMC_API gmmcReg gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value) { return gmmc_op_immediate(bb, gmmcType_i16, (u64)value); }
-GMMC_API gmmcReg gmmc_op_i32(gmmcBasicBlock* bb, uint32_t value) { return gmmc_op_immediate(bb, gmmcType_i32, (u64)value); }
-GMMC_API gmmcReg gmmc_op_i64(gmmcBasicBlock* bb, uint64_t value) { return gmmc_op_immediate(bb, gmmcType_i64, (u64)value); }
-
+GMMC_API gmmcReg gmmc_op_bool(gmmcBasicBlock* bb, bool value) { return gmmc_op_immediate(bb, gmmcType_bool, &value); }
+GMMC_API gmmcReg gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value) { return gmmc_op_immediate(bb, gmmcType_i8, &value); }
+GMMC_API gmmcReg gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value) { return gmmc_op_immediate(bb, gmmcType_i16, &value); }
+GMMC_API gmmcReg gmmc_op_i32(gmmcBasicBlock* bb, uint32_t value) { return gmmc_op_immediate(bb, gmmcType_i32, &value); }
+GMMC_API gmmcReg gmmc_op_i64(gmmcBasicBlock* bb, uint64_t value) { return gmmc_op_immediate(bb, gmmcType_i64, &value); }
+GMMC_API gmmcReg gmmc_op_f32(gmmcBasicBlock* bb, float value) { return gmmc_op_immediate(bb, gmmcType_f32, &value); }
+GMMC_API gmmcReg gmmc_op_f64(gmmcBasicBlock* bb, double value) { return gmmc_op_immediate(bb, gmmcType_f64, &value); }
 
 static gmmcReg op_basic_2(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcReg a, gmmcReg b, bool is_signed) {
 	gmmcType type = reg_get_type(bb->proc, a);
@@ -424,6 +442,8 @@ static fString gmmc_type_get_string(gmmcType type) {
 	case gmmcType_i32: return F_LIT("i32");
 	case gmmcType_i64: return F_LIT("i64");
 	case gmmcType_i128: return F_LIT("i128");
+	case gmmcType_f32: return F_LIT("f32");
+	case gmmcType_f64: return F_LIT("f64");
 	default: F_BP;
 	}
 	return {};
@@ -431,20 +451,6 @@ static fString gmmc_type_get_string(gmmcType type) {
 
 static char* gmmc_type_get_cstr(gmmcType type) { return (char*)gmmc_type_get_string(type).data; }
 
-static u32 gmmc_type_get_size(gmmcType type) {
-	switch (type) {
-	case gmmcType_None: return 0;
-	case gmmcType_bool: return 1;
-	case gmmcType_ptr: return 8;
-	case gmmcType_i8: return 1;
-	case gmmcType_i16: return 2;
-	case gmmcType_i32: return 4;
-	case gmmcType_i64: return 8;
-	case gmmcType_i128: return 16;
-	default: F_BP;
-	}
-	return 0;
-}
 
 GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 	gmmcModule* m = f_mem_clone(gmmcModule{}, allocator);
@@ -459,7 +465,7 @@ GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 }
 
 static u32 operand_bits(gmmcBasicBlock* bb, gmmcOp* op) {
-	return 8 * gmmc_type_get_size(reg_get_type(bb->proc, op->operands[0]));
+	return 8 * gmmc_type_size(reg_get_type(bb->proc, op->operands[0]));
 }
 
 void print_bb(FILE* f, gmmcBasicBlock* bb, fAllocator* alc) {
@@ -473,15 +479,27 @@ void print_bb(FILE* f, gmmcBasicBlock* bb, fAllocator* alc) {
 		
 		//f_str_printf(pr, "
 		//gmmcOpKind_to_string[op->kind].data
-		u32 result_bits = 8 * gmmc_type_get_size(reg_get_type(bb->proc, op->result));
+		u32 result_bits = 8 * gmmc_type_size(reg_get_type(bb->proc, op->result));
 		const char* sign_postfix = op->is_signed ? "signed" : "unsigned";
 
 		switch (op->kind) {
-		case gmmcOpKind_bool: { fprintf(f, "_$%u = %s;\n", op->result, op->imm ? "1" : "0"); } break;
-		case gmmcOpKind_i8: { fprintf(f, "_$%u = %hhu;\n", op->result, (u8)op->imm); } break;
-		case gmmcOpKind_i16: { fprintf(f, "_$%u = %hu;\n", op->result, (u16)op->imm); } break;
-		case gmmcOpKind_i32: { fprintf(f, "_$%u = %u;\n", op->result, (u32)op->imm); } break;
-		case gmmcOpKind_i64: { fprintf(f, "_$%u = %llu;\n", op->result, (u64)op->imm); } break;
+		case gmmcOpKind_bool: { fprintf(f, "_$%u = %s;\n", op->result, op->imm_raw ? "1" : "0"); } break;
+		case gmmcOpKind_i8: { fprintf(f, "_$%u = %hhu;\n", op->result, (u8)op->imm_raw); } break;
+		case gmmcOpKind_i16: { fprintf(f, "_$%u = %hu;\n", op->result, (u16)op->imm_raw); } break;
+		case gmmcOpKind_i32: { fprintf(f, "_$%u = %u;\n", op->result, (u32)op->imm_raw); } break;
+		case gmmcOpKind_i64: { fprintf(f, "_$%u = %llu;\n", op->result, (u64)op->imm_raw); } break;
+		
+		case gmmcOpKind_f32: {
+			f32 value;
+			memcpy(&value, &op->imm_raw, 4);
+			fprintf(f, "_$%u = %ff;\n", op->result, (f64)value);
+		} break;
+
+		case gmmcOpKind_f64: {
+			f64 value;
+			memcpy(&value, &op->imm_raw, 8);
+			fprintf(f, "_$%u = %f;\n", op->result, value);
+		} break;
 		
 		case gmmcOpKind_int2ptr: { fprintf(f, "_$%u = (void*)_$%u;\n", op->result, op->operands[0]); } break;
 		case gmmcOpKind_ptr2int: {
@@ -567,11 +585,11 @@ void print_bb(FILE* f, gmmcBasicBlock* bb, fAllocator* alc) {
 		} break;
 
 		case gmmcOpKind_member_access: {
-			fprintf(f, "_$%u = $member_access(_$%u, %u);\n", op->result, op->operands[0], (u32)op->imm);
+			fprintf(f, "_$%u = $member_access(_$%u, %u);\n", op->result, op->operands[0], (u32)op->imm_raw);
 		} break;
 
 		case gmmcOpKind_array_access: {
-			fprintf(f, "_$%u = $array_access(_$%u, _$%u, %u);\n", op->result, op->operands[0], op->operands[1], (u32)op->imm);
+			fprintf(f, "_$%u = $array_access(_$%u, _$%u, %u);\n", op->result, op->operands[0], op->operands[1], (u32)op->imm_raw);
 		} break;
 
 		case gmmcOpKind_memmove: {
@@ -756,10 +774,12 @@ typedef unsigned char       i8;
 typedef unsigned short     i16;
 typedef unsigned int       i32;
 typedef unsigned long long i64;
-typedef char                $s8;
-typedef short              $s16;
-typedef int                $s32;
-typedef long long          $s64;
+typedef float              f32;
+typedef double             f64;
+typedef char               $s8;
+typedef short             $s16;
+typedef int               $s32;
+typedef long long         $s64;
 
 #define $debugbreak() do {__debugbreak();} while(0)
 #define $store(T, ptr, value) *(T*)ptr = value

@@ -73,12 +73,15 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_goto,
 	gmmcOpKind_if,
 	
-	// immediates
+	// immediates. NOTE: the order must match the order in gmmcType!!! see :gmmc_op_immediate
 	gmmcOpKind_bool,
 	gmmcOpKind_i8,
 	gmmcOpKind_i16,
 	gmmcOpKind_i32,
 	gmmcOpKind_i64,
+	gmmcOpKind_i128,
+	gmmcOpKind_f32,
+	gmmcOpKind_f64,
 	
 	gmmcOpKind_add,
 	gmmcOpKind_sub,
@@ -137,7 +140,7 @@ typedef struct gmmcOp {
 		fString comment;
 		gmmcSymbol* symbol;
 	};
-	u64 imm;
+	u64 imm_raw;
 } gmmcOp;
 
 typedef enum {
@@ -151,9 +154,14 @@ typedef enum {
 	gmmcType_i32 = 5,
 	gmmcType_i64 = 6,
 	gmmcType_i128 = 7,
+
+	// float types
+	gmmcType_f32 = 8,
+	gmmcType_f64 = 9,
 } gmmcType;
 
 inline bool gmmc_type_is_integer(gmmcType t) { return t >= gmmcType_i8 && t <= gmmcType_i128; }
+inline bool gmmc_type_is_float(gmmcType t) { return t >= gmmcType_f32 && t <= gmmcType_f64; }
 
 typedef enum {
 	gmmcSection_Invalid = 0,
@@ -253,7 +261,9 @@ GMMC_API gmmcReg gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value);
 GMMC_API gmmcReg gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value);
 GMMC_API gmmcReg gmmc_op_i32(gmmcBasicBlock* bb, uint32_t value);
 GMMC_API gmmcReg gmmc_op_i64(gmmcBasicBlock* bb, uint64_t value);
-GMMC_API gmmcReg gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, uint64_t value);
+GMMC_API gmmcReg gmmc_op_f32(gmmcBasicBlock* bb, float value);
+GMMC_API gmmcReg gmmc_op_f64(gmmcBasicBlock* bb, double value);
+GMMC_API gmmcReg gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, void* data);
 
 // -- Arithmetic --------------------------------
 // Arithmetic ops work on any integer and float type, where both inputs must have the same type.

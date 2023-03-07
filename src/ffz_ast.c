@@ -35,7 +35,7 @@ typedef struct Token {
 	X("", "identifier")\
 	X("", "polymorphic-parameter")\
 	X("", "keyword")\
-	X("", "dot")\
+	X("", "this-value-dot")\
 	X("", "proc-type")\
 	X("", "struct")\
 	X("", "enum")\
@@ -103,6 +103,8 @@ const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("s16"),
 	F_LIT_COMP("s32"),
 	F_LIT_COMP("s64"),
+	F_LIT_COMP("f32"),
+	F_LIT_COMP("f64"),
 	F_LIT_COMP("int"),
 	F_LIT_COMP("uint"),
 	F_LIT_COMP("bool"),
@@ -373,6 +375,10 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 		f_str_print(builder, f_str_from_uint(F_AS_BYTES(node->IntLiteral.value), temp));
 	} break;
 
+	case ffzNodeKind_FloatLiteral: {
+		f_str_printf(builder, "%f", node->FloatLiteral.value);
+	} break;
+
 	case ffzNodeKind_StringLiteral: {
 		// TODO: print escaped strings
 		f_str_print(builder, F_LIT("\""));
@@ -414,7 +420,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_Blank: { f_str_print(builder, F_LIT("_")); } break;
-	case ffzNodeKind_Dot: { f_str_print(builder, F_LIT(".")); } break;
+	case ffzNodeKind_ThisValueDot: { f_str_print(builder, F_LIT(".")); } break;
 
 	case ffzNodeKind_PolyParamList: {
 		f_str_print(builder, F_LIT("["));
@@ -479,6 +485,8 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 	} CharType;
 
 	CharType prev_type = CharType_Whitespace;
+	bool tok_starts_with_digit = false;
+
 	s32 prev_r;
 
 	ffzLoc tok_start = *loc;
@@ -491,8 +499,12 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 		if (!r) break;
 
 		CharType type = CharType_Symbol;
-		if ((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '\\' || r > 127) {
+		if ((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || r > 127) {
 			type = CharType_Alphanumeric;
+		}
+		else if (r >= '0' && r <= '9') {
+			type = CharType_Alphanumeric;
+			if (prev_type == CharType_Whitespace) tok_starts_with_digit = true;
 		}
 		else if (IS_WHITESPACE(r)) {
 			type = CharType_Whitespace;
@@ -500,6 +512,22 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 		else if (r == '\n' && (flags & ParseFlag_SkipNewlines)) {
 			type = CharType_Whitespace;
 		}
+		else if (r == '.') {
+			// For parsing floats, make '.' part of the token if the token starts with a digit,
+			// or the character immediately after the '.' is a digit.
+			uint peek_next = next;
+			rune peek_next_r = f_str_next_rune(p->source_code, &peek_next);
+			if (tok_starts_with_digit || (peek_next_r >= '0' && peek_next_r <= '9')) {
+				type = CharType_Alphanumeric;
+			}
+		}
+
+		//else if (r == '.' && tok_is_numeric) {
+		//	// For parsing floats, classify '.' as alphanumeric if this token is a numeric literal.
+		//	// Note that we disallow implicit zero in the front, i.e. `.12590`, because that would become tricky:
+		//	// how would you tokenize `if x == ._123_456`? It could be an implicit enum value, or a float literal with an underscore.
+		//	type = CharType_Alphanumeric;
+		//}
 		
 		if (prev_type != CharType_Whitespace && type != prev_type) break;
 
@@ -927,136 +955,6 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 		if (!prev && tok.str.len == 0) {
 			ERR(p, parent->loc, "File ended unexpectedly when parsing child-list.", "");
 		}
-		
-		if ((tok.small & 0xff) >= '0' && (tok.small & 0xff) <= '9') {
-			u8 base = 10;
-			const char* base_name = "numeric";
-			if ((tok.small & 0xffff) == 'x0') { // :NoteAboutSeqLiterals
-				base = 16;
-				base_name = "hex";
-				f_str_advance(&tok.str, 2);
-			}
-			else if ((tok.small & 0xffff) == 'b0') { // :NoteAboutSeqLiterals
-				base = 2;
-				base_name = "binary";
-				f_str_advance(&tok.str, 2);
-			}
-
-			u64 numeric;
-			if (!f_str_to_u64(tok.str, base, &numeric)) {
-				ERR(p, tok.range, "Invalid %s literal.", base_name);
-			}
-
-			node = new_node(p, parent, tok.range, ffzNodeKind_IntLiteral);
-			node->IntLiteral.value = numeric;
-			node->IntLiteral.was_encoded_in_base = base;
-		}
-		else if (f_str_equals(tok.str, F_LIT("if"))) {
-			// TOOD: I think we should make if, for, etc keywords and call parse_if, parse_for, etc from the keyword codepath
-			node = new_node(p, parent, tok.range, ffzNodeKind_If);
-			TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->If.condition));
-			TRY(parse_node(p, loc, node, 0, &node->If.true_scope));
-
-			ffzLoc new_loc = *loc;
-			tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);
-			if (f_str_equals(tok.str, F_LIT("else"))) {
-				*loc = new_loc;
-				TRY(parse_node(p, loc, node, 0, &node->If.else_scope));
-			}
-		}
-		else if (f_str_equals(tok.str, F_LIT("for"))) {
-			node = new_node(p, parent, tok.range, ffzNodeKind_For);
-			for (uint i = 0; i < 3; i++) {				
-				if (i > 0) {
-					ffzLoc new_loc = *loc;
-					tok = maybe_eat_next_token(p, &new_loc, 0);
-					if (tok.small == '{') break;
-					if (tok.small != ',') ERR(p, tok.range, "Invalid for-loop; expected ',' or '{'", "");
-					*loc = new_loc;
-				}
-			
-				ffzLoc new_loc = *loc;
-				tok = maybe_eat_next_token(p, &new_loc, 0);
-				if (tok.small == '{') break;
-				if (tok.small == ',') continue;
-
-				ffzNode* stmt;
-				TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &stmt));
-				node->For.header_stmts[i] = stmt;
-			}
-			
-			TRY(parse_node(p, loc, node, 0, &node->For.scope));
-		}
-		else if (f_str_equals(tok.str, F_LIT("ret"))) {
-			node = new_node(p, parent, tok.range, ffzNodeKind_Return);
-
-			ffzLoc new_loc = *loc;
-			tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0); // With return statements, newlines do matter!
-			if (tok.small == '\n') {
-				*loc = new_loc;
-			}
-			else {
-				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->Return.value));
-			}
-		}
-		else if (tok.small == '.') {
-			ffzLoc new_loc = *loc;
-			Token next = maybe_eat_next_token(p, &new_loc, 0);
-			if (next.str.len == 0 || !is_identifier_char(f_str_decode_rune(next.str))) {
-				node = new_node(p, parent, tok.range, ffzNodeKind_Dot);
-			}
-			// otherwise it must be unary enum member access, which we don't currently support
-		}
-		else if (f_str_equals(tok.str, F_LIT("proc"))) {
-			TRY(parse_proc_type(p, loc, parent, tok.range, &node));
-		}
-		else if (f_str_equals(tok.str, F_LIT("enum"))) {
-			TRY(parse_enum(p, loc, parent, tok.range, &node));
-		}
-		else if (f_str_equals(tok.str, F_LIT("struct"))) {
-			TRY(parse_struct(p, loc, parent, tok.range, false, &node));
-		}
-		else if (f_str_equals(tok.str, F_LIT("union"))) {
-			TRY(parse_struct(p, loc, parent, tok.range, true, &node));
-		}
-		else if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?') {
-			ffzKeyword* keyword = f_map64_get_raw(p->keyword_from_string, f_hash64_str(tok.str));
-			if (keyword) {
-				node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
-				node->Keyword.keyword = *keyword;
-
-				if (*keyword == ffzKeyword_import) {
-					f_array_push(ffzNodeKeyword*, &p->module_imports, node);
-				}
-			}
-			else {
-				// identifier!
-				node = new_node(p, parent, tok.range, ffzNodeKind_Identifier);
-				if (tok.small == '#') {
-					node->Identifier.is_constant = true;
-					TRY(eat_next_token(p, loc, 0, "parsing an identifier", &tok));
-
-					if (!is_identifier_char(f_str_decode_rune(tok.str))) {
-						ERR(p, tok.range, "Invalid character for constant identifier.", "");
-					}
-				}
-				node->Identifier.name = tok.str;
-			}
-		}
-		else if (tok.small == '\'') {
-			node = new_node(p, parent, tok.range, ffzNodeKind_IntLiteral);
-			TRY(eat_next_token(p, loc, 0, "parsing a character literal", &tok));
-			TRY(eat_expected_token(p, loc, F_LIT("'")));
-
-			if (tok.small > 127) ERR(p, tok.range, "TODO: better support for character literals", "");
-			node->IntLiteral.value = tok.small;
-			node->loc.end = *loc;
-		}
-		else if (tok.small == '\"') {
-			node = new_node(p, parent, tok.range, ffzNodeKind_StringLiteral);
-			TRY(parse_string_literal(p, loc, &node->StringLiteral.zero_terminated_string));
-			node->loc.end = *loc;
-		}
 
 		bool is_prefix_or_postfix = false;
 
@@ -1113,7 +1011,16 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			} break;
 			case ':': { op_kind = ffzNodeKind_Declare; } break;
 			case '=': { op_kind = ffzNodeKind_Assign; } break;
-			case '.': { op_kind = ffzNodeKind_MemberAccess; } break;
+			case '.': {
+				ffzLoc new_loc = *loc;
+				Token next = maybe_eat_next_token(p, &new_loc, 0);
+				if (next.str.len == 0 || !is_identifier_char(f_str_decode_rune(next.str))) {
+					node = new_node(p, parent, tok.range, ffzNodeKind_ThisValueDot);
+				}
+				else {
+					op_kind = ffzNodeKind_MemberAccess;
+				}
+			} break;
 			case '&&': { op_kind = ffzNodeKind_LogicalAND; } break; // :NoteAboutSeqLiterals
 			case '||': { op_kind = ffzNodeKind_LogicalOR; } break; // :NoteAboutSeqLiterals
 			case '*': { op_kind = ffzNodeKind_Mul; } break;
@@ -1150,6 +1057,144 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 		if (!op_kind && check_infix_or_postfix) { // no more postfix / infix operator. Terminate the chain
 			*loc = loc_before;
 			break;
+		}
+		
+		//if (f_str_equals(tok.str, F_LIT(".55202"))) F_BP;
+
+		if (!node) {
+			if (f_str_equals(tok.str, F_LIT("if"))) {
+				// TOOD: I think we should make if, for, etc keywords and call parse_if, parse_for, etc from the keyword codepath
+				node = new_node(p, parent, tok.range, ffzNodeKind_If);
+				TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->If.condition));
+				TRY(parse_node(p, loc, node, 0, &node->If.true_scope));
+
+				ffzLoc new_loc = *loc;
+				tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);
+				if (f_str_equals(tok.str, F_LIT("else"))) {
+					*loc = new_loc;
+					TRY(parse_node(p, loc, node, 0, &node->If.else_scope));
+				}
+			}
+			else if (f_str_equals(tok.str, F_LIT("for"))) {
+				node = new_node(p, parent, tok.range, ffzNodeKind_For);
+				for (uint i = 0; i < 3; i++) {
+					if (i > 0) {
+						ffzLoc new_loc = *loc;
+						tok = maybe_eat_next_token(p, &new_loc, 0);
+						if (tok.small == '{') break;
+						if (tok.small != ',') ERR(p, tok.range, "Invalid for-loop; expected ',' or '{'", "");
+						*loc = new_loc;
+					}
+
+					ffzLoc new_loc = *loc;
+					tok = maybe_eat_next_token(p, &new_loc, 0);
+					if (tok.small == '{') break;
+					if (tok.small == ',') continue;
+
+					ffzNode* stmt;
+					TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &stmt));
+					node->For.header_stmts[i] = stmt;
+				}
+
+				TRY(parse_node(p, loc, node, 0, &node->For.scope));
+			}
+			else if (f_str_equals(tok.str, F_LIT("ret"))) {
+				node = new_node(p, parent, tok.range, ffzNodeKind_Return);
+
+				ffzLoc new_loc = *loc;
+				tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0); // With return statements, newlines do matter!
+				if (tok.small == '\n') {
+					*loc = new_loc;
+				}
+				else {
+					TRY(parse_node(p, loc, node, (ParseFlags)0, &node->Return.value));
+				}
+			}
+			else if (f_str_equals(tok.str, F_LIT("proc"))) {
+				TRY(parse_proc_type(p, loc, parent, tok.range, &node));
+			}
+			else if (f_str_equals(tok.str, F_LIT("enum"))) {
+				TRY(parse_enum(p, loc, parent, tok.range, &node));
+			}
+			else if (f_str_equals(tok.str, F_LIT("struct"))) {
+				TRY(parse_struct(p, loc, parent, tok.range, false, &node));
+			}
+			else if (f_str_equals(tok.str, F_LIT("union"))) {
+				TRY(parse_struct(p, loc, parent, tok.range, true, &node));
+			}
+			else if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?') {
+				ffzKeyword* keyword = f_map64_get_raw(p->keyword_from_string, f_hash64_str(tok.str));
+				if (keyword) {
+					node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
+					node->Keyword.keyword = *keyword;
+
+					if (*keyword == ffzKeyword_import) {
+						f_array_push(ffzNodeKeyword*, &p->module_imports, node);
+					}
+				}
+				else {
+					// identifier!
+					node = new_node(p, parent, tok.range, ffzNodeKind_Identifier);
+					if (tok.small == '#') {
+						node->Identifier.is_constant = true;
+						TRY(eat_next_token(p, loc, 0, "parsing an identifier", &tok));
+
+						if (!is_identifier_char(f_str_decode_rune(tok.str))) {
+							ERR(p, tok.range, "Invalid character for constant identifier.", "");
+						}
+					}
+					node->Identifier.name = tok.str;
+				}
+			}
+			else if (tok.small == '\'') {
+				node = new_node(p, parent, tok.range, ffzNodeKind_IntLiteral);
+				TRY(eat_next_token(p, loc, 0, "parsing a character literal", &tok));
+				TRY(eat_expected_token(p, loc, F_LIT("'")));
+
+				if (tok.small > 127) ERR(p, tok.range, "TODO: better support for character literals", "");
+				node->IntLiteral.value = tok.small;
+				node->loc.end = *loc;
+			}
+			else if (tok.small == '\"') {
+				node = new_node(p, parent, tok.range, ffzNodeKind_StringLiteral);
+				TRY(parse_string_literal(p, loc, &node->StringLiteral.zero_terminated_string));
+				node->loc.end = *loc;
+			}
+		}
+
+		if (!node) {
+			if (f_str_contains(tok.str, F_LIT("."))) { // float
+				f64 value;
+				if (!f_str_to_f64(tok.str, &value)) {
+					ERR(p, tok.range, "Invalid float literal.", "");
+				}
+				node = new_node(p, parent, tok.range, ffzNodeKind_FloatLiteral);
+				node->FloatLiteral.value = value;
+			}
+			else if ((tok.small & 0xff) >= '0' && (tok.small & 0xff) <= '9') {
+				u8 base = 10;
+				const char* base_name = "numeric";
+				if ((tok.small & 0xffff) == 'x0') { // :NoteAboutSeqLiterals
+					base = 16;
+					base_name = "hex";
+					f_str_advance(&tok.str, 2);
+				}
+				else if ((tok.small & 0xffff) == 'b0') { // :NoteAboutSeqLiterals
+					base = 2;
+					base_name = "binary";
+					f_str_advance(&tok.str, 2);
+				}
+
+				u64 value;
+				if (!f_str_to_u64(tok.str, base, &value)) {
+					ERR(p, tok.range, "Invalid %s literal.", base_name);
+				}
+				//f_str_to_f64
+
+				node = new_node(p, parent, tok.range, ffzNodeKind_IntLiteral);
+				node->IntLiteral.value = value;
+				node->IntLiteral.was_encoded_in_base = base;
+			}
 		}
 
 		if (!node) {

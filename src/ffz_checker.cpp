@@ -79,10 +79,10 @@ ffzConstantHash ffz_hash_constant(ffzCheckedExpr constant) {
 	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
-	case ffzTypeTag_SizedInt: // fallthrough
-	case ffzTypeTag_SizedUint: // fallthrough
-	case ffzTypeTag_Int: // fallthrough
+	case ffzTypeTag_Sint: // fallthrough
 	case ffzTypeTag_Uint: // fallthrough
+	case ffzTypeTag_DefaultSint: // fallthrough
+	case ffzTypeTag_DefaultUint: // fallthrough
 	case ffzTypeTag_Raw: // fallthrough
 	case ffzTypeTag_Float: {
 		f_hash64_push(&h, constant.const_val->u64_); // TODO: u128
@@ -196,35 +196,31 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
 
 	switch (type->tag) {
-	case ffzTypeTag_Invalid: { f_str_print(b, F_LIT("<invalid>")); } break;
-	case ffzTypeTag_Module: { f_str_print(b, F_LIT("<module>")); } break;
-	case ffzTypeTag_PolyProc: { f_str_print(b, F_LIT("<poly-proc>")); } break;
-	case ffzTypeTag_PolyRecord: { f_str_print(b, F_LIT("<poly-struct>")); } break;
+	case ffzTypeTag_Invalid: { f_str_printf(b, "<invalid>"); } break;
+	case ffzTypeTag_Module: { f_str_printf(b, "<module>"); } break;
+	case ffzTypeTag_PolyProc: { f_str_printf(b, "<poly-proc>"); } break;
+	case ffzTypeTag_PolyRecord: { f_str_printf(b, "<poly-struct>"); } break;
 		//case TypeTag_UninstantiatedPolyStruct: { str_print(builder, F_LIT("[uninstantiated polymorphic struct]")); } break;
 	case ffzTypeTag_Type: {
-		f_str_print(b, F_LIT("<type>")); // maybe it'd be good to actually store the type type thing in the type
-		//_print_type(c, builder, type->type.t);
-		//str_print(builder, F_LIT("]"));
+		f_str_printf(b, "<type>"); // maybe it'd be good to actually store the type type thing in the type
 	} break;
-	case ffzTypeTag_Bool: { f_str_print(b, F_LIT("bool")); } break;
-	case ffzTypeTag_Raw: { f_str_print(b, F_LIT("raw")); } break;
+	case ffzTypeTag_Bool: { f_str_printf(b, "bool"); } break;
+	case ffzTypeTag_Raw: { f_str_printf(b, "raw"); } break;
 	case ffzTypeTag_Pointer: {
-		f_str_print(b, F_LIT("^"));
+		f_str_printf(b, "^");
 		_print_type(p, b, type->Pointer.pointer_to);
 	} break;
-	case ffzTypeTag_Int: { f_str_print(b, F_LIT("int")); } break;
-	case ffzTypeTag_Uint: { f_str_print(b, F_LIT("uint")); } break;
-	case ffzTypeTag_SizedInt: {
-		uint num_bits = type->size * 8;
-		f_str_print(b, F_LIT("s"));
-		f_str_print(b, f_str_from_uint(F_AS_BYTES(num_bits), temp));
+	case ffzTypeTag_DefaultSint: { f_str_printf(b, "int"); } break;
+	case ffzTypeTag_DefaultUint: { f_str_printf(b, "uint"); } break;
+	case ffzTypeTag_Sint: {
+		f_str_printf(b, "s%u", type->size * 8);
 	} break;
-	case ffzTypeTag_SizedUint: {
-		uint num_bits = type->size * 8;
-		f_str_print(b, F_LIT("u"));
-		f_str_print(b, f_str_from_uint(F_AS_BYTES(num_bits), temp));
+	case ffzTypeTag_Uint: {
+		f_str_printf(b, "u%u", type->size * 8);
 	} break;
-	case ffzTypeTag_Float: {F_BP; } break;
+	case ffzTypeTag_Float: {
+		f_str_printf(b, "f%u", type->size * 8);
+	} break;
 	case ffzTypeTag_Proc: {
 		ffzNodeInst s = type->unique_node;
 		fString name = ffz_get_parent_decl_name(s.node);
@@ -237,12 +233,12 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 		}
 
 		if (ffz_get_child_count(s.node->ProcType.polymorphic_parameters) > 0) {
-			f_str_print(b, F_LIT("["));
+			f_str_printf(b, "[");
 			for (uint i = 0; i < s.polymorph->parameters.len; i++) {
-				if (i > 0) f_str_print(b, F_LIT(", "));
+				if (i > 0) f_str_printf(b, ", ");
 				_print_type(p, b, s.polymorph->parameters[i].type);
 			}
-			f_str_print(b, F_LIT("]"));
+			f_str_printf(b, "]");
 		}
 		//str_print(builder, F_LIT("proc("));
 		//for (uint i = 0; i < type->Proc.in_parameter_types.len; i++) {
@@ -278,21 +274,21 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 		}
 
 		if (ffz_get_child_count(n.node->Record.polymorphic_parameters) > 0) {
-			f_str_print(b, F_LIT("["));
+			f_str_printf(b, "[");
 			
 			for (uint i = 0; i < n.polymorph->parameters.len; i++) {
-				if (i > 0) f_str_print(b, F_LIT(", "));
+				if (i > 0) f_str_printf(b, ", ");
 				_print_constant(p, b, n.polymorph->parameters[i]);
 			}
-			f_str_print(b, F_LIT("]"));
+			f_str_printf(b, "]");
 		}
 	} break;
 	case ffzTypeTag_Slice: {
-		f_str_print(b, F_LIT("[]"));
+		f_str_printf(b, "[]");
 		_print_type(p, b, type->Slice.elem_type);
 	} break;
 	case ffzTypeTag_String: {
-		f_str_print(b, F_LIT("string"));
+		f_str_printf(b, "string");
 	} break;
 	case ffzTypeTag_FixedArray: {
 		f_str_printf(b, "[%u]", type->FixedArray.length);
@@ -459,7 +455,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 
 // if this returns true, its ok to bit-cast between the types
 static bool type_is_a(ffzProject* p, ffzType* src, ffzType* target) {
-	if (src->tag == ffzTypeTag_Uint && target->tag == ffzTypeTag_Int) return true; // allow implicit cast from uint -> int
+	if (src->tag == ffzTypeTag_DefaultUint && target->tag == ffzTypeTag_DefaultSint) return true; // allow implicit cast from uint -> int
 	if (target->tag == ffzTypeTag_Raw) return true; // everything can cast to raw
 	
 	if (src->tag == ffzTypeTag_Pointer && target->tag == ffzTypeTag_Pointer) {
@@ -663,8 +659,8 @@ ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive) { ret
 */
 u32 get_alignment(ffzType* type, u32 pointer_size) {
 	switch (type->tag) {
-	case ffzTypeTag_Uint: // fallthrough
-	case ffzTypeTag_Int: // fallthrough
+	case ffzTypeTag_DefaultUint: // fallthrough
+	case ffzTypeTag_DefaultSint: // fallthrough
 	case ffzTypeTag_Pointer: // fallthrough
 	case ffzTypeTag_Proc: // fallthrough
 	case ffzTypeTag_String: // fallthrough
@@ -698,10 +694,10 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 	case ffzTypeTag_Type: // fallthrough
 	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
-	case ffzTypeTag_SizedInt: // fallthrough
-	case ffzTypeTag_SizedUint: // fallthrough
-	case ffzTypeTag_Int: // fallthrough
+	case ffzTypeTag_Sint: // fallthrough
 	case ffzTypeTag_Uint: // fallthrough
+	case ffzTypeTag_DefaultSint: // fallthrough
+	case ffzTypeTag_DefaultUint: // fallthrough
 	case ffzTypeTag_Float: {
 		// Note: we don't want record types to hash in the size of the type, because of :delayed_check_record
 		f_hash64_push(&h, type->size);
@@ -737,8 +733,8 @@ ffzType* ffz_make_type_ptr(ffzChecker* c, ffzType* pointer_to) {
 }
 
 OPT(ffzType*) ffz_builtin_type(ffzChecker* c, ffzKeyword keyword) {
-	if (keyword >= ffzKeyword_u8 && keyword <= ffzKeyword_ex_extern) {
-		return c->builtin_types[keyword - ffzKeyword_u8];
+	if (keyword >= ffzKeyword_FIRST_TYPE && keyword <= ffzKeyword_LAST_TYPE) {
+		return c->builtin_types[keyword - ffzKeyword_FIRST_TYPE];
 	}
 	return NULL;
 }
@@ -1264,27 +1260,29 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 	c->poly_from_hash = f_map64_make<ffzPolymorph*>(c->alc);
 
 	{
-		u32 a = ffzKeyword_u8;
+		u32 t0 = ffzKeyword_FIRST_TYPE;
 		
-		c->builtin_types[ffzKeyword_u8 - a] = ffz_make_type(c, { ffzTypeTag_SizedUint, 1 });
-		c->builtin_types[ffzKeyword_u16 - a] = ffz_make_type(c, { ffzTypeTag_SizedUint, 2 });
-		c->builtin_types[ffzKeyword_u32 - a] = ffz_make_type(c, { ffzTypeTag_SizedUint, 4 });
-		c->builtin_types[ffzKeyword_u64 - a] = ffz_make_type(c, { ffzTypeTag_SizedUint, 8 });
-		c->builtin_types[ffzKeyword_s8 - a] = ffz_make_type(c, { ffzTypeTag_SizedInt, 1 });
-		c->builtin_types[ffzKeyword_s16 - a] = ffz_make_type(c, { ffzTypeTag_SizedInt, 2 });
-		c->builtin_types[ffzKeyword_s32 - a] = ffz_make_type(c, { ffzTypeTag_SizedInt, 4 });
-		c->builtin_types[ffzKeyword_s64 - a] = ffz_make_type(c, { ffzTypeTag_SizedInt, 8 });
-		c->builtin_types[ffzKeyword_uint - a] = ffz_make_type(c, { ffzTypeTag_Uint, p->pointer_size });
-		c->builtin_types[ffzKeyword_int - a] = ffz_make_type(c, { ffzTypeTag_Int, p->pointer_size });
-		c->builtin_types[ffzKeyword_raw - a] = ffz_make_type(c, { ffzTypeTag_Raw });
-		c->builtin_types[ffzKeyword_bool - a] = ffz_make_type(c, { ffzTypeTag_Bool, 1 });
+		c->builtin_types[ffzKeyword_u8 - t0] = ffz_make_type(c, { ffzTypeTag_Uint, 1 });
+		c->builtin_types[ffzKeyword_u16 - t0] = ffz_make_type(c, { ffzTypeTag_Uint, 2 });
+		c->builtin_types[ffzKeyword_u32 - t0] = ffz_make_type(c, { ffzTypeTag_Uint, 4 });
+		c->builtin_types[ffzKeyword_u64 - t0] = ffz_make_type(c, { ffzTypeTag_Uint, 8 });
+		c->builtin_types[ffzKeyword_s8 - t0] = ffz_make_type(c, { ffzTypeTag_Sint, 1 });
+		c->builtin_types[ffzKeyword_s16 - t0] = ffz_make_type(c, { ffzTypeTag_Sint, 2 });
+		c->builtin_types[ffzKeyword_s32 - t0] = ffz_make_type(c, { ffzTypeTag_Sint, 4 });
+		c->builtin_types[ffzKeyword_s64 - t0] = ffz_make_type(c, { ffzTypeTag_Sint, 8 });
+		c->builtin_types[ffzKeyword_f32 - t0] = ffz_make_type(c, { ffzTypeTag_Float, 4 });
+		c->builtin_types[ffzKeyword_f64 - t0] = ffz_make_type(c, { ffzTypeTag_Float, 8 });
+		c->builtin_types[ffzKeyword_uint - t0] = ffz_make_type(c, { ffzTypeTag_DefaultUint, p->pointer_size });
+		c->builtin_types[ffzKeyword_int - t0] = ffz_make_type(c, { ffzTypeTag_DefaultSint, p->pointer_size });
+		c->builtin_types[ffzKeyword_raw - t0] = ffz_make_type(c, { ffzTypeTag_Raw });
+		c->builtin_types[ffzKeyword_bool - t0] = ffz_make_type(c, { ffzTypeTag_Bool, 1 });
 
 		c->module_type = ffz_make_type(c, { ffzTypeTag_Module });
 		c->type_type = ffz_make_type(c, { ffzTypeTag_Type });
 
 		{
 			ffzType* string = ffz_make_type(c, { ffzTypeTag_String, p->pointer_size * 2 });
-			c->builtin_types[ffzKeyword_string - a] = string;
+			c->builtin_types[ffzKeyword_string - t0] = string;
 
 			string->record_fields = f_make_slice_garbage<ffzTypeRecordField>(2, c->alc);
 			string->record_fields[0] = { F_LIT("ptr"), ffz_make_type_ptr(c, ffz_builtin_type(c, ffzKeyword_u8)), 0, NULL };
@@ -1307,7 +1305,7 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 			type.record_fields = f_make_slice_garbage<ffzTypeRecordField>(1, c->alc);
 			type.record_fields[0] = { F_LIT("filepath"), ffz_builtin_type(c, ffzKeyword_string), 0, NULL };
 			
-			c->builtin_types[ffzKeyword_ex_link_library - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+			c->builtin_types[ffzKeyword_ex_link_library - t0] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
 		}
 
 		{
@@ -1318,21 +1316,21 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 			type.record_fields = f_make_slice_garbage<ffzTypeRecordField>(1, c->alc);
 			type.record_fields[0] = { F_LIT("filepath"), ffz_builtin_type(c, ffzKeyword_string), 0, NULL };
 
-			c->builtin_types[ffzKeyword_ex_link_system_library - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+			c->builtin_types[ffzKeyword_ex_link_system_library - t0] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
 		}
 
 		{
 			ffzType type = { ffzTypeTag_Record };
 			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
 			type.unique_node.node->id.global_id = -3; // special magic value...
-			c->builtin_types[ffzKeyword_ex_using - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+			c->builtin_types[ffzKeyword_ex_using - t0] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
 		}
 
 		{
 			ffzType type = { ffzTypeTag_Record };
 			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
 			type.unique_node.node->id.global_id = -4; // special magic value...
-			c->builtin_types[ffzKeyword_ex_extern - a] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+			c->builtin_types[ffzKeyword_ex_extern - t0] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
 		}
 	}
 
@@ -1708,7 +1706,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		}
 	} break;
 
-	case ffzNodeKind_Dot: {
+	case ffzNodeKind_ThisValueDot: {
 		ffzNodeInst assignee;
 		if (!ffz_dot_get_assignee(inst, &assignee)) {
 			ERR(c, inst.node, "`.` catcher must be used within an assignment, but no assignment was found.");
@@ -1734,7 +1732,18 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 	} break;
 
 	
-	case ffzNodeKind_FloatLiteral: {F_BP; } break;
+	case ffzNodeKind_FloatLiteral: {
+		if (require_type && require_type->tag == ffzTypeTag_Float) {
+			result.type = require_type;
+			result.const_val = make_constant(c);
+			
+			f64 val = inst.node->FloatLiteral.value;
+			if (require_type->size == 4) result.const_val->f32_ = (f32)val;
+			else if (require_type->size == 8) result.const_val->f64_ = val;
+			else F_BP;
+		}
+	} break;
+
 	case ffzNodeKind_IntLiteral: {
 		if (require_type && ffz_type_is_integer(require_type->tag)) {
 			result.type = require_type;

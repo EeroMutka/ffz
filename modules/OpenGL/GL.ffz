@@ -1,3 +1,5 @@
+#WindowHandle: import(":Window/WindowHandle")
+#Window: WindowHandle.Window
 
 // Useful resources:
 // https://github.com/Eversmile12/OpenGLNative
@@ -851,18 +853,3 @@
 	
 	FreeLibrary(lib)
 }
-
-#COLOR_BUFFER_BIT: u32(0x00004000)
-
-
-#HMODULE: ^raw
-
-#Kernel32: extern{}
-#LoadLibraryA: @Kernel32 proc(lpLibFileName: ^u8) => HMODULE
-#FreeLibrary: @Kernel32 proc(hLibModule: HMODULE) => s32
-#GetProcAddress: @Kernel32 proc(hModule: HMODULE, lpProcName: ^u8) => ^raw
-
-#Opengl32: extern{}
-$link_system_library{"Opengl32.lib"}
-
-#wglGetProcAddress: @Opengl32 proc(rc: ^u8) => ^raw

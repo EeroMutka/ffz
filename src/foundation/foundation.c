@@ -868,21 +868,13 @@ fString f_str_from_int(fString bytes, fAllocator* a) {
 			f_str_format(a, "%lld", *(s64*)bytes.data);
 }
 
-fString f_str_from_float_ex(fString bytes, int num_decimals, fAllocator* a) {
-	//ZoneScoped;
-	F_ASSERT(bytes.len == 4 || bytes.len == 8);
-	char fmt_string[5];
-	fmt_string[0] = '%';
-	fmt_string[1] = '.';
-	fmt_string[2] = '0' + (char)F_MIN(num_decimals, 9);
-	fmt_string[3] = 'f';
-	fmt_string[4] = 0;
-	return f_str_format(a, fmt_string, bytes.len == 4 ? *(f32*)bytes.data : *(f64*)bytes.data);
+fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* a) {
+	char fmt_string[5] = { '%', '.', '0' + (char)F_MIN(num_decimals, 9), 'f', 0 };
+	return f_str_format(a, fmt_string, value);
 }
 
-fString f_str_from_float(fString bytes, fAllocator* a) {
-	F_ASSERT(bytes.len == 4 || bytes.len == 8);
-	return f_str_format(a, "%f", bytes.len == 4 ? *(f32*)bytes.data : *(f64*)bytes.data);
+fString f_str_from_float(f64 value, fAllocator* a) {
+	return f_str_format(a, "%f", value);
 }
 
 

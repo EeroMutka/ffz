@@ -94,11 +94,11 @@ typedef enum ffzTypeTag {
 	ffzTypeTag_Bool,
 	ffzTypeTag_Pointer,
 
-	// :TypeIsInteger
-	ffzTypeTag_SizedInt, // maybe SizedInt/SizedUint could be a flag if we would have flags in types?
-	ffzTypeTag_SizedUint,
-	ffzTypeTag_Int,
-	ffzTypeTag_Uint,
+	// :type_is_integer
+	ffzTypeTag_Sint, // 's8', 's16', ...
+	ffzTypeTag_Uint, // 'u8', 'u16', ...
+	ffzTypeTag_DefaultSint, // 'int'
+	ffzTypeTag_DefaultUint, // 'uint'
 
 	ffzTypeTag_Float,
 	ffzTypeTag_Proc,
@@ -336,7 +336,7 @@ struct ffzChecker {
 	
 	ffzType* type_type;
 	ffzType* module_type;
-	ffzType* builtin_types[ffzKeyword_ex_extern + 1 - ffzKeyword_u8];
+	ffzType* builtin_types[ffzKeyword_LAST_TYPE + 1 - ffzKeyword_FIRST_TYPE];
 };
 
 //#define FFZ_INST_AS(node,kind) (*(ffzNode##kind##Inst*)&(node))
@@ -359,8 +359,8 @@ bool ffz_parse_and_check_directory(ffzProject* p, fString directory);
 
 bool ffz_build_directory(fString directory, fString compiler_install_dir);
 
-inline bool ffz_type_is_integer(ffzTypeTag tag) { return tag >= ffzTypeTag_SizedInt && tag <= ffzTypeTag_Uint; }
-inline bool ffz_type_is_signed_integer(ffzTypeTag tag) { return tag == ffzTypeTag_SizedInt || tag == ffzTypeTag_Int; }
+inline bool ffz_type_is_integer(ffzTypeTag tag) { return tag >= ffzTypeTag_Sint && tag <= ffzTypeTag_DefaultUint; }
+inline bool ffz_type_is_signed_integer(ffzTypeTag tag) { return tag == ffzTypeTag_Sint || tag == ffzTypeTag_DefaultSint; }
 
 inline bool ffz_type_is_pointer_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Pointer || tag == ffzTypeTag_Proc; }
 inline bool ffz_type_is_slice_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Slice || tag == ffzTypeTag_String; }

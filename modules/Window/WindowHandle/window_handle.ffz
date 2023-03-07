@@ -1,0 +1,14 @@
+//
+// The window handle is separated into its own module so that
+// if some module just requires the window handle (such as the OpenGl module),
+// but doesn't need anything else from the window module, it can just import this file.
+//
+// This separation also makes it more clear how you might swap the implementation
+// of the Window module for your own if you wanted to, and still be able to use it with
+// other modules that require a window handle.
+//
+
+// #if os == "Windows" {
+	#Window: struct { hwnd: HWND }
+	#HWND: ^raw
+//}

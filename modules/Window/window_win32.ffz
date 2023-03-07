@@ -1,0 +1,262 @@
+#Basic: import(":Basic")
+
+#WindowHandle: import("WindowHandle")
+#Window: WindowHandle.Window
+
+// API:
+// create: proc(width: uint, height: uint, name: string, temp: ^Basic.Allocator) => Window
+// show: proc(wnd: Window)
+// poll_events: proc(window: Window) => WindowEvents
+
+#str_to_utf16: proc(str: string, allocator: ^Basic.Allocator) => []u16 {
+	out: []u16
+	if str.len == 0 { ret out }
+	
+	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
+	Basic.assert(len != 0)
+	
+	out = Basic.slice_make[u16](uint(len) + 1, allocator)
+	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
+	
+	// null terminator
+	out[len] = 0
+	
+	ret out
+}
+
+#WNDPROC: proc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: s64) => s64
+
+#window_proc: WNDPROC {
+	out: ^WindowEvents(GetWindowLongPtrW(in.hWnd, GWLP_USERDATA))
+	
+	if in.uMsg == WM_CLOSE || in.uMsg == WM_QUIT {
+		out.quit = true
+	}
+	
+	ret DefWindowProcW(in.hWnd, in.uMsg, in.wParam, in.lParam)
+}
+
+#WINDOW_CLASS_NAME: "ffz_window_module_class_name"
+
+#register_window_class: proc(temp: ^Basic.Allocator) {
+	// Windows requires us to first register a "window class" with a given name,
+	// which will be used in subsequent calls to CreateWindowExW()
+	
+	hInstance: GetModuleHandleW(^u16(0))
+	
+	#COLOR_BACKGROUND: 1
+	bg_brush: HBRUSH(COLOR_BACKGROUND)
+	
+	wnd_class: WNDCLASSEXW
+	wnd_class.cbSize         = u32(size_of(WNDCLASSEXW)) // TODO: fix size_of
+	wnd_class.style          = bit_or(CS_HREDRAW, bit_or(CS_VREDRAW, CS_OWNDC)) // CS_OWNDC is required for OpenGL
+	wnd_class.lpfnWndProc    = window_proc
+	wnd_class.hInstance      = hInstance
+	//wnd_class.hIcon
+	wnd_class.hCursor        = LoadCursorW(HINSTANCE(0), ^u16(IDC_ARROW))
+	wnd_class.hbrBackground  = bg_brush
+	
+	wnd_class.lpszClassName  = str_to_utf16(WINDOW_CLASS_NAME, temp).ptr
+	
+	atom: RegisterClassExW(&wnd_class)
+	Basic.assert(atom != 0)
+}
+
+#show: proc(window: Window) {
+	UpdateWindow(window.hwnd)
+	ShowWindow(window.hwnd, SW_SHOW)
+}
+
+
+// NOTE:
+// After calling create(), the window will remain hidden.
+// To show the window, you must explicitly call show().
+// This separation is there so that you can get rid of the initial flicker that normally happens when you
+// create a window, then do some work such as initialize a graphics API, and finally present a frame.
+// If you instead first call create(), then initialize the graphics API, and only then call show(), there won't
+// be any flicker as the window doesn't have to wait for the initialization.
+// 
+// TODO: implicit temp allocator
+#create: proc(width: uint, height: uint, name: string, temp: ^Basic.Allocator) => Window {
+	// TODO: multiple windows?
+	register_window_class(temp)
+	
+	x: s32(100)
+	y: s32(100)
+	
+	hwnd: CreateWindowExW(0
+		str_to_utf16(WINDOW_CLASS_NAME, temp).ptr
+		str_to_utf16(name, temp).ptr
+		WS_OVERLAPPEDWINDOW
+		x, y
+		s32(width)
+		s32(height)
+		HWND(0)
+		HMENU(0)
+		HINSTANCE(0)
+		^raw(0))
+	
+	// failed
+	if hwnd == HWND(0) { dbgbreak }
+	
+	ret Window{hwnd}
+}
+
+#WindowEvents: struct {
+	quit: bool
+}
+
+#poll_events: proc(window: Window) => WindowEvents {
+	out: WindowEvents
+	
+	for loop: true, loop, {
+		msg: MSG
+		
+		result: PeekMessageW(&msg, window.hwnd, 0, 0, PM_REMOVE)
+		if result != 0 {
+			TranslateMessage(&msg)
+			
+			// https://stackoverflow.com/questions/117792/best-method-for-storing-this-pointer-for-use-in-wndproc
+			SetWindowLongPtrW(window.hwnd, GWLP_USERDATA, s64(&out))
+			DispatchMessageW(&msg)
+		}
+		else {
+			loop = false // TODO: continue / break
+		}
+	}
+	
+	ret out
+}
+
+#HINSTANCE: ^raw
+#HICON: ^raw
+#HCURSOR: ^raw
+#HBRUSH: ^raw
+#HWND: ^raw
+#HMODULE: ^raw
+#HMENU: ^raw
+
+#IDC_ARROW: 32512
+
+#ATOM: u16
+
+#CP_UTF8: u32(65001)
+#MB_ERR_INVALID_CHARS: u32(0x00000008)
+#PM_REMOVE: u32(0x0001)
+#WS_OVERLAPPEDWINDOW: u32(0x00cf0000)
+#SW_SHOW: s32(5)
+
+#CS_VREDRAW:          u32(0x0001)
+#CS_HREDRAW:          u32(0x0002)
+//#CS_DBLCLKS:          u32(0x0008)
+#CS_OWNDC:            u32(0x0020)
+//#CS_CLASSDC:          u32(0x0040)
+//#CS_PARENTDC:         u32(0x0080)
+//#CS_NOCLOSE:          u32(0x0200)
+//#CS_SAVEBITS:         u32(0x0800)
+//#CS_BYTEALIGNCLIENT:  u32(0x1000)
+//#CS_BYTEALIGNWINDOW:  u32(0x2000)
+//#CS_GLOBALCLASS:      u32(0x4000)
+
+#SIZE_RESTORED: u64(0)
+#SIZE_MINIMIZED: u64(1)
+#SIZE_MAXIMIZED: u64(2)
+
+#GWLP_USERDATA: s32(0xffffffeb)
+
+#WM_CLOSE: u32(0x0010)
+#WM_QUIT: u32(0x0012)
+#WM_SYSCOMMAND: u32(0x0112)
+#WM_ACTIVATEAPP: u32(0x001C)
+#WM_SYSKEYDOWN: u32(0x0104)
+#WM_KEYDOWN: u32(0x0100)
+#WM_SYSKEYUP: u32(0x0105)
+#WM_KEYUP: u32(0x0101)
+#WM_SYSCHAR: u32(0x0106)
+#WM_CHAR: u32(0x0102)
+#WM_SETFOCUS: u32(0x0007)
+#WM_KILLFOCUS: u32(0x0008)
+#WM_PAINT: u32(0x000F)
+#WM_LBUTTONDOWN: u32(0x0201)
+#WM_LBUTTONUP: u32(0x0202)
+#WM_RBUTTONDOWN: u32(0x0204)
+#WM_RBUTTONUP: u32(0x0205)
+#WM_MBUTTONDOWN: u32(0x0207)
+#WM_MBUTTONUP: u32(0x0208)
+#WM_MOUSEMOVE: u32(0x0200)
+#WM_MOUSEWHEEL: u32(0x020A)
+#WM_INPUT: u32(0x00FF)
+#WM_SIZE: u32(0x0005)
+#WM_MOVE: u32(0x0003)
+#WM_EXITSIZEMOVE: u32(0x0232)
+#WM_DPICHANGED: u32(0x02E0)
+#WM_DROPFILES: u32(0x0233)
+#WM_SETCURSOR: u32(0x0020)
+
+#WNDCLASSEXW: struct {
+	cbSize: u32
+	style: u32
+	lpfnWndProc: WNDPROC
+	cbClsExtra: s32
+	cbWndExtra: s32
+	hInstance: HINSTANCE
+	hIcon: HICON
+	hCursor: HCURSOR
+	hbrBackground: HBRUSH
+	lpszMenuName: ^u16
+	lpszClassName: ^u16
+	hIconSm: HICON
+}
+
+#POINT: struct {
+	x: s32
+	y: s32
+}
+
+#MSG: struct {
+	hwnd: HWND
+	message: u32
+	wParam: u64
+	lParam: s64
+	time: u32
+	pt: POINT
+}
+
+#CreateWindowExW: @User32 proc(
+	dwExStyle: u32
+	lpClassName: ^u16
+	lpWindowName: ^u16
+	dwStyle: u32
+	X: s32
+	Y: s32
+	nWidth: s32
+	nHeight: s32
+	hWndParent: HWND
+	hMenu: HMENU
+	hInstance: HINSTANCE
+	lpParam: ^raw) => HWND
+
+#MultiByteToWideChar: @Kernel32 proc(CodePage: u32, dwFlags: u32, lpMultiByteStr: ^u8, cbMultiByte: s32, lpWideCharStr: ^u16, cchWideChar: s32) => s32
+#GetModuleHandleW: @Kernel32 proc(lpModuleName: ^u16) => HMODULE
+#OutputDebugStringA: @Kernel32 proc(lpOutputString: ^u8)
+//#GetLastError: @Kernel32 proc => u32
+
+#UpdateWindow: @User32 proc(hWnd: HWND) => s32
+#ShowWindow: @User32 proc(hWnd: HWND, nCmdShow: s32) => s32
+#RegisterClassExW: @User32 proc(lpWndClass: ^WNDCLASSEXW) => ATOM
+#LoadCursorW: @User32 proc(hInstance: HINSTANCE, lpCursorName: ^u16) => HCURSOR
+#DefWindowProcW: @User32 proc(hWnd: HWND, Msg: u32, wParam: u64, lParam: s64) => s64
+#PeekMessageW: @User32 proc(lpMsg: ^MSG, hWnd: HWND, wMsgFilterMin: u32, wMsgFilterMax: u32, wRemoveMsg: u32) => s32
+#TranslateMessage: @User32 proc(lpMsg: ^MSG) => s32
+#DispatchMessageW: @User32 proc(lpMsg: ^MSG) => s64
+#GetWindowLongPtrW: @User32 proc(hWnd: HWND, nIndex: s32) => s64
+#SetWindowLongPtrW: @User32 proc(hWnd: HWND, nIndex: s32, dwNewLong: s64) => s64
+
+#CreateSolidBrush: @Gdi32 proc(color: u32) => HBRUSH
+
+// TODO: improve FFZ with this
+#Gdi32: extern{}
+#User32: extern{}
+#Kernel32: extern{}
+$link_system_library{"User32.lib"}
+$link_system_library{"Gdi32.lib"}

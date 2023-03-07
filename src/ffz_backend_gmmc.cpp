@@ -95,10 +95,10 @@ gmmcType get_gmmc_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_Pointer: return gmmcType_ptr;
 
 	case ffzTypeTag_Enum: // fallthrough
-	case ffzTypeTag_SizedInt: // fallthrough
-	case ffzTypeTag_Int: // fallthrough
-	case ffzTypeTag_SizedUint: // fallthrough
-	case ffzTypeTag_Uint: {
+	case ffzTypeTag_Sint: // fallthrough
+	case ffzTypeTag_DefaultSint: // fallthrough
+	case ffzTypeTag_Uint: // fallthrough
+	case ffzTypeTag_DefaultUint: {
 		if (type->size == 1) return gmmcType_i8;
 		else if (type->size == 2) return gmmcType_i16;
 		else if (type->size == 4) return gmmcType_i32;
@@ -293,10 +293,10 @@ static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
 static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstant* constant) {
 	switch (type->tag) {
 	case ffzTypeTag_Bool: // fallthrough
-	case ffzTypeTag_SizedInt: // fallthrough
-	case ffzTypeTag_Int: // fallthrough
-	case ffzTypeTag_SizedUint: // fallthrough
-	case ffzTypeTag_Uint: {
+	case ffzTypeTag_Sint: // fallthrough
+	case ffzTypeTag_DefaultSint: // fallthrough
+	case ffzTypeTag_Uint: // fallthrough
+	case ffzTypeTag_DefaultUint: {
 		memcpy(base + offset, constant, type->size);
 	} break;
 
@@ -375,20 +375,17 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			out = gmmc_op_bool(g->bb, checked.const_val->bool_);
 		} break;
 
-		/*{
-			F_ASSERT(!address_of);
-			if (checked.type->size == 1)      out = gmmc_op_i8(g->bb, checked.const_val->s8_);
-			else if (checked.type->size == 2) out = gmmc_op_i16(g->bb, checked.const_val->s16_);
-			else if (checked.type->size == 4) out = gmmc_op_i32(g->bb, checked.const_val->s32_);
-			else if (checked.type->size == 8) out = gmmc_op_i64(g->bb, checked.const_val->s64_);
+		case ffzTypeTag_Float: {
+			if (checked.type->size == 4)      out = gmmc_op_f32(g->bb, checked.const_val->f32_);
+			else if (checked.type->size == 8) out = gmmc_op_f64(g->bb, checked.const_val->f64_);
 			else F_BP;
-		} break;*/
+		} break;
 
 		case ffzTypeTag_Enum: // fallthrough
-		case ffzTypeTag_SizedInt: // fallthrough
-		case ffzTypeTag_Int: // fallthrough
-		case ffzTypeTag_SizedUint: // fallthrough
-		case ffzTypeTag_Uint: {
+		case ffzTypeTag_Sint: // fallthrough
+		case ffzTypeTag_DefaultSint: // fallthrough
+		case ffzTypeTag_Uint: // fallthrough
+		case ffzTypeTag_DefaultUint: {
 			F_ASSERT(!address_of);
 			if (checked.type->size == 1)      out = gmmc_op_i8(g->bb, checked.const_val->u8_);
 			else if (checked.type->size == 2) out = gmmc_op_i16(g->bb, checked.const_val->u16_);
@@ -469,8 +466,9 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 		case ffzNodeKind_UnaryMinus: {
 			F_ASSERT(!address_of);
+			u64 zero = 0;
 			out = gen_expr(g, right);
-			out = gmmc_op_sub(g->bb, gmmc_op_immediate(g->bb, get_gmmc_type(g, checked.type), 0), out);  // -x = 0 - x
+			out = gmmc_op_sub(g->bb, gmmc_op_immediate(g->bb, get_gmmc_type(g, checked.type), &zero), out);  // -x = 0 - x
 		} break;
 
 		case ffzNodeKind_LogicalNOT: {
@@ -714,7 +712,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			should_dereference = !address_of;
 		} break;
 
-		case ffzNodeKind_Dot: {
+		case ffzNodeKind_ThisValueDot: {
 			ffzNodeInst assignee;
 			F_ASSERT(ffz_dot_get_assignee(inst, &assignee));
 			out = gen_expr(g, assignee, address_of);

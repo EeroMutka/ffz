@@ -26,7 +26,7 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	ffzNodeKind_Identifier,
 	ffzNodeKind_PolyParamList,
 	ffzNodeKind_Keyword,
-	ffzNodeKind_Dot,
+	ffzNodeKind_ThisValueDot,
 	ffzNodeKind_ProcType,
 	ffzNodeKind_Record,
 	ffzNodeKind_Enum,
@@ -100,8 +100,8 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_true,
 	ffzKeyword_false,
 
-	// NOTE: remember to update ffz_builtin_type
-	ffzKeyword_u8,
+	ffzKeyword_FIRST_TYPE,
+	ffzKeyword_u8 = ffzKeyword_FIRST_TYPE,
 	ffzKeyword_u16,
 	ffzKeyword_u32,
 	ffzKeyword_u64,
@@ -109,6 +109,8 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_s16,
 	ffzKeyword_s32,
 	ffzKeyword_s64,
+	ffzKeyword_f32,
+	ffzKeyword_f64,
 	ffzKeyword_int,
 	ffzKeyword_uint,
 	ffzKeyword_bool,
@@ -118,6 +120,7 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_ex_link_system_library,
 	ffzKeyword_ex_using,
 	ffzKeyword_ex_extern,
+	ffzKeyword_LAST_TYPE = ffzKeyword_ex_extern,
 
 	// :ffz_keyword_is_bitwise_op
 	ffzKeyword_bit_and,
@@ -169,7 +172,7 @@ typedef ffzNode ffzNodeReturn;
 typedef ffzNode ffzNodeIntLiteral;
 typedef ffzNode ffzNodeStringLiteral;
 typedef ffzNode ffzNodeScope;
-typedef ffzNode ffzNodeDot;
+typedef ffzNode ffzNodeThisValueDot;
 typedef ffzNode ffzNodeBlank;
 typedef ffzNode ffzNodeIntLiteral;
 typedef ffzNode ffzNodePolyParamList;
@@ -228,6 +231,10 @@ struct ffzNode {
 			fOpt(ffzNode*) value;
 		} Return;
 		
+		struct {
+			double value; // NOTE: doubles can hold all the values that a float can.
+		} FloatLiteral;
+
 		struct {
 			u64 value;
 			u8 was_encoded_in_base; // this is mainly here for if you want to print the AST

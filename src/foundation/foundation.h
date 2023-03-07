@@ -722,8 +722,8 @@ bool f_str_to_f64(fString s, f64* out);
 
 fString f_str_from_uint(fString bytes, fAllocator* a);
 fString f_str_from_int(fString bytes, fAllocator* a);
-fString f_str_from_float(fString bytes, fAllocator* a);
-fString f_str_from_float_ex(fString bytes, int num_decimals, fAllocator* a);
+fString f_str_from_float(f64 value, fAllocator* a);
+fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* a);
 
 char* f_str_to_cstr(fString s, fAllocator* a);
 fString f_str_from_cstr(const char* s);

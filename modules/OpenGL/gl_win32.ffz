@@ -1,0 +1,138 @@
+
+//#Window: struct{ hwnd: HWND }
+
+#load: proc(api: ^API, window: Window, version: Version) {
+	// https://www.khronos.org/opengl/wiki/Creating_an_OpenGL_Context_(WGL)
+	
+	hdc: GetDC(window.hwnd)
+	
+	pfd: PIXELFORMATDESCRIPTOR
+	pfd.nSize = u16(size_of(PIXELFORMATDESCRIPTOR))
+	pfd.nVersion = 1
+	pfd.dwFlags = bit_or(PFD_DRAW_TO_WINDOW, bit_or(PFD_SUPPORT_OPENGL, PFD_DOUBLEBUFFER))
+	pfd.iPixelType = PFD_TYPE_RGBA
+	pfd.cColorBits = 32
+	pfd.cDepthBits = 24 // Number of bits for the depthbuffer
+	pfd.cStencilBits = 8 // Number of bits for the stencilbuffer
+	pfd.iLayerType = PFD_MAIN_PLANE
+	
+	pixel_format: ChoosePixelFormat(hdc, &pfd)
+	if pixel_format == 0 {dbgbreak}
+	
+	SetPixelFormat(hdc, pixel_format, &pfd)
+	
+	dummy_wgl_context: wglCreateContext(hdc) // NOTE: must be called after SetPixelFormat
+	if dummy_wgl_context == HGLRC(0) {dbgbreak}
+	if wglMakeCurrent(hdc, dummy_wgl_context) == 0 {dbgbreak}
+	
+	wglCreateContextAttribsARB: wglCreateContextAttribsARB_Proc(wglGetProcAddress("wglCreateContextAttribsARB".ptr))
+	
+	if version != Version._3_3 {dbgbreak} // TODO
+	#GL_VERSION_MAJOR: s32(3)
+	#GL_VERSION_MINOR: s32(3)
+	
+	attribs_list: [?]s32{
+		WGL_CONTEXT_MAJOR_VERSION_ARB, GL_VERSION_MAJOR
+		WGL_CONTEXT_MINOR_VERSION_ARB, GL_VERSION_MINOR
+		WGL_CONTEXT_FLAGS_ARB, 0
+		WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB
+		0 // list terminator
+	}
+	
+	wgl_context: wglCreateContextAttribsARB(hdc, HGLRC(0), &attribs_list[0])
+	if wgl_context == HGLRC(0) {dbgbreak}
+	
+	// Now that we have created the new context (using the dummy context), we can delete the dummy context
+	
+	if wglMakeCurrent(hdc, HGLRC(0)) == 0 {dbgbreak}
+	//wglDeleteContext(dummy_wgl_context)
+	if wglMakeCurrent(hdc, wgl_context) == 0 {dbgbreak}
+	
+	load_api_procs(api, version)
+}
+
+#swap_buffers: proc(window: Window) => bool {
+	hdc: GetDC(window.hwnd)
+	ret SwapBuffers(hdc) != 0
+}
+
+#PFD_TYPE_RGBA: u8(0)
+#PFD_MAIN_PLANE: u8(0)
+#PFD_DRAW_TO_WINDOW: u32(0x00000004)
+#PFD_SUPPORT_OPENGL: u32(0x00000020)
+#PFD_DOUBLEBUFFER: u32(0x00000001)
+
+#PIXELFORMATDESCRIPTOR: struct {
+	nSize: u16
+	nVersion: u16
+	dwFlags: u32
+	iPixelType: u8
+	cColorBits: u8
+	cRedBits: u8
+	cRedShift: u8
+	cGreenBits: u8
+	cGreenShift: u8
+	cBlueBits: u8
+	cBlueShift: u8
+	cAlphaBits: u8
+	cAlphaShift: u8
+	cAccumBits: u8
+	cAccumRedBits: u8
+	cAccumGreenBits: u8
+	cAccumBlueBits: u8
+	cAccumAlphaBits: u8
+	cDepthBits: u8
+	cStencilBits: u8
+	cAuxBuffers: u8
+	iLayerType: u8
+	bReserved: u8
+	dwLayerMask: u32
+	dwVisibleMask: u32
+	dwDamageMask: u32
+}
+
+#COLOR_BUFFER_BIT: u32(0x00004000)
+
+#HDC: ^raw
+#HGLRC: ^raw
+#HMODULE: ^raw
+#HWND: ^raw
+
+
+#WGL_CONTEXT_MAJOR_VERSION_ARB:           s32(0x2091)
+#WGL_CONTEXT_MINOR_VERSION_ARB:           s32(0x2092)
+#WGL_CONTEXT_LAYER_PLANE_ARB:             s32(0x2093)
+#WGL_CONTEXT_FLAGS_ARB:                   s32(0x2094)
+#WGL_CONTEXT_PROFILE_MASK_ARB:            s32(0x9126)
+
+#WGL_CONTEXT_DEBUG_BIT_ARB:               s32(0x0001)
+#WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB:  s32(0x0002)
+
+#WGL_CONTEXT_CORE_PROFILE_BIT_ARB:           s32(0x00000001)
+#WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB:  s32(0x00000002)
+
+#wglCreateContextAttribsARB_Proc: proc(hDC: HDC, hshareContext: HGLRC, attribList: ^s32) => HGLRC
+
+#GL_VERSION: u32(0x1F02)
+
+#GetDC: @User32 proc(hWnd: HWND) => HDC
+
+#LoadLibraryA: @Kernel32 proc(lpLibFileName: ^u8) => HMODULE
+#FreeLibrary: @Kernel32 proc(hLibModule: HMODULE) => s32
+#GetProcAddress: @Kernel32 proc(hModule: HMODULE, lpProcName: ^u8) => ^raw
+
+#SwapBuffers: @Gdi32 proc(hdc: HDC) => s32
+#ChoosePixelFormat: @Gdi32 proc(hdc: HDC, ppfd: ^PIXELFORMATDESCRIPTOR) => s32
+#SetPixelFormat: @Gdi32 proc(hdc: HDC, format: s32, ppfd: ^PIXELFORMATDESCRIPTOR) => s32
+#wglCreateContext: @Opengl32 proc(hdc: HDC) => HGLRC
+#wglDeleteContext: @Opengl32 proc(rc: HGLRC) => s32
+#wglMakeCurrent: @Opengl32 proc(hdc: HDC, rc: HGLRC) => s32
+#wglGetProcAddress: @Opengl32 proc(rc: ^u8) => ^raw
+
+#Kernel32: extern{}
+#Gdi32: extern{}
+#User32: extern{}
+#Opengl32: extern{}
+$link_system_library{"Opengl32.lib"}
+$link_system_library{"User32.lib"}
+$link_system_library{"Gdi32.lib"}

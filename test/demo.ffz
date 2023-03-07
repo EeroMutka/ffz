@@ -2,6 +2,7 @@
 #Array: import(":Array")
 #str: import(":String")
 
+#Window: import(":Window")
 #GL: import(":OpenGL")
 
 // #RL: import(":vendor/raylib")
@@ -37,429 +38,45 @@ $link_library{"build/c_things.obj"}
 // tetris? breakout? pong? snake?
 
 
-
-
-
-#str_to_utf16: proc(str: string, allocator: ^Basic.Allocator) => []u16 {
-	out: []u16
-	if str.len == 0 { ret out }
-	
-	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
-	Basic.assert(len != 0)
-	
-	out = Basic.slice_make[u16](uint(len) + 1, allocator)
-	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
-	
-	// null terminator
-	out[len] = 0
-	
-	ret out
-}
-
-#WNDPROC: proc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: s64) => s64
-
-#my_window_proc: WNDPROC {
-	out: ^WindowEvents(GetWindowLongPtrW(in.hWnd, GWLP_USERDATA))
-	
-	if in.uMsg == WM_CLOSE || in.uMsg == WM_QUIT {
-		out.quit = true
-	}
-	
-	ret DefWindowProcW(in.hWnd, in.uMsg, in.wParam, in.lParam)
-}
-
-#WINDOW_CLASS_NAME: "ffz_window_module_class_name"
-
-#register_window_class: proc(temp: ^Basic.Allocator) {
-	// Windows requires us to first register a "window class" with a given name,
-	// which will be used in subsequent calls to CreateWindowExW()
-	
-	hInstance: GetModuleHandleW(^u16(0))
-	
-	#COLOR_BACKGROUND: 1
-	bg_brush: HBRUSH(COLOR_BACKGROUND) //CreateSolidBrush(0)
-	
-	wnd_class: WNDCLASSEXW
-	wnd_class.cbSize         = u32(size_of(WNDCLASSEXW)) // TODO: fix size_of
-	wnd_class.style          = bit_or(CS_HREDRAW, bit_or(CS_VREDRAW, CS_OWNDC)) // CS_OWNDC is required for OpenGL
-	wnd_class.lpfnWndProc    = my_window_proc
-	wnd_class.hInstance      = hInstance
-	//wnd_class.hIcon
-	wnd_class.hCursor        = LoadCursorW(HINSTANCE(0), ^u16(IDC_ARROW))
-	wnd_class.hbrBackground  = bg_brush
-	
-	wnd_class.lpszClassName  = str_to_utf16(WINDOW_CLASS_NAME, temp).ptr
-	
-	atom: RegisterClassExW(&wnd_class)
-	Basic.assert(atom != 0)
-}
-
-// TODO: implicit temp allocator
-#create_window: proc(width: uint, height: uint, name: string, temp: ^Basic.Allocator) => HWND {
-	// TODO: multiple windows?
-	register_window_class(temp)
-	
-	x: s32(100)
-	y: s32(100)
-	
-	hwnd: CreateWindowExW(0
-		str_to_utf16(WINDOW_CLASS_NAME, temp).ptr
-		str_to_utf16(name, temp).ptr
-		WS_OVERLAPPEDWINDOW
-		x, y
-		s32(width)
-		s32(height)
-		HWND(0)
-		HMENU(0)
-		HINSTANCE(0)
-		^raw(0))
-	
-	// failed
-	if hwnd == HWND(0) { dbgbreak }
-	
-	// should we do this here or after?
-	UpdateWindow(hwnd)
-	ShowWindow(hwnd, SW_SHOW)
-	
-	ret hwnd
-}
-
-#WindowEvents: struct {
-	quit: bool
-}
-
-#poll_window_events: proc(window: HWND) => WindowEvents {
-	
-	out: WindowEvents
-	
-	for loop: true, loop, {
-		msg: MSG
-		
-		result: PeekMessageW(&msg, window, 0, 0, PM_REMOVE)
-		if result != 0 {
-			TranslateMessage(&msg)
-			
-			// https://stackoverflow.com/questions/117792/best-method-for-storing-this-pointer-for-use-in-wndproc
-			SetWindowLongPtrW(window, GWLP_USERDATA, s64(&out))
-			DispatchMessageW(&msg)
-		}
-		else {
-			loop = false // TODO: continue / break
-		}
-	}
-	
-	ret out
-}
-
-
-#WinMain: proc(hInstance: HINSTANCE, hPrevInstance: HINSTANCE, lpCmdLine: ^u8, nShowCmd: u32) => u32 {
-//#main: proc() {
+#WinMain: proc(hInstance: ^raw, hPrevInstance: ^raw, lpCmdLine: ^u8, nShowCmd: u32) => u32 {
 	
 	arena_base: ^u8(Basic.TiB(2))
 	arena: Basic.arena_make_virtual_reserve_fixed(Basic.MiB(2), arena_base)
 	temp: &arena.allocator
 	
-	hwnd: create_window(512, 512, "Hulabaloo", temp)
-	//OutputDebugStringA("Hello\n".ptr)
-	
-	// init GL
-	
-	// https://www.khronos.org/opengl/wiki/Creating_an_OpenGL_Context_(WGL)
-	
-	hdc: GetDC(hwnd)
-	
-	pfd: PIXELFORMATDESCRIPTOR
-	pfd.nSize = u16(size_of(PIXELFORMATDESCRIPTOR))
-	pfd.nVersion = 1
-	pfd.dwFlags = bit_or(PFD_DRAW_TO_WINDOW, bit_or(PFD_SUPPORT_OPENGL, PFD_DOUBLEBUFFER))
-	pfd.iPixelType = PFD_TYPE_RGBA
-	pfd.cColorBits = 32
-	pfd.cDepthBits = 24 // Number of bits for the depthbuffer
-	pfd.cStencilBits = 8 // Number of bits for the stencilbuffer
-	pfd.iLayerType = PFD_MAIN_PLANE
-	
-	pixel_format: ChoosePixelFormat(hdc, &pfd)
-	if pixel_format == 0 {dbgbreak}
-	
-	SetPixelFormat(hdc, pixel_format, &pfd)
-	
-	dummy_wgl_context: wglCreateContext(hdc) // NOTE: must be called after SetPixelFormat
-	if dummy_wgl_context == HGLRC(0) {dbgbreak}
-	if wglMakeCurrent(hdc, dummy_wgl_context) == 0 {dbgbreak}
-	
-	wglCreateContextAttribsARB: wglCreateContextAttribsARB_Proc(wglGetProcAddress("wglCreateContextAttribsARB".ptr))
-	
-	#GL_VERSION_MAJOR: s32(3)
-	#GL_VERSION_MINOR: s32(3)
-	
-	attribs_list: [?]s32{
-		WGL_CONTEXT_MAJOR_VERSION_ARB, GL_VERSION_MAJOR
-		WGL_CONTEXT_MINOR_VERSION_ARB, GL_VERSION_MINOR
-		WGL_CONTEXT_FLAGS_ARB, 0
-		WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB
-		0 // list terminator
-	}
-	
-	wgl_context: wglCreateContextAttribsARB(hdc, HGLRC(0), &attribs_list[0])
-	if wgl_context == HGLRC(0) {dbgbreak}
-	
-	// Now that we have created the new context (using the dummy context), we can delete the dummy context
-	
-	if wglMakeCurrent(hdc, HGLRC(0)) == 0 {dbgbreak}
-	//wglDeleteContext(dummy_wgl_context)
-	if wglMakeCurrent(hdc, wgl_context) == 0 {dbgbreak}
+	window: Window.create(512, 512, "Hulabaloo", temp)
 	
 	// -----
 	
 	gl: GL.API
-	GL.load_api_procs(&gl, GL.Version._3_3)
+	GL.load(&gl, window, GL.Version._3_3)
 	
 	vao: GL.GLuint
 	gl.GenVertexArrays(1, &vao)
 	gl.BindVertexArray(vao)
 	
-	//glGetString: GL.PFNGLGETSTRINGPROC(GetProcAddress(opengl_dll, "glGetString".ptr))
+	my_float: f32(0.25)
+	my_float = 0.52
 	
-	// TODO: extract the OpenGL version we got from the version string? hmm.. but we can only get a version >= what we asked for, so we don't need to do this.
-	
-	//gl_version_string: glGetString(GL_VERSION)
-	
-	//FreeLibrary(opengl_dll)
+	Window.show(window)
 	
 	quit: false
 	for, !quit {
-		events: poll_window_events(hwnd)
+		events: Window.poll_events(window)
 		
 		if events.quit {
-			OutputDebugStringA("quittt\n".ptr)
 			quit = true
 		}
-		
-		// draw
-		
-		gl.BindVertexArray(vao)
-		gl.ClearColor(0x3f800000, 0x3f000000, 0x3f800000, 0x3f800000)
-		gl.Clear(GL.COLOR_BUFFER_BIT)
-		
-		if SwapBuffers(hdc) == 0 {dbgbreak}
+		else {
+			// draw
+			
+			gl.BindVertexArray(vao)
+			gl.ClearColor(.8, .0, .0, 1.)
+			gl.Clear(GL.COLOR_BUFFER_BIT)
+			
+			if !GL.swap_buffers(window) {dbgbreak}
+		}
 	}
 	
-	ret 0 // technically incorrect I guess
-	
-	/*
-	numbers: Array.make[uint](temp)
-	
-	my_string: str.from_int(-2900, temp)
-	print_string(my_string)
-	
-	my_strings: [?]string{"the", "modulo"}
-	s: str.joinf("%* %* operator (%%) returns %1 remainder of a division. %* rocks!", my_strings[,], temp)
-	print_string(s)
-	*/
-	
+	ret 0
 }
-
-// ------------------ Windows.h ------------------
-
-#HINSTANCE: ^raw
-#HICON: ^raw
-#HCURSOR: ^raw
-#HBRUSH: ^raw
-#HWND: ^raw
-#HMODULE: ^raw
-#HMENU: ^raw
-
-#IDC_ARROW: 32512
-
-#ATOM: u16
-
-#CP_UTF8: u32(65001)
-#MB_ERR_INVALID_CHARS: u32(0x00000008)
-#PM_REMOVE: u32(0x0001)
-#WS_OVERLAPPEDWINDOW: u32(0x00cf0000)
-#SW_SHOW: s32(5)
-
-#CS_VREDRAW:          u32(0x0001)
-#CS_HREDRAW:          u32(0x0002)
-//#CS_DBLCLKS:          u32(0x0008)
-#CS_OWNDC:            u32(0x0020)
-//#CS_CLASSDC:          u32(0x0040)
-//#CS_PARENTDC:         u32(0x0080)
-//#CS_NOCLOSE:          u32(0x0200)
-//#CS_SAVEBITS:         u32(0x0800)
-//#CS_BYTEALIGNCLIENT:  u32(0x1000)
-//#CS_BYTEALIGNWINDOW:  u32(0x2000)
-//#CS_GLOBALCLASS:      u32(0x4000)
-
-#SIZE_RESTORED: u64(0)
-#SIZE_MINIMIZED: u64(1)
-#SIZE_MAXIMIZED: u64(2)
-
-#GWLP_USERDATA: s32(0xffffffeb)
-
-#WM_CLOSE: u32(0x0010)
-#WM_QUIT: u32(0x0012)
-#WM_SYSCOMMAND: u32(0x0112)
-#WM_ACTIVATEAPP: u32(0x001C)
-#WM_SYSKEYDOWN: u32(0x0104)
-#WM_KEYDOWN: u32(0x0100)
-#WM_SYSKEYUP: u32(0x0105)
-#WM_KEYUP: u32(0x0101)
-#WM_SYSCHAR: u32(0x0106)
-#WM_CHAR: u32(0x0102)
-#WM_SETFOCUS: u32(0x0007)
-#WM_KILLFOCUS: u32(0x0008)
-#WM_PAINT: u32(0x000F)
-#WM_LBUTTONDOWN: u32(0x0201)
-#WM_LBUTTONUP: u32(0x0202)
-#WM_RBUTTONDOWN: u32(0x0204)
-#WM_RBUTTONUP: u32(0x0205)
-#WM_MBUTTONDOWN: u32(0x0207)
-#WM_MBUTTONUP: u32(0x0208)
-#WM_MOUSEMOVE: u32(0x0200)
-#WM_MOUSEWHEEL: u32(0x020A)
-#WM_INPUT: u32(0x00FF)
-#WM_SIZE: u32(0x0005)
-#WM_MOVE: u32(0x0003)
-#WM_EXITSIZEMOVE: u32(0x0232)
-#WM_DPICHANGED: u32(0x02E0)
-#WM_DROPFILES: u32(0x0233)
-#WM_SETCURSOR: u32(0x0020)
-
-#WNDCLASSEXW: struct {
-	cbSize: u32
-	style: u32
-	lpfnWndProc: WNDPROC
-	cbClsExtra: s32
-	cbWndExtra: s32
-	hInstance: HINSTANCE
-	hIcon: HICON
-	hCursor: HCURSOR
-	hbrBackground: HBRUSH
-	lpszMenuName: ^u16
-	lpszClassName: ^u16
-	hIconSm: HICON
-}
-
-#POINT: struct {
-	x: s32
-	y: s32
-}
-
-#MSG: struct {
-	hwnd: HWND
-	message: u32
-	wParam: u64
-	lParam: s64
-	time: u32
-	pt: POINT
-}
-
-#CreateWindowExW: @User32 proc(
-	dwExStyle: u32
-	lpClassName: ^u16
-	lpWindowName: ^u16
-	dwStyle: u32
-	X: s32
-	Y: s32
-	nWidth: s32
-	nHeight: s32
-	hWndParent: HWND
-	hMenu: HMENU
-	hInstance: HINSTANCE
-	lpParam: ^raw) => HWND
-
-#MultiByteToWideChar: @Kernel32 proc(CodePage: u32, dwFlags: u32, lpMultiByteStr: ^u8, cbMultiByte: s32, lpWideCharStr: ^u16, cchWideChar: s32) => s32
-#GetModuleHandleW: @Kernel32 proc(lpModuleName: ^u16) => HMODULE
-#OutputDebugStringA: @Kernel32 proc(lpOutputString: ^u8)
-//#GetLastError: @Kernel32 proc => u32
-
-#UpdateWindow: @User32 proc(hWnd: HWND) => s32
-#ShowWindow: @User32 proc(hWnd: HWND, nCmdShow: s32) => s32
-#RegisterClassExW: @User32 proc(lpWndClass: ^WNDCLASSEXW) => ATOM
-#LoadCursorW: @User32 proc(hInstance: HINSTANCE, lpCursorName: ^u16) => HCURSOR
-#DefWindowProcW: @User32 proc(hWnd: HWND, Msg: u32, wParam: u64, lParam: s64) => s64
-#PeekMessageW: @User32 proc(lpMsg: ^MSG, hWnd: HWND, wMsgFilterMin: u32, wMsgFilterMax: u32, wRemoveMsg: u32) => s32
-#TranslateMessage: @User32 proc(lpMsg: ^MSG) => s32
-#DispatchMessageW: @User32 proc(lpMsg: ^MSG) => s64
-#GetWindowLongPtrW: @User32 proc(hWnd: HWND, nIndex: s32) => s64
-#SetWindowLongPtrW: @User32 proc(hWnd: HWND, nIndex: s32, dwNewLong: s64) => s64
-
-//#CreateSolidBrush: @Gdi32 proc(color: u32) => HBRUSH
-
-// TODO: improve FFZ with this
-#Gdi32: extern{}
-#User32: extern{}
-#Kernel32: extern{}
-$link_system_library{"User32.lib"}
-$link_system_library{"Gdi32.lib"}
-
-// -------------------- OpenGL stuff --------------------
-
-#PFD_TYPE_RGBA: u8(0)
-#PFD_MAIN_PLANE: u8(0)
-#PFD_DRAW_TO_WINDOW: u32(0x00000004)
-#PFD_SUPPORT_OPENGL: u32(0x00000020)
-#PFD_DOUBLEBUFFER: u32(0x00000001)
-
-#PIXELFORMATDESCRIPTOR: struct {
-	nSize: u16
-	nVersion: u16
-	dwFlags: u32
-	iPixelType: u8
-	cColorBits: u8
-	cRedBits: u8
-	cRedShift: u8
-	cGreenBits: u8
-	cGreenShift: u8
-	cBlueBits: u8
-	cBlueShift: u8
-	cAlphaBits: u8
-	cAlphaShift: u8
-	cAccumBits: u8
-	cAccumRedBits: u8
-	cAccumGreenBits: u8
-	cAccumBlueBits: u8
-	cAccumAlphaBits: u8
-	cDepthBits: u8
-	cStencilBits: u8
-	cAuxBuffers: u8
-	iLayerType: u8
-	bReserved: u8
-	dwLayerMask: u32
-	dwVisibleMask: u32
-	dwDamageMask: u32
-}
-
-#Opengl32: extern{}
-$link_system_library{"Opengl32.lib"}
-
-#HDC: ^raw
-#HGLRC: ^raw
-//#HMODULE: ^raw
-
-#GetDC: @User32 proc(hWnd: HWND) => HDC
-
-#SwapBuffers: @Gdi32 proc(hdc: HDC) => s32
-#ChoosePixelFormat: @Gdi32 proc(hdc: HDC, ppfd: ^PIXELFORMATDESCRIPTOR) => s32
-#SetPixelFormat: @Gdi32 proc(hdc: HDC, format: s32, ppfd: ^PIXELFORMATDESCRIPTOR) => s32
-#wglCreateContext: @Opengl32 proc(hdc: HDC) => HGLRC
-#wglDeleteContext: @Opengl32 proc(rc: HGLRC) => s32
-#wglMakeCurrent: @Opengl32 proc(hdc: HDC, rc: HGLRC) => s32
-#wglGetProcAddress: @Opengl32 proc(rc: ^u8) => ^raw
-
-#WGL_CONTEXT_MAJOR_VERSION_ARB:           s32(0x2091)
-#WGL_CONTEXT_MINOR_VERSION_ARB:           s32(0x2092)
-#WGL_CONTEXT_LAYER_PLANE_ARB:             s32(0x2093)
-#WGL_CONTEXT_FLAGS_ARB:                   s32(0x2094)
-#WGL_CONTEXT_PROFILE_MASK_ARB:            s32(0x9126)
-
-#WGL_CONTEXT_DEBUG_BIT_ARB:               s32(0x0001)
-#WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB:  s32(0x0002)
-
-#WGL_CONTEXT_CORE_PROFILE_BIT_ARB:           s32(0x00000001)
-#WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB:  s32(0x00000002)
-
-#wglCreateContextAttribsARB_Proc: proc(hDC: HDC, hshareContext: HGLRC, attribList: ^s32) => HGLRC
-
-#GL_VERSION: u32(0x1F02)
