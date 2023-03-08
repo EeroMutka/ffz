@@ -225,7 +225,7 @@
 	memmove(dst.ptr, src.ptr, src.len * size_of(T))
 }
 
-#set: proc[T](dst: []T, value: T) {
+#fill: proc[T](dst: []T, value: T) {
 	dbgbreak
 }
 
@@ -251,7 +251,6 @@
 	ret out
 }
 
-
 #Allocator: struct {
 	_proc: AllocatorProc
 }
@@ -275,6 +274,65 @@
 	if !x { dbgbreak }
 }
 
+// TODO: unicode support (and printing > 4GB strings?)
+#print_string: proc(str: string) {
+	num_chars_written: u32
+	WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), str.ptr, u32(str.len), &num_chars_written, ^raw(0))
+}
+
+@|thread_local
+_temp_arena: Arena
+
+#temp_alc: proc() => ^Allocator {}
+
+// WARNING: call `temp_get_mark` and `temp_set_mark` only when you know exactly what you're doing.
+// The scope must be completely self-contained; it must not leak anything to the outside world.
+// This is an easy footgun! (include an example)
+#temp_get_mark: proc() {
+	
+}
+#temp_set_mark: proc() {
+	
+}
+
+
+#thread_init_basic: proc() {
+}
+
+#thread_deinit_basic: proc() {
+}
+
+#entry: @extern{} proc(args: []string) => u32
+
+
+// The Basic-module overrides the main entry point for your program
+// so that you don't have to explicitly call `thread_init_basic()` every time
+// you write a new program, and to make dealing with command-line arguments a bit nicer.
+// `ffz_entry` is the true entry point, `entry` is just what this module expects.
+//
+// The reason we're calling it "entry" and not "main" is just to make
+// development less error-prone as "main" has a special meaning in the C world,
+// which is also one of the compilation targets that FFZ supports.
+// The "m" word is strictly prohibited over here!
+
+// @|module_defined_entry exports the procedure symbol, even though it's inside a to-be-imported module, but
+// only when we're building an executable. It ignores it when building a static/dynamic library
+
+// how would we do DLL/static libs?
+// thread_init_basic/thread_deinit_basic must be called if the code is using the Basic module. That's it!
+
+@|module_defined_entry
+@|debugger_skip // this could be here to avoid stepping into this procedure when pressing F10 in a debugger
+#ffz_entry: proc(argc: u32, argv: ^^u8) => u32 {
+	thread_init_basic()
+	
+	args: []string
+	exit_code: entry(args)
+	
+	// thread_deinit_basic() // let the OS take care of freeing everything
+	ret exit_code
+}
+
 // -- OS-specific defines -----------------------------------------------------
 
 #SYSTEM_INFO: struct {
@@ -290,11 +348,17 @@
 	wProcessorRevision: u16
 }
 
+#HANDLE: ^raw
+
 #memmove: @extern{} proc(dst: ^raw, src: ^raw, size: uint)
 #memset: @extern{} proc(str: ^raw, c: u32, n: uint)
 #VirtualAlloc: @extern{} proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => ^u8
 #VirtualFree: @extern{} proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => u32
 #GetSystemInfo: @extern{} proc(lpSystemInfo: ^SYSTEM_INFO)
+#WriteConsoleA: @extern{} proc(hConsoleOutput: HANDLE, lpBuffer: ^raw, nNumberOfCharsToWrite: u32, lpNumberOfCharsWritten: ^u32, lpReserved: ^raw) => s32
+#GetStdHandle: @extern{} proc(nStdHandle: u32) => HANDLE
+
+#STD_OUTPUT_HANDLE: u32(0xfffffff5)
 
 #MEM_RESERVE: u32(8192)
 #MEM_COMMIT: u32(4096)

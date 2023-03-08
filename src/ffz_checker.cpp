@@ -193,8 +193,6 @@ bool ffz_type_can_be_checked_for_equality(ffzType* type) {
 void _print_constant(ffzProject* p, fArray(u8)* b, ffzCheckedExpr constant);
 
 void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
-	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
-
 	switch (type->tag) {
 	case ffzTypeTag_Invalid: { f_str_printf(b, "<invalid>"); } break;
 	case ffzTypeTag_Module: { f_str_printf(b, "<module>"); } break;
@@ -420,7 +418,7 @@ static ffzOk add_fields_to_field_from_name_map(ffzChecker* c, ffzType* root_type
 		}
 
 		if (field->decl.node) {
-			if (ffz_get_tag(c->project, field->decl, ffz_builtin_type(c, ffzKeyword_ex_using))) {
+			if (ffz_get_tag(c->project, field->decl, ffz_builtin_type(c, ffzKeyword_using))) {
 				TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
 			}
 		}
@@ -733,10 +731,10 @@ ffzType* ffz_make_type_ptr(ffzChecker* c, ffzType* pointer_to) {
 }
 
 OPT(ffzType*) ffz_builtin_type(ffzChecker* c, ffzKeyword keyword) {
-	if (keyword >= ffzKeyword_FIRST_TYPE && keyword <= ffzKeyword_LAST_TYPE) {
-		return c->builtin_types[keyword - ffzKeyword_FIRST_TYPE];
-	}
-	return NULL;
+	return c->builtin_types[keyword];
+	//if (keyword >= ffzKeyword_FIRST_TYPE && keyword <= ffzKeyword_LAST_TYPE) {
+	//}
+	//return NULL;
 }
 
 ffzType* ffz_make_type_slice(ffzChecker* c, ffzType* elem_type) {
@@ -939,8 +937,7 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 		// Array initialization
 		ffzType* elem_type = result->type->tag == ffzTypeTag_Slice ? result->type->Slice.elem_type : result->type->FixedArray.elem_type;
 
-		fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
-		fArray(ffzCheckedExpr) elems_chk = f_array_make<ffzCheckedExpr>(temp);
+		fArray(ffzCheckedExpr) elems_chk = f_array_make<ffzCheckedExpr>(f_temp_alc());
 		bool all_elems_are_constant = true;
 
 		//CheckInfer elem_infer = infer_target_type(infer, elem_type);
@@ -1222,6 +1219,17 @@ static ffzOk check_tag(ffzChecker* c, ffzNodeInst tag) {
 		ERR(c, tag.node, "Tag was not a struct literal.", "");
 	}
 
+	if (chk.type == ffz_builtin_type(c, ffzKeyword_extern)) {
+		fString library = chk.const_val->record_fields[0].string_zero_terminated;
+		f_array_push(&c->extern_libraries, library);
+		// hmm... if we have a lot of these calls, that might be a bit slow, since we're calling the OS functions
+		//if (!f_files_path_to_canonical(c->directory, library,
+	}
+	else if (chk.type == ffz_builtin_type(c, ffzKeyword_sys_extern)) {
+		fString library = chk.const_val->record_fields[0].string_zero_terminated;
+		f_array_push(&c->extern_sys_libraries, library);
+	}
+
 	auto tags = f_map64_insert(&c->all_tags_of_type, chk.type->hash, {}, fMapInsert_DoNotOverride);
 	if (tags.added) *tags._unstable_ptr = f_array_make<ffzNodeInst>(c->alc);
 	f_array_push(tags._unstable_ptr, tag);
@@ -1245,6 +1253,76 @@ ffzNodeInst ffz_get_instantiated_inst(ffzChecker* c, ffzNodeInst node) {
 	return node;
 }
 
+struct ffzRecordBuilder {
+	ffzType* record;
+	fArray(ffzTypeRecordField) fields;
+};
+
+static ffzRecordBuilder ffz_record_builder_init(ffzChecker* c, ffzType* record, uint fields_cap) {
+	return { record, f_array_make_cap<ffzTypeRecordField>(fields_cap, c->alc) };
+}
+
+static void ffz_record_builder_add_field(ffzChecker* c, ffzRecordBuilder* b, fString name, ffzType* field_type, /*optional*/ ffzNodeOpDeclareInst decl) {
+	ffzTypeRecordField field;
+	field.name = name;
+	field.offset = b->record->Record.is_union ? 0 : F_ALIGN_UP_POW2(b->record->size, field_type->align);
+	field.type = field_type;
+	field.decl = decl;
+	f_array_push(&b->fields, field);
+	b->record->align = F_MAX(b->record->align, field_type->align); // the alignment of a record is that of the largest field
+	b->record->size = field.offset + field_type->size;
+}
+
+static ffzOk ffz_record_builder_finish(ffzChecker* c, ffzRecordBuilder* b) {
+	b->record->record_fields = b->fields.slice;
+	b->record->size = F_ALIGN_UP_POW2(b->record->size, b->record->align); // Align the size up to the largest member alignment
+	TRY(add_fields_to_field_from_name_map(c, b->record, b->record));
+	return FFZ_OK;
+}
+
+//{
+//	uint i = 0;
+//	u32 offset = 0;
+//	u32 max_align = 0;
+//	for FFZ_EACH_CHILD_INST(n, inst) {
+//		if (n.node->kind != ffzNodeKind_Declare) ERR(c, n.node, "Expected a declaration.");
+//
+//		ffzCheckedExpr chk;
+//		TRY(check_node(c, n, NULL, InferFlag_RequireConstant, &chk));
+//
+//		ffzType* member_type = ffz_ground_type(chk); // ffz_decl_get_type(c, decl);
+//		F_ASSERT(ffz_type_is_grounded(member_type));
+//		max_align = F_MAX(max_align, member_type->align);
+//
+//		fString name = n.node->Op.left->Identifier.name;
+//		record_type->record_fields[i] = ffzTypeRecordField{
+//			name,                                                    // `name`
+//			member_type,                                             // `type`
+//			inst.node->Record.is_union ? 0 : offset,                 // `offset`
+//			n,                                                       // `decl`
+//		};
+//		F_ASSERT(!inst.node->Record.is_union); // uhh the logic for calculating union offsets is not correct
+//		offset = F_ALIGN_UP_POW2(offset + member_type->size, member_type->align);
+//		i++;
+//	}
+//
+//	record_type->size = F_ALIGN_UP_POW2(offset, max_align); // Align the struct size up to the largest member alignment
+//	record_type->align = max_align; // :ComputeRecordAlignment
+//	TRY(add_fields_to_field_from_name_map(c, record_type, record_type));
+//}
+
+static ffzNodeInst ffz_make_pseudo_node(ffzChecker* c) {
+	ffzNode* n = f_mem_clone(ffzNode{}, c->alc);
+	n->id.global_id = --c->next_pseudo_node_idx; // this is supposed to underflow and to not collide with real nodes
+	return { n, NULL };
+}
+
+static ffzType* ffz_make_pseudo_record_type(ffzChecker* c) {
+	ffzType t = { ffzTypeTag_Record };
+	t.unique_node = ffz_make_pseudo_node(c); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+	return ffz_make_type(c, t);
+}
+
 ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 	ffzChecker* c = f_mem_clone(ffzChecker{}, allocator);	
 	c->project = p;
@@ -1261,31 +1339,31 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 	c->type_from_hash = f_map64_make<ffzType*>(c->alc);
 	c->all_tags_of_type = f_map64_make<fArray(ffzNodeInst)>(c->alc);
 	c->poly_from_hash = f_map64_make<ffzPolymorph*>(c->alc);
+	c->extern_libraries = f_array_make<fString>(c->alc);
+	c->extern_sys_libraries = f_array_make<fString>(c->alc);
 
 	{
-		u32 t0 = ffzKeyword_FIRST_TYPE;
-		
-		c->builtin_types[ffzKeyword_u8 - t0] = ffz_make_type(c, { ffzTypeTag_Uint, 1 });
-		c->builtin_types[ffzKeyword_u16 - t0] = ffz_make_type(c, { ffzTypeTag_Uint, 2 });
-		c->builtin_types[ffzKeyword_u32 - t0] = ffz_make_type(c, { ffzTypeTag_Uint, 4 });
-		c->builtin_types[ffzKeyword_u64 - t0] = ffz_make_type(c, { ffzTypeTag_Uint, 8 });
-		c->builtin_types[ffzKeyword_s8 - t0] = ffz_make_type(c, { ffzTypeTag_Sint, 1 });
-		c->builtin_types[ffzKeyword_s16 - t0] = ffz_make_type(c, { ffzTypeTag_Sint, 2 });
-		c->builtin_types[ffzKeyword_s32 - t0] = ffz_make_type(c, { ffzTypeTag_Sint, 4 });
-		c->builtin_types[ffzKeyword_s64 - t0] = ffz_make_type(c, { ffzTypeTag_Sint, 8 });
-		c->builtin_types[ffzKeyword_f32 - t0] = ffz_make_type(c, { ffzTypeTag_Float, 4 });
-		c->builtin_types[ffzKeyword_f64 - t0] = ffz_make_type(c, { ffzTypeTag_Float, 8 });
-		c->builtin_types[ffzKeyword_uint - t0] = ffz_make_type(c, { ffzTypeTag_DefaultUint, p->pointer_size });
-		c->builtin_types[ffzKeyword_int - t0] = ffz_make_type(c, { ffzTypeTag_DefaultSint, p->pointer_size });
-		c->builtin_types[ffzKeyword_raw - t0] = ffz_make_type(c, { ffzTypeTag_Raw });
-		c->builtin_types[ffzKeyword_bool - t0] = ffz_make_type(c, { ffzTypeTag_Bool, 1 });
+		c->builtin_types[ffzKeyword_u8] = ffz_make_type(c, { ffzTypeTag_Uint, 1 });
+		c->builtin_types[ffzKeyword_u16] = ffz_make_type(c, { ffzTypeTag_Uint, 2 });
+		c->builtin_types[ffzKeyword_u32] = ffz_make_type(c, { ffzTypeTag_Uint, 4 });
+		c->builtin_types[ffzKeyword_u64] = ffz_make_type(c, { ffzTypeTag_Uint, 8 });
+		c->builtin_types[ffzKeyword_s8] = ffz_make_type(c, { ffzTypeTag_Sint, 1 });
+		c->builtin_types[ffzKeyword_s16] = ffz_make_type(c, { ffzTypeTag_Sint, 2 });
+		c->builtin_types[ffzKeyword_s32] = ffz_make_type(c, { ffzTypeTag_Sint, 4 });
+		c->builtin_types[ffzKeyword_s64] = ffz_make_type(c, { ffzTypeTag_Sint, 8 });
+		c->builtin_types[ffzKeyword_f32] = ffz_make_type(c, { ffzTypeTag_Float, 4 });
+		c->builtin_types[ffzKeyword_f64] = ffz_make_type(c, { ffzTypeTag_Float, 8 });
+		c->builtin_types[ffzKeyword_uint] = ffz_make_type(c, { ffzTypeTag_DefaultUint, p->pointer_size });
+		c->builtin_types[ffzKeyword_int] = ffz_make_type(c, { ffzTypeTag_DefaultSint, p->pointer_size });
+		c->builtin_types[ffzKeyword_raw] = ffz_make_type(c, { ffzTypeTag_Raw });
+		c->builtin_types[ffzKeyword_bool] = ffz_make_type(c, { ffzTypeTag_Bool, 1 });
 
 		c->module_type = ffz_make_type(c, { ffzTypeTag_Module });
 		c->type_type = ffz_make_type(c, { ffzTypeTag_Type });
 
 		{
 			ffzType* string = ffz_make_type(c, { ffzTypeTag_String, p->pointer_size * 2 });
-			c->builtin_types[ffzKeyword_string - t0] = string;
+			c->builtin_types[ffzKeyword_string] = string;
 
 			string->record_fields = f_make_slice_garbage<ffzTypeRecordField>(2, c->alc);
 			string->record_fields[0] = { F_LIT("ptr"), ffz_make_type_ptr(c, ffz_builtin_type(c, ffzKeyword_u8)), 0, NULL };
@@ -1293,48 +1371,21 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 			add_fields_to_field_from_name_map(c, string, string, 0);
 		}
 
-		// extras
-		// @copypaste
-		
-		// it'd be neat if we could just parse and check the builtin definition directly here:
-		/*
-			struct { name: string }
-		*/
 		{
-			ffzType type = { ffzTypeTag_Record };
-			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
-			type.unique_node.node->id.global_id = -1; // special magic value...
-
-			type.record_fields = f_make_slice_garbage<ffzTypeRecordField>(1, c->alc);
-			type.record_fields[0] = { F_LIT("filepath"), ffz_builtin_type(c, ffzKeyword_string), 0, NULL };
-			
-			c->builtin_types[ffzKeyword_ex_link_library - t0] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+			c->builtin_types[ffzKeyword_extern] = ffz_make_pseudo_record_type(c);
+			ffzRecordBuilder b = ffz_record_builder_init(c, c->builtin_types[ffzKeyword_extern], 1);
+			ffz_record_builder_add_field(c, &b, F_LIT("library"), ffz_builtin_type(c, ffzKeyword_string), {});
+			ffz_record_builder_finish(c, &b);
 		}
 
 		{
-			ffzType type = { ffzTypeTag_Record };
-			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
-			type.unique_node.node->id.global_id = -2; // special magic value...
-
-			type.record_fields = f_make_slice_garbage<ffzTypeRecordField>(1, c->alc);
-			type.record_fields[0] = { F_LIT("filepath"), ffz_builtin_type(c, ffzKeyword_string), 0, NULL };
-
-			c->builtin_types[ffzKeyword_ex_link_system_library - t0] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
+			c->builtin_types[ffzKeyword_sys_extern] = ffz_make_pseudo_record_type(c);
+			ffzRecordBuilder b = ffz_record_builder_init(c, c->builtin_types[ffzKeyword_sys_extern], 1);
+			ffz_record_builder_add_field(c, &b, F_LIT("library"), ffz_builtin_type(c, ffzKeyword_string), {});
+			ffz_record_builder_finish(c, &b);
 		}
 
-		{
-			ffzType type = { ffzTypeTag_Record };
-			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
-			type.unique_node.node->id.global_id = -3; // special magic value...
-			c->builtin_types[ffzKeyword_ex_using - t0] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
-		}
-
-		{
-			ffzType type = { ffzTypeTag_Record };
-			type.unique_node.node = f_mem_clone(ffzNode{}, c->alc);
-			type.unique_node.node->id.global_id = -4; // special magic value...
-			c->builtin_types[ffzKeyword_ex_extern - t0] = ffz_make_type(c, type); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
-		}
+		c->builtin_types[ffzKeyword_using] = ffz_make_pseudo_record_type(c);
 	}
 
 	return c;
@@ -1457,7 +1508,7 @@ static ffzOk check_proc_type(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* re
 		}
 	}
 	
-	if (ffz_get_tag(c->project, inst, ffz_builtin_type(c, ffzKeyword_ex_extern))) {
+	if (ffz_get_tag(c->project, inst, ffz_builtin_type(c, ffzKeyword_extern))) {
 		if (proc_type.tag == ffzTypeTag_PolyProc) ERR(c, inst.node, "Polymorphic procedures cannot be @extern.");
 	
 		// if it's an extern proc, then don't turn it into a type type!!
@@ -1701,9 +1752,9 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 			case ffzKeyword_raw: {
 				result = make_type_constant(c, ffz_builtin_type(c, ffzKeyword_raw));
 			} break;
-			case ffzKeyword_ex_extern: {
-				result = make_type_constant(c, ffz_builtin_type(c, ffzKeyword_ex_extern));
-			} break;
+			//case ffzKeyword_extern: {
+			//	result = make_type_constant(c, ffz_builtin_type(c, ffzKeyword_extern));
+			//} break;
 			default: F_ASSERT(false);
 			}
 		}
@@ -1921,36 +1972,52 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 
 			// IMPORTANT: We're modifying the type AFTER it was created and hash-deduplicated. So, the things we modify must not change the type hash!
 			ffzType* record_type = ffz_ground_type(result);
-			record_type->record_fields = f_make_slice_garbage<ffzTypeRecordField>(ffz_get_child_count(inst.node), c->alc);
+			ffzRecordBuilder b = ffz_record_builder_init(c, record_type, 0);
 
-			uint i = 0;
-			u32 offset = 0;
-			u32 max_align = 0;
 			for FFZ_EACH_CHILD_INST(n, inst) {
 				if (n.node->kind != ffzNodeKind_Declare) ERR(c, n.node, "Expected a declaration.");
-
+				fString name = n.node->Op.left->Identifier.name;
+				
 				ffzCheckedExpr chk;
 				TRY(check_node(c, n, NULL, InferFlag_RequireConstant, &chk));
-
-				ffzType* member_type = ffz_ground_type(chk); // ffz_decl_get_type(c, decl);
-				F_ASSERT(ffz_type_is_grounded(member_type));
-				max_align = F_MAX(max_align, member_type->align);
-
-				fString name = n.node->Op.left->Identifier.name;
-				record_type->record_fields[i] = ffzTypeRecordField{
-					name,                                                    // `name`
-					member_type,                                             // `type`
-					inst.node->Record.is_union ? 0 : offset,                 // `offset`
-					n,                                                       // `decl`
-				};
-				F_ASSERT(!inst.node->Record.is_union); // uhh the logic for calculating union offsets is not correct
-				offset = F_ALIGN_UP_POW2(offset + member_type->size, member_type->align);
-				i++;
+				
+				ffzType* field_type = ffz_ground_type(chk);
+				ffz_record_builder_add_field(c, &b, name, field_type, n);
 			}
-
-			record_type->size = F_ALIGN_UP_POW2(offset, max_align); // Align the struct size up to the largest member alignment
-			record_type->align = max_align; // :ComputeRecordAlignment
-			TRY(add_fields_to_field_from_name_map(c, record_type, record_type));
+			TRY(ffz_record_builder_finish(c, &b));
+			
+			//ffz_record_builder_finish
+			//record_type->record_fields = f_make_slice_garbage<ffzTypeRecordField>(ffz_get_child_count(inst.node), c->alc);
+			//
+			//// :InitRecordType
+			//uint i = 0;
+			//u32 offset = 0;
+			//u32 max_align = 0;
+			//for FFZ_EACH_CHILD_INST(n, inst) {
+			//	if (n.node->kind != ffzNodeKind_Declare) ERR(c, n.node, "Expected a declaration.");
+			//
+			//	ffzCheckedExpr chk;
+			//	TRY(check_node(c, n, NULL, InferFlag_RequireConstant, &chk));
+			//
+			//	ffzType* member_type = ffz_ground_type(chk); // ffz_decl_get_type(c, decl);
+			//	F_ASSERT(ffz_type_is_grounded(member_type));
+			//	max_align = F_MAX(max_align, member_type->align);
+			//
+			//	F_BP; // we're not aligning offset forward, i.e.   { u8 foo; int test; }
+			//	fString name = n.node->Op.left->Identifier.name;
+			//	record_type->record_fields[i] = ffzTypeRecordField{
+			//		name,                                                    // `name`
+			//		member_type,                                             // `type`
+			//		inst.node->Record.is_union ? 0 : offset,                 // `offset`
+			//		n,                                                       // `decl`
+			//	};
+			//	F_ASSERT(!inst.node->Record.is_union); // uhh the logic for calculating union offsets is not correct
+			//	offset = F_ALIGN_UP_POW2(offset + member_type->size, member_type->align);
+			//	i++;
+			//}
+			//
+			//record_type->size = F_ALIGN_UP_POW2(offset, max_align); // Align the struct size up to the largest member alignment
+			//record_type->align = max_align; // :ComputeRecordAlignment
 		}
 	}
 
@@ -1960,18 +2027,17 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 
 
 void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline = false) {
-	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
 	f_os_print_color(error_kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
 	f_os_print(F_LIT("("));
 
 	f_os_print_color(parser->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
 
-	fString line_num_str = f_str_from_uint(F_AS_BYTES(loc.start.line_num), temp);
+	fString line_num_str = f_str_from_uint(F_AS_BYTES(loc.start.line_num), f_temp_alc());
 
 	f_os_print(F_LIT(":"));
 	f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
 	f_os_print(F_LIT(":"));
-	f_os_print_color(f_str_from_uint(F_AS_BYTES(loc.start.column_num), temp), fConsoleAttribute_Green | fConsoleAttribute_Red);
+	f_os_print_color(f_str_from_uint(F_AS_BYTES(loc.start.column_num), f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
 	f_os_print(F_LIT(")\n  "));
 	f_os_print(error);
 	f_os_print(F_LIT("\n"));
@@ -1993,7 +2059,7 @@ void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc
 	fString src_line_separator = F_LIT(":    ");
 	f_os_print_color(line_num_str, fConsoleAttribute_Intensify);
 	f_os_print_color(src_line_separator, fConsoleAttribute_Intensify);
-	fString start_str = f_str_replace(f_slice(parser->source_code, line_start_offset, loc.start.offset), F_LIT("\t"), F_LIT("    "), temp);
+	fString start_str = f_str_replace(f_slice(parser->source_code, line_start_offset, loc.start.offset), F_LIT("\t"), F_LIT("    "), f_temp_alc());
 	f_os_print_color(start_str, code_color);
 
 	{
@@ -2027,14 +2093,8 @@ void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc
 }
 
 static bool _parse_and_check_directory(ffzProject* project, fString directory, ffzChecker** out_checker, fString _dbg_module_import_name) {
-
-	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
+	if (!f_files_path_to_canonical({}, directory, f_temp_alc(), &directory)) return false;
 	
-	directory = f_files_path_to_absolute({}, directory, temp);
-	directory = f_str_to_lower(directory, temp);
-	//F_ASSERT(f_files_path_is_absolute(directory)); // directory is also supposed to be minimal (not contain .././)
-	for f_str_each(directory, r, i) { if (f_str_rune_to_lower((rune)r) != r) F_BP; } // directory must be all lowercase
-
 	auto checker_insertion = f_map64_insert(&project->checked_module_from_directory, f_hash64_str_ex(directory, 0),
 		(ffzChecker*)0, fMapInsert_DoNotOverride);
 	if (!checker_insertion.added) {
@@ -2042,8 +2102,9 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		return true;
 	}
 
-	ffzChecker* checker = ffz_checker_init(project, temp);
+	ffzChecker* checker = ffz_checker_init(project, f_temp_alc());
 	*checker_insertion._unstable_ptr = checker;
+	checker->directory = directory;
 
 	checker->report_error = [](ffzChecker* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
 		ffzParser* parser = checker->project->parsers_dependency_sorted[at->id.parser_id];
@@ -2065,7 +2126,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		fArray(fString) files;
 		fString directory;
 	} visit;
-	visit.files = f_array_make<fString>(temp);
+	visit.files = f_array_make<fString>(f_temp_alc());
 	visit.directory = directory;
 
 	if (!f_files_visit_directory(directory,
@@ -2084,18 +2145,18 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		return false;
 	}
 
-	fSlice(ffzParser*) parsers_dependency_sorted = f_make_slice_garbage<ffzParser*>(visit.files.len, temp);
+	fSlice(ffzParser*) parsers_dependency_sorted = f_make_slice_garbage<ffzParser*>(visit.files.len, f_temp_alc());
 	for (uint i = 0; i < visit.files.len; i++) {
-		ffzParser* parser = f_mem_clone(ffzParser{}, temp);
+		ffzParser* parser = f_mem_clone(ffzParser{}, f_temp_alc());
 		parsers_dependency_sorted[i] = parser;
 
 		fString file_contents;
-		F_ASSERT(f_files_read_whole(visit.files[i], temp, &file_contents));
+		F_ASSERT(f_files_read_whole(visit.files[i], f_temp_alc(), &file_contents));
 
 		parser->project = project;
 		parser->id = (ffzParserID)f_array_push(&project->parsers_dependency_sorted, parser);
 
-		parser->alc = temp;
+		parser->alc = f_temp_alc();
 		parser->checker = checker;
 		parser->source_code = file_contents;
 		parser->source_code_filepath = visit.files[i];
@@ -2113,9 +2174,9 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 
 		if (true) {
 			f_os_print(F_LIT("PRINTING AST: ======================================================\n"));
-			fArray(u8) builder = f_array_make_cap<u8>(64, temp);
+			fArray(u8) builder = f_array_make_cap<u8>(64, f_temp_alc());
 			for (ffzNode* n = parser->root->first_child; n; n = n->next) {
-				f_str_print_il(&builder, { ffz_print_ast(temp, n), F_LIT("\n") });
+				f_str_print_il(&builder, { ffz_print_ast(f_temp_alc(), n), F_LIT("\n") });
 			}
 			f_os_print(builder.slice);
 			f_os_print(F_LIT("====================================================================\n\n"));
@@ -2134,18 +2195,13 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			
 			// : means that the path is relative to the modules directory shipped with the compiler
 			if (f_str_starts_with(import_name, F_LIT(":"))) {
-				import_name = F_STR_JOIN(temp, project->compiler_install_dir, F_LIT("/modules/"), f_str_slice_after(import_name, 1));
+				import_name = F_STR_T_JOIN(project->compiler_install_dir, F_LIT("/modules/"), f_str_slice_after(import_name, 1));
 			}
-
-			//if (f_files_path_is_absolute(import_name)) F_BP;
-			//BP;
-			//String name = n->Statement.lhs_expression->Identifier.name;
-			fString child_directory = f_files_path_to_absolute(directory, import_name, temp);
 
 			// Compile the imported module.
 
 			ffzChecker* child_checker = NULL;
-			bool ok = _parse_and_check_directory(project, child_directory, &child_checker, f_str_path_tail(child_directory));
+			bool ok = _parse_and_check_directory(project, import_name, &child_checker, f_str_path_tail(import_name));
 			if (!ok) return false;
 
 			f_map64_insert(&checker->imported_modules, import_op->id.global_id, child_checker);
@@ -2207,46 +2263,14 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			}
 		}
 
-		fArray(ffzNodeInst)* link_libraries = f_map64_get(&checker->all_tags_of_type,
-			ffz_builtin_type(checker, ffzKeyword_ex_link_library)->hash);
-		if (link_libraries) {
-			for (uint i = 0; i < link_libraries->len; i++) {
-				ffzConstant* constant = ffz_expr_get_evaluated_constant(project, link_libraries->data[i]);
-				ffzConstant path = constant->record_fields[0];
-				
-				fString input = f_files_path_to_absolute(directory, path.string_zero_terminated, checker->alc);
-				f_array_push(&project->link_libraries, input);
-			}
+		for (uint i = 0; i < checker->extern_libraries.len; i++) {
+			fString input;
+			F_ASSERT(f_files_path_to_canonical(directory, checker->extern_libraries[i], f_temp_alc(), &input));
+			f_array_push(&project->link_libraries, input);
 		}
-
-		fArray(ffzNodeInst)* link_system_libraries = f_map64_get(&checker->all_tags_of_type,
-			ffz_builtin_type(checker, ffzKeyword_ex_link_system_library)->hash);
-		if (link_system_libraries) {
-			for (uint i = 0; i < link_system_libraries->len; i++) {
-				ffzConstant* constant = ffz_expr_get_evaluated_constant(project, link_system_libraries->data[i]);
-				ffzConstant path = constant->record_fields[0];
-				f_array_push(&project->link_system_libraries, path.string_zero_terminated);
-			}
+		for (uint i = 0; i < checker->extern_sys_libraries.len; i++) {
+			f_array_push(&project->link_system_libraries, checker->extern_sys_libraries[i]);
 		}
-
-		/*{ // add linker inputs
-			{
-				//f_map64_get(
-				auto foo = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_library"), 0));
-				ffzNodeTagDecl** first_linker_input = foo;
-				for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
-				}
-			}
-			{
-				ffzNodeTagDecl** first_linker_input = f_map64_get(&parser->tag_decl_lists, f_hash64_str_ex(F_LIT("link_system_library"), 0));
-				for (ffzNodeTagDecl* n = first_linker_input ? *first_linker_input : NULL; n; n = n->same_tag_next) {
-					F_ASSERT(n->rhs->kind == ffzNodeKind_StringLiteral);
-					f_array_push(&project->linker_inputs, FFZ_AS(n->rhs, StringLiteral)->zero_terminated_string);
-				}
-			}
-		}*/
-
-		//array_pop(&checker->stack);
 	}
 
 	return true;
@@ -2258,17 +2282,18 @@ bool ffz_parse_and_check_directory(ffzProject* p, fString directory) {
 }
 
 bool ffz_build_directory(fString directory, fString compiler_install_dir) {
-	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop());
+	if (!f_files_path_to_canonical(fString{}, directory, f_temp_alc(), &directory)) return false;
+	if (!f_files_path_to_canonical(fString{}, compiler_install_dir, f_temp_alc(), &compiler_install_dir)) return false;
 
-	ffzProject* p = f_mem_clone(ffzProject{}, temp);
-	p->persistent_allocator = temp;
+	ffzProject* p = f_mem_clone(ffzProject{}, f_temp_alc());
+	p->persistent_allocator = f_temp_alc();
 	p->module_name = f_str_path_tail(directory);
 	p->compiler_install_dir = compiler_install_dir;
-	p->checked_module_from_directory = f_map64_make<ffzChecker*>(temp);
-	p->checkers = f_array_make<ffzChecker*>(temp);
-	p->parsers_dependency_sorted = f_array_make<ffzParser*>(temp);
-	p->link_libraries = f_array_make<fString>(temp);
-	p->link_system_libraries = f_array_make<fString>(temp);
+	p->checked_module_from_directory = f_map64_make<ffzChecker*>(f_temp_alc());
+	p->checkers = f_array_make<ffzChecker*>(f_temp_alc());
+	p->parsers_dependency_sorted = f_array_make<ffzParser*>(f_temp_alc());
+	p->link_libraries = f_array_make<fString>(f_temp_alc());
+	p->link_system_libraries = f_array_make<fString>(f_temp_alc());
 	p->pointer_size = 8;
 
 	{
@@ -2287,7 +2312,7 @@ bool ffz_build_directory(fString directory, fString compiler_install_dir) {
 
 	//fString ffz_build_dir = f_files_path_to_absolute(directory, F_LIT(".ffz"), temp);
 	
-	fString exe_filepath = F_STR_JOIN(temp, directory, F_LIT("\\build\\"), p->module_name, F_LIT(".exe"));
+	fString exe_filepath = F_STR_T_JOIN(directory, F_LIT("\\build\\"), p->module_name, F_LIT(".exe"));
 	if (!ffz_backend_gen_executable(p, exe_filepath)) {
 		return 1;
 	}

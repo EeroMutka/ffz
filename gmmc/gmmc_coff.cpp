@@ -38,8 +38,7 @@ static void CodeviewPatchRecordLength(fArray(u8)* builder, uint offset_of_len_fi
 }
 
 GMMC_API void coff_create(void(*store_result)(gmmcString, void*), void* store_result_userptr, coffDesc* desc) {
-	fAllocator* temp = f_temp_push();
-	fArray(u8) string_table = f_array_make_cap<u8>(512, temp);
+	fArray(u8) string_table = f_array_make_cap<u8>(512, f_temp_alc());
 	
 	fArena* arena = f_arena_make_virtual_reserve_fixed(F_GIB(2), NULL);
 	
@@ -138,7 +137,7 @@ GMMC_API void coff_create(void(*store_result)(gmmcString, void*), void* store_re
 	// section 2 raw data
 	// ...
 
-	fArray(DWORD*) patch_symbol_index_with_real_index = f_array_make_cap<DWORD*>(32, temp);
+	fArray(DWORD*) patch_symbol_index_with_real_index = f_array_make_cap<DWORD*>(32, f_temp_alc());
 
 	for (u32 i = 0; i < desc->sections_count; i++) {
 		coffSection& section = desc->sections[i];
@@ -183,7 +182,7 @@ GMMC_API void coff_create(void(*store_result)(gmmcString, void*), void* store_re
 		// Warning: header ptr must still be valid! Since this is an arena, it is.
 		header->PointerToSymbolTable = (u32)f_arena_get_contiguous_cursor(arena);
 
-		fSlice(u32) symbol_index_to_real_index = f_make_slice_garbage<u32>(desc->symbols_count, temp);
+		fSlice(u32) symbol_index_to_real_index = f_make_slice_garbage<u32>(desc->symbols_count, f_temp_alc());
 
 		u32 real_symbol_index = 0;
 		for (u32 i = 0; i < desc->symbols_count; i++) {
@@ -263,7 +262,7 @@ GMMC_API void coff_create(void(*store_result)(gmmcString, void*), void* store_re
 	store_result(gmmcString{ f_arena_get_contiguous_base(arena), f_arena_get_contiguous_cursor(arena) }, store_result_userptr);
 
 	f_arena_free(arena);
-	f_temp_pop();
+	//f_temp_pop();
 }
 
 

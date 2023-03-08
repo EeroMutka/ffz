@@ -2,13 +2,17 @@
 //int entry();
 
 void print_uint(unsigned long long x) {
-	printf("%llu\n", x);
+	//printf("%llu\n", x);
+	__debugbreak();
+	__debugbreak();
+	__debugbreak();
+	__debugbreak();
 }
 
-typedef struct { void* ptr; unsigned long long len; } string;
-void print_string(string x) {
-	printf("%.*s\n", x.len, x.ptr);
-}
+//typedef struct { void* ptr; unsigned long long len; } string;
+//void print_string(string x) {
+//	printf("%.*s\n", x.len, x.ptr);
+//}
 
 //typedef struct { int64_t x; int64_t y; int64_t z; } V3;
 

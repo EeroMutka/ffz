@@ -106,11 +106,18 @@
 	quit: bool
 }
 
+// How to do smooth resizing:
+// https://twitter.com/ocornut/status/951167609562640384
+
 #poll_events: proc(window: Window) => WindowEvents {
 	out: WindowEvents
 	
 	for loop: true, loop, {
 		msg: MSG
+		
+		// I just want to print an integer...
+		// I think temporary storage must be next on the list, no?
+		Basic.print_string("Updating!\n")
 		
 		result: PeekMessageW(&msg, window.hwnd, 0, 0, PM_REMOVE)
 		if result != 0 {

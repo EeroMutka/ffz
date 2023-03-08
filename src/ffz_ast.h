@@ -19,7 +19,7 @@ typedef struct ffzOk { bool ok; } ffzOk;
 const static ffzOk FFZ_OK = { true };
 
 typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
-	ffzNodeKind_Invalid,
+	ffzNodeKind_INVALID,
 
 	ffzNodeKind_Blank,
 
@@ -87,7 +87,8 @@ enum {
 
 // TODO: remove this too
 typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
-	ffzKeyword_Invalid,
+	ffzKeyword_INVALID,
+	
 	ffzKeyword_Underscore,
 	ffzKeyword_QuestionMark,
 	ffzKeyword_dbgbreak,
@@ -100,8 +101,7 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_true,
 	ffzKeyword_false,
 
-	ffzKeyword_FIRST_TYPE,
-	ffzKeyword_u8 = ffzKeyword_FIRST_TYPE,
+	ffzKeyword_u8,
 	ffzKeyword_u16,
 	ffzKeyword_u32,
 	ffzKeyword_u64,
@@ -116,11 +116,6 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_bool,
 	ffzKeyword_raw,
 	ffzKeyword_string,
-	ffzKeyword_ex_link_library,
-	ffzKeyword_ex_link_system_library,
-	ffzKeyword_ex_using,
-	ffzKeyword_ex_extern,
-	ffzKeyword_LAST_TYPE = ffzKeyword_ex_extern,
 
 	// :ffz_keyword_is_bitwise_op
 	ffzKeyword_bit_and,
@@ -130,13 +125,16 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_bit_shr,
 	ffzKeyword_bit_not,
 	
+	// -- Extended keywords ------------------------------------------------
+	ffzKeyword_FIRST_EXTENDED,
+	ffzKeyword_extern = ffzKeyword_FIRST_EXTENDED,
+	ffzKeyword_sys_extern = ffzKeyword_FIRST_EXTENDED,
+	ffzKeyword_using,
+	ffzKeyword_global,
+	ffzKeyword_thread_local,
+
 	ffzKeyword_COUNT,
 } ffzKeyword;
-
-//typedef enum ffzNodeKind { // synced with ffzNodeKind_to_string
-//	ffzNodeKind_Invalid = 0,
-//	ffzNodeKind_COUNT,
-//} ffzNodeKind;
 
 typedef struct ffzLoc {
 	u32 line_num; // As in text files, starts at 1
@@ -193,9 +191,7 @@ struct ffzNode {
 			bool is_constant; // has # in front? ... maybe this field should be removed and just be stored in the StmtTargets
 		} Identifier; // maybe we should just call this "Name" or "Ident"?
 
-		struct {
-			ffzKeyword keyword;
-		} Keyword;
+		struct { ffzKeyword keyword; } Keyword;
 
 		struct {
 			fOpt(ffzNode*) left;
@@ -294,6 +290,7 @@ inline ffzLocRange ffz_loc_range_union(ffzLocRange a, ffzLocRange b) {
 }
 
 inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
+inline bool ffz_keyword_is_extended(ffzKeyword keyword) { return keyword >= ffzKeyword_FIRST_EXTENDED; }
 
 inline bool ffz_node_is_operator(ffzNodeKind kind) { return kind >= ffzNodeKind_Declare && kind <= ffzNodeKind_Dereference; }
 inline bool ffz_op_is_prefix(ffzNodeKind kind) { return kind >= ffzNodeKind_PreSquareBrackets && kind <= ffzNodeKind_LogicalNOT; }

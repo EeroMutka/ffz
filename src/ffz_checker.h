@@ -294,10 +294,9 @@ typedef u64 ffzEnumValueHash;
 // Checker is responsible for checking some chunk of code (currently must be a single module) and caching information about it.
 struct ffzChecker {
 	ffzProject* project; // should we make this void*?
-	ffzCheckerID id;
 	fAllocator* alc;
-
-	//ffzCheckerLocalID next_local_id;
+	ffzCheckerID id;
+	fString directory;
 
 #ifdef _DEBUG
 	fString _dbg_module_import_name;
@@ -325,10 +324,13 @@ struct ffzChecker {
 	fMap64(fArray(ffzNodeInst)) all_tags_of_type; // key: TypeHash
 	
 	fMap64(ffzTypeRecordFieldUse*) field_from_name_map; // key: FieldHash
-
+	
 	// Only required during checking.
 	fMap64(u64) enum_value_from_name; // key: FieldHash.
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
+
+	fArray(fString) extern_libraries; // TODO: deduplicate
+	fArray(fString) extern_sys_libraries;
 
 	fMap64(ffzChecker*) imported_modules; // key: AstNode.id.global_id
 
@@ -336,7 +338,8 @@ struct ffzChecker {
 	
 	ffzType* type_type;
 	ffzType* module_type;
-	ffzType* builtin_types[ffzKeyword_LAST_TYPE + 1 - ffzKeyword_FIRST_TYPE];
+	u64 next_pseudo_node_idx;
+	ffzType* builtin_types[ffzKeyword_COUNT];
 };
 
 //#define FFZ_INST_AS(node,kind) (*(ffzNode##kind##Inst*)&(node))

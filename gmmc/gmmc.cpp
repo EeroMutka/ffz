@@ -468,7 +468,7 @@ static u32 operand_bits(gmmcBasicBlock* bb, gmmcOp* op) {
 	return 8 * gmmc_type_size(reg_get_type(bb->proc, op->operands[0]));
 }
 
-void print_bb(FILE* f, gmmcBasicBlock* bb, fAllocator* alc) {
+void print_bb(FILE* f, gmmcBasicBlock* bb) {
 	fprintf(f, "b$%u:\n", bb->bb_index);
 
 	for (uint i = 0; i < bb->ops.len; i++) {
@@ -567,10 +567,10 @@ void print_bb(FILE* f, gmmcBasicBlock* bb, fAllocator* alc) {
 		
 		case gmmcOpKind_addr_of_symbol: {
 			if (op->symbol->kind == gmmcSymbolKind_Global) {
-				fprintf(f, "_$%u = (void*)&%s;\n", op->result, f_str_to_cstr(op->symbol->name, alc));
+				fprintf(f, "_$%u = (void*)&%s;\n", op->result, f_str_t_to_cstr(op->symbol->name));
 			}
 			else {
-				fprintf(f, "_$%u = %s;\n", op->result, f_str_to_cstr(op->symbol->name, alc));
+				fprintf(f, "_$%u = %s;\n", op->result, f_str_t_to_cstr(op->symbol->name));
 			}
 		} break;
 
@@ -620,7 +620,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb, fAllocator* alc) {
 			}
 			
 			if (op->kind == gmmcOpKind_call) {
-				fprintf(f, "%s(", f_str_to_cstr(op->call.target_sym->name, alc));
+				fprintf(f, "%s(", f_str_t_to_cstr(op->call.target_sym->name));
 			}
 			else {
 				// function pointer cast
@@ -645,7 +645,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb, fAllocator* alc) {
 		case gmmcOpKind_comment: {
 			if (op->comment.len > 0) {
 				fSlice(fRangeUint) lines;
-				f_str_split_i(op->comment, '\n', alc, &lines);
+				f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
 				for (uint i = 0; i < lines.len; i++) {
 					fString line = f_str_slice(op->comment, lines[i].lo, lines[i].hi);
 					fprintf(f, "    // %.*s\n", F_STRF(line));
@@ -667,7 +667,6 @@ void print_bb(FILE* f, gmmcBasicBlock* bb, fAllocator* alc) {
 }
 
 GMMC_API void gmmc_proc_print(FILE* f, gmmcProc* proc) {
-	fAllocator* alc = f_temp_push();
 	fString name = proc->sym.name;
 	
 	fprintf(f, "%s %.*s(", (proc->signature->return_type ?
@@ -698,7 +697,7 @@ GMMC_API void gmmc_proc_print(FILE* f, gmmcProc* proc) {
 	fprintf(f, "\n");
 
 	for (uint i = 0; i < proc->basic_blocks.len; i++) {
-		print_bb(f, proc->basic_blocks[i], alc);
+		print_bb(f, proc->basic_blocks[i]);
 	}
 	fprintf(f, "char _;\n"); // goto: at the end with nothing after it is illegal, this is just a dumb fix for it
 	fprintf(f, "}\n");

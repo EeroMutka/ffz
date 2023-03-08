@@ -110,16 +110,18 @@ const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("bool"),
 	F_LIT_COMP("raw"),
 	F_LIT_COMP("string"),
-	F_LIT_COMP("link_library"),
-	F_LIT_COMP("link_system_library"),
-	F_LIT_COMP("using"),
-	F_LIT_COMP("extern"),
 	F_LIT_COMP("bit_and"),
 	F_LIT_COMP("bit_or"),
 	F_LIT_COMP("bit_xor"),
 	F_LIT_COMP("bit_shl"),
 	F_LIT_COMP("bit_shr"),
 	F_LIT_COMP("bit_not"),
+	F_LIT_COMP("extern"),
+	F_LIT_COMP("using"),
+	F_LIT_COMP("global"),
+	F_LIT_COMP("thread_local"),
+	F_LIT_COMP("link_library"),
+	F_LIT_COMP("link_system_library"),
 };
 
 F_STATIC_ASSERT(F_LEN(ffzNodeKind_to_name) == ffzNodeKind_COUNT);
@@ -191,7 +193,7 @@ u8 ffz_get_bracket_op_close_char(ffzNodeKind kind) {
 
 static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	const fString tab_str = F_LIT("    ");
-	fAllocator* temp = f_temp_push();
+
 	if (false) {
 		f_str_print(builder, F_LIT(" <"));
 		f_str_print(builder, ffz_node_kind_to_string(node->kind));
@@ -372,7 +374,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_IntLiteral: {
-		f_str_print(builder, f_str_from_uint(F_AS_BYTES(node->IntLiteral.value), temp));
+		f_str_print(builder, f_str_from_uint(F_AS_BYTES(node->IntLiteral.value), f_temp_alc()));
 	} break;
 
 	case ffzNodeKind_FloatLiteral: {
@@ -448,7 +450,6 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	} break;
 
 	}
-	f_temp_pop();
 }
 
 fString ffz_print_ast(fAllocator* alc, ffzNode* node) {
@@ -952,6 +953,12 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 		//     ^int(0))
 
 		Token tok = maybe_eat_next_token(p, loc, check_infix_or_postfix ? 0 : ParseFlag_SkipNewlines);
+		
+		bool is_extended_keyword = tok.small == '|';
+		if (is_extended_keyword) {
+			tok = maybe_eat_next_token(p, loc, 0);
+		}
+
 		if (!prev && tok.str.len == 0) {
 			ERR(p, parent->loc, "File ended unexpectedly when parsing child-list.", "");
 		}
@@ -1122,8 +1129,16 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			else if (f_str_equals(tok.str, F_LIT("union"))) {
 				TRY(parse_struct(p, loc, parent, tok.range, true, &node));
 			}
-			else if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?') {
+			else if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?' || is_extended_keyword) {
 				ffzKeyword* keyword = f_map64_get_raw(p->keyword_from_string, f_hash64_str(tok.str));
+				if (keyword) {
+					if (ffz_keyword_is_extended(*keyword)) {
+						if (!is_extended_keyword) keyword = NULL; // should be an identifier instead.
+					}
+					else {
+						if (is_extended_keyword) ERR(p, tok.range, "Unrecognized extended keyword: \"%.*s\"", F_STRF(tok.str));
+					}
+				}
 				if (keyword) {
 					node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
 					node->Keyword.keyword = *keyword;

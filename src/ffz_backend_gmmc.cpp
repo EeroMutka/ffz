@@ -67,7 +67,7 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			// Currently, we're giving these symbols unique ids and exporting them anyway, because
 			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 
-			if (!ffz_get_tag(g->project, inst, ffz_builtin_type(g->checker, ffzKeyword_ex_extern))) {
+			if (!ffz_get_tag(g->project, inst, ffz_builtin_type(g->checker, ffzKeyword_extern))) {
 				f_str_print(&name, F_LIT("$$"));
 				f_str_print(&name, g->checker->_dbg_module_import_name);
 			}
@@ -893,13 +893,12 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	fString build_dir = f_str_path_dir(exe_filepath);
 	F_ASSERT(f_files_make_directory(build_dir));
 
-	fAllocator* temp = f_temp_push(); F_DEFER(f_temp_pop()); // temp_push_volatile?
-	
-	gmmcModule* gmmc = gmmc_init(temp);
+	fArenaMark temp_base = f_temp_get_mark();
+	gmmcModule* gmmc = gmmc_init(f_temp_alc());
 
 	Gen g = {};
 	g.gmmc = gmmc;
-	g.alc = temp;
+	g.alc = f_temp_alc();
 	g.project = project;
 	//g.tb_file_from_parser_idx = f_array_make<TB_FileID>(g.alc);
 	g.gmmc_local_addr_from_definition = f_map64_make<gmmcReg>(g.alc);
@@ -914,8 +913,8 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 		}
 	}
 
-	fString c_file_path = F_STR_JOIN(temp, build_dir, F_LIT("/a.c"));
-	FILE* c_file = fopen(f_str_to_cstr(c_file_path, temp), "wb");
+	fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
+	FILE* c_file = fopen(f_str_t_to_cstr(c_file_path), "wb");
 	if (!c_file) {
 		printf("Failed writing temporary C file to disk!\n");
 		return false;
@@ -924,7 +923,7 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	gmmc_module_print(c_file, gmmc);
 	fclose(c_file);
 
-	fArray(fString) clang_args = f_array_make<fString>(temp);
+	fArray(fString) clang_args = f_array_make<fString>(f_temp_alc());
 	f_array_push(&clang_args, F_LIT("clang"));
 		
 	if (true) { // with debug info?
@@ -934,6 +933,14 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	else {
 		f_array_push(&clang_args, F_LIT("-O1"));
 	}
+
+	// TODO: command-line option for console/no console
+	bool console = true;
+	f_array_push(&clang_args, F_LIT("-Xlinker"));
+	f_array_push(&clang_args, F_STR_T_JOIN(F_LIT("/SUBSYSTEM:"), console ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
+
+	f_array_push(&clang_args, F_LIT("-Xlinker"));
+	f_array_push(&clang_args, F_LIT("/ENTRY:ffz_entry"));
 
 	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
 	f_array_push(&clang_args, F_LIT("a.c"));
@@ -954,7 +961,7 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	}
 	for (uint i = 0; i < project->link_system_libraries.len; i++) {
 		f_array_push(&clang_args, F_LIT("-Xlinker"));
-		f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("-defaultlib:"), project->link_system_libraries[i]));
+		f_array_push(&clang_args, F_STR_T_JOIN(F_LIT("/DEFAULTLIB:"), project->link_system_libraries[i]));
 	}
 		
 	printf("Running clang: ");
@@ -1012,6 +1019,7 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	}
 	WinSDK_free_resources(&windows_sdk);
 #endif
-
+	
+	f_temp_set_mark(temp_base);
 	return true;
 }

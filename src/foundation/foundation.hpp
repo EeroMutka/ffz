@@ -230,6 +230,7 @@ inline T& f_array_peek(fArray(T)* array) {
 #include <initializer_list>
 
 #define F_STR_JOIN(alc, ...) f_str_join_il(alc, {__VA_ARGS__})
+#define F_STR_T_JOIN(...) f_str_join_il(f_temp_alc(), {__VA_ARGS__})
 inline fString f_str_join_il(fAllocator* alc, std::initializer_list<fString> args) {
 	return f_str_join(alc, { (fString*)args.begin(), args.size() });
 }

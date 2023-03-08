@@ -110,6 +110,16 @@
 	ret string(builder.slice)
 }
 
+// hmm.. todo: accept `any`?
+#printf: proc(format: string, args: []string) {
+	tmp: Basic.temp_get_mark()
+	
+	s: joinf(format, args, Basic.temp_alc())
+	B.print_string(s)
+	
+	Basic.temp_set_mark(tmp)
+}
+
 // Join using a format string
 // Rules:
 // - %* is replaced with the next argument in the list
@@ -131,3 +141,9 @@
 	ret string(builder.slice)
 }
 
+
+// Temporary allocator helpers
+
+#tjoinf:      proc(format: string, args: []string) => string  { ret joinf(format, args, Basic.temp_alc()) }
+#tfrom_int:   proc(value: int) => string                      { ret from_int(value, Basic.temp_alc()) }
+#tfrom_uint:  proc(value: uint) => string                     { ret from_uint(value, Basic.temp_alc()) }

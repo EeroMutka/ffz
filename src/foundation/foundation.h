@@ -232,7 +232,7 @@ struct fArenaBlock {
 typedef struct fArenaPosition {
 	u8* head;
 	fArenaBlock* current_block; // used only with ArenaMode_UsingAllocatorGrowing
-} fArenaPosition;
+} fArenaMark;
 
 typedef struct fArena {
 	fAllocator alc; // Must be the first field for outwards-casting!
@@ -245,7 +245,7 @@ typedef struct fArena {
 
 	u8* committed_end; // only used with ArenaMode_VirtualReserveFixed
 
-	fArenaPosition pos;
+	fArenaMark pos;
 } fArena;
 
 #define f_make_slice_one(elem, allocator) {MemClone((elem), (allocator)), 1}
@@ -397,14 +397,8 @@ typedef struct {
 	fMap64(fString) file_names_cache; // key is the string hashed
 } fLeakTracker;
 
-//extern fAllocator _global_allocator; // do we need this?
-//F_THREAD_LOCAL extern void* _foundation_pass;
-F_THREAD_LOCAL extern fArena* _f_temp_arena;
-F_THREAD_LOCAL extern uint _f_temp_arena_scope_counter;
-F_THREAD_LOCAL extern fLeakTracker _f_leak_tracker;
-
 // Relies on PDB symbol info
-void f_get_stack_trace(void(*visitor)(fString function, fString file, u32 line, void* user_ptr), void* user_ptr);
+//void f_get_stack_trace(void(*visitor)(fString function, fString file, u32 line, void* user_ptr), void* user_ptr);
 
 //
 // Leak tracker can be used to track anything that can be keyed using a 64-bit identifier.
@@ -419,13 +413,13 @@ void f_get_stack_trace(void(*visitor)(fString function, fString file, u32 line, 
 // and deinit_leak_tracker() when your application has finished running. deinit_leak_tracker()
 // will assert on any leaks and print information about them.
 //
-void f_leak_tracker_init();
-void f_leak_tracker_deinit();
+//void f_leak_tracker_init();
+//void f_leak_tracker_deinit();
 
 // These functions are ignored if leak tracker is not present
-void f_leak_tracker_begin_entry(void* address, uint skip_stackframes_count);
-void f_leak_tracker_assert_is_alive(void* address);
-void f_leak_tracker_end_entry(void* address);
+//void f_leak_tracker_begin_entry(void* address, uint skip_stackframes_count);
+//void f_leak_tracker_assert_is_alive(void* address);
+//void f_leak_tracker_end_entry(void* address);
 
 /*
 typedef struct {
@@ -527,16 +521,11 @@ typedef struct fRangeUint { uint lo, hi; } fRangeUint;
 extern "C" {
 #endif
 
-fAllocator* f_temp_push();
-void f_temp_pop();
+F_THREAD_LOCAL extern fArena* _f_temp_arena;
+F_THREAD_LOCAL extern fLeakTracker _f_leak_tracker;
 
-// temp_init and temp_deinit are not necessary and they only exist for performance.
-// They keep the temp arena alive even after a final (scope counter reaching zero) call to f_temp_pop.
-// You probably want to call temp_init/deinit in main, if your program has multiple independent temp_push/pop scopes.
-// If you don't call temp_init, then each final call to f_temp_pop will release the arena back to the OS,
-// and temp_push will in turn need to allocate a new arena from the OS.
-void f_temp_init();
-void f_temp_deinit();
+void f_init();
+void f_deinit();
 
 fArena* f_arena_make(u32 min_block_size, fAllocator* a);
 fArena* f_arena_make_virtual_reserve_fixed(uint reserve_size, fOpt(void*) reserve_base);
@@ -549,16 +538,19 @@ void f_arena_free(fArena* arena);
 fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment);
 u8* f_arena_push_str(fArena* arena, fString data, uint_pow2 alignment);
 
-
 // should we instead just ask for a string?
 // f_arena_get_as_string()
 u8* f_arena_get_contiguous_base(fArena* arena);
 uint f_arena_get_contiguous_cursor(fArena* arena);
 
-fArenaPosition f_arena_get_pos(fArena* arena);
-void f_arena_pop_to(fArena* arena, fArenaPosition pos);
+inline fArenaMark f_arena_get_mark(fArena* arena) { return arena->pos; }
+void f_arena_set_mark(fArena* arena, fArenaMark mark);
 // TODO: void arena_shrink_memory(uint base_size) // the memory will not be reduced past base_size
 void f_arena_clear(fArena* arena);
+
+inline fAllocator* f_temp_alc() { return &_f_temp_arena->alc; }
+inline fArenaMark f_temp_get_mark() { return f_arena_get_mark(_f_temp_arena); }
+inline void f_temp_set_mark(fArenaMark mark) { f_arena_set_mark(_f_temp_arena, mark); }
 
 uint_pow2 f_round_up_power_of_2(uint v); // todo: move this into the macros section as an inline function?
 
@@ -634,8 +626,10 @@ bool f_os_run_command(fSlice(fString) args, fString working_dir, u32* out_exit_c
 
 bool f_os_set_working_dir(fString dir);
 fString f_os_get_working_dir(fAllocator* allocator);
+inline fString f_os_t_get_working_dir() { return f_os_get_working_dir(f_temp_alc()); }
 
 fString f_os_get_executable_path(fAllocator* allocator);
+inline fString f_os_t_get_executable_path() { return f_os_get_executable_path(f_temp_alc()); }
 
 // these strings do not currently convert slashes - they will be windows specific `\`
 //fSlice(fString) os_file_picker_multi(); // allocated with temp_allocator
@@ -726,11 +720,12 @@ fString f_str_from_float(f64 value, fAllocator* a);
 fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* a);
 
 char* f_str_to_cstr(fString s, fAllocator* a);
+inline char* f_str_t_to_cstr(fString s) { return f_str_to_cstr(s, f_temp_alc()); }
 fString f_str_from_cstr(const char* s);
 
 // Do we need this function...? It's very windows-specific.
 wchar_t* f_str_to_utf16(fString str, uint num_null_terminations, fAllocator* a, uint* out_len);
-fString f_str_from_utf16(wchar_t* str_utf16, fAllocator* a);
+fString f_str_from_utf16(wchar_t* str_utf16, fAllocator* a); // returns an empty string if fails
 
 uint f_str_encode_rune(u8* output, rune r); // returns the number of bytes written
 
@@ -765,7 +760,8 @@ void* f_dynamic_library_sym_address(fDynamicLibrary dll, fString symbol);
 bool f_files_path_is_absolute(fString path);
 
 // If `working_dir` is an empty string, the current working directory will be used.
-fString f_files_path_to_absolute(fString working_dir, fString path, fAllocator* a);
+bool f_files_path_to_canonical(fString working_dir, fString path, fAllocator* a, fString* out_canonical);
+
 bool f_files_visit_directory(fString path, fVisitDirectoryVisitor visitor, void* visitor_userptr);
 bool f_files_directory_exists(fString path);
 bool f_files_delete_directory(fString path); // If the directory doesn't already exist, it's treated as a success.
