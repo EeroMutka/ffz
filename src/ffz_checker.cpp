@@ -2212,17 +2212,23 @@ static bool _parse_and_check_directory(ffzProject* project, fString _directory, 
 
 			ffzNode* import_name_node = ffz_get_child(import_op, 0);
 			F_ASSERT(import_name_node->kind == ffzNodeKind_StringLiteral);
-			fString import_name = import_name_node->StringLiteral.zero_terminated_string;
+			fString import_path = import_name_node->StringLiteral.zero_terminated_string;
 			
 			// : means that the path is relative to the modules directory shipped with the compiler
-			if (f_str_starts_with(import_name, F_LIT(":"))) {
-				import_name = F_STR_T_JOIN(project->compiler_install_dir, F_LIT("/modules/"), f_str_slice_after(import_name, 1));
+			if (f_str_starts_with(import_path, F_LIT(":"))) {
+				import_path = F_STR_T_JOIN(project->compiler_install_dir, F_LIT("/modules/"), f_str_slice_after(import_path, 1));
+			}
+			else {
+				// let's make the import path absolute, relative to the checker's directory
+				if (!f_files_path_to_canonical(checker->directory, import_path, f_temp_alc(), &import_path)) {
+					F_BP;
+				}	
 			}
 
 			// Compile the imported module.
 
 			ffzChecker* child_checker = NULL;
-			bool ok = _parse_and_check_directory(project, import_name, &child_checker, f_str_path_tail(import_name));
+			bool ok = _parse_and_check_directory(project, import_path, &child_checker, f_str_path_tail(import_path));
 			if (!ok) return false;
 
 			f_map64_insert(&checker->imported_modules, import_op->id.global_id, child_checker);

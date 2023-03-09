@@ -115,7 +115,7 @@
 	mark: Basic.temp_get_mark()
 	
 	s: joinf(format, args, Basic.temp_alc())
-	Basic.print_string(s)
+	Basic.print(s)
 	
 	Basic.temp_set_mark(mark)
 }

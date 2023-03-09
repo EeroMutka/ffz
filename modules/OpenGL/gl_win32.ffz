@@ -112,24 +112,21 @@
 
 #GL_VERSION: u32(0x1F02)
 
-#GetDC: @User32 proc(hWnd: HWND) => HDC
+@User32 #GetDC: proc(hWnd: HWND) => HDC
 
-#LoadLibraryA: @Kernel32 proc(lpLibFileName: ^u8) => HMODULE
-#FreeLibrary: @Kernel32 proc(hLibModule: HMODULE) => s32
-#GetProcAddress: @Kernel32 proc(hModule: HMODULE, lpProcName: ^u8) => ^raw
+@Kernel32 #LoadLibraryA: proc(lpLibFileName: ^u8) => HMODULE
+@Kernel32 #FreeLibrary: proc(hLibModule: HMODULE) => s32
+@Kernel32 #GetProcAddress: proc(hModule: HMODULE, lpProcName: ^u8) => ^raw
 
-#SwapBuffers: @Gdi32 proc(hdc: HDC) => s32
-#ChoosePixelFormat: @Gdi32 proc(hdc: HDC, ppfd: ^PIXELFORMATDESCRIPTOR) => s32
-#SetPixelFormat: @Gdi32 proc(hdc: HDC, format: s32, ppfd: ^PIXELFORMATDESCRIPTOR) => s32
-#wglCreateContext: @Opengl32 proc(hdc: HDC) => HGLRC
-#wglDeleteContext: @Opengl32 proc(rc: HGLRC) => s32
-#wglMakeCurrent: @Opengl32 proc(hdc: HDC, rc: HGLRC) => s32
-#wglGetProcAddress: @Opengl32 proc(rc: ^u8) => ^raw
+@Gdi32 #SwapBuffers: proc(hdc: HDC) => s32
+@Gdi32 #ChoosePixelFormat: proc(hdc: HDC, ppfd: ^PIXELFORMATDESCRIPTOR) => s32
+@Gdi32 #SetPixelFormat: proc(hdc: HDC, format: s32, ppfd: ^PIXELFORMATDESCRIPTOR) => s32
+@Opengl32 #wglCreateContext: proc(hdc: HDC) => HGLRC
+@Opengl32 #wglDeleteContext: proc(rc: HGLRC) => s32
+@Opengl32 #wglMakeCurrent: proc(hdc: HDC, rc: HGLRC) => s32
+@Opengl32 #wglGetProcAddress: proc(rc: ^u8) => ^raw
 
-#Kernel32: extern{}
-#Gdi32: extern{}
-#User32: extern{}
-#Opengl32: extern{}
-$link_system_library{"Opengl32.lib"}
-$link_system_library{"User32.lib"}
-$link_system_library{"Gdi32.lib"}
+#Kernel32: |extern{":Kernel32"}
+#Gdi32: |extern{":Gdi32"}
+#User32: |extern{":User32"}
+#Opengl32: |extern{":Opengl32"}

@@ -1,0 +1,21 @@
+- break, continue
+- make .slice[] not necessary for Arrays
+- bring back TB
+- anonymous struct and array literals?
+- automatic slicing for array types? i.e. make this possible: []string({"hi", "bye"})
+
+- OpenGL + Win32
+- keyboard / mouse input
+- Goal #1: Basic 2D drawing library + demo app for it
+
+- Goal #2: 3D chess game with OpenGL with no third-party dependencies, except
+- cgltf, miniaudio, stbi, stbtt
+- this game should include cool PBR graphics and sounds
+
+- towards a 3D level editor / engine!!
+
+- Example programs ideas:
+- Ray tracer demo program
+- Game of life
+- Chess game, maybe even 3d? That would be pretty cool!
+- tetris? breakout? pong? snake?

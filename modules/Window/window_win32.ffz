@@ -1,21 +1,22 @@
 #Basic: import(":Basic")
+#str: import(":String")
 
 #WindowHandle: import("WindowHandle")
 #Window: WindowHandle.Window
 
 // API:
-// create: proc(width: uint, height: uint, name: string, temp: ^Basic.Allocator) => Window
+// create: proc(width: uint, height: uint, name: string) => Window
 // show: proc(wnd: Window)
 // poll_events: proc(window: Window) => WindowEvents
 
-#str_to_utf16: proc(str: string, allocator: ^Basic.Allocator) => []u16 {
+#str_to_utf16_temp: proc(str: string) => []u16 {
 	out: []u16
 	if str.len == 0 { ret out }
 	
 	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
 	Basic.assert(len != 0)
 	
-	out = Basic.slice_make[u16](uint(len) + 1, allocator)
+	out = Basic.slice_make[u16](uint(len) + 1, Basic.temp_alc())
 	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
 	
 	// null terminator
@@ -25,11 +26,20 @@
 }
 
 #WNDPROC: proc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: s64) => s64
-
 #window_proc: WNDPROC {
 	out: ^WindowEvents(GetWindowLongPtrW(in.hWnd, GWLP_USERDATA))
 	
-	if in.uMsg == WM_CLOSE || in.uMsg == WM_QUIT {
+	//Basic.print("uMsg: ")
+	//Basic.print(str.tfrom_int(int(in.uMsg)))
+	
+	if in.uMsg == WM_SIZE {
+		if out != ^WindowEvents(0) {
+			out.resize_cb(out.resize_cb_user_ptr)
+		}
+		//Basic.print("resize\n")
+		// draw -- 
+	}
+	else if in.uMsg == WM_CLOSE || in.uMsg == WM_QUIT {
 		out.quit = true
 	}
 	
@@ -38,14 +48,14 @@
 
 #WINDOW_CLASS_NAME: "ffz_window_module_class_name"
 
-#register_window_class: proc(temp: ^Basic.Allocator) {
+#register_window_class: proc() {
 	// Windows requires us to first register a "window class" with a given name,
 	// which will be used in subsequent calls to CreateWindowExW()
 	
 	hInstance: GetModuleHandleW(^u16(0))
 	
-	#COLOR_BACKGROUND: 1
-	bg_brush: HBRUSH(COLOR_BACKGROUND)
+	//#COLOR_BACKGROUND: 1
+	//bg_brush: HBRUSH(COLOR_BACKGROUND)
 	
 	wnd_class: WNDCLASSEXW
 	wnd_class.cbSize         = u32(size_of(WNDCLASSEXW)) // TODO: fix size_of
@@ -54,9 +64,12 @@
 	wnd_class.hInstance      = hInstance
 	//wnd_class.hIcon
 	wnd_class.hCursor        = LoadCursorW(HINSTANCE(0), ^u16(IDC_ARROW))
-	wnd_class.hbrBackground  = bg_brush
 	
-	wnd_class.lpszClassName  = str_to_utf16(WINDOW_CLASS_NAME, temp).ptr
+	// leave the background brush to NULL
+	// https://stackoverflow.com/questions/6593014/how-to-draw-opengl-content-while-resizing-win32-window
+	//wnd_class.hbrBackground  = bg_brush
+	
+	wnd_class.lpszClassName  = str_to_utf16_temp(WINDOW_CLASS_NAME).ptr
 	
 	atom: RegisterClassExW(&wnd_class)
 	Basic.assert(atom != 0)
@@ -76,17 +89,16 @@
 // If you instead first call create(), then initialize the graphics API, and only then call show(), there won't
 // be any flicker as the window doesn't have to wait for the initialization.
 // 
-// TODO: implicit temp allocator
-#create: proc(width: uint, height: uint, name: string, temp: ^Basic.Allocator) => Window {
+#create: proc(width: uint, height: uint, name: string) => Window {
 	// TODO: multiple windows?
-	register_window_class(temp)
+	register_window_class()
 	
 	x: s32(100)
 	y: s32(100)
 	
 	hwnd: CreateWindowExW(0
-		str_to_utf16(WINDOW_CLASS_NAME, temp).ptr
-		str_to_utf16(name, temp).ptr
+		str_to_utf16_temp(WINDOW_CLASS_NAME).ptr
+		str_to_utf16_temp(name).ptr
 		WS_OVERLAPPEDWINDOW
 		x, y
 		s32(width)
@@ -102,23 +114,25 @@
 	ret Window{hwnd}
 }
 
+#ResizeCallback: proc(user_ptr: ^raw)
 #WindowEvents: struct {
+	resize_cb: ResizeCallback
+	resize_cb_user_ptr: ^raw
 	quit: bool
 }
 
 // How to do smooth resizing:
 // https://twitter.com/ocornut/status/951167609562640384
 
-#poll_events: proc(window: Window) => WindowEvents {
+#poll_events: proc(window: Window, resize_cb: ResizeCallback, resize_cb_user_ptr: ^raw) => WindowEvents {
 	out: WindowEvents
+	out.resize_cb = resize_cb
+	out.resize_cb_user_ptr = resize_cb_user_ptr
 	
+	// hmm... if its an infinite loop then we might never draw a frame!
+	// what if we just process a single event?
 	for loop: true, loop, {
 		msg: MSG
-		
-		// I just want to print an integer...
-		// I think temporary storage must be next on the list, no?
-		Basic.print_string("Updating!\n")
-		
 		result: PeekMessageW(&msg, window.hwnd, 0, 0, PM_REMOVE)
 		if result != 0 {
 			TranslateMessage(&msg)
@@ -229,7 +243,7 @@
 	pt: POINT
 }
 
-#CreateWindowExW: @User32 proc(
+@User32 #CreateWindowExW: proc(
 	dwExStyle: u32
 	lpClassName: ^u16
 	lpWindowName: ^u16
@@ -243,27 +257,24 @@
 	hInstance: HINSTANCE
 	lpParam: ^raw) => HWND
 
-#MultiByteToWideChar: @Kernel32 proc(CodePage: u32, dwFlags: u32, lpMultiByteStr: ^u8, cbMultiByte: s32, lpWideCharStr: ^u16, cchWideChar: s32) => s32
-#GetModuleHandleW: @Kernel32 proc(lpModuleName: ^u16) => HMODULE
-#OutputDebugStringA: @Kernel32 proc(lpOutputString: ^u8)
-//#GetLastError: @Kernel32 proc => u32
+@Kernel32 #MultiByteToWideChar: proc(CodePage: u32, dwFlags: u32, lpMultiByteStr: ^u8, cbMultiByte: s32, lpWideCharStr: ^u16, cchWideChar: s32) => s32
+@Kernel32 #GetModuleHandleW: proc(lpModuleName: ^u16) => HMODULE
+@Kernel32 #OutputDebugStringA: proc(lpOutputString: ^u8)
+//@Kernel32 #GetLastError: proc => u32
 
-#UpdateWindow: @User32 proc(hWnd: HWND) => s32
-#ShowWindow: @User32 proc(hWnd: HWND, nCmdShow: s32) => s32
-#RegisterClassExW: @User32 proc(lpWndClass: ^WNDCLASSEXW) => ATOM
-#LoadCursorW: @User32 proc(hInstance: HINSTANCE, lpCursorName: ^u16) => HCURSOR
-#DefWindowProcW: @User32 proc(hWnd: HWND, Msg: u32, wParam: u64, lParam: s64) => s64
-#PeekMessageW: @User32 proc(lpMsg: ^MSG, hWnd: HWND, wMsgFilterMin: u32, wMsgFilterMax: u32, wRemoveMsg: u32) => s32
-#TranslateMessage: @User32 proc(lpMsg: ^MSG) => s32
-#DispatchMessageW: @User32 proc(lpMsg: ^MSG) => s64
-#GetWindowLongPtrW: @User32 proc(hWnd: HWND, nIndex: s32) => s64
-#SetWindowLongPtrW: @User32 proc(hWnd: HWND, nIndex: s32, dwNewLong: s64) => s64
+@User32 #UpdateWindow: proc(hWnd: HWND) => s32
+@User32 #ShowWindow: proc(hWnd: HWND, nCmdShow: s32) => s32
+@User32 #RegisterClassExW: proc(lpWndClass: ^WNDCLASSEXW) => ATOM
+@User32 #LoadCursorW: proc(hInstance: HINSTANCE, lpCursorName: ^u16) => HCURSOR
+@User32 #DefWindowProcW: proc(hWnd: HWND, Msg: u32, wParam: u64, lParam: s64) => s64
+@User32 #PeekMessageW: proc(lpMsg: ^MSG, hWnd: HWND, wMsgFilterMin: u32, wMsgFilterMax: u32, wRemoveMsg: u32) => s32
+@User32 #TranslateMessage: proc(lpMsg: ^MSG) => s32
+@User32 #DispatchMessageW: proc(lpMsg: ^MSG) => s64
+@User32 #GetWindowLongPtrW: proc(hWnd: HWND, nIndex: s32) => s64
+@User32 #SetWindowLongPtrW: proc(hWnd: HWND, nIndex: s32, dwNewLong: s64) => s64
 
-#CreateSolidBrush: @Gdi32 proc(color: u32) => HBRUSH
+@Gdi32 #CreateSolidBrush: proc(color: u32) => HBRUSH
 
-// TODO: improve FFZ with this
-#Gdi32: extern{}
-#User32: extern{}
-#Kernel32: extern{}
-$link_system_library{"User32.lib"}
-$link_system_library{"Gdi32.lib"}
+#Kernel32: |extern{":Kernel32"}
+#User32: |extern{":User32"}
+#Gdi32: |extern{":Gdi32"}

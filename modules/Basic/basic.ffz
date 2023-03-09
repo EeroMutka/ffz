@@ -286,7 +286,7 @@ _temp_arena: ^Arena
 }
 
 // TODO: unicode support (and printing > 4GB strings?)
-#print_string: proc(str: string) {
+#print: proc(str: string) {
 	num_chars_written: u32
 	WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), str.ptr, u32(str.len), &num_chars_written, ^raw(0))
 }
