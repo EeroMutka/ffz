@@ -28,9 +28,8 @@
 
 // -- All global state held by the foundation -------------------------------
 //Arena temp_allocator_arena;
-u64 global_rand = 0;
 
-static u8 SLOT_ARENA_FREELIST_END = 0;
+//static u8 SLOT_ARENA_FREELIST_END = 0;
 
 //THREAD_LOCAL void* _foundation_pass; // TODO: get rid of this!
 
@@ -332,18 +331,20 @@ bool f_str_starts_with(fString str, fString start) {
 	return str.len >= start.len && f_str_equals(start, f_str_slice_before(str, start.len));
 }
 
-fString f_str_cut_end(fString str, fString end) {
-	if (f_str_ends_with(str, end)) {
-		str.len -= end.len;
+bool f_str_cut_end(fString* str, fString end) {
+	if (f_str_ends_with(*str, end)) {
+		str->len -= end.len;
+		return true;
 	}
-	return str;
+	return false;
 }
 
-fString f_str_cut_start(fString str, fString start) {
-	if (f_str_starts_with(str, start)) {
-		str = f_str_slice_after(str, start.len);
+bool f_str_cut_start(fString* str, fString start) {
+	if (f_str_starts_with(*str, start)) {
+		*str = f_str_slice_after(*str, start.len);
+		return true;
 	}
-	return str;
+	return false;
 }
 
 void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)* out) {
@@ -723,6 +724,9 @@ void f_leak_tracker_end_entry(void* address) {
 }
 
 u32 f_random_u32() {
+	// TODO: https://www.pcg-random.org/download.html
+	//       https://nullprogram.com/blog/2017/09/21/
+	
 	//ZoneScoped;
 	F_BP;
 	//ASSERT(false);

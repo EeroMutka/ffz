@@ -128,10 +128,10 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	// -- Extended keywords ------------------------------------------------
 	ffzKeyword_FIRST_EXTENDED,
 	ffzKeyword_extern = ffzKeyword_FIRST_EXTENDED,
-	ffzKeyword_sys_extern = ffzKeyword_FIRST_EXTENDED,
 	ffzKeyword_using,
 	ffzKeyword_global,
 	ffzKeyword_thread_local,
+	ffzKeyword_module_defined_entry,
 
 	ffzKeyword_COUNT,
 } ffzKeyword;
@@ -314,9 +314,8 @@ u8 ffz_get_bracket_op_close_char(ffzNodeKind kind);
 
 // should we flatten it so we can talk about ffzNodeDeclarations?
 
-
-fOpt(ffzNodeOpDeclare*) ffz_get_parent_decl(fOpt(ffzNode*) node); // returns NULL if node->parent is not a declaration, or the node itself is NULL
 fString ffz_get_parent_decl_name(fOpt(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
+
 
 u32 ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
 ffzNode* ffz_get_child(ffzNode* parent, u32 idx);

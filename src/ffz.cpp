@@ -22,6 +22,7 @@ int main(int argc, const char* argv[]) {
 		return 1;
 	}
 
+	
 	if (argc <= 1) {
 		printf("Please provide a directory to compile!\n");
 		return 1;

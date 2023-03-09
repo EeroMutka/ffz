@@ -688,8 +688,8 @@ rune f_str_rune_to_lower(rune r);
 
 bool f_str_ends_with(fString str, fString end);
 bool f_str_starts_with(fString str, fString start);
-fString f_str_cut_end(fString str, fString end);
-fString f_str_cut_start(fString str, fString start);
+bool f_str_cut_end(fString* str, fString end);
+bool f_str_cut_start(fString* str, fString start);
 
 //void str_split(fString str, u8 character, fAllocator* a, Slice(fString)* out);
 void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)* out);

@@ -120,8 +120,7 @@ const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("using"),
 	F_LIT_COMP("global"),
 	F_LIT_COMP("thread_local"),
-	F_LIT_COMP("link_library"),
-	F_LIT_COMP("link_system_library"),
+	F_LIT_COMP("module_defined_entry"),
 };
 
 F_STATIC_ASSERT(F_LEN(ffzNodeKind_to_name) == ffzNodeKind_COUNT);
@@ -921,6 +920,8 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 	fArray(ffzNodeOp*) operator_chain = f_array_make_raw(p->alc);
 	//F_HITS(_c, 4);
 	
+	if (loc->line_num == 333) F_BP;
+
 	// We want to first parse the tags for the entire node.
 	// i.e. in `@using a: int`, the tag should be attached to the entire node, not to the left-hand-side.
 	OPT(ffzNode*) first_tag;
@@ -944,8 +945,12 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 		ffzNode* node = NULL;
 		ffzLoc loc_before = *loc;
 		
-		OPT(ffzNode*) operand_first_tag;
-		TRY(parse_possible_tags(p, loc, &operand_first_tag));
+		// TODO: improve parsing of tags. We should attach the tag to the biggest node after the tag.
+		// i.e. in `foo: @hello proc() {}`, the tag should be attached to the post-curly-brackets, NOT
+		// the procedure type!!!
+		// 
+		//OPT(ffzNode*) operand_first_tag;
+		//TRY(parse_possible_tags(p, loc, &operand_first_tag));
 
 		// skip newlines when NOT parsing for post/infix operators.
 		// i.e. to make the following work (otherwise it'd be a dereference of aaa):
@@ -1225,7 +1230,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			}
 		}
 
-		if (operand_first_tag) assign_possible_tags(node, operand_first_tag);
+		//if (operand_first_tag) assign_possible_tags(node, operand_first_tag);
 		if (!is_prefix_or_postfix) check_infix_or_postfix = !check_infix_or_postfix;
 		prev = node;
 	}

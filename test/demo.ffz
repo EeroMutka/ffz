@@ -1,20 +1,7 @@
-//#Basic: import(":Basic")
-
-// #RL: import(":vendor/raylib")
-
-
-//@|global
-//a: int
-
-// @|extern
-// @|sys_extern
-//b: f32
+#Basic: import(":Basic")
+#str: import(":String")
 
 // TODO:
-// ffz_entry
-// | for built-in keywords
-// make the braces in extern{} not necessary
-
 // temp allocator
 // break, continue
 // make .slice[] not necessary for Arrays
@@ -39,17 +26,19 @@
 // Chess game, maybe even 3d? That would be pretty cool!
 // tetris? breakout? pong? snake?
 
-//@|thread_local
-//temp_arena: int
+//#c_things: |extern{"build/c_things.obj"}
+//#print_uint: @c_things proc(x: uint)
 
-#c_things: |extern{"build/c_things.obj"}
-#print_uint: @c_things proc(x: uint)
-
-#ffz_entry: proc() {
-	//arena_base: ^u8(Basic.TiB(2))
-	//arena: Basic.arena_make_virtual_reserve_fixed(Basic.MiB(2), arena_base)
-	//temp: &arena.allocator
-	//dbgbreak
+#entry: proc() {
+	Basic.print_string(str.tfrom_uint(1))
+	Basic.print_string("\n")
+	Basic.print_string(str.tfrom_uint(55))
+	Basic.print_string("\n")
+	Basic.print_string(str.tfrom_uint(5 + 150))
+	Basic.print_string("\n")
+	Basic.print_string(str.tfrom_uint(90 * 2))
+	Basic.print_string("\n")
+	
 	dbgbreak
 	dbgbreak
 	dbgbreak

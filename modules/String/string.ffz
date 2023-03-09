@@ -98,26 +98,26 @@
 	}
 }
 
-#from_int: proc(value: int, a: ^Basic.Allocator) => string {
-	builder: make_builder(a)
+#from_int: proc(value: int, alc: ^Basic.Allocator) => string {
+	builder: make_builder(alc)
 	push_int(&builder, value)
 	ret string(builder.slice)
 }
 
-#from_uint: proc(value: uint, a: ^Basic.Allocator) => string {
-	builder: make_builder(a)
+#from_uint: proc(value: uint, alc: ^Basic.Allocator) => string {
+	builder: make_builder(alc)
 	push_uint(&builder, value)
 	ret string(builder.slice)
 }
 
 // hmm.. todo: accept `any`?
 #printf: proc(format: string, args: []string) {
-	tmp: Basic.temp_get_mark()
+	mark: Basic.temp_get_mark()
 	
 	s: joinf(format, args, Basic.temp_alc())
-	B.print_string(s)
+	Basic.print_string(s)
 	
-	Basic.temp_set_mark(tmp)
+	Basic.temp_set_mark(mark)
 }
 
 // Join using a format string
@@ -135,8 +135,8 @@
 //
 //   `the modulo operator (%) returns the remainder of a division. modulo rocks!`
 //
-#joinf: proc(format: string, args: []string, a: ^Basic.Allocator) => string {
-	builder: make_builder(a)
+#joinf: proc(format: string, args: []string, alc: ^Basic.Allocator) => string {
+	builder: make_builder(alc)
 	push_joinf(&builder, format, args)
 	ret string(builder.slice)
 }

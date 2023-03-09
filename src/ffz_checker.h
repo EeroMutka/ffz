@@ -246,8 +246,13 @@ typedef struct ffzProject {
 	fArray(fString) link_libraries;
 	fArray(fString) link_system_libraries;
 
-	fArray(ffzChecker*) checkers; // key: ffzCheckerIndex
-	fArray(ffzParser*) parsers_dependency_sorted; // key: ffzParserIndex // dependency sorted from leaf modules towards higher-level modules	
+	fArray(ffzChecker*) checkers; // key: ffzCheckerID
+	fArray(ffzParser*) parsers; // key: ffzParserID
+	
+	fArray(ffzChecker*) checkers_dependency_sorted; // dependency sorted from leaf modules towards higher-level modules
+	// should we also have checkers_dependency_sorted?
+	// maybe a checker should store an array of parsers?
+	//fArray(ffzParserID) parsers_dependency_sorted; // key: ffzParserIndex // dependency sorted from leaf modules towards higher-level modules
 
 	u32 pointer_size;
 
@@ -297,6 +302,7 @@ struct ffzChecker {
 	fAllocator* alc;
 	ffzCheckerID id;
 	fString directory;
+	fSlice(ffzParser*) parsers;
 
 #ifdef _DEBUG
 	fString _dbg_module_import_name;
@@ -330,7 +336,7 @@ struct ffzChecker {
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
 	fArray(fString) extern_libraries; // TODO: deduplicate
-	fArray(fString) extern_sys_libraries;
+	//fArray(fString) extern_sys_libraries;
 
 	fMap64(ffzChecker*) imported_modules; // key: AstNode.id.global_id
 
@@ -405,15 +411,18 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator);
 
 // -- Accessing cached data -----------------------------------------------------------
 
-// hmm.. maybe we should store the checker directly in the Node.
-inline ffzChecker* ffz_checker_from_node(ffzProject* p, ffzNode* node) { return p->parsers_dependency_sorted[node->id.parser_id]->checker; }
+inline ffzChecker* ffz_checker_from_node(ffzProject* p, ffzNode* node) {
+	return p->parsers[node->id.parser_id]->checker;
+}
 inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) {
 	return inst.polymorph ? inst.polymorph->checker : ffz_checker_from_node(p, inst.node);
 }
 
 bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeOpDeclare* out_decl);
 
-ffzNodeInst ffz_get_instantiated_expression(ffzProject* p, ffzNodeInst node); // do we need this?
+ffzNodeInst ffz_parent_inst(ffzProject* p, ffzNodeInst node);
+
+//ffzNodeInst ffz_get_instantiated_expression(ffzProject* p, ffzNodeInst node); // do we need this?
 
 bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
 //fSlice(ffzTypeRecordField) ffz_type_get_record_fields(ffzChecker* c, ffzType* type);
@@ -430,13 +439,15 @@ inline ffzConstant* ffz_decl_get_evaluated_constant(ffzProject* p, ffzNodeOpDecl
 // e.g. in  foo: int  the "foo" identifier would be a definition.
 ffzNodeIdentifierInst ffz_get_definition(ffzProject* p, ffzNodeIdentifierInst ident);
 
-bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl); // hmm... this is a bit weird.
+//bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl); // hmm... this is a bit weird.
 //bool ffz_definition_is_constant(ffzNodeIdentifier* definition);
 
-//bool ffz_decl_is_constant(ffzNodeDeclaration* decl);
+//ffzDeclKind ffz_decl_get_kind(ffzNodeOpDeclare* decl);
 bool ffz_decl_is_runtime_value(ffzNodeOpDeclare* decl);
 
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee);
 
 // Returns NULL if not found
-ffzConstant* ffz_get_tag(ffzProject* p, ffzNodeInst node, ffzType* tag_type);
+ffzConstant* ffz_get_tag_of_type(ffzProject* p, ffzNodeInst node, ffzType* tag_type);
+inline ffzConstant* ffz_get_tag(ffzProject* p, ffzNodeInst node, ffzKeyword tag) { return ffz_get_tag_of_type(p, node, ffz_builtin_type(ffz_checker_from_inst(p, node), tag)); }
+//c->project, inst, ffz_builtin_type(c, ))

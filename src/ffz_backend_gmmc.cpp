@@ -15,6 +15,11 @@
 
 #define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
 
+struct Value {
+	gmmcSymbol* symbol;
+	gmmcReg local_addr; // local_addr should be valid if symbol is NULL
+};
+
 struct Gen {
 	ffzProject* project;
 	fAllocator* alc;
@@ -31,7 +36,7 @@ struct Gen {
 	uint dummy_name_counter;
 	
 	fMap64(gmmcProc*) proc_from_hash;
-	fMap64(gmmcReg) gmmc_local_addr_from_definition;
+	fMap64(Value) value_from_definition;
 };
 
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
@@ -39,8 +44,8 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of = false);
 
 static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 	fArray(u8) name = f_array_make<u8>(g->alc);
-
 	if (inst.node) {
+		ffzNodeInst parent = ffz_parent_inst(g->project, inst);
 		f_str_print(&name, ffz_get_parent_decl_name(inst.node));
 		
 		if (inst.polymorph) {
@@ -66,8 +71,11 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			// We don't want to export symbols from imported modules.
 			// Currently, we're giving these symbols unique ids and exporting them anyway, because
 			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
-
-			if (!ffz_get_tag(g->project, inst, ffz_builtin_type(g->checker, ffzKeyword_extern))) {
+			
+			bool is_extern = ffz_get_tag(g->project, parent, ffzKeyword_extern);
+			bool is_module_defined_entry = ffz_get_tag(g->project, parent, ffzKeyword_module_defined_entry);
+			if (!is_extern && !is_module_defined_entry)
+			{
 				f_str_print(&name, F_LIT("$$"));
 				f_str_print(&name, g->checker->_dbg_module_import_name);
 			}
@@ -190,18 +198,20 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 		ffzNodeInstHash hash = ffz_hash_node_inst(param_definition);
 
 		gmmcReg param_val = gmmc_op_param(proc, i + (u32)big_return);
-		gmmcReg param_addr = param_val;
+		
+		Value val = {};
+		val.local_addr = param_val;
 		if (param->type->size > 8) {
 			// NOTE: this is Microsoft-X64 calling convention specific!
 		}
 		else {
 			// from language perspective, it'd be the nicest to be able to get the address of a reg,
 			// and to be able to assign to a reg. But that's a bit weird for the backend. Let's just make a local every time for now.
-			param_addr = gmmc_op_local(g->proc, param->type->size, param->type->align);
-			gmmc_op_store(g->bb, param_addr, param_val);
+			val.local_addr = gmmc_op_local(g->proc, param->type->size, param->type->align);
+			gmmc_op_store(g->bb, val.local_addr, param_val);
 		}
 		
-		f_map64_insert(&g->gmmc_local_addr_from_definition, hash, param_addr);
+		f_map64_insert(&g->value_from_definition, hash, val);
 		i++;
 	}
 
@@ -324,7 +334,7 @@ static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset
 		fString s = constant->string_zero_terminated;
 		
 		void* str_data;
-		gmmcGlobal* str_data_global = gmmc_make_global(g->gmmc, (u32)s.len + 1, 1, true, &str_data);
+		gmmcGlobal* str_data_global = gmmc_make_global(g->gmmc, (u32)s.len + 1, 1, gmmcSection_RData, &str_data);
 		memcpy(str_data, s.data, s.len);
 		((u8*)str_data)[s.len] = 0; // zero-termination
 
@@ -375,6 +385,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	ffzCheckedExpr checked = ffz_expr_get_checked(g->project, inst);
 	F_ASSERT(ffz_type_is_grounded(checked.type));
 
+	F_ASSERT(inst.node->kind != ffzNodeKind_Declare);
 	if (checked.const_val) {
 		switch (checked.type->tag) {
 		case ffzTypeTag_Bool: {
@@ -411,7 +422,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		case ffzTypeTag_FixedArray: // fallthrough
 		case ffzTypeTag_Record: {
 			void* global_data;
-			gmmcGlobal* global = gmmc_make_global(g->gmmc, checked.type->size, checked.type->align, true, &global_data);
+			gmmcGlobal* global = gmmc_make_global(g->gmmc, checked.type->size, checked.type->align, gmmcSection_RData, &global_data);
 			
 			gen_global_constant(g, global, (u8*)global_data, 0, checked.type, checked.const_val);
 
@@ -715,7 +726,10 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			ffzNodeIdentifierInst def = ffz_get_definition(g->project, inst);
 			if (def.node->Identifier.is_constant) F_BP;
 
-			out = *f_map64_get(&g->gmmc_local_addr_from_definition, ffz_hash_node_inst(def));
+			ffzNodeInstHash inst_hash = ffz_hash_node_inst(def);
+			Value* val = f_map64_get(&g->value_from_definition, inst_hash);
+			F_ASSERT(val);
+			out = val->symbol ? gmmc_op_addr_of_symbol(g->bb, val->symbol) : val->local_addr;
 			should_dereference = !address_of;
 		} break;
 
@@ -755,7 +769,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
 		if (inst.node->kind != ffzNodeKind_Scope && !node_is_keyword(inst.node, ffzKeyword_dbgbreak)) {
-			ffzParser* parser = g->project->parsers_dependency_sorted[inst.node->id.parser_id];
+			ffzParser* parser = g->project->parsers[inst.node->id.parser_id];
 			u32 start = inst.node->loc.start.offset;
 			u32 end = inst.node->loc.end.offset;
 			gmmc_op_comment(g->bb, fString{ parser->source_code.data + start, end - start });
@@ -766,19 +780,30 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		
 	case ffzNodeKind_Declare: {
 		ffzNodeIdentifierInst definition = CHILD(inst,Op.left);
-		ffzType* type = ffz_decl_get_type(g->project, inst);
+		ffzCheckedExpr checked = ffz_decl_get_checked(g->project, inst);
 
 		if (ffz_decl_is_runtime_value(inst.node)) {
-			gmmcReg local = gmmc_op_local(g->proc, type->size, type->align);
-			gmmcReg rhs_value = gen_expr(g, CHILD(inst,Op.right));
-			local = gmmc_op_local(g->proc, type->size, type->align);
-			gen_store(g, local, rhs_value, type);
+			ffzNodeInst rhs = CHILD(inst, Op.right);
+			Value val = {};
+			if (ffz_get_tag(g->project, inst, ffzKeyword_thread_local)) {
+				ffzCheckedExpr rhs_checked = ffz_decl_get_checked(g->project, rhs); // get the initial value
 
-			f_map64_insert(&g->gmmc_local_addr_from_definition, ffz_hash_node_inst(definition), local);
+				void* global_data;
+				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs_checked.type->size, rhs_checked.type->align, gmmcSection_Threadlocal, &global_data);
+
+				gen_global_constant(g, global, (u8*)global_data, 0, rhs_checked.type, rhs_checked.const_val);
+				val.symbol = gmmc_global_as_symbol(global);
+			}
+			else {
+				gmmcReg rhs_value = gen_expr(g, rhs);
+				val.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
+				gen_store(g, val.local_addr, rhs_value, checked.type);
+			}
+			f_map64_insert(&g->value_from_definition, ffz_hash_node_inst(definition), val);
 		}
 		else {
 			// need to still generate exported procs
-			if (type->tag == ffzTypeTag_Proc) {
+			if (checked.type->tag == ffzTypeTag_Proc) {
 				ffzNodeInst rhs = CHILD(inst,Op.right);
 				if (rhs.node->kind == ffzNodeKind_PostCurlyBrackets) { // @extern procs also have the type ffzTypeTag_Proc so we need to ignore those
 					gen_procedure(g, rhs);
@@ -901,15 +926,18 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	g.alc = f_temp_alc();
 	g.project = project;
 	//g.tb_file_from_parser_idx = f_array_make<TB_FileID>(g.alc);
-	g.gmmc_local_addr_from_definition = f_map64_make<gmmcReg>(g.alc);
+	g.value_from_definition = f_map64_make<Value>(g.alc);
 	g.proc_from_hash = f_map64_make<gmmcProc*>(g.alc);
-
-	for (u32 i = 0; i < project->parsers_dependency_sorted.len; i++) {
-		ffzParser* parser = project->parsers_dependency_sorted[i];
-		g.checker = parser->checker;
-
-		for FFZ_EACH_CHILD(n, parser->root) {
-			gen_statement(&g, ffz_get_toplevel_inst(g.checker, n));
+	
+	for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
+		ffzChecker* checker = project->checkers_dependency_sorted[i];
+		g.checker = checker;
+		
+		for (uint j = 0; j < checker->parsers.len; j++) {
+			ffzParser* parser = checker->parsers[j];
+			for FFZ_EACH_CHILD(n, parser->root) {
+				gen_statement(&g, ffz_get_toplevel_inst(g.checker, n));
+			}
 		}
 	}
 
@@ -941,6 +969,12 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 
 	f_array_push(&clang_args, F_LIT("-Xlinker"));
 	f_array_push(&clang_args, F_LIT("/ENTRY:ffz_entry"));
+
+	// if we use a custom entry point (not "main"), it seems that we have to manually link to CRT
+	//f_array_push(&clang_args, F_LIT("-Xlinker"));
+	//f_array_push(&clang_args, F_LIT("/DEFAULTLIB:libucrt.lib"));
+	//f_array_push(&clang_args, F_LIT("-Xlinker"));
+	//f_array_push(&clang_args, F_LIT("/DEFAULTLIB:libcmt.lib"));
 
 	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
 	f_array_push(&clang_args, F_LIT("a.c"));

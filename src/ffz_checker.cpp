@@ -329,14 +329,12 @@ const char* ffz_type_to_cstring(ffzProject* p, ffzType* type) {
 	return (const char*)builder.data;
 }
 
-bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl) {
-	if (node.node->parent->kind != ffzNodeKind_Declare) return false;
-	
-	*out_decl = { node.node->parent, node.polymorph };
-	return out_decl->node->Op.left == node.node;
-}
-
-//bool ffz_definition_is_constant(ffzNodeIdentifier* definition) { return definition->is_constant || definition->parent->kind == ffzNodeKind_PolyParamList; }
+//bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl) {
+//	if (node.node->parent->kind != ffzNodeKind_Declare) return false;
+//	
+//	*out_decl = { node.node->parent, node.polymorph };
+//	return out_decl->node->Op.left == node.node;
+//}
 
 bool ffz_decl_is_runtime_value(ffzNodeOpDeclare* decl) {
 	if (decl->parent->kind == ffzNodeKind_Record) return false;
@@ -346,29 +344,36 @@ bool ffz_decl_is_runtime_value(ffzNodeOpDeclare* decl) {
 	return true;
 }
 
-bool ffz_is_child_of(ffzNode* node, OPT(ffzNode*) parent) {
-	for (;node; node = node->parent) {
-		if (node->parent == parent) return true;
-	}
-	return false;
-}
+//bool ffz_is_child_of(ffzNode* node, OPT(ffzNode*) parent) {
+//	for (;node; node = node->parent) {
+//		if (node->parent == parent) return true;
+//	}
+//	return false;
+//}
 
 ffzNodeIdentifierInst ffz_get_definition(ffzProject* project, ffzNodeIdentifierInst ident) {
 	ffzChecker* base_module = ffz_checker_from_node(project, (ffzNode*)ident.node);
 	
-	ffzPolymorph* poly = ident.polymorph;
-	for (ffzNode* n = (ffzNode*)ident.node; n; n = n->parent) { // we want to check even with a NULL scope node
-		
-		ffzDefinitionPath decl_path = { n->parent, ident.node->Identifier.name };
+	for (ffzNodeInst n = ident; n.node; n = ffz_parent_inst(project, n)) {
+		ffzDefinitionPath decl_path = { n.node->parent, ident.node->Identifier.name };
 		if (ffzNodeIdentifier** found = f_map64_get(&base_module->definition_map, ffz_hash_declaration_path(decl_path))) {
-			
-			for (; poly && ffz_is_child_of(poly->node.node, n->parent);) {
-				poly = poly->node.polymorph; // move to a higher-up polymorph until its no longer a child of the scope
-			}
-
-			return { *found, poly };
+			return { *found, n.polymorph };
 		}
 	}
+
+	//ffzPolymorph* poly = ident.polymorph;
+	//for (ffzNode* n = (ffzNode*)ident.node; n; n = n->parent) { // we want to check even with a NULL scope node
+	//	
+	//	ffzDefinitionPath decl_path = { n->parent, ident.node->Identifier.name };
+	//	if (ffzNodeIdentifier** found = f_map64_get(&base_module->definition_map, ffz_hash_declaration_path(decl_path))) {
+	//		
+	//		for (; poly && ffz_is_child_of(poly->node.node, n->parent);) {
+	//			poly = poly->node.polymorph; // move to a higher-up polymorph until its no longer a child of the scope
+	//		}
+	//
+	//		return { *found, poly };
+	//	}
+	//}
 
 	return {};
 }
@@ -392,8 +397,12 @@ ffzCheckedExpr ffz_decl_get_checked(ffzProject* p, ffzNodeOpDeclareInst decl) {
 }
 
 bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeOpDeclareInst* out_decl) {
-	ffzNodeIdentifier** def = f_map64_get(&c->definition_map, ffz_hash_declaration_path(ffzDefinitionPath{ {}, name }));
-	return def && ffz_get_decl_if_definition(ffzNodeIdentifierInst{ *def, NULL }, out_decl);
+	ffzNodeIdentifier** def = f_map64_get(&c->definition_map, ffz_hash_declaration_path({ {}, name }));
+	if (def) {
+		*out_decl = { (*def)->parent, NULL };
+		return true;
+	}
+	return false;
 }
 
 ffzFieldHash ffz_hash_field(ffzType* type, fString member_name) {
@@ -418,7 +427,7 @@ static ffzOk add_fields_to_field_from_name_map(ffzChecker* c, ffzType* root_type
 		}
 
 		if (field->decl.node) {
-			if (ffz_get_tag(c->project, field->decl, ffz_builtin_type(c, ffzKeyword_using))) {
+			if (ffz_get_tag(c->project, field->decl, ffzKeyword_using)) {
 				TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
 			}
 		}
@@ -1202,10 +1211,15 @@ ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 	switch (node->kind) {
 	case ffzNodeKind_Declare: {
 		ffzNodeIdentifier* name = node->Op.left;
-		if (!name->Identifier.is_constant) ERR(c, name, "Top-level declaration must be constant, but got a non-constant.");
-		
 		ffzNodeInst inst = ffz_get_toplevel_inst(c, node);
+		
 		TRY(check_node(c, inst, NULL, 0, NULL));
+		
+		// first check the tags...
+		bool is_threadlocal = ffz_get_tag(c->project, inst, ffzKeyword_thread_local) != NULL;
+		if (!name->Identifier.is_constant && !is_threadlocal) {
+			ERR(c, name, "Top-level declaration must be constant or thread-local, but got a non-constant.");
+		}
 	} break;
 	default: ERR(c, node, "Top-level node must be a declaration; got: %s", ffz_node_kind_to_cstring(node->kind));
 	}
@@ -1225,10 +1239,10 @@ static ffzOk check_tag(ffzChecker* c, ffzNodeInst tag) {
 		// hmm... if we have a lot of these calls, that might be a bit slow, since we're calling the OS functions
 		//if (!f_files_path_to_canonical(c->directory, library,
 	}
-	else if (chk.type == ffz_builtin_type(c, ffzKeyword_sys_extern)) {
-		fString library = chk.const_val->record_fields[0].string_zero_terminated;
-		f_array_push(&c->extern_sys_libraries, library);
-	}
+	//else if (chk.type == ffz_builtin_type(c, ffzKeyword_extern_sys)) {
+	//	fString library = chk.const_val->record_fields[0].string_zero_terminated;
+	//	f_array_push(&c->extern_sys_libraries, library);
+	//}
 
 	auto tags = f_map64_insert(&c->all_tags_of_type, chk.type->hash, {}, fMapInsert_DoNotOverride);
 	if (tags.added) *tags._unstable_ptr = f_array_make<ffzNodeInst>(c->alc);
@@ -1244,14 +1258,22 @@ static ffzOk check_tags(ffzChecker* c, ffzNodeInst inst) {
 	return { true };
 }
 
-ffzNodeInst ffz_get_instantiated_inst(ffzChecker* c, ffzNodeInst node) {
-	if (node.node->kind == ffzNodeKind_PostSquareBrackets) {
-		if (ffzPolymorph** p_poly = f_map64_get(&c->poly_instantiation_sites, ffz_hash_node_inst(node))) {
-			node = ffzNodeInst{ (*p_poly)->node.node, (*p_poly) };
-		}
+ffzNodeInst ffz_parent_inst(ffzProject* p, ffzNodeInst inst) {
+	ffzNode* parent = inst.node->parent;
+	if (inst.polymorph && parent == inst.polymorph->node.node) {
+		return inst.polymorph->node; // exit current polymorph
 	}
-	return node;
+	return { parent, inst.polymorph };
 }
+
+//ffzNodeInst ffz_get_instantiated_inst(ffzChecker* c, ffzNodeInst node) {
+//	if (node.node->kind == ffzNodeKind_PostSquareBrackets) {
+//		if (ffzPolymorph** p_poly = f_map64_get(&c->poly_instantiation_sites, ffz_hash_node_inst(node))) {
+//			node = ffzNodeInst{ (*p_poly)->node.node, (*p_poly) };
+//		}
+//	}
+//	return node;
+//}
 
 struct ffzRecordBuilder {
 	ffzType* record;
@@ -1340,7 +1362,7 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 	c->all_tags_of_type = f_map64_make<fArray(ffzNodeInst)>(c->alc);
 	c->poly_from_hash = f_map64_make<ffzPolymorph*>(c->alc);
 	c->extern_libraries = f_array_make<fString>(c->alc);
-	c->extern_sys_libraries = f_array_make<fString>(c->alc);
+	//c->extern_sys_libraries = f_array_make<fString>(c->alc);
 
 	{
 		c->builtin_types[ffzKeyword_u8] = ffz_make_type(c, { ffzTypeTag_Uint, 1 });
@@ -1378,14 +1400,9 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 			ffz_record_builder_finish(c, &b);
 		}
 
-		{
-			c->builtin_types[ffzKeyword_sys_extern] = ffz_make_pseudo_record_type(c);
-			ffzRecordBuilder b = ffz_record_builder_init(c, c->builtin_types[ffzKeyword_sys_extern], 1);
-			ffz_record_builder_add_field(c, &b, F_LIT("library"), ffz_builtin_type(c, ffzKeyword_string), {});
-			ffz_record_builder_finish(c, &b);
-		}
-
 		c->builtin_types[ffzKeyword_using] = ffz_make_pseudo_record_type(c);
+		c->builtin_types[ffzKeyword_thread_local] = ffz_make_pseudo_record_type(c);
+		c->builtin_types[ffzKeyword_module_defined_entry] = ffz_make_pseudo_record_type(c);
 	}
 
 	return c;
@@ -1402,7 +1419,7 @@ bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee) {
 	return false;
 }
 
-ffzConstant* ffz_get_tag(ffzProject* p, ffzNodeInst node, ffzType* tag_type) {
+ffzConstant* ffz_get_tag_of_type(ffzProject* p, ffzNodeInst node, ffzType* tag_type) {
 	for (ffzNode* tag_n = node.node->first_tag; tag_n; tag_n = tag_n->next) {
 		ffzNodeInst tag = { tag_n, node.polymorph };
 		
@@ -1508,7 +1525,8 @@ static ffzOk check_proc_type(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* re
 		}
 	}
 	
-	if (ffz_get_tag(c->project, inst, ffz_builtin_type(c, ffzKeyword_extern))) {
+	ffzNodeInst parent = ffz_parent_inst(c->project, inst);
+	if (ffz_get_tag(c->project, parent, ffzKeyword_extern)) {
 		if (proc_type.tag == ffzTypeTag_PolyProc) ERR(c, inst.node, "Polymorphic procedures cannot be @extern.");
 	
 		// if it's an extern proc, then don't turn it into a type type!!
@@ -1549,8 +1567,8 @@ static ffzOk check_identifier(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* r
 		*result = def.polymorph->parameters[ffz_get_child_index(def.node)];
 	}
 	else {
-		ffzNodeOpDeclareInst decl_inst;
-		F_ASSERT(ffz_get_decl_if_definition(def, &decl_inst));
+		ffzNodeInst decl_inst = ffz_parent_inst(c->project, def);
+		F_ASSERT(decl_inst.node->kind == ffzNodeKind_Declare);
 
 		fMapInsertResult circle_chk = f_map64_insert_raw(&c->checked_identifiers, ffz_hash_node_inst(inst), NULL, fMapInsert_DoNotOverride);
 		if (!circle_chk.added) ERR(c, inst.node, "Circular definition!"); // TODO: elaborate
@@ -2092,8 +2110,12 @@ void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc
 	}
 }
 
-static bool _parse_and_check_directory(ffzProject* project, fString directory, ffzChecker** out_checker, fString _dbg_module_import_name) {
-	if (!f_files_path_to_canonical({}, directory, f_temp_alc(), &directory)) return false;
+static bool _parse_and_check_directory(ffzProject* project, fString _directory, ffzChecker** out_checker, fString _dbg_module_import_name) {
+	fString directory;
+	if (!f_files_path_to_canonical({}, _directory, f_temp_alc(), &directory)) {
+		printf("Invalid directory: \"%.*s\"\n", F_STRF(directory));
+		return false;
+	}
 	
 	auto checker_insertion = f_map64_insert(&project->checked_module_from_directory, f_hash64_str_ex(directory, 0),
 		(ffzChecker*)0, fMapInsert_DoNotOverride);
@@ -2107,7 +2129,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 	checker->directory = directory;
 
 	checker->report_error = [](ffzChecker* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
-		ffzParser* parser = checker->project->parsers_dependency_sorted[at->id.parser_id];
+		ffzParser* parser = checker->project->parsers[at->id.parser_id];
 
 		ffz_log_pretty_error(parser, F_LIT("Semantic error "), at->loc, error, true);
 		for (uint i = poly_path.len - 1; i < poly_path.len; i++) {
@@ -2145,18 +2167,17 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		return false;
 	}
 
-	fSlice(ffzParser*) parsers_dependency_sorted = f_make_slice_garbage<ffzParser*>(visit.files.len, f_temp_alc());
+	checker->parsers = f_make_slice_garbage<ffzParser*>(visit.files.len, checker->alc);
 	for (uint i = 0; i < visit.files.len; i++) {
 		ffzParser* parser = f_mem_clone(ffzParser{}, f_temp_alc());
-		parsers_dependency_sorted[i] = parser;
+		checker->parsers[i] = parser;
 
 		fString file_contents;
 		F_ASSERT(f_files_read_whole(visit.files[i], f_temp_alc(), &file_contents));
 
 		parser->project = project;
-		parser->id = (ffzParserID)f_array_push(&project->parsers_dependency_sorted, parser);
-
 		parser->alc = f_temp_alc();
+		parser->id = (ffzParserID)f_array_push(&project->parsers, parser);
 		parser->checker = checker;
 		parser->source_code = file_contents;
 		parser->source_code_filepath = visit.files[i];
@@ -2207,14 +2228,8 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			f_map64_insert(&checker->imported_modules, import_op->id.global_id, child_checker);
 		}
 
-		//if (parser->module_imports) {
-		//	if (parser->module_imports->kind != ffzNodeKind_Scope) BP;
-		//
-		//	for FFZ_EACH_NODE(n, parser->module_imports->Scope.nodes) {
-		//		if (n->kind != ffzNodeKind_Statement) BP;
-		//		if (!stmt_is_constant_decl(n)) BP;
-		//	}
-		//}
+		// now that imported modules have been checked, we can add our module to the dependency-sorted array
+		f_array_push(&project->checkers_dependency_sorted, checker);
 	}
 
 	// checker stage
@@ -2225,8 +2240,8 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 		//array_push(&checker->stack, &root_frame);
 
 		// We need to first add top-level declarations from all files before proceeding  :EarlyTopLevelDeclarations
-		for (uint i = 0; i < parsers_dependency_sorted.len; i++) {
-			ffzParser* parser = parsers_dependency_sorted[i];
+		for (uint i = 0; i < checker->parsers.len; i++) {
+			ffzParser* parser = checker->parsers[i];
 			//root_scope.parser = parser;
 			//checker->report_error_userptr = parser;
 
@@ -2236,8 +2251,8 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 			}
 		}
 
-		for (uint i = 0; i < parsers_dependency_sorted.len; i++) {
-			ffzParser* parser = parsers_dependency_sorted[i];
+		for (uint i = 0; i < checker->parsers.len; i++) {
+			ffzParser* parser = checker->parsers[i];
 			//root_scope.parser = parser;
 			//checker->report_error_userptr = parser;
 
@@ -2258,18 +2273,24 @@ static bool _parse_and_check_directory(ffzProject* project, fString directory, f
 				}
 				
 				if (!ffz_check_toplevel_statement(checker, n).ok) {
+					F_BP;
 					return false;
 				}
 			}
 		}
 
 		for (uint i = 0; i < checker->extern_libraries.len; i++) {
-			fString input;
-			F_ASSERT(f_files_path_to_canonical(directory, checker->extern_libraries[i], f_temp_alc(), &input));
-			f_array_push(&project->link_libraries, input);
-		}
-		for (uint i = 0; i < checker->extern_sys_libraries.len; i++) {
-			f_array_push(&project->link_system_libraries, checker->extern_sys_libraries[i]);
+			fString input = checker->extern_libraries[i];
+			if (input == F_LIT("?")) continue;
+			
+			if (f_str_cut_start(&input, F_LIT(":"))) {
+				// system library
+				f_array_push(&project->link_system_libraries, input);
+			}
+			else {
+				F_ASSERT(f_files_path_to_canonical(directory, input, f_temp_alc(), &input));
+				f_array_push(&project->link_libraries, input);
+			}
 		}
 	}
 
@@ -2282,16 +2303,25 @@ bool ffz_parse_and_check_directory(ffzProject* p, fString directory) {
 }
 
 bool ffz_build_directory(fString directory, fString compiler_install_dir) {
-	if (!f_files_path_to_canonical(fString{}, directory, f_temp_alc(), &directory)) return false;
-	if (!f_files_path_to_canonical(fString{}, compiler_install_dir, f_temp_alc(), &compiler_install_dir)) return false;
+	if (!f_files_path_to_canonical(fString{}, directory, f_temp_alc(), &directory)) {
+		F_BP;
+		return false;
+	}
+	if (!f_files_path_to_canonical(fString{}, compiler_install_dir, f_temp_alc(), &compiler_install_dir)) {
+		F_BP;
+		return false;
+	}
+
+	// TODO: we really should cleanup the f_temp_alc() calls everywhere
 
 	ffzProject* p = f_mem_clone(ffzProject{}, f_temp_alc());
 	p->persistent_allocator = f_temp_alc();
 	p->module_name = f_str_path_tail(directory);
 	p->compiler_install_dir = compiler_install_dir;
 	p->checked_module_from_directory = f_map64_make<ffzChecker*>(f_temp_alc());
+	p->parsers = f_array_make<ffzParser*>(f_temp_alc());
 	p->checkers = f_array_make<ffzChecker*>(f_temp_alc());
-	p->parsers_dependency_sorted = f_array_make<ffzParser*>(f_temp_alc());
+	p->checkers_dependency_sorted = f_array_make<ffzChecker*>(f_temp_alc());
 	p->link_libraries = f_array_make<fString>(f_temp_alc());
 	p->link_system_libraries = f_array_make<fString>(f_temp_alc());
 	p->pointer_size = 8;

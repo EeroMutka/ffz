@@ -167,7 +167,8 @@ typedef enum {
 	gmmcSection_Invalid = 0,
 	gmmcSection_RData = 1,
 	gmmcSection_RWData = 2,
-	gmmcSection_Code = 3,
+	gmmcSection_Threadlocal = 3,
+	gmmcSection_Code = 4,
 } gmmcSection;
 
 GMMC_API gmmcModule* gmmc_init(fAllocator* allocator);
@@ -198,7 +199,7 @@ inline gmmcSymbol* gmmc_global_as_symbol(gmmcGlobal* global) { return (gmmcSymbo
 GMMC_API gmmcSymbol* gmmc_make_external_symbol(gmmcModule* m, gmmcString name);
 
 // TODO: is there a way to mark the memory as executable?
-GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, bool readonly, void** out_data);
+GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_data);
 
 GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc);
 

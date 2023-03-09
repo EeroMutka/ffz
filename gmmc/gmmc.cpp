@@ -86,7 +86,7 @@ typedef struct gmmcGlobal {
 
 	u32 size;
 	u32 align;
-	bool readonly;
+	gmmcSection section;
 	void* data;
 
 	fArray(gmmcReloc) relocations;
@@ -703,7 +703,7 @@ GMMC_API void gmmc_proc_print(FILE* f, gmmcProc* proc) {
 	fprintf(f, "}\n");
 }
 
-GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, bool readonly, void** out_data) {
+GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_data) {
 	void* data = f_mem_alloc(size, align, m->allocator);
 	memset(data, 0, size);
 
@@ -714,7 +714,7 @@ GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t ali
 	global->sym.name = f_str_format(m->allocator, "g$%u", idx);
 	global->size = size;
 	global->align = align;
-	global->readonly = readonly;
+	global->section = section;
 	global->data = data;
 	global->relocations = f_array_make<gmmcReloc>(m->allocator);
 
@@ -864,7 +864,9 @@ void *memset(void *s, int c, size_t n);
 			}
 		}
 		fprintf(f, "};\n");
-		if (global->readonly) fprintf(f, "const ");
+		// forward declare
+		if (global->section == gmmcSection_Threadlocal) fprintf(f, "_Thread_local ");
+		if (global->section == gmmcSection_RData) fprintf(f, "const ");
 		fprintf(f, "static struct %s_T %s;\n", name, name);
 	}
 	
@@ -874,7 +876,8 @@ void *memset(void *s, int c, size_t n);
 		gmmcGlobal* global = m->globals[i];
 		const char* name = f_str_to_cstr(global->sym.name, alc);
 
-		if (global->readonly) fprintf(f, "const ");
+		if (global->section == gmmcSection_Threadlocal) fprintf(f, "_Thread_local ");
+		if (global->section == gmmcSection_RData) fprintf(f, "const ");
 		fprintf(f, "static struct %s_T %s = {", name, name);
 		//fprintf(f, "\n%s_data = {", name);
 

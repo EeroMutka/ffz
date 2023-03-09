@@ -1,17 +1,17 @@
 // hmm. I'm not sure if this should go inside the Basic module, as Basic/Array.
 // I guess that depends on whether anything inside Basic requires an array implementation.
 
-#B: import("../Basic")
+#Basic: import(":Basic")
 
 // TODO: @alias_module_name
 
 #Array: struct[T] {
-	@using{} slice: []T
+	@|using{} slice: []T
 	capacity: uint
-	allocator: ^B.Allocator
+	allocator: ^Basic.Allocator
 }
 
-#make: proc[T](allocator: ^B.Allocator) => Array[T] {
+#make: proc[T](allocator: ^Basic.Allocator) => Array[T] {
 	a: Array[T]
 	a.allocator= allocator
 	
@@ -48,7 +48,7 @@
 #push_n_raw: proc(a: ^Array[raw], elems: ^raw, n: uint, elem_size: uint, elem_align: uint) => uint {
 	reserve_raw(a, a.len + n, elem_size, elem_align)
 	
-	B.memmove(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
+	Basic.memmove(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
 	
 	out: a.len
 	a.len= .+n
@@ -58,9 +58,9 @@
 #reserve_raw: proc(a: ^Array[raw], capacity: uint, elem_size: uint, elem_align: uint) {
 	if (capacity > a.capacity) {
 		// the + 7 is to make us start off with 8 elements the first time we're appending to an array
-		new_capacity: B.round_up_to_power_of_2(capacity + 7)
+		new_capacity: Basic.round_up_to_power_of_2(capacity + 7)
 		
-		if (a.allocator == ^B.Allocator(0)) {
+		if (a.allocator == ^Basic.Allocator(0)) {
 			dbgbreak // did you forget to call Array.make?
 		}
 		
@@ -74,8 +74,8 @@
 	
 	// Move existing elements forward
 	offset: uint(a.ptr) + at * elem_size
-	B.memmove(^raw(offset + n * elem_size), ^raw(offset), (a.len - at) * elem_size)
+	Basic.memmove(^raw(offset + n * elem_size), ^raw(offset), (a.len - at) * elem_size)
 	
-	B.memmove(^raw(offset), elem, n * elem_size)
+	Basic.memmove(^raw(offset), elem, n * elem_size)
 	a.len = .+n
 }

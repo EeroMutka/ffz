@@ -1,12 +1,8 @@
-#include <stdint.h>
+#include <stdio.h>
 //int entry();
 
 void print_uint(unsigned long long x) {
-	//printf("%llu\n", x);
-	__debugbreak();
-	__debugbreak();
-	__debugbreak();
-	__debugbreak();
+	printf("%llu\n", x);
 }
 
 //typedef struct { void* ptr; unsigned long long len; } string;
