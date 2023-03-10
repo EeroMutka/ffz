@@ -533,13 +533,9 @@ fArena* f_arena_make_buffer_fixed(void* base, uint size);
 fArena* f_arena_make_ex(fArenaDesc desc);
 void f_arena_free(fArena* arena);
 
-//Heap* make_heap(fArenaDesc backing_arena_desc);
-
 fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment);
 u8* f_arena_push_str(fArena* arena, fString data, uint_pow2 alignment);
 
-// should we instead just ask for a string?
-// f_arena_get_as_string()
 u8* f_arena_get_contiguous_base(fArena* arena);
 uint f_arena_get_contiguous_cursor(fArena* arena);
 

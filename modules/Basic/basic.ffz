@@ -80,7 +80,7 @@ _temp_arena: ^Arena
 		new_allocation: arena_push(arena, in.size, in.align)
 		
 		if in.old_ptr != ^raw(0) {
-			memmove(new_allocation.ptr, in.old_ptr, in.old_size) // first do the copy, then fill old with garbage
+			mem_move(new_allocation.ptr, in.old_ptr, in.old_size) // first do the copy, then fill old with garbage
 			
 			if ENABLE_DEBUG_CHECKS {
 				_debug_clear_memory(in.old_ptr, in.old_size)
@@ -177,7 +177,7 @@ _temp_arena: ^Arena
 // This procedure clears memory to 0xCC to make un/deinitialized-memory-use bugs more
 // obvious, and to trigger possible data breakpoints.
 #_debug_clear_memory: proc(ptr: ^raw, size: uint) {
-	memset(ptr, 0xCC, size)
+	mem_set(ptr, 0xCC, size)
 }
 
 #arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
@@ -233,7 +233,7 @@ _temp_arena: ^Arena
 
 #copy: proc[T](dst: []T, src: []T) {
 	//assert(dst.len == src.len)
-	memmove(dst.ptr, src.ptr, src.len * size_of(T))
+	mem_move(dst.ptr, src.ptr, src.len * size_of(T))
 }
 
 #fill: proc[T](dst: []T, value: T) {
@@ -304,7 +304,7 @@ _temp_arena: ^Arena
 
 #thread_init_basic: proc() {
 	// initialize CRT manually since we're using our own entry point instead of the CRT "main"
-	_CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_ATTACH, ^raw(0))
+	//_CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_ATTACH, ^raw(0))
 	
 	//_stdout = GetStdHandle(STD_OUTPUT_HANDLE)
 	
@@ -313,8 +313,9 @@ _temp_arena: ^Arena
 	_temp_arena = arena_make_virtual_reserve_fixed(MiB(2), temp_arena_base)
 }
 
-//#thread_deinit_basic: proc() {
-//}
+#thread_deinit_basic: proc() {
+	//_CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_DETACH, ^raw(0))
+}
 
 @|extern{"?"}
 #entry: proc(args: []string) => u32
@@ -337,14 +338,15 @@ _temp_arena: ^Arena
 // thread_init_basic/thread_deinit_basic must be called if the code is using the Basic module. That's it!
 
 @|module_defined_entry{}
-#ffz_entry: proc(argc: u32, argv: ^^u8) => u32 {
+#ffz_entry: proc(argc: u32, argv: ^^u8) {
 	thread_init_basic()
 	
 	args: []string
 	exit_code: entry(args)
 	
-	// thread_deinit_basic() // let the OS take care of freeing everything
-	ret exit_code
+	// thread_deinit_basic()
+	
+	ExitProcess(exit_code) // https://nullprogram.com/blog/2023/02/15/
 }
 
 // -- OS-specific defines -----------------------------------------------------
@@ -366,15 +368,17 @@ _temp_arena: ^Arena
 
 #HANDLE: ^raw
 
-@|extern{"?"} #memmove: proc(dst: ^raw, src: ^raw, size: uint)
-@|extern{"?"} #memset: proc(str: ^raw, c: u32, n: uint)
+@|extern{"?"} #mem_move: proc(dst: ^raw, src: ^raw, size: uint)
+@|extern{"?"} #mem_set: proc(str: ^raw, c: u32, n: uint)
 @Kernel32 #VirtualAlloc: proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => ^u8
 @Kernel32 #VirtualFree: proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => u32
 @Kernel32 #GetSystemInfo: proc(lpSystemInfo: ^SYSTEM_INFO)
 @Kernel32 #WriteConsoleA: proc(hConsoleOutput: HANDLE, lpBuffer: ^raw, nNumberOfCharsToWrite: u32, lpNumberOfCharsWritten: ^u32, lpReserved: ^raw) => s32
 @Kernel32 #GetStdHandle: proc(nStdHandle: u32) => HANDLE
+@Kernel32 #ExitProcess: proc(uExitCode: u32)
 
 #DLL_PROCESS_ATTACH: u32(1)
+#DLL_PROCESS_DETACH: u32(0)
 @Kernel32 #_CRT_INIT: proc(hinstDLL: ^raw, fdwReason: u32, lpReserved: ^raw)
 @Kernel32 #GetModuleHandleW: proc(lpModuleName: ^raw) => ^raw
 

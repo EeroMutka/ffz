@@ -88,31 +88,34 @@ globals: struct{
 	test: bool
 }
 
-#resize_cb: Window.ResizeCallback {
-	Basic.print("hello from callback!\n")
-	
-	if globals.test {
-		globals.gl.ClearColor(.6, .2, .6, 1.)
-		globals.test = false
-	}
-	else {
-		globals.gl.ClearColor(.3, .2, .6, 1.)
-		globals.test = true
-	}
-	
+#draw: proc() {
+	globals.gl.ClearColor(.3, .2, .4, 1.)
 	globals.gl.Clear(GL.COLOR_BUFFER_BIT)
-	if !GL.swap_buffers(globals.window) {dbgbreak}
 	
-	//gl.DrawArrays(GL.TRIANGLES, 0, 3)
+	globals.gl.DrawArrays(GL.TRIANGLES, 0, 3)
+	
+	if !GL.swap_buffers(globals.window) {dbgbreak}
+}
+	
+#resize_cb: Window.ResizeCallback {
+	Basic.print("resizing. width: ")
+	Basic.print(str.tfrom_uint(in.width))
+	Basic.print(", height: ")
+	Basic.print(str.tfrom_uint(in.height))
+	Basic.print("\n")
+	
+	globals.gl.Viewport(0, 0, s32(in.width), s32(in.height))
+	draw()
 }
 
 #entry: proc() {
-	globals.window = Window.create(512, 512, "Hulabaloo")
+	Basic.print("hello!\n")
+	globals.window = Window.create(512, 512, "My window")
 	
 	//_gl: GL.API
+	
 	gl: &globals.gl
 	GL.load(gl, globals.window, GL.Version._3_3)
-	
 	// Compile the vertex and the fragment shader
 	vs: compile_shader(gl, GL.VERTEX_SHADER, vertex_shader_src.ptr)
 	fs: compile_shader(gl, GL.FRAGMENT_SHADER, fragment_shader_src.ptr)
@@ -158,7 +161,6 @@ globals: struct{
 	gl.VertexAttribPointer(1, 4, GL.FLOAT, false, s32(size_of(Vertex)), ^raw(4*3)/*offsetof(Vertex, color)*/)
 	gl.EnableVertexAttribArray(1)
 	
-	
 	Window.show(globals.window)
 	
 	i: 0
@@ -166,31 +168,18 @@ globals: struct{
 	gl.UseProgram(shader_program)
 	gl.BindVertexArray(vao)
 	
-	// TODO: triangle
 	quit: false
 	for, !quit {
 		events: Window.poll_events(globals.window, resize_cb, ^raw(gl))
-		
-		//print_uint(i)
 		
 		if events.quit {
 			quit = true
 		}
 		
 		if !quit {
-			// draw
-			
-			Basic.print("drawing..\n")
-			gl.ClearColor(.3, .2, .4, 1.)
-			gl.Clear(GL.COLOR_BUFFER_BIT)
-			
-			gl.DrawArrays(GL.TRIANGLES, 0, 3)
-			
-			if !GL.swap_buffers(globals.window) {dbgbreak}
+			draw()
 		}
 		
 		i= . + 1
 	}
-	
-	//ret 0
 }

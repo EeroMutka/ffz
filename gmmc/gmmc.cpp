@@ -593,11 +593,11 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 		} break;
 
 		case gmmcOpKind_memmove: {
-			fprintf(f, "memmove(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
+			fprintf(f, "mem_move(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
 		} break;
 
 		case gmmcOpKind_memset: {
-			fprintf(f, "memset(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
+			fprintf(f, "mem_set(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
 		} break;
 
 		case gmmcOpKind_goto: {
@@ -792,9 +792,53 @@ typedef long long         $s64;
 #define $sxt(from, to, value) (i##to)(($s##to)(($s##from)value))
 #define $zxt(from, to, value) (i##to)value
 
-// TODO: have a free-standing implementation of these so you could avoid linking to CRT if you wanted to?
-void *memmove(void *s1, const void *s2, size_t n);
-void *memset(void *s, int c, size_t n);
+// TODO: better implementation!!!
+static void mem_move(void *dest, const void *src, size_t len) {
+	// https://github.com/malxau/minicrt/blob/master/crt/mem.c
+	size_t i;
+    char* char_src = (char *)src;
+    char* char_dest = (char *)dest;
+    if (char_dest > char_src) {
+        if (len == 0) {
+            return; //return dest;
+        }
+        for (i = len - 1; ; i--) {
+            char_dest[i] = char_src[i];
+            if (i==0) break;
+        }
+    } else {
+        for (i = 0; i < len; i++) {
+            char_dest[i] = char_src[i];
+        }
+    }
+    //return dest;
+}
+
+// TODO: better implementation!!!
+static void mem_set(void *dest, int c, size_t len) {
+	// https://github.com/malxau/minicrt/blob/master/crt/mem.c
+	size_t i;
+    unsigned int fill;
+    size_t chunks = len / sizeof(fill);
+    char * char_dest = (char *)dest;
+    unsigned int * uint_dest = (unsigned int *)dest;
+
+    //
+    //  Note we go from the back to the front.  This is to 
+    //  prevent newer compilers from noticing what we're doing
+    //  and trying to invoke the built-in memset instead of us.
+    //
+
+    fill = (c<<24) + (c<<16) + (c<<8) + c;
+
+    for (i = len; i > chunks * sizeof(fill); i--) {
+        char_dest[i - 1] = c;
+    }
+
+    for (i = chunks; i > 0; i--) {
+        uint_dest[i - 1] = fill;
+    }
+}
 
 // --------------------------------------------------------------------------
 )");
@@ -824,8 +868,8 @@ void *memset(void *s, int c, size_t n);
 
 	for (uint i = 0; i < m->external_symbols.len; i++) {
 		fString name = m->external_symbols[i]->name;
-		if (name == F_LIT("memset")) continue; // already defined in the prelude
-		if (name == F_LIT("memmove")) continue; // already defined in the prelude
+		if (name == F_LIT("mem_set")) continue; // already defined in the prelude
+		if (name == F_LIT("mem_move")) continue; // already defined in the prelude
 
 		// pretend all external symbols are functions - I'm not sure if this works on non-functions. TODO!
 		fprintf(f, "void %.*s();\n", F_STRF(name));
