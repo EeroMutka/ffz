@@ -1216,9 +1216,9 @@ ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 		TRY(check_node(c, inst, NULL, 0, NULL));
 		
 		// first check the tags...
-		bool is_threadlocal = ffz_get_tag(c->project, inst, ffzKeyword_thread_local) != NULL;
-		if (!name->Identifier.is_constant && !is_threadlocal) {
-			ERR(c, name, "Top-level declaration must be constant or thread-local, but got a non-constant.");
+		bool is_global = ffz_get_tag(c->project, inst, ffzKeyword_global) != NULL;
+		if (!name->Identifier.is_constant && !is_global) {
+			ERR(c, name, "Top-level declaration must be constant, or @|global, but got a non-constant.");
 		}
 	} break;
 	default: ERR(c, node, "Top-level node must be a declaration; got: %s", ffz_node_kind_to_cstring(node->kind));
@@ -1401,7 +1401,7 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 		}
 
 		c->builtin_types[ffzKeyword_using] = ffz_make_pseudo_record_type(c);
-		c->builtin_types[ffzKeyword_thread_local] = ffz_make_pseudo_record_type(c);
+		c->builtin_types[ffzKeyword_global] = ffz_make_pseudo_record_type(c);
 		c->builtin_types[ffzKeyword_module_defined_entry] = ffz_make_pseudo_record_type(c);
 	}
 

@@ -780,6 +780,10 @@ typedef short             $s16;
 typedef int               $s32;
 typedef long long         $s64;
 
+// Required CRT magic definitions
+void __chkstk() {}
+int _fltused = 0x9875;
+
 #define $debugbreak() do {__debugbreak();} while(0)
 #define $store(T, ptr, value) *(T*)ptr = value
 #define $load(T, ptr) *(T*)ptr
@@ -909,7 +913,7 @@ static void mem_set(void *dest, int c, size_t len) {
 		}
 		fprintf(f, "};\n");
 		// forward declare
-		if (global->section == gmmcSection_Threadlocal) fprintf(f, "_Thread_local ");
+		//if (global->section == gmmcSection_Threadlocal) fprintf(f, "_Thread_local ");
 		if (global->section == gmmcSection_RData) fprintf(f, "const ");
 		fprintf(f, "static struct %s_T %s;\n", name, name);
 	}
@@ -920,7 +924,7 @@ static void mem_set(void *dest, int c, size_t len) {
 		gmmcGlobal* global = m->globals[i];
 		const char* name = f_str_to_cstr(global->sym.name, alc);
 
-		if (global->section == gmmcSection_Threadlocal) fprintf(f, "_Thread_local ");
+		//if (global->section == gmmcSection_Threadlocal) fprintf(f, "_Thread_local ");
 		if (global->section == gmmcSection_RData) fprintf(f, "const ");
 		fprintf(f, "static struct %s_T %s = {", name, name);
 		//fprintf(f, "\n%s_data = {", name);

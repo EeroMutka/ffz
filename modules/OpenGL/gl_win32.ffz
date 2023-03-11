@@ -126,7 +126,7 @@
 @Opengl32 #wglMakeCurrent: proc(hdc: HDC, rc: HGLRC) => s32
 @Opengl32 #wglGetProcAddress: proc(rc: ^u8) => ^raw
 
-#Kernel32: |extern{":Kernel32"}
-#Gdi32: |extern{":Gdi32"}
-#User32: |extern{":User32"}
-#Opengl32: |extern{":Opengl32"}
+#Kernel32: |extern{":Kernel32.lib"}
+#Gdi32: |extern{":Gdi32.lib"}
+#User32: |extern{":User32.lib"}
+#Opengl32: |extern{":Opengl32.lib"}

@@ -130,7 +130,6 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_extern = ffzKeyword_FIRST_EXTENDED,
 	ffzKeyword_using,
 	ffzKeyword_global,
-	ffzKeyword_thread_local,
 	ffzKeyword_module_defined_entry,
 
 	ffzKeyword_COUNT,

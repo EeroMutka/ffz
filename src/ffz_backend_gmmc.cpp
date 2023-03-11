@@ -785,11 +785,11 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		if (ffz_decl_is_runtime_value(inst.node)) {
 			ffzNodeInst rhs = CHILD(inst, Op.right);
 			Value val = {};
-			if (ffz_get_tag(g->project, inst, ffzKeyword_thread_local)) {
+			if (ffz_get_tag(g->project, inst, ffzKeyword_global)) {
 				ffzCheckedExpr rhs_checked = ffz_decl_get_checked(g->project, rhs); // get the initial value
 
 				void* global_data;
-				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs_checked.type->size, rhs_checked.type->align, gmmcSection_Threadlocal, &global_data);
+				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs_checked.type->size, rhs_checked.type->align, gmmcSection_RWData, &global_data);
 
 				gen_global_constant(g, global, (u8*)global_data, 0, rhs_checked.type, rhs_checked.const_val);
 				val.symbol = gmmc_global_as_symbol(global);
@@ -952,6 +952,7 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	fclose(c_file);
 
 	fArray(fString) clang_args = f_array_make<fString>(f_temp_alc());
+
 	f_array_push(&clang_args, F_LIT("clang"));
 		
 	if (true) { // with debug info?
@@ -962,41 +963,48 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 		f_array_push(&clang_args, F_LIT("-O1"));
 	}
 
+	// Use the LLD linker
+	//f_array_push(&clang_args, F_LIT("-fuse-ld=lld"));
+
+	f_array_push(&clang_args, F_LIT("-I../include"));
+	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
+	f_array_push(&clang_args, F_LIT("a.c"));
+	
 	// TODO: command-line option for console/no console
 	bool console = true;
-	f_array_push(&clang_args, F_LIT("-Xlinker"));
-	f_array_push(&clang_args, F_STR_T_JOIN(F_LIT("/SUBSYSTEM:"), console ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
+	
+	fArray(u8) linker_args = f_array_make<u8>(f_temp_alc());
+	f_str_printf(&linker_args, "-Wl"); // pass comma-separated argument list to the linker
+	f_str_printf(&linker_args, ",/SUBSYSTEM:%s", console ? "CONSOLE" : "WINDOWS");
+	f_str_printf(&linker_args, ",/ENTRY:ffz_entry,");
+	f_str_printf(&linker_args, ",/INCREMENTAL:NO");
+	f_str_printf(&linker_args, ",/NODEFAULTLIB"); // disable CRT
+	//f_str_printf(&linker_args, ",libucrt.lib");
 
+	for (uint i = 0; i < project->link_libraries.len; i++) {
+		f_str_printf(&linker_args, ",%.*s", F_STRF(project->link_libraries[i]));
+	}
+	for (uint i = 0; i < project->link_system_libraries.len; i++) {
+		f_str_printf(&linker_args, ",%.*s", F_STRF(project->link_system_libraries[i]));
+	}
+	
+	// https://metricpanda.com/rival-fortress-update-45-dealing-with-__chkstk-__chkstk_ms-when-cross-compiling-for-windows/
+
+	// specify reserve and commit for the stack. We have to use -Xlinker for this, because of the comma ambiguity...
 	f_array_push(&clang_args, F_LIT("-Xlinker"));
-	f_array_push(&clang_args, F_LIT("/ENTRY:ffz_entry"));
+	f_array_push(&clang_args, F_LIT("/STACK:0x200000,200000"));
+
+	f_array_push(&clang_args, linker_args.slice);
 
 	// if we use a custom entry point (not "main"), it seems that we have to manually link to CRT
 	//f_array_push(&clang_args, F_LIT("-Xlinker"));
 	//f_array_push(&clang_args, F_LIT("/DEFAULTLIB:libucrt.lib"));
-	//f_array_push(&clang_args, F_LIT("-Xlinker"));
-	//f_array_push(&clang_args, F_LIT("/DEFAULTLIB:libcmt.lib"));
-
-	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
-	f_array_push(&clang_args, F_LIT("a.c"));
-	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
-	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
-	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
-	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
-
+	
 	//f_array_push(&clang_args, F_LIT("/link"));
-	//f_array_push(&clang_args, F_LIT("/INCREMENTAL:NO"));
 	//f_array_push(&clang_args, F_LIT("/MACHINE:X64"));
 	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
 	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
 	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
-
-	for (uint i = 0; i < project->link_libraries.len; i++) {
-		f_array_push(&clang_args, project->link_libraries[i]);
-	}
-	for (uint i = 0; i < project->link_system_libraries.len; i++) {
-		f_array_push(&clang_args, F_LIT("-Xlinker"));
-		f_array_push(&clang_args, F_STR_T_JOIN(F_LIT("/DEFAULTLIB:"), project->link_system_libraries[i]));
-	}
 		
 	printf("Running clang: ");
 	for (uint i = 0; i < clang_args.len; i++) {
@@ -1013,14 +1021,7 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 
 
 #if 0 // msvc
-	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
-	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, temp); // contains cl.exe, link.exe
-	fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, temp); // contains <string.h>, etc
-	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, temp); // contains kernel32.lib, etc
-	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, temp); // contains libucrt.lib, etc
-	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, temp); // contains MSVCRT.lib etc
-	fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, temp); // contains vcruntime.h
-
+	
 	{
 		fArray(fString) msvc_args = f_array_make<fString>(temp);
 		f_array_push(&msvc_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\cl.exe")));

@@ -167,7 +167,7 @@ typedef enum {
 	gmmcSection_Invalid = 0,
 	gmmcSection_RData = 1,
 	gmmcSection_RWData = 2,
-	gmmcSection_Threadlocal = 3,
+	//gmmcSection_Threadlocal = 3,
 	gmmcSection_Code = 4,
 } gmmcSection;
 

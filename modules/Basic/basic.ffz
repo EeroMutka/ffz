@@ -26,14 +26,8 @@
 
 #ENABLE_DEBUG_CHECKS: true
 
-
-// ------------ global state ------------
-@|thread_local
-_temp_arena: ^Arena
-
-//@|thread_local
-//_stdout: HANDLE
-// --------------------------------------
+@|global
+_temp_arena_tls_index: u32
 
 #ArenaMark: struct {head: ^u8}
 
@@ -291,7 +285,9 @@ _temp_arena: ^Arena
 	WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), str.ptr, u32(str.len), &num_chars_written, ^raw(0))
 }
 
-#temp_alc: proc() => ^Allocator { ret ^Allocator(_temp_arena) }
+#temp_alc: proc() => ^Allocator {
+	ret ^Allocator(TlsGetValue(_temp_arena_tls_index))
+}
 
 // WARNING: call `temp_get_mark` and `temp_set_mark` only when you know exactly what you're doing.
 // The scope must be completely self-contained; it must not leak anything to the outside world.
@@ -310,7 +306,9 @@ _temp_arena: ^Arena
 	
 	// Deterministic base-address. hmm... this won't work with multiple threads.
 	temp_arena_base: ^u8(TiB(2))
-	_temp_arena = arena_make_virtual_reserve_fixed(MiB(2), temp_arena_base)
+	temp_arena: arena_make_virtual_reserve_fixed(MiB(2), temp_arena_base)
+	_temp_arena_tls_index = TlsAlloc()
+	TlsSetValue(_temp_arena_tls_index, temp_arena)
 }
 
 #thread_deinit_basic: proc() {
@@ -364,7 +362,7 @@ _temp_arena: ^Arena
 	wProcessorRevision: u16
 }
 
-#Kernel32: |extern{":Kernel32"}
+#Kernel32: |extern{":Kernel32.lib"}
 
 #HANDLE: ^raw
 
@@ -377,9 +375,14 @@ _temp_arena: ^Arena
 @Kernel32 #GetStdHandle: proc(nStdHandle: u32) => HANDLE
 @Kernel32 #ExitProcess: proc(uExitCode: u32)
 
+@Kernel32 #TlsAlloc: proc => u32
+@Kernel32 #TlsFree: proc(dwTlsIndex: u32) => s32
+@Kernel32 #TlsGetValue: proc(dwTlsIndex: u32) => ^raw
+@Kernel32 #TlsSetValue: proc(dwTlsIndex: u32, lpTlsValue: ^raw) => s32
+
 #DLL_PROCESS_ATTACH: u32(1)
 #DLL_PROCESS_DETACH: u32(0)
-@Kernel32 #_CRT_INIT: proc(hinstDLL: ^raw, fdwReason: u32, lpReserved: ^raw)
+//@Kernel32 #_CRT_INIT: proc(hinstDLL: ^raw, fdwReason: u32, lpReserved: ^raw)
 @Kernel32 #GetModuleHandleW: proc(lpModuleName: ^raw) => ^raw
 
 #STD_OUTPUT_HANDLE: u32(0xfffffff5)

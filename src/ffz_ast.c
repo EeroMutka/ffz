@@ -119,7 +119,6 @@ const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
 	F_LIT_COMP("extern"),
 	F_LIT_COMP("using"),
 	F_LIT_COMP("global"),
-	F_LIT_COMP("thread_local"),
 	F_LIT_COMP("module_defined_entry"),
 };
 
