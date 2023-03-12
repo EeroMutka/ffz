@@ -1,0 +1,42 @@
+
+#ffz_entry: proc() {
+	{
+		a: u32(25902)
+		
+		// Casts are safe by default.
+		// The following cast fails and results in a runtime trap in DEBUG builds:
+		
+		// b: u8(a)
+		
+		// If you want to disable cast bounds checks for performance, you can use the *no_bc tag.
+		// *no_bc disables the cast checks both in DEBUG and RELEASE builds, but still keeps
+		// them on in the PARANOID build mode.
+		
+		// c: @*no_bc u8(a)
+		
+		// If you want your cast to wrap, you can use the *trunc tag which truncates the value
+		// and disables all checks.
+		d: @*trunc u8(a)
+	}
+	
+	{
+		// size_of returns an 'uint'.
+		a: size_of(bool)
+		
+		b: u8
+		b = u8(a) // the explicit cast is required here, because 'a' has the type 'uint'
+		
+		// The following is also allowed:
+		b = size_of(bool)
+		
+		// This is because constant values are implicitly casted
+		// to any other type that can hold the constants value with no information loss.
+		
+		big_array: [302]u8
+		
+		// A compilation error will trigger if the constant value does not fit into the expected type.
+		// Try uncommenting the following:
+		// b = size_of(big_array)
+	}
+}
+

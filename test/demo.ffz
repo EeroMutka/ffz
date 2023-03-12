@@ -1,3 +1,11 @@
+/*#ffz_entry: proc() {
+	#a: s32(0xffffffeb) // -21
+	#b: uint(0xffffff7e) // -130
+	
+	c: s64
+	c = b
+}*/
+
 
 #Basic: import(":Basic")
 #Array: import(":Array")
@@ -5,37 +13,6 @@
 
 #Window: import(":Window")
 #GL: import(":OpenGL")
-
-// #RL: import(":vendor/raylib")
-
-//$link_library{"build/c_things.obj"}
-//#print_uint: @extern{} proc(x: uint)
-
-// TODO:
-// break, continue
-// make the braces in extern{} not necessary
-// make .slice[] not necessary for Arrays
-// bring back TB
-
-// anonymous struct and array literals?
-// automatic slicing for array types? i.e. make this possible: []string({"hi", "bye"})
-// 
-
-// OpenGL + Win32
-// keyboard / mouse input
-// Goal #1: Basic 2D drawing library + demo app for it
-
-// Goal #2: 3D chess game with OpenGL with no third-party dependencies, except
-// cgltf, miniaudio, stbi, stbtt
-// this game should include cool PBR graphics and sounds
-
-// towards a 3D level editor / engine!!
-
-// Example programs ideas:
-// Ray tracer demo program
-// Game of life
-// Chess game, maybe even 3d? That would be pretty cool!
-// tetris? breakout? pong? snake?
 
 #vertex_shader_src: "
 #version 330
@@ -110,6 +87,9 @@ globals: struct{
 }
 
 #entry: proc() {
+	a: u32
+	a = s32(-50)
+	
 	Basic.print("hello!\n")
 	globals.window = Window.create(512, 512, "My window")
 	
@@ -154,12 +134,12 @@ globals: struct{
 	vbo: GL.GLuint
 	gl.GenBuffers(1, &vbo)
 	gl.BindBuffer(GL.ARRAY_BUFFER, vbo)
-	gl.BufferData(GL.ARRAY_BUFFER, s64(size_of(vertices)), &vertices, GL.STATIC_DRAW)
+	gl.BufferData(GL.ARRAY_BUFFER, size_of(vertices), &vertices, GL.STATIC_DRAW)
 	
 	// Specify the vertex layout
-	gl.VertexAttribPointer(0, 3, GL.FLOAT, false, s32(size_of(Vertex)), ^raw(0)/*offsetof(Vertex, position)*/)
+	gl.VertexAttribPointer(0, 3, GL.FLOAT, false, size_of(Vertex), ^raw(0)/*offsetof(Vertex, position)*/)
 	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(1, 4, GL.FLOAT, false, s32(size_of(Vertex)), ^raw(4*3)/*offsetof(Vertex, color)*/)
+	gl.VertexAttribPointer(1, 4, GL.FLOAT, false, size_of(Vertex), ^raw(4*3)/*offsetof(Vertex, color)*/)
 	gl.EnableVertexAttribArray(1)
 	
 	Window.show(globals.window)

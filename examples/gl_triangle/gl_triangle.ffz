@@ -130,12 +130,12 @@ void main() {
 	vbo: GL.GLuint
 	gl.GenBuffers(1, &vbo)
 	gl.BindBuffer(GL.ARRAY_BUFFER, vbo)
-	gl.BufferData(GL.ARRAY_BUFFER, s64(size_of(vertices)), &vertices, GL.STATIC_DRAW)
+	gl.BufferData(GL.ARRAY_BUFFER, size_of(vertices), &vertices, GL.STATIC_DRAW)
 	
 	// Specify the vertex layout
-	gl.VertexAttribPointer(0, 3, GL.FLOAT, false, s32(size_of(Vertex)), ^raw(0)/*offsetof(Vertex, position)*/)
+	gl.VertexAttribPointer(0, 3, GL.FLOAT, false, size_of(Vertex), ^raw(0)/*offsetof(Vertex, position)*/)
 	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(1, 4, GL.FLOAT, false, s32(size_of(Vertex)), ^raw(4*3)/*offsetof(Vertex, color)*/)
+	gl.VertexAttribPointer(1, 4, GL.FLOAT, false, size_of(Vertex), ^raw(4*3)/*offsetof(Vertex, color)*/)
 	gl.EnableVertexAttribArray(1)
 	
 	

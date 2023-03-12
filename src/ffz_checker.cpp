@@ -456,7 +456,7 @@ enum InferFlag {
 	
 	InferFlag_CacheOnlyIfGotType = 1 << 2,
 	
-	InferFlag_ExplicitCastToRequiredType = 1 << 3,
+	InferFlag_NoTypesMatchCheck = 1 << 3,
 	
 	InferFlag_TypeMeansDefaultValue = 1 << 4, // `int` will mean "the default value of int" instead of "the type int"
 };
@@ -464,20 +464,20 @@ enum InferFlag {
 static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzCheckedExpr*) out);
 
 // if this returns true, its ok to bit-cast between the types
-static bool type_is_a(ffzProject* p, ffzType* src, ffzType* target) {
+static bool type_is_a_bit_by_bit(ffzProject* p, ffzType* src, ffzType* target) {
 	if (src->tag == ffzTypeTag_DefaultUint && target->tag == ffzTypeTag_DefaultSint) return true; // allow implicit cast from uint -> int
 	if (target->tag == ffzTypeTag_Raw) return true; // everything can cast to raw
 	
 	if (src->tag == ffzTypeTag_Pointer && target->tag == ffzTypeTag_Pointer) {
 		// i.e. allow casting from ^int to ^raw
-		return type_is_a(p, src->Pointer.pointer_to, target->Pointer.pointer_to);
+		return type_is_a_bit_by_bit(p, src->Pointer.pointer_to, target->Pointer.pointer_to);
 	}
 
 	return src->hash == target->hash;
 }
 
 static ffzOk check_types_match(ffzChecker* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
-	if (!type_is_a(c->project, received, expected)) {
+	if (!type_is_a_bit_by_bit(c->project, received, expected)) {
 		ERR(c, node, "%s\n    received: %s\n    expected: %s",
 			message, ffz_type_to_cstring(c->project, received), ffz_type_to_cstring(c->project, expected));
 	}
@@ -516,46 +516,44 @@ static ffzOk check_procedure_call(ffzChecker* c, ffzNodeOpInst inst, OPT(ffzType
 	return { true };
 }
 
+static bool uint_is_subtype_of(ffzType* type, ffzType* subtype_of) {
+	if (ffz_type_is_unsigned_integer(type->tag) && ffz_type_is_unsigned_integer(subtype_of->tag) && type->size <= subtype_of->size) return true;
+	return false;
+}
 
-static ffzOk check_two_sided(ffzChecker* c, ffzNodeInst left, ffzNodeInst right, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzType*)* out_type) {
+static ffzOk check_two_sided(ffzChecker* c, ffzNodeInst left, ffzNodeInst right, OPT(ffzType*)* out_type) {
 	ffzCheckedExpr left_chk, right_chk;
 
 	// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
-	// first try inferring without the outside context. Then if that doesn't work, try inferring with it.
-
-	InferFlags child_flags = flags | InferFlag_TypeIsNotRequired | InferFlag_CacheOnlyIfGotType;
-	OPT(ffzType*) child_require_type = NULL;
+	
+	InferFlags child_flags = InferFlag_TypeIsNotRequired | InferFlag_CacheOnlyIfGotType;
 
 	for (int i = 0; i < 2; i++) {
-		TRY(check_node(c, left, child_require_type, child_flags, &left_chk));
-		TRY(check_node(c, right, child_require_type, child_flags, &right_chk));
-
+		TRY(check_node(c, left, NULL, child_flags, &left_chk));
+		TRY(check_node(c, right, NULL, child_flags, &right_chk));
 		if (left_chk.type && right_chk.type) break;
-		else if (!left_chk.type && right_chk.type) {
-			child_require_type = right_chk.type;
-			TRY(check_node(c, left, child_require_type, child_flags, &left_chk));
+		
+		child_flags = 0;
+		if (!left_chk.type && right_chk.type) {
+			TRY(check_node(c, left, right_chk.type, child_flags, &left_chk));
 			break;
 		}
 		else if (!right_chk.type && left_chk.type) {
-			child_require_type = left_chk.type;
-			TRY(check_node(c, right, child_require_type, child_flags, &right_chk));
+			TRY(check_node(c, right, left_chk.type, child_flags, &right_chk));
 			break;
 		}
-		child_flags = flags;
-		child_require_type = require_type;
 		continue;
 	}
 
 	OPT(ffzType*) result = NULL;
 	if (right_chk.type && left_chk.type) {
-		if (type_is_a(c->project, left_chk.type, right_chk.type))      result = right_chk.type;
-		else if (type_is_a(c->project, right_chk.type, left_chk.type)) result = left_chk.type;
+		if (type_is_a_bit_by_bit(c->project, left_chk.type, right_chk.type))      result = right_chk.type;
+		else if (type_is_a_bit_by_bit(c->project, right_chk.type, left_chk.type)) result = left_chk.type;
 		else {
-			ERR(c, left.node->parent, "Types do not match.\n    left:    %s\nright:   %s",
+			ERR(c, left.node->parent, "Types do not match.\n    left:    %s\n    right:   %s",
 				ffz_type_to_cstring(c->project, left_chk.type), ffz_type_to_cstring(c->project, right_chk.type));
 		}
 	}
-
 	*out_type = result;
 	return { true };
 }
@@ -819,7 +817,7 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 			if (ffz_get_child_count(inst.node) != (keyword == ffzKeyword_bit_not ? 1 : 2)) {
 				ERR(c, inst.node, "Incorrect number of arguments to a bitwise operation.");
 			}
-
+			//F_HITS(_c, 10);
 			ffzNodeInst first = ffz_get_child_inst(inst, 0);
 			if (keyword == ffzKeyword_bit_not) {
 				ffzCheckedExpr chk;
@@ -828,10 +826,10 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 			}
 			else {
 				ffzNodeInst second = ffz_get_child_inst(inst, 1);
-				TRY(check_two_sided(c, first, second, require_type, flags, &result->type));
+				TRY(check_two_sided(c, first, second, &result->type));
 			}
 
-			if (!is_basic_type_size(result->type->size)) {
+			if (result->type && !is_basic_type_size(result->type->size)) {
 				ERR(c, inst.node, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: %u", result->type->size);
 			}
 
@@ -878,7 +876,7 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 			// check the expression, but do not enforce the type inference, as the type inference rules are
 			// more strict than a manual cast. For example, an integer cannot implicitly cast to a pointer, but when inside a cast it can.
 			
-			TRY(check_node(c, arg, result->type, InferFlag_ExplicitCastToRequiredType, &chk));
+			TRY(check_node(c, arg, result->type, InferFlag_NoTypesMatchCheck, &chk));
 			F_ASSERT(chk.type); //if (chk.type == NULL) ERR(c, inst.node, "Invalid cast.");
 
 			//ffzTypeTag dst_tag = result->type->tag, src_tag = chk.type->tag;
@@ -1427,7 +1425,7 @@ ffzConstant* ffz_get_tag_of_type(ffzProject* p, ffzNodeInst node, ffzType* tag_t
 		ffzNodeInst tag = { tag_n, node.polymorph };
 		
 		ffzCheckedExpr checked = ffz_expr_get_checked(p, tag);
-		if (type_is_a(p, checked.type, tag_type)) {
+		if (type_is_a_bit_by_bit(p, checked.type, tag_type)) {
 			return checked.const_val;
 		}
 	}
@@ -1658,6 +1656,17 @@ static ffzOk check_pre_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzCheck
 	return FFZ_OK;
 }
 
+static bool integer_is_negative(void* bits, u32 size) {
+	switch (size) {
+	case 1: return *(s8*)bits < 0;
+	case 2: return *(s16*)bits < 0;
+	case 4: return *(s32*)bits < 0;
+	case 8: return *(s64*)bits < 0;
+	default: F_BP;
+	}
+	return false;
+}
+
 static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzCheckedExpr*) out) {
 	ffzNodeInstHash inst_hash = ffz_hash_node_inst(inst);
 	//if (inst_hash == 5952824672257) F_BP;
@@ -1823,12 +1832,17 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 	} break;
 
 	case ffzNodeKind_IntLiteral: {
-		if (require_type && ffz_type_is_integer(require_type->tag)) {
-			result.type = require_type;
-			result.const_val = make_constant_int(c, inst.node->IntLiteral.value);
-		}
-		else if (!(flags & InferFlag_TypeIsNotRequired)) {
-			// If we're not given anything to work with, let's default to uint
+		//if (require_type && ffz_type_is_integer(require_type->tag)) {
+		//	result.type = require_type;
+		//	result.const_val = make_constant_int(c, inst.node->IntLiteral.value);
+		//}
+		//else if (!(flags & InferFlag_TypeIsNotRequired)) {
+		//	// If we're not given anything to work with, let's default to uint
+		//	result.type = ffz_builtin_type(c, ffzKeyword_uint);
+		//	result.const_val = make_constant_int(c, inst.node->IntLiteral.value);
+		//	// TODO: range check
+		//}
+		if (!(flags & InferFlag_TypeIsNotRequired)) {
 			result.type = ffz_builtin_type(c, ffzKeyword_uint);
 			result.const_val = make_constant_int(c, inst.node->IntLiteral.value);
 		}
@@ -1905,7 +1919,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 	case ffzNodeKind_Equal: case ffzNodeKind_NotEqual: case ffzNodeKind_Less:
 	case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater: case ffzNodeKind_GreaterOrEqual: {
 		OPT(ffzType*) type;
-		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), NULL, flags, &type));
+		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), &type));
 		
 		bool is_equality_check = inst.node->kind == ffzNodeKind_Equal || inst.node->kind == ffzNodeKind_NotEqual;
 		if ((is_equality_check && ffz_type_can_be_checked_for_equality(type)) || ffz_type_is_integer_ish(type->tag)) {
@@ -1920,7 +1934,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 	case ffzNodeKind_Add: case ffzNodeKind_Sub: case ffzNodeKind_Mul:
 	case ffzNodeKind_Div: case ffzNodeKind_Modulo: {
 		OPT(ffzType*) type;
-		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), require_type, flags, &type));
+		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), &type));
 		
 		if (type && !ffz_type_is_integer(type->tag)) {
 			ERR(c, inst.node, "Incorrect arithmetic type; should be an integer.\n    received: ",
@@ -1939,10 +1953,41 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 	if (!(flags & InferFlag_TypeIsNotRequired)) { // type is required
 		if (!result.type) {
 			ERR(c, inst.node, "Expression has no return type, or it cannot be inferred.");
-		}	
+		}
 	}
 
-	if (!(flags & InferFlag_ExplicitCastToRequiredType)) {
+	if (!(flags & InferFlag_NoTypesMatchCheck)) {
+		
+		// NOTE: we're ignoring the constant type-casts with InferFlag_NoTypesMatchCheck, because explicit type-casts are allowed to overflow
+		if (require_type && result.const_val) { // constant downcast
+			// TODO: automatic casting for signed integers
+			if (ffz_type_is_integer(require_type->tag) && ffz_type_is_integer(result.type->tag)) {
+				if (require_type->size <= result.type->size) {
+					F_ASSERT(is_basic_type_size(result.type->size));
+					F_ASSERT(is_basic_type_size(require_type->size));
+
+					u64 src = ffz_type_is_signed_integer(result.type->tag) ? (u64)-1 : 0;
+					u64 masked = src;
+					memcpy(&src, &result.const_val->u64_, result.type->size);
+					memcpy(&masked, &result.const_val->u64_, require_type->size);
+					
+					bool src_is_negative = ffz_type_is_signed_integer(result.type->tag) && integer_is_negative(&src, result.type->size);
+					bool masked_is_negative = ffz_type_is_signed_integer(require_type->tag) && integer_is_negative(&masked, require_type->size);
+					
+					bool ok = masked == src && (src_is_negative == masked_is_negative) && (ffz_type_is_signed_integer(require_type->tag) || !src_is_negative);
+					if (!ok) {
+						if (ffz_type_is_signed_integer(result.type->tag)) {
+							ERR(c, inst.node, "Constant type-cast failed; value '%lld' can't be represented in type '%s'.", src, ffz_type_to_cstring(c->project, require_type));
+						} else {
+							ERR(c, inst.node, "Constant type-cast failed; value '%llu' can't be represented in type '%s'.", src, ffz_type_to_cstring(c->project, require_type));
+						}
+					}
+					// NOTE: we don't need to make a new constant value, as the encoding for it would be exactly the same.
+					result.type = require_type;
+				}
+			}
+		}
+
 		// If `require_type` is specified and we found a type for this instance, the type of the expression must match it.
 		if (require_type && result.type) {
 			TRY(check_types_match(c, inst.node, result.type, require_type, "Unexpected type with an expression:"));

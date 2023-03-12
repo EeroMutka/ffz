@@ -8,7 +8,8 @@
 #include <Windows.h>
 
 int main(int argc, const char* argv[]) {
-	int x = -21;
+	int x = -130;
+	char y = (char)x;
 	//printf("args: ");
 	//for (uint i = 0; i < argc; i++) {
 	//	printf("\"%s\", ", argv[i]);
