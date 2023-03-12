@@ -239,8 +239,11 @@ typedef struct ffzType {
 
 typedef struct ffzProject {
 	fAllocator* persistent_allocator;
+	
 	fString compiler_install_dir;
-	fString module_name;
+	fString directory;
+	fString name;
+
 	fMap64(ffzChecker*) checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
 
 	fArray(fString) link_libraries;

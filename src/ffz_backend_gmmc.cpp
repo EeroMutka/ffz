@@ -1,9 +1,9 @@
+#ifdef FFZ_BUILD_INCLUDE_GMMC
+
 #include "foundation/foundation.hpp"
 
 #include "ffz_ast.h"
 #include "ffz_checker.h"
-
-#include "ffz_backend_tb.h"
 
 #define gmmcString fString
 #include "gmmc/gmmc.h"
@@ -691,7 +691,6 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 		case ffzNodeKind_LogicalOR: // fallthrough
 		case ffzNodeKind_LogicalAND: {
-			bool AND = inst.node->kind == ffzNodeKind_LogicalAND;
 			gmmcReg left_val = gen_expr(g, left);
 
 			// implement short-circuiting
@@ -700,7 +699,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
 
 			gmmcReg result = gmmc_op_local(g->proc, 1, 1);
-			if (AND) {
+			if (inst.node->kind == ffzNodeKind_LogicalAND) {
 				gmmc_op_store(g->bb, result, gmmc_op_bool(g->bb, false));
 				gmmc_op_if(g->bb, left_val, test_right_bb, after_bb);
 			}
@@ -726,8 +725,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			ffzNodeIdentifierInst def = ffz_get_definition(g->project, inst);
 			if (def.node->Identifier.is_constant) F_BP;
 
-			ffzNodeInstHash inst_hash = ffz_hash_node_inst(def);
-			Value* val = f_map64_get(&g->value_from_definition, inst_hash);
+			Value* val = f_map64_get(&g->value_from_definition, ffz_hash_node_inst(def));
 			F_ASSERT(val);
 			out = val->symbol ? gmmc_op_addr_of_symbol(g->bb, val->symbol) : val->local_addr;
 			should_dereference = !address_of;
@@ -912,11 +910,12 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	}
 }
 
-bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
-	F_ASSERT(f_files_path_is_absolute(exe_filepath));
-
-	fString build_dir = f_str_path_dir(exe_filepath);
+bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
+	fString build_dir = F_STR_T_JOIN(project->directory, F_LIT("\\.build"));
 	F_ASSERT(f_files_make_directory(build_dir));
+
+	fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
+	fString exe_path = F_STR_T_JOIN(build_dir, F_LIT("\\"), project->name, F_LIT(".exe"));
 
 	fArenaMark temp_base = f_temp_get_mark();
 	gmmcModule* gmmc = gmmc_init(f_temp_alc());
@@ -941,7 +940,6 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 		}
 	}
 
-	fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
 	FILE* c_file = fopen(f_str_t_to_cstr(c_file_path), "wb");
 	if (!c_file) {
 		printf("Failed writing temporary C file to disk!\n");
@@ -968,7 +966,7 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 
 	f_array_push(&clang_args, F_LIT("-I../include"));
 	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
-	f_array_push(&clang_args, F_LIT("a.c"));
+	f_array_push(&clang_args, c_file_path);
 	
 	// TODO: command-line option for console/no console
 	bool console = true;
@@ -1019,7 +1017,6 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	}
 	if (exit_code != 0) return false;
 
-
 #if 0 // msvc
 	
 	{
@@ -1058,3 +1055,5 @@ bool ffz_backend_gen_executable(ffzProject* project, fString exe_filepath) {
 	f_temp_set_mark(temp_base);
 	return true;
 }
+
+#endif // FFZ_BUILD_INCLUDE_GMMC

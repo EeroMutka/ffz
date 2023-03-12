@@ -10,7 +10,8 @@
 #include <string.h> // for memcpy
 #include <stdio.h>
 
-#include "ffz_backend.h"
+bool ffz_backend_gen_executable_gmmc(ffzProject* project);
+bool ffz_backend_gen_executable_tb(ffzProject* project);
 
 #define TRY(x) { if ((x).ok == false) return ffzOk{false}; }
 
@@ -2314,6 +2315,7 @@ bool ffz_build_directory(fString directory, fString compiler_install_dir) {
 		return false;
 	}
 	if (!f_files_path_to_canonical(fString{}, compiler_install_dir, f_temp_alc(), &compiler_install_dir)) {
+		// TODO: have a global error reporting procedure
 		F_BP;
 		return false;
 	}
@@ -2322,7 +2324,8 @@ bool ffz_build_directory(fString directory, fString compiler_install_dir) {
 
 	ffzProject* p = f_mem_clone(ffzProject{}, f_temp_alc());
 	p->persistent_allocator = f_temp_alc();
-	p->module_name = f_str_path_tail(directory);
+	p->directory = directory;
+	p->name = f_str_path_tail(directory);
 	p->compiler_install_dir = compiler_install_dir;
 	p->checked_module_from_directory = f_map64_make<ffzChecker*>(f_temp_alc());
 	p->parsers = f_array_make<ffzParser*>(f_temp_alc());
@@ -2347,11 +2350,19 @@ bool ffz_build_directory(fString directory, fString compiler_install_dir) {
 	if (!ffz_parse_and_check_directory(p, directory)) return false;
 
 	//fString ffz_build_dir = f_files_path_to_absolute(directory, F_LIT(".ffz"), temp);
+	//fString exe_filepath = F_STR_T_JOIN(directory, F_LIT("\\build\\"), p->module_name, F_LIT(".exe"));
 	
-	fString exe_filepath = F_STR_T_JOIN(directory, F_LIT("\\build\\"), p->module_name, F_LIT(".exe"));
-	if (!ffz_backend_gen_executable(p, exe_filepath)) {
+#if defined(FFZ_BUILD_INCLUDE_TB)
+	if (!ffz_backend_gen_executable_tb(p)) {
 		return 1;
 	}
+#elif defined(FFZ_BUILD_INCLUDE_GMMC)
+	if (!ffz_backend_gen_executable_gmmc(p)) {
+		return 1;
+	}
+#else
+	F_BP;
+#endif
 	
 #if 0
 	fString objname = F_STR_JOIN(temp, ffz_build_dir, F_LIT("\\"), p->module_name, F_LIT(".obj"));

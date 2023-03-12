@@ -40,35 +40,42 @@ project "ffz"
 		"src/foundation/*",
 	}
 	
-	-- build with tb?
+	-- include tb backend?
 	if false then
-		defines "FFZ_BACKEND_TB"
+		defines "FFZ_BUILD_INCLUDE_TB"
 		
-		includedirs {
-			"Cuik/tb/include",
-			"Cuik/tb/src",
-			"Cuik/common",
-			"Cuik/c11threads",
-		}
+		-- THIS IS TEMPORARY!
+		links "C:/dev/Cuik/tb/tb"
+		includedirs "C:/dev/Cuik/tb/include"
+		files "C:/dev/Cuik/c11threads/threads_msvc.c"
+		files "C:/dev/Cuik/common/common.c"
 		
-		files {
-			"Cuik/LibCuik/lib/tls.c", -- ??????
-			
-			-- TB source files
-			--"Cuik/Common/*",
-			"Cuik/c11threads/threads_msvc.c",
-			"Cuik/Common/common.c",
-			"Cuik/tb/include/*",
-			"Cuik/tb/src/**",
-		}
-		
-		disablewarnings { "4018", "4267", "4267", "4244", "4013", "4334", "4146" }
+		--includedirs {
+		--	"Cuik/tb/include",
+		--	"Cuik/tb/src",
+		--	"Cuik/common",
+		--	"Cuik/c11threads",
+		--}
+		--
+		--files {
+		--	"Cuik/LibCuik/lib/tls.c", -- ??????
+		--	
+		--	-- TB source files
+		--	--"Cuik/Common/*",
+		--	"Cuik/c11threads/threads_msvc.c",
+		--	"Cuik/Common/common.c",
+		--	"Cuik/tb/include/*",
+		--	"Cuik/tb/src/**",
+		--}
+		--
+		--disablewarnings { "4018", "4267", "4267", "4244", "4013", "4334", "4146" }
+		disablewarnings { "4200" }
 	end
 	
-	-- build with gmmc?
+	-- include gmmc backend?
 	if true then
+		defines "FFZ_BUILD_INCLUDE_GMMC"
 		defines {
-			"FFZ_BACKEND_GMMC",
 			"ZYDIS_STATIC_BUILD",
 			"ZYCORE_STATIC_BUILD",
 		}
@@ -85,4 +92,3 @@ project "ffz"
 			"gmmc/zydis/zycore/src/**",
 		}
 	end
-
