@@ -780,7 +780,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		ffzNodeIdentifierInst definition = CHILD(inst,Op.left);
 		ffzCheckedExpr checked = ffz_decl_get_checked(g->project, inst);
 
-		if (ffz_decl_is_runtime_value(inst.node)) {
+		if (ffz_decl_is_runtime_variable(inst.node)) {
 			ffzNodeInst rhs = CHILD(inst, Op.right);
 			Value val = {};
 			if (ffz_get_tag(g->project, inst, ffzKeyword_global)) {

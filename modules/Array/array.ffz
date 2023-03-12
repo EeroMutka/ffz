@@ -6,7 +6,7 @@
 // TODO: @alias_module_name
 
 #Array: struct[T] {
-	@|using{} slice: []T
+	@*using slice: []T
 	capacity: uint
 	allocator: ^Basic.Allocator
 }

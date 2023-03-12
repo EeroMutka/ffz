@@ -26,13 +26,13 @@
 
 #ENABLE_DEBUG_CHECKS: true
 
-@|global
+@*global
 _temp_arena_tls_index: u32
 
 #ArenaMark: struct {head: ^u8}
 
 #Arena: struct {
-	@|using{} allocator: Allocator // NOTE: must be the first field for downcasting!
+	@*using allocator: Allocator // NOTE: must be the first field for downcasting!
 	
 	system_page_size: u32 // practically always 4 KiB
 	
@@ -315,7 +315,7 @@ _temp_arena_tls_index: u32
 	//_CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_DETACH, ^raw(0))
 }
 
-@|extern{"?"}
+@*extern{"?"}
 #entry: proc(args: []string) => u32
 
 // The Basic-module overrides the main entry point for your program
@@ -328,14 +328,14 @@ _temp_arena_tls_index: u32
 // which is also one of the compilation targets that FFZ supports.
 // The "m" word is strictly prohibited over here!
 
-// @|module_defined_entry exports the procedure symbol, even though it's inside a to-be-imported module, but
+// @*module_defined_entry exports the procedure symbol, even though it's inside a to-be-imported module, but
 // only when we're building an executable. It ignores it when building a static/dynamic library.
 // If we had #if support, we could get rid of this.
 
 // how would we do DLL/static libs?
 // thread_init_basic/thread_deinit_basic must be called if the code is using the Basic module. That's it!
 
-@|module_defined_entry{}
+@*module_defined_entry
 #ffz_entry: proc(argc: u32, argv: ^^u8) {
 	thread_init_basic()
 	
@@ -362,12 +362,12 @@ _temp_arena_tls_index: u32
 	wProcessorRevision: u16
 }
 
-#Kernel32: |extern{":Kernel32.lib"}
+#Kernel32: *extern{":Kernel32.lib"}
 
 #HANDLE: ^raw
 
-@|extern{"?"} #mem_move: proc(dst: ^raw, src: ^raw, size: uint)
-@|extern{"?"} #mem_set: proc(str: ^raw, c: u32, n: uint)
+@*extern{"?"} #mem_move: proc(dst: ^raw, src: ^raw, size: uint)
+@*extern{"?"} #mem_set: proc(str: ^raw, c: u32, n: uint)
 @Kernel32 #VirtualAlloc: proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => ^u8
 @Kernel32 #VirtualFree: proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => u32
 @Kernel32 #GetSystemInfo: proc(lpSystemInfo: ^SYSTEM_INFO)

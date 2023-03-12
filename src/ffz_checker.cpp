@@ -337,7 +337,7 @@ const char* ffz_type_to_cstring(ffzProject* p, ffzType* type) {
 //	return out_decl->node->Op.left == node.node;
 //}
 
-bool ffz_decl_is_runtime_value(ffzNodeOpDeclare* decl) {
+bool ffz_decl_is_runtime_variable(ffzNodeOpDeclare* decl) {
 	if (decl->parent->kind == ffzNodeKind_Record) return false;
 	if (decl->parent->kind == ffzNodeKind_Enum) return false;
 	if (decl->parent->kind == ffzNodeKind_PolyParamList) return false;
@@ -457,6 +457,8 @@ enum InferFlag {
 	InferFlag_CacheOnlyIfGotType = 1 << 2,
 	
 	InferFlag_ExplicitCastToRequiredType = 1 << 3,
+	
+	InferFlag_TypeMeansDefaultValue = 1 << 4, // `int` will mean "the default value of int" instead of "the type int"
 };
 
 static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzCheckedExpr*) out);
@@ -1229,7 +1231,7 @@ ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 
 static ffzOk check_tag(ffzChecker* c, ffzNodeInst tag) {
 	ffzCheckedExpr chk;
-	TRY(check_node(c, tag, NULL, InferFlag_RequireConstant, &chk));
+	TRY(check_node(c, tag, NULL, InferFlag_RequireConstant | InferFlag_TypeMeansDefaultValue, &chk));
 	if (chk.type->tag != ffzTypeTag_Record) {
 		ERR(c, tag.node, "Tag was not a struct literal.", "");
 	}
@@ -1581,7 +1583,7 @@ static ffzOk check_identifier(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* r
 		TRY(check_node(c, decl_inst, NULL, 0, result));
 
 		if (def.node != inst.node &&
-			ffz_decl_is_runtime_value(decl_inst.node) &&
+			ffz_decl_is_runtime_variable(decl_inst.node) &&
 			decl_inst.node->id.local_id > inst.node->id.local_id)
 		{
 			ERR(c, inst.node, "Variable is being used before it is declared.");
@@ -1683,14 +1685,17 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		ffzNodeInst rhs = CHILD(inst, Op.right);
 
 		InferFlags rhs_flags = 0;
-		if (!ffz_decl_is_runtime_value(inst.node)) rhs_flags |= InferFlag_RequireConstant;
+		bool is_runtime_value = ffz_decl_is_runtime_variable(inst.node);
+		
+		if (is_runtime_value) rhs_flags |= InferFlag_TypeMeansDefaultValue;
+		else rhs_flags |= InferFlag_RequireConstant;
 		
 		ffzCheckedExpr rhs_chk;
 		// sometimes we want to pass `require_type` down to the rhs, namely with enum field declarations
 		TRY(check_node(c, rhs, require_type, rhs_flags, &rhs_chk));
 
 		result = rhs_chk; // Declarations cache the value of the right-hand-side
-		if (ffz_decl_is_runtime_value(inst.node)) {
+		if (is_runtime_value) {
 			F_ASSERT(ffz_type_is_grounded(result.type)); // :GroundTypeType
 			result.const_val = NULL; // runtime declarations shouldn't store the constant value that the rhs expression might have
 		}
@@ -1944,21 +1949,9 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		}
 	}
 
-	ffzCheckedExpr ungrounded_result = result;
-	if (result.type) {
-		if (result.type->tag == ffzTypeTag_Type &&
-			inst.node->parent->kind == ffzNodeKind_Declare && ffz_decl_is_runtime_value(inst.node->parent)) {
-			// If you query the type of the declaration's expression without any context,
-			// it may have a type type. i.e.
-			// ...
-			// MyThing: u32 
-			// ...
-			// calling ffz_expr_get_type() on the right-hand-side will return a type type,
-			// but calling ffz_decl_get_type() on the declaration, or ffz_expr_get_type()
-			// on the left-hand-side will return the grounded type.
-			result.type = ffz_ground_type(result);
-			result.const_val = ffz_get_default_value_for_type(c, result.type);
-		}
+	if (result.type && result.type->tag == ffzTypeTag_Type && (flags & InferFlag_TypeMeansDefaultValue)) {
+		result.type = ffz_ground_type(result);
+		result.const_val = ffz_get_default_value_for_type(c, result.type);
 	}
 
 	// Say you have `#X: struct { a: ^X }`

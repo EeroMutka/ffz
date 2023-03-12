@@ -284,6 +284,6 @@
 
 @Gdi32 #CreateSolidBrush: proc(color: u32) => HBRUSH
 
-#Kernel32: |extern{":Kernel32.lib"}
-#User32: |extern{":User32.lib"}
-#Gdi32: |extern{":Gdi32.lib"}
+#Kernel32: *extern{":Kernel32.lib"}
+#User32: *extern{":User32.lib"}
+#Gdi32: *extern{":Gdi32.lib"}

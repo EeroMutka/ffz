@@ -446,7 +446,7 @@ ffzNodeIdentifierInst ffz_get_definition(ffzProject* p, ffzNodeIdentifierInst id
 //bool ffz_definition_is_constant(ffzNodeIdentifier* definition);
 
 //ffzDeclKind ffz_decl_get_kind(ffzNodeOpDeclare* decl);
-bool ffz_decl_is_runtime_value(ffzNodeOpDeclare* decl);
+bool ffz_decl_is_runtime_variable(ffzNodeOpDeclare* decl);
 
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee);
 

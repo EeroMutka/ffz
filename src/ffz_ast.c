@@ -217,6 +217,7 @@ static void _print_ast(fArrayRaw* builder, ffzNode* node, uint tab_level) {
 	switch (node->kind) {
 
 	case ffzNodeKind_Keyword: {
+		if (ffz_keyword_is_extended(node->Keyword.keyword)) f_str_printf(builder, "*");
 		f_str_print(builder, ffzKeyword_to_string[node->Keyword.keyword]);
 	} break;
 
@@ -958,7 +959,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 
 		Token tok = maybe_eat_next_token(p, loc, check_infix_or_postfix ? 0 : ParseFlag_SkipNewlines);
 		
-		bool is_extended_keyword = tok.small == '|';
+		bool is_extended_keyword = !check_infix_or_postfix && tok.small == '*';
 		if (is_extended_keyword) {
 			tok = maybe_eat_next_token(p, loc, 0);
 		}
