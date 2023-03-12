@@ -17,7 +17,7 @@
 
 struct Value {
 	gmmcSymbol* symbol;
-	gmmcReg local_addr; // local_addr should be valid if symbol is NULL
+	gmmcOpIdx local_addr; // local_addr should be valid if symbol is NULL
 };
 
 struct Gen {
@@ -40,7 +40,7 @@ struct Gen {
 };
 
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
-static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of = false);
+static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of = false);
 
 static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 	fArray(u8) name = f_array_make<u8>(g->alc);
@@ -197,7 +197,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 		param_definition.polymorph = inst.polymorph; // hmmm...
 		ffzNodeInstHash hash = ffz_hash_node_inst(param_definition);
 
-		gmmcReg param_val = gmmc_op_param(proc, i + (u32)big_return);
+		gmmcOpIdx param_val = gmmc_op_param(proc, i + (u32)big_return);
 		
 		Value val = {};
 		val.local_addr = param_val;
@@ -239,7 +239,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 }
 
 
-static gmmcReg gen_call(Gen* g, ffzNodeOpInst inst) {
+static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 	ffzNodeInst left = CHILD(inst,Op.left);
 	ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 	F_ASSERT(left_chk.type->tag == ffzTypeTag_Proc);
@@ -250,9 +250,9 @@ static gmmcReg gen_call(Gen* g, ffzNodeOpInst inst) {
 	gmmcType ret_type_gmmc = big_return ? gmmcType_ptr :
 		ret_type ? get_gmmc_type(g, ret_type) : gmmcType_None;
 
-	fArray(gmmcReg) args = f_array_make<gmmcReg>(g->alc);
+	fArray(gmmcOpIdx) args = f_array_make<gmmcOpIdx>(g->alc);
 
-	gmmcReg out = {};
+	gmmcOpIdx out = {};
 	if (big_return) {
 		out = gmmc_op_local(g->proc, ret_type->size, ret_type->align);
 		//out.ptr_can_be_stolen = true;
@@ -262,12 +262,12 @@ static gmmcReg gen_call(Gen* g, ffzNodeOpInst inst) {
 	u32 i = 0;
 	for FFZ_EACH_CHILD_INST(n, inst) {
 		ffzType* param_type = left_chk.type->Proc.in_params[i].type;
-		gmmcReg arg = gen_expr(g, n);
+		gmmcOpIdx arg = gen_expr(g, n);
 		
 		if (param_type->size > 8) {
 			// make a copy on the stack for the parameter
 			// TODO: use the `ptr_can_be_stolen` here!
-			gmmcReg local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
+			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
 			gmmc_op_memmove(g->bb, local_copy_addr, arg, gmmc_op_i32(g->bb, param_type->size));
 			f_array_push(&args, local_copy_addr);
 		}
@@ -279,16 +279,16 @@ static gmmcReg gen_call(Gen* g, ffzNodeOpInst inst) {
 
 	// TODO: non-vcall for constant procedures
 
-	gmmcReg target = gen_expr(g, left, false);
+	gmmcOpIdx target = gen_expr(g, left, false);
 	F_ASSERT(target);
 
-	gmmcReg return_val = gmmc_op_vcall(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
+	gmmcOpIdx return_val = gmmc_op_vcall(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
 	if (!big_return) out = return_val;
 
 	return out;
 }
 
-static gmmcReg load_small(Gen* g, gmmcReg ptr, ffzType* type) {
+static gmmcOpIdx load_small(Gen* g, gmmcOpIdx ptr, ffzType* type) {
 	if (type->size == 1 || type->size == 2 || type->size == 4 || type->size == 8) {
 		return gmmc_op_load(g->bb, get_gmmc_type(g, type), ptr);
 	}
@@ -370,7 +370,7 @@ static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset
 	}
 }
 
-static void gen_store(Gen* g, gmmcReg addr, gmmcReg value, ffzType* type) {
+static void gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* type) {
 	if (type->size > 8) {
 		gmmc_op_memmove(g->bb, addr, value, gmmc_op_i32(g->bb, type->size));
 	}
@@ -379,8 +379,8 @@ static void gen_store(Gen* g, gmmcReg addr, gmmcReg value, ffzType* type) {
 	}
 }
 
-static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
-	gmmcReg out = {};
+static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
+	gmmcOpIdx out = {};
 
 	ffzCheckedExpr checked = ffz_expr_get_checked(g->project, inst);
 	F_ASSERT(ffz_type_is_grounded(checked.type));
@@ -461,8 +461,8 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			// TODO: more operator defines. I guess we should do this together with the fix for vector math
 			F_ASSERT(input_type->size <= 8);
 
-			gmmcReg a = gen_expr(g, left);
-			gmmcReg b = gen_expr(g, right);
+			gmmcOpIdx a = gen_expr(g, left);
+			gmmcOpIdx b = gen_expr(g, right);
 
 			switch (inst.node->kind) {
 			case ffzNodeKind_Add: { out = gmmc_op_add(g->bb, a, b); } break;
@@ -503,12 +503,12 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			if (left.node->kind == ffzNodeKind_Keyword && ffz_keyword_is_bitwise_op(left.node->Keyword.keyword)) {
 				ffzKeyword keyword = left.node->Keyword.keyword;
 
-				gmmcReg first = gen_expr(g, ffz_get_child_inst(inst, 0));
+				gmmcOpIdx first = gen_expr(g, ffz_get_child_inst(inst, 0));
 				if (keyword == ffzKeyword_bit_not) {
 					out = gmmc_op_not(g->bb, first);
 				}
 				else {
-					gmmcReg second = gen_expr(g, ffz_get_child_inst(inst, 1));
+					gmmcOpIdx second = gen_expr(g, ffz_get_child_inst(inst, 1));
 					switch (keyword) {
 					case ffzKeyword_bit_and: { out = gmmc_op_and(g->bb, first, second); } break;
 					case ffzKeyword_bit_or: { out = gmmc_op_or(g->bb, first, second); } break;
@@ -596,7 +596,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				ffzTypeRecordFieldUse field;
 				F_ASSERT(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
 
-				gmmcReg addr_of_struct = gen_expr(g, left, left_chk.type->tag != ffzTypeTag_Pointer);
+				gmmcOpIdx addr_of_struct = gen_expr(g, left, left_chk.type->tag != ffzTypeTag_Pointer);
 				F_ASSERT(addr_of_struct);
 
 				out = field.offset ? gmmc_op_member_access(g->bb, addr_of_struct, field.offset) : addr_of_struct;
@@ -615,8 +615,8 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				for FFZ_EACH_CHILD_INST(n, inst) {
 					ffzTypeRecordField& field = checked.type->record_fields[i];
 
-					gmmcReg src = gen_expr(g, n);
-					gmmcReg dst_ptr = gmmc_op_member_access(g->bb, out, field.offset);
+					gmmcOpIdx src = gen_expr(g, n);
+					gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, field.offset);
 					gen_store(g, dst_ptr, src, field.type);
 					i++;
 				}
@@ -625,8 +625,8 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				u32 i = 0;
 				ffzType* elem_type = checked.type->FixedArray.elem_type;
 				for FFZ_EACH_CHILD_INST(n, inst) {
-					gmmcReg src = gen_expr(g, n, false);
-					gmmcReg dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
+					gmmcOpIdx src = gen_expr(g, n, false);
+					gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
 					gen_store(g, dst_ptr, src, elem_type);
 					i++;
 				}
@@ -645,8 +645,8 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 			ffzType* elem_type = left_type->tag == ffzTypeTag_Slice ? left_type->Slice.elem_type : left_type->FixedArray.elem_type;
 
-			gmmcReg left_value = gen_expr(g, left, true);
-			gmmcReg array_data = left_value;
+			gmmcOpIdx left_value = gen_expr(g, left, true);
+			gmmcOpIdx array_data = left_value;
 
 			if (left_type->tag == ffzTypeTag_Slice) {
 				array_data = gmmc_op_load(g->bb, gmmcType_ptr, array_data);
@@ -656,8 +656,8 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				ffzNodeInst lo_inst = ffz_get_child_inst(inst, 0);
 				ffzNodeInst hi_inst = ffz_get_child_inst(inst, 1);
 
-				gmmcReg lo = lo_inst.node->kind == ffzNodeKind_Blank ? gmmc_op_i64(g->bb, 0) : gen_expr(g, lo_inst);
-				gmmcReg hi;
+				gmmcOpIdx lo = lo_inst.node->kind == ffzNodeKind_Blank ? gmmc_op_i64(g->bb, 0) : gen_expr(g, lo_inst);
+				gmmcOpIdx hi;
 				if (hi_inst.node->kind == ffzNodeKind_Blank) {
 					if (left_type->tag == ffzTypeTag_FixedArray) {
 						hi = gmmc_op_i64(g->bb, left_type->FixedArray.length);
@@ -674,15 +674,15 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				out = gmmc_op_local(g->proc, 16, 8);
 				lo = gmmc_op_zxt(g->bb, lo, gmmcType_i64);
 				hi = gmmc_op_zxt(g->bb, hi, gmmcType_i64);
-				gmmcReg ptr = gmmc_op_array_access(g->bb, array_data, lo, elem_type->size);
-				gmmcReg len = gmmc_op_sub(g->bb, hi, lo);
+				gmmcOpIdx ptr = gmmc_op_array_access(g->bb, array_data, lo, elem_type->size);
+				gmmcOpIdx len = gmmc_op_sub(g->bb, hi, lo);
 
 				gmmc_op_store(g->bb, out, ptr);
 				gmmc_op_store(g->bb, gmmc_op_member_access(g->bb, out, 8), len);
 			}
 			else { // taking an index
 				ffzNodeInst index_node = ffz_get_child_inst(inst, 0);
-				//gmmcReg index = gmmc_op_zxt(g->bb, gen_expr(g, index_node), gmmcType_i64);
+				//gmmcOpIdx index = gmmc_op_zxt(g->bb, gen_expr(g, index_node), gmmcType_i64);
 				out = gmmc_op_array_access(g->bb, array_data, gen_expr(g, index_node), elem_type->size);
 
 				should_dereference = !address_of;
@@ -691,14 +691,14 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 		case ffzNodeKind_LogicalOR: // fallthrough
 		case ffzNodeKind_LogicalAND: {
-			gmmcReg left_val = gen_expr(g, left);
+			gmmcOpIdx left_val = gen_expr(g, left);
 
 			// implement short-circuiting
 
 			gmmcBasicBlock* test_right_bb = gmmc_make_basic_block(g->proc);
 			gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
 
-			gmmcReg result = gmmc_op_local(g->proc, 1, 1);
+			gmmcOpIdx result = gmmc_op_local(g->proc, 1, 1);
 			if (inst.node->kind == ffzNodeKind_LogicalAND) {
 				gmmc_op_store(g->bb, result, gmmc_op_bool(g->bb, false));
 				gmmc_op_if(g->bb, left_val, test_right_bb, after_bb);
@@ -751,7 +751,7 @@ static gmmcReg gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	if (should_take_address) {
 		F_ASSERT(!should_dereference);
 		if (checked.type->size <= 8) {
-			gmmcReg tmp = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
+			gmmcOpIdx tmp = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 			gmmc_op_store(g->bb, tmp, out);
 			out = tmp;
 		}
@@ -787,13 +787,13 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 				ffzCheckedExpr rhs_checked = ffz_decl_get_checked(g->project, rhs); // get the initial value
 
 				void* global_data;
-				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs_checked.type->size, rhs_checked.type->align, gmmcSection_RWData, &global_data);
+				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs_checked.type->size, rhs_checked.type->align, gmmcSection_Data, &global_data);
 
 				gen_global_constant(g, global, (u8*)global_data, 0, rhs_checked.type, rhs_checked.const_val);
 				val.symbol = gmmc_global_as_symbol(global);
 			}
 			else {
-				gmmcReg rhs_value = gen_expr(g, rhs);
+				gmmcOpIdx rhs_value = gen_expr(g, rhs);
 				val.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 				gen_store(g, val.local_addr, rhs_value, checked.type);
 			}
@@ -813,9 +813,9 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	case ffzNodeKind_Assign: {
 		ffzNodeInst lhs = CHILD(inst,Op.left);
 		ffzNodeInst rhs = CHILD(inst,Op.right);
-		gmmcReg lhs_addr = gen_expr(g, lhs, true);
+		gmmcOpIdx lhs_addr = gen_expr(g, lhs, true);
 		
-		gmmcReg rhs_value = gen_expr(g, rhs);
+		gmmcOpIdx rhs_value = gen_expr(g, rhs);
 		gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs));
 	} break;
 
@@ -826,7 +826,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	} break;
 
 	case ffzNodeKind_If: {
-		gmmcReg cond = gen_expr(g, CHILD(inst, If.condition));
+		gmmcOpIdx cond = gen_expr(g, CHILD(inst, If.condition));
 		
 		gmmcBasicBlock* true_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* false_bb;
@@ -866,7 +866,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		if (!condition.node) F_BP; // TODO
 		
 		g->bb = cond_bb;
-		gmmcReg cond = gen_expr(g, condition);
+		gmmcOpIdx cond = gen_expr(g, condition);
 		gmmc_op_if(g->bb, cond, body_bb, after_bb);
 
 		g->bb = body_bb;
@@ -885,11 +885,11 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 
 	case ffzNodeKind_Return: {
 		ffzNodeReturnInst ret = inst;
-		gmmcReg val = 0;
+		gmmcOpIdx val = 0;
 
 		if (ret.node->Return.value) {
 			ffzType* ret_type = ffz_expr_get_type(g->project, CHILD(ret,Return.value));
-			gmmcReg return_value = gen_expr(g, CHILD(ret,Return.value));
+			gmmcOpIdx return_value = gen_expr(g, CHILD(ret,Return.value));
 			if (ret_type->size > 8) {
 				val = gmmc_op_param(g->proc, 0); // :BigReturn
 				gmmc_op_memmove(g->bb, val, return_value, gmmc_op_i32(g->bb, ret_type->size));
@@ -914,7 +914,6 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 	fString build_dir = F_STR_T_JOIN(project->directory, F_LIT("\\.build"));
 	F_ASSERT(f_files_make_directory(build_dir));
 
-	fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
 	fString exe_path = F_STR_T_JOIN(build_dir, F_LIT("\\"), project->name, F_LIT(".exe"));
 
 	fArenaMark temp_base = f_temp_get_mark();
@@ -940,119 +939,90 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 		}
 	}
 
-	FILE* c_file = fopen(f_str_t_to_cstr(c_file_path), "wb");
-	if (!c_file) {
-		printf("Failed writing temporary C file to disk!\n");
-		return false;
-	}
-
-	gmmc_module_print(c_file, gmmc);
-	fclose(c_file);
-
-	fArray(fString) clang_args = f_array_make<fString>(f_temp_alc());
-
-	f_array_push(&clang_args, F_LIT("clang"));
+	bool x64 = false;
+	if (x64) {
+		fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.obj"));
+		FILE* obj_file = fopen(f_str_t_to_cstr(obj_file_path), "wb");
 		
-	if (true) { // with debug info?
-		f_array_push(&clang_args, F_LIT("-gcodeview"));
-		f_array_push(&clang_args, F_LIT("--debug"));
+		gmmc_x64_export_module(obj_file, gmmc);
+		
+		fclose(obj_file);
+		printf("TODO: linker\n");
 	}
 	else {
-		f_array_push(&clang_args, F_LIT("-O1"));
-	}
-
-	// Use the LLD linker
-	//f_array_push(&clang_args, F_LIT("-fuse-ld=lld"));
-
-	f_array_push(&clang_args, F_LIT("-I../include"));
-	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
-	f_array_push(&clang_args, c_file_path);
-	
-	// TODO: command-line option for console/no console
-	bool console = true;
-	
-	fArray(u8) linker_args = f_array_make<u8>(f_temp_alc());
-	f_str_printf(&linker_args, "-Wl"); // pass comma-separated argument list to the linker
-	f_str_printf(&linker_args, ",/SUBSYSTEM:%s", console ? "CONSOLE" : "WINDOWS");
-	f_str_printf(&linker_args, ",/ENTRY:ffz_entry,");
-	f_str_printf(&linker_args, ",/INCREMENTAL:NO");
-	f_str_printf(&linker_args, ",/NODEFAULTLIB"); // disable CRT
-	//f_str_printf(&linker_args, ",libucrt.lib");
-
-	for (uint i = 0; i < project->link_libraries.len; i++) {
-		f_str_printf(&linker_args, ",%.*s", F_STRF(project->link_libraries[i]));
-	}
-	for (uint i = 0; i < project->link_system_libraries.len; i++) {
-		f_str_printf(&linker_args, ",%.*s", F_STRF(project->link_system_libraries[i]));
-	}
-	
-	// https://metricpanda.com/rival-fortress-update-45-dealing-with-__chkstk-__chkstk_ms-when-cross-compiling-for-windows/
-
-	// specify reserve and commit for the stack. We have to use -Xlinker for this, because of the comma ambiguity...
-	f_array_push(&clang_args, F_LIT("-Xlinker"));
-	f_array_push(&clang_args, F_LIT("/STACK:0x200000,200000"));
-
-	f_array_push(&clang_args, linker_args.slice);
-
-	// if we use a custom entry point (not "main"), it seems that we have to manually link to CRT
-	//f_array_push(&clang_args, F_LIT("-Xlinker"));
-	//f_array_push(&clang_args, F_LIT("/DEFAULTLIB:libucrt.lib"));
-	
-	//f_array_push(&clang_args, F_LIT("/link"));
-	//f_array_push(&clang_args, F_LIT("/MACHINE:X64"));
-	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-	//f_array_push(&clang_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
-		
-	printf("Running clang: ");
-	for (uint i = 0; i < clang_args.len; i++) {
-		printf("\"%.*s\" ", F_STRF(clang_args[i]));
-	}
-	printf("\n");
-
-	u32 exit_code;
-	if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
-		printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");
-		return false;
-	}
-	if (exit_code != 0) return false;
-
-#if 0 // msvc
-	
-	{
-		fArray(fString) msvc_args = f_array_make<fString>(temp);
-		f_array_push(&msvc_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\cl.exe")));
-		f_array_push(&msvc_args, F_LIT("/Zi"));
-		f_array_push(&msvc_args, F_LIT("/std:c11"));
-		f_array_push(&msvc_args, F_LIT("/Ob1")); // enable inlining
-		f_array_push(&msvc_args, F_LIT("/MDd")); // raylib uses this setting
-		f_array_push(&msvc_args, F_LIT("a.c"));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/I"), vs_include_path));
-
-		f_array_push(&msvc_args, F_LIT("/link"));
-		f_array_push(&msvc_args, F_LIT("/INCREMENTAL:NO"));
-		f_array_push(&msvc_args, F_LIT("/MACHINE:X64"));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-		f_array_push(&msvc_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
-		f_array_push(&msvc_args, F_LIT("libcmt.lib")); // link crt startup?
-
-		for (uint i = 0; i < project->link_libraries.len; i++) {
-			f_array_push(&msvc_args, project->link_libraries[i]);
+		// compile to C
+		fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
+		FILE* c_file = fopen(f_str_t_to_cstr(c_file_path), "wb");
+		if (!c_file) {
+			printf("Failed writing temporary C file to disk!\n");
+			return false;
 		}
 
-		printf("Running cl.exe: \n");
+		gmmc_module_print(c_file, gmmc);
+
+		fclose(c_file);
+
+		fArray(fString) clang_args = f_array_make<fString>(f_temp_alc());
+
+		f_array_push(&clang_args, F_LIT("clang"));
+
+		if (true) { // with debug info?
+			f_array_push(&clang_args, F_LIT("-gcodeview"));
+			f_array_push(&clang_args, F_LIT("--debug"));
+		}
+		else {
+			f_array_push(&clang_args, F_LIT("-O1"));
+		}
+
+		// Use the LLD linker
+		//f_array_push(&clang_args, F_LIT("-fuse-ld=lld"));
+
+		f_array_push(&clang_args, F_LIT("-I../include"));
+		f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
+		f_array_push(&clang_args, c_file_path);
+
+		// TODO: command-line option for console/no console
+		bool console = true;
+
+		fArray(u8) linker_args = f_array_make<u8>(f_temp_alc());
+		f_str_printf(&linker_args, "-Wl"); // pass comma-separated argument list to the linker
+		f_str_printf(&linker_args, ",/SUBSYSTEM:%s", console ? "CONSOLE" : "WINDOWS");
+		f_str_printf(&linker_args, ",/ENTRY:ffz_entry,");
+		f_str_printf(&linker_args, ",/INCREMENTAL:NO");
+		f_str_printf(&linker_args, ",/NODEFAULTLIB"); // disable CRT
+		//f_str_printf(&linker_args, ",libucrt.lib");
+
+		for (uint i = 0; i < project->link_libraries.len; i++) {
+			f_str_printf(&linker_args, ",%.*s", F_STRF(project->link_libraries[i]));
+		}
+		for (uint i = 0; i < project->link_system_libraries.len; i++) {
+			f_str_printf(&linker_args, ",%.*s", F_STRF(project->link_system_libraries[i]));
+		}
+
+		// https://metricpanda.com/rival-fortress-update-45-dealing-with-__chkstk-__chkstk_ms-when-cross-compiling-for-windows/
+
+		// specify reserve and commit for the stack. We have to use -Xlinker for this, because of the comma ambiguity...
+		f_array_push(&clang_args, F_LIT("-Xlinker"));
+		f_array_push(&clang_args, F_LIT("/STACK:0x200000,200000"));
+
+		f_array_push(&clang_args, linker_args.slice);
+
+		printf("Running clang: ");
+		for (uint i = 0; i < clang_args.len; i++) {
+			printf("\"%.*s\" ", F_STRF(clang_args[i]));
+		}
+		printf("\n");
+
 		u32 exit_code;
-		if (!f_os_run_command(msvc_args.slice, build_dir, &exit_code)) return false;
+		if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
+			printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");
+			return false;
+		}
 		if (exit_code != 0) return false;
+
+		f_temp_set_mark(temp_base);
 	}
-	WinSDK_free_resources(&windows_sdk);
-#endif
-	
-	f_temp_set_mark(temp_base);
+
 	return true;
 }
 

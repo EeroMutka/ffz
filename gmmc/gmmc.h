@@ -39,7 +39,7 @@ typedef struct { uint8_t* ptr; uint64_t len; } gmmcString;
 #define gmmcString gmmcString
 #endif
 
-typedef uint32_t gmmcReg;
+typedef uint32_t gmmcOpIdx;
 typedef struct gmmcModule gmmcModule;
 typedef struct gmmcProc gmmcProc;
 typedef struct gmmcGlobal gmmcGlobal;
@@ -64,6 +64,8 @@ typedef enum gmmcOpKind {
 
 	gmmcOpKind_load,
 	gmmcOpKind_store,
+	
+	gmmcOpKind_local,
 	
 	gmmcOpKind_member_access,
 	gmmcOpKind_array_access,
@@ -102,6 +104,8 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_sxt,
 	gmmcOpKind_trunc,
 
+	gmmcOpKind_param,
+	
 	gmmcOpKind_call,
 	gmmcOpKind_vcall,
 	
@@ -113,41 +117,13 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_COUNT,
 } gmmcOpKind;
 
-typedef struct gmmcOp {
-	gmmcOpKind kind;
-	gmmcReg result;
+typedef u32 gmmcOpIdx; // TODO: rename to gmmcOp
 
-	union {
-		struct {
-			gmmcReg operands[3];
-			bool is_signed;
-		};
-		
-		struct {
-			gmmcReg condition;
-			gmmcBasicBlock* dst_bb[2];
-		} if_;
-
-		struct {
-			gmmcBasicBlock* dst_bb;
-		} goto_;
-
-		struct {
-			union { gmmcSymbol* target_sym; gmmcReg target_reg; };
-			fSlice(gmmcReg) arguments;
-		} call;
-		
-		fString comment;
-		gmmcSymbol* symbol;
-	};
-	u64 imm_raw;
-} gmmcOp;
-
-typedef enum {
+typedef enum gmmcType {
 	gmmcType_None = 0,
 	gmmcType_ptr = 1,
 	gmmcType_bool = 2,
-	
+
 	// integer types
 	gmmcType_i8 = 3,
 	gmmcType_i16 = 4,
@@ -160,16 +136,125 @@ typedef enum {
 	gmmcType_f64 = 9,
 } gmmcType;
 
-inline bool gmmc_type_is_integer(gmmcType t) { return t >= gmmcType_i8 && t <= gmmcType_i128; }
-inline bool gmmc_type_is_float(gmmcType t) { return t >= gmmcType_f32 && t <= gmmcType_f64; }
+typedef struct gmmcOpData {
+	gmmcOpKind kind;
+	
+	gmmcType type;
+
+	union {
+		u32 local_idx; // 0 means "not a local"
+
+		struct {
+			gmmcOpIdx operands[3];
+			bool is_signed;
+		};
+		
+		struct {
+			gmmcOpIdx condition;
+			gmmcBasicBlock* dst_bb[2];
+		} if_;
+
+		struct {
+			gmmcBasicBlock* dst_bb;
+		} goto_;
+
+		struct {
+			union { gmmcSymbol* target_sym; gmmcOpIdx target; };
+			fSlice(gmmcOpIdx) arguments;
+		} call;
+		
+		fString comment;
+		gmmcSymbol* symbol;
+	};
+	u64 imm_raw;
+} gmmcOpData;
+
+typedef struct gmmcBasicBlock {
+	gmmcModule* mod;
+	gmmcProc* proc;
+	u32 bb_index;
+
+	fArray(gmmcOpIdx) ops;
+
+	struct {
+		u32 code_section_offset; // U32_MAX if not been built yet
+		u32 code_section_end_offset;
+	} gen;
+} gmmcBasicBlock;
+
+typedef enum gmmcSymbolKind {
+	gmmcSymbolKind_Global,
+	gmmcSymbolKind_Proc,
+	gmmcSymbolKind_Extern,
+} gmmcSymbolKind;
+
+typedef struct gmmcProcSignature {
+	gmmcType return_type;
+	fSlice(gmmcType) params;
+} gmmcProcSignature;
+
+typedef struct gmmcSymbol {
+	gmmcSymbolKind kind;
+	gmmcModule* mod;
+	gmmcString name;
+} gmmcSymbol;
+
+typedef struct gmmcLocal {
+	u32 size;
+	u32 align;
+} gmmcLocal;
+
+typedef struct gmmcProc {
+	gmmcSymbol sym; // NOTE: must be the first member!
+
+	gmmcProcSignature* signature;
+	gmmcBasicBlock* entry_bb;
+
+	fArray(gmmcBasicBlock*) basic_blocks;
+	fArray(gmmcOpData) ops;
+
+	fSlice(gmmcOpIdx) params;
+	fArray(gmmcLocal) locals;
+
+	//fArray(gmmcRegInfo) reg_infos;
+	//fSlice(u8) built_x64_instructions;
+} gmmcProc;
+
+
+typedef struct gmmcReloc {
+	uint32_t offset;
+	gmmcSymbol* target;
+} gmmcReloc;
 
 typedef enum {
 	gmmcSection_Invalid = 0,
 	gmmcSection_RData = 1,
-	gmmcSection_RWData = 2,
+	gmmcSection_Data = 2,
 	//gmmcSection_Threadlocal = 3,
 	gmmcSection_Code = 4,
 } gmmcSection;
+
+typedef struct gmmcGlobal {
+	gmmcSymbol sym; // NOTE: must be the first member!
+
+	u32 size;
+	u32 align;
+	gmmcSection section;
+	void* data;
+
+	fArray(gmmcReloc) relocations;
+} gmmcGlobal;
+
+typedef struct gmmcModule {
+	fAllocator* allocator;
+
+	fArray(gmmcProcSignature*) proc_signatures;
+	fArray(gmmcGlobal*) globals;
+	fArray(gmmcProc*) procs;
+	fArray(gmmcSymbol*) external_symbols;
+
+	fArray(u8) code_section;
+} gmmcModule;
 
 GMMC_API gmmcModule* gmmc_init(fAllocator* allocator);
 
@@ -188,7 +273,8 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 	gmmcProcSignature* signature,
 	gmmcString name, gmmcBasicBlock** out_entry_bb);
 
-GMMC_API void gmmc_proc_compile(gmmcProc* proc);
+//GMMC_API void gmmc_proc_compile(gmmcProc* proc);
+GMMC_API void gmmc_x64_export_module(FILE* output_obj_file, gmmcModule* m);
 
 GMMC_API void gmmc_module_print(FILE* b, gmmcModule* m);
 GMMC_API void gmmc_proc_print(FILE* b, gmmcProc* proc);
@@ -220,84 +306,96 @@ GMMC_API void gmmc_op_comment(gmmcBasicBlock* bb, fString text);
 // Comparisons always return a boolean
 
 // ==, !=
-GMMC_API gmmcReg gmmc_op_eq(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b);
-GMMC_API gmmcReg gmmc_op_ne(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b);
+GMMC_API gmmcOpIdx gmmc_op_eq(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_ne(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 
 // <, <=, >, >=
-GMMC_API gmmcReg gmmc_op_lt(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b, bool is_signed);
-GMMC_API gmmcReg gmmc_op_le(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b, bool is_signed);
-GMMC_API gmmcReg gmmc_op_gt(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b, bool is_signed);
-GMMC_API gmmcReg gmmc_op_ge(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b, bool is_signed);
+GMMC_API gmmcOpIdx gmmc_op_lt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
+GMMC_API gmmcOpIdx gmmc_op_le(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
+GMMC_API gmmcOpIdx gmmc_op_gt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
+GMMC_API gmmcOpIdx gmmc_op_ge(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
 // TODO: add align? for SIMD types?
-GMMC_API gmmcReg gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcReg ptr);
-GMMC_API void gmmc_op_store(gmmcBasicBlock* bb, gmmcReg ptr, gmmcReg value);
+GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr);
+GMMC_API void gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value);
 
 // result = base + offset
-GMMC_API gmmcReg gmmc_op_member_access(gmmcBasicBlock* bb, gmmcReg base, uint32_t offset);
+GMMC_API gmmcOpIdx gmmc_op_member_access(gmmcBasicBlock* bb, gmmcOpIdx base, uint32_t offset);
 
 // result = base + (index * stride)
-GMMC_API gmmcReg gmmc_op_array_access(gmmcBasicBlock* bb, gmmcReg base, gmmcReg index, uint32_t stride);
+GMMC_API gmmcOpIdx gmmc_op_array_access(gmmcBasicBlock* bb, gmmcOpIdx base, gmmcOpIdx index, uint32_t stride);
 
 // `size` can be any integer type
-GMMC_API void gmmc_op_memmove(gmmcBasicBlock* bb, gmmcReg dst_ptr, gmmcReg src_ptr, gmmcReg size);
-GMMC_API void gmmc_op_memset(gmmcBasicBlock* bb, gmmcReg dst_ptr, gmmcReg value_i8, gmmcReg size);
+GMMC_API void gmmc_op_memmove(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx src_ptr, gmmcOpIdx size);
+GMMC_API void gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx value_i8, gmmcOpIdx size);
 
-GMMC_API void gmmc_op_if(gmmcBasicBlock* bb, gmmcReg cond_bool, gmmcBasicBlock* true_bb, gmmcBasicBlock* false_bb);
+GMMC_API void gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasicBlock* true_bb, gmmcBasicBlock* false_bb);
 GMMC_API void gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
 
 // value should be GMMC_REG_NONE if the procedure returns no value
-GMMC_API void gmmc_op_return(gmmcBasicBlock* bb, gmmcReg value);
+GMMC_API void gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value);
 
-GMMC_API gmmcReg gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcReg value);
-GMMC_API gmmcReg gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcReg value, gmmcType type);
-GMMC_API gmmcReg gmmc_op_zxt(gmmcBasicBlock* bb, gmmcReg value, gmmcType type);
-GMMC_API gmmcReg gmmc_op_sxt(gmmcBasicBlock* bb, gmmcReg value, gmmcType type);
-GMMC_API gmmcReg gmmc_op_trunc(gmmcBasicBlock* bb, gmmcReg value, gmmcType type);
+GMMC_API gmmcOpIdx gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcOpIdx value);
+GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
+GMMC_API gmmcOpIdx gmmc_op_zxt(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
+GMMC_API gmmcOpIdx gmmc_op_sxt(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
+GMMC_API gmmcOpIdx gmmc_op_trunc(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
 
 // -- Immediates --------------------------------
 
-GMMC_API gmmcReg gmmc_op_bool(gmmcBasicBlock* bb, bool value);
-GMMC_API gmmcReg gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value);
-GMMC_API gmmcReg gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value);
-GMMC_API gmmcReg gmmc_op_i32(gmmcBasicBlock* bb, uint32_t value);
-GMMC_API gmmcReg gmmc_op_i64(gmmcBasicBlock* bb, uint64_t value);
-GMMC_API gmmcReg gmmc_op_f32(gmmcBasicBlock* bb, float value);
-GMMC_API gmmcReg gmmc_op_f64(gmmcBasicBlock* bb, double value);
-GMMC_API gmmcReg gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, void* data);
+GMMC_API gmmcOpIdx gmmc_op_bool(gmmcBasicBlock* bb, bool value);
+GMMC_API gmmcOpIdx gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value);
+GMMC_API gmmcOpIdx gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value);
+GMMC_API gmmcOpIdx gmmc_op_i32(gmmcBasicBlock* bb, uint32_t value);
+GMMC_API gmmcOpIdx gmmc_op_i64(gmmcBasicBlock* bb, uint64_t value);
+GMMC_API gmmcOpIdx gmmc_op_f32(gmmcBasicBlock* bb, float value);
+GMMC_API gmmcOpIdx gmmc_op_f64(gmmcBasicBlock* bb, double value);
+GMMC_API gmmcOpIdx gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, void* data);
 
 // -- Arithmetic --------------------------------
 // Arithmetic ops work on any integer and float type, where both inputs must have the same type.
 
-GMMC_API gmmcReg gmmc_op_add(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b);
-GMMC_API gmmcReg gmmc_op_sub(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b);
-GMMC_API gmmcReg gmmc_op_mul(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b, bool is_signed);
-GMMC_API gmmcReg gmmc_op_div(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b, bool is_signed);
+GMMC_API gmmcOpIdx gmmc_op_add(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_sub(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_mul(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
+GMMC_API gmmcOpIdx gmmc_op_div(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
 // `mod` doesn't work with float types
-GMMC_API gmmcReg gmmc_op_mod(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b, bool is_signed);
+GMMC_API gmmcOpIdx gmmc_op_mod(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
 // ----------------------------------------------
 
-GMMC_API gmmcReg gmmc_op_and(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b);
-GMMC_API gmmcReg gmmc_op_or(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b);
-GMMC_API gmmcReg gmmc_op_xor(gmmcBasicBlock* bb, gmmcReg a, gmmcReg b);
-GMMC_API gmmcReg gmmc_op_not(gmmcBasicBlock* bb, gmmcReg value);
-GMMC_API gmmcReg gmmc_op_shl(gmmcBasicBlock* bb, gmmcReg value, gmmcReg shift);
-GMMC_API gmmcReg gmmc_op_shr(gmmcBasicBlock* bb, gmmcReg value, gmmcReg shift);
+GMMC_API gmmcOpIdx gmmc_op_and(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_or(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_xor(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_not(gmmcBasicBlock* bb, gmmcOpIdx value);
+GMMC_API gmmcOpIdx gmmc_op_shl(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift);
+GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift);
 
 
 
-GMMC_API gmmcReg gmmc_op_call(gmmcBasicBlock* bb, gmmcType return_type, gmmcSymbol* procedure,
-	gmmcReg* in_arguments, uint32_t in_arguments_count);
+GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb, gmmcType return_type, gmmcSymbol* procedure,
+	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 
-GMMC_API gmmcReg gmmc_op_vcall(gmmcBasicBlock* bb,
-	gmmcType return_type, gmmcReg proc_address,
-	gmmcReg* in_arguments, uint32_t in_arguments_count);
+GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
+	gmmcType return_type, gmmcOpIdx proc_address,
+	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 
-GMMC_API gmmcReg gmmc_op_param(gmmcProc* proc, uint32_t index);
+GMMC_API gmmcOpIdx gmmc_op_param(gmmcProc* proc, uint32_t index);
 
 // returns a pointer to the local
-GMMC_API gmmcReg gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align);
+GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align);
 
-GMMC_API gmmcReg gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol);
+GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol);
+
+
+// -- Common utilities -------------------------
+
+inline gmmcOpKind gmmc_op_get_kind(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].kind; }
+inline gmmcType gmmc_op_get_type(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].type; }
+GMMC_API u32 gmmc_type_size(gmmcType type);
+
+inline bool gmmc_type_is_integer(gmmcType t) { return t >= gmmcType_i8 && t <= gmmcType_i128; }
+inline bool gmmc_type_is_float(gmmcType t) { return t >= gmmcType_f32 && t <= gmmcType_f64; }
+inline bool gmmc_op_is_terminating(gmmcOpKind op) { return op >= gmmcOpKind_return && op <= gmmcOpKind_if; }
+

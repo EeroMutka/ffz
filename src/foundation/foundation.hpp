@@ -210,8 +210,8 @@ template<typename T>
 inline uint f_array_push(fArray(T)* array, const T& elem) { return f_array_push_raw((fArrayRaw*)array, &elem, sizeof(T), F_ALIGN_OF(T)); }
 
 template<typename T>
-inline void f_array_push_slice(fArray(T)* array, fSlice(T) elems) {
-	f_array_push_slice_raw((fArrayRaw*)array, F_BITCAST(fSliceRaw, elems), sizeof(T), F_ALIGN_OF(T));
+inline void f_array_push_n(fArray(T)* array, fSlice(T) elems) {
+	f_array_push_n_raw((fArrayRaw*)array, F_BITCAST(fSliceRaw, elems), sizeof(T), F_ALIGN_OF(T));
 }
 
 template<typename T>

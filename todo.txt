@@ -1,7 +1,4 @@
-- automatic up/down casting with size_of / constant integers
-   So size_of should NOT return the smallest integer type that can hold the value,
-   because when doing  a: size_of(int), a should get the type 'uint', and not 'u8'.
-   The feature we want instead is automatic casting of constants
+
 
 - break, continue
 - make .slice[] not necessary for Arrays

@@ -156,7 +156,7 @@ fString str_format_va_list(fAllocator* a, const char* fmt, va_list args) {
 }
 
 void f_str_print(Array(u8)* buffer, fString str) {
-	f_array_push_slice_raw(buffer, F_BITCAST(fSliceRaw, str), 1, 1);
+	f_array_push_n_raw(buffer, F_BITCAST(fSliceRaw, str), 1, 1);
 }
 
 void f_str_print_rune(Array(u8)* buffer, rune r) {
@@ -674,7 +674,7 @@ void _DEBUG_FILL_GARBAGE(void* ptr, uint len) { memset(ptr, 0xCC, len); }
 void slice_copy_raw(fSliceRaw dst, fSliceRaw src) {
 }
 
-void f_array_push_slice_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size, u32 elem_align) {
+void f_array_push_n_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size, u32 elem_align) {
 	f_array_reserve_raw(array, array->len + elems.len, elem_size);
 	for (uint i = 0; i < elems.len; i++) {
 		f_array_push_raw(array, (const void*)((u8*)elems.data + elem_size * i), elem_size, elem_align);
@@ -1718,7 +1718,7 @@ fString f_str_replace(fString str, fString search_for, fString replace_with, fAl
 	
 	for (uint i = 0; i <= last;) {
 		if (memcmp(str.data + i, search_for.data, search_for.len) == 0) {
-			f_array_push_slice_raw(&result, F_BITCAST(fSliceRaw, replace_with), 1, 1);
+			f_array_push_n_raw(&result, F_BITCAST(fSliceRaw, replace_with), 1, 1);
 			i += search_for.len;
 		}
 		else {
@@ -1742,7 +1742,7 @@ fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fStr
 			
 			if (memcmp(str.data + i, search_for_j.data, search_for_j.len) == 0) {
 				fString replace_with_j = ((fString*)replace_with.data)[j];
-				f_array_push_slice_raw(&result, F_BITCAST(fSliceRaw, replace_with_j), 1, 1);
+				f_array_push_n_raw(&result, F_BITCAST(fSliceRaw, replace_with_j), 1, 1);
 				i += search_for_j.len;
 				goto continue_outer;
 			}

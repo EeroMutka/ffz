@@ -208,7 +208,7 @@ GMMC_API void coff_create(void(*store_result)(gmmcString, void*), void* store_re
 
 				s->N.Name.Long = 4 + (u32)string_table.len;
 
-				f_array_push_slice(&string_table, { symbol.name.ptr, symbol.name.len });
+				f_array_push_n(&string_table, { symbol.name.ptr, symbol.name.len });
 				f_array_push(&string_table, (u8)0); // Strings in the string table must be null-terminated
 			}
 

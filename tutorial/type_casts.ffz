@@ -34,7 +34,7 @@
 		
 		big_array: [302]u8
 		
-		// A compilation error will trigger if the constant value does not fit into the expected type.
+		// A compile error will trigger if the constant value does not fit into the expected type.
 		// Try uncommenting the following:
 		// b = size_of(big_array)
 	}

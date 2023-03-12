@@ -7,22 +7,26 @@
 
 #include <Windows.h>
 
+#include "gmmc/gmmc.h" // for gmmc_test
+
 int main(int argc, const char* argv[]) {
-	int x = -130;
-	char y = (char)x;
+	f_init();
+
+	//gmmc_test();
+	//return 0;
+
+	//int x = -130;
+	//char y = (char)x;
 	//printf("args: ");
 	//for (uint i = 0; i < argc; i++) {
 	//	printf("\"%s\", ", argv[i]);
 	//}
 	//printf("\n");
-	//fAllocator* temp = f_temp_push();
-	f_init();
 	
 	if (argc <= 1) {
 		printf("Please provide a directory to compile!\n");
 		return 1;
 	}
-
 	
 	if (argc <= 1) {
 		printf("Please provide a directory to compile!\n");

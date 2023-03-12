@@ -594,7 +594,7 @@ fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fAllocator* a);
 fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a);
 void f_array_free_raw(fArrayRaw* array, u32 elem_size);
 uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size, u32 elem_align);
-void f_array_push_slice_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size, u32 elem_align);
+void f_array_push_n_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size, u32 elem_align);
 void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size);
 void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size);
 void f_array_resize_raw(fArrayRaw* array, uint len, fOpt(const void*) value, u32 elem_size); // set value to NULL to not initialize the memory
