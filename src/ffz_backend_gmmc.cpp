@@ -8,6 +8,13 @@
 #define gmmcString fString
 #include "gmmc/gmmc.h"
 
+#define coffString fString
+#include "gmmc/coff.h"
+#include "gmmc/codeview.h"
+
+#define SHA256_DECL extern "C"
+#include "sha256.h"
+
 #include "microsoft_craziness.h"
 #undef small // window include header, wtf?
 
@@ -15,9 +22,22 @@
 
 #define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
 
-struct LooseReg {
+struct Value {
 	gmmcSymbol* symbol;
 	gmmcOpIdx local_addr; // local_addr should be valid if symbol is NULL
+};
+
+struct DebugInfoLine {
+	gmmcOpIdx op;
+	u32 line_number;
+};
+
+struct ProcInfo {
+	gmmcProc* gmmc_proc;
+	ffzType* type;
+	u32 parser_idx;
+	
+	fArray(DebugInfoLine) debug_info_lines;
 };
 
 struct Gen {
@@ -28,15 +48,18 @@ struct Gen {
 	gmmcModule* gmmc;
 
 	struct {
+		ProcInfo* proc_info;
 		gmmcProc* proc;
-		ffzType* proc_type;
+
 		gmmcBasicBlock* bb;
 	};
 
 	uint dummy_name_counter;
 	
-	fMap64(gmmcProc*) proc_from_hash;
-	fMap64(LooseReg) value_from_definition;
+	fMap64(ProcInfo*) proc_from_hash;
+	fMap64(Value) value_from_definition;
+	
+	fArray(msCVSourceFile) cv_file_from_parser_idx;
 };
 
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
@@ -89,11 +112,6 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 	return name.slice;
 }
 
-//struct TypeWithDebug {
-//	gmmcType dt;
-//	TB_DebugType* dbg_type;
-//};
-
 gmmcType get_gmmc_type(Gen* g, ffzType* type) {
 	F_ASSERT(type->size <= 8);
 	switch (type->tag) {
@@ -140,8 +158,8 @@ static bool has_big_return(ffzType* proc_type) {
 }
 
 static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
-	auto insertion = f_map64_insert(&g->proc_from_hash, ffz_hash_node_inst(inst), (gmmcProc*)0, fMapInsert_DoNotOverride);
-	if (!insertion.added) return *insertion._unstable_ptr;
+	auto insertion = f_map64_insert(&g->proc_from_hash, ffz_hash_node_inst(inst), (ProcInfo*)0, fMapInsert_DoNotOverride);
+	if (!insertion.added) return (*insertion._unstable_ptr)->gmmc_proc;
 
 	ffzType* proc_type = ffz_expr_get_type(g->project, inst);
 	F_ASSERT(proc_type->tag == ffzTypeTag_Proc);
@@ -172,8 +190,16 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	gmmcProcSignature* sig = gmmc_make_proc_signature(g->gmmc, ret_type_gmmc, param_types.data, (u32)param_types.len);
 
 	gmmcBasicBlock* entry_bb;
+	
 	gmmcProc* proc = gmmc_make_proc(g->gmmc, sig, name, &entry_bb);
-	*insertion._unstable_ptr = proc;
+	
+	ProcInfo* proc_info = f_mem_clone(ProcInfo{}, g->alc);
+	proc_info->gmmc_proc = proc;
+	proc_info->parser_idx = inst.node->id.parser_id;
+	proc_info->type = proc_type;
+	proc_info->debug_info_lines = f_array_make<DebugInfoLine>(g->alc);
+
+	*insertion._unstable_ptr = proc_info;
 
 	if (inst.node->Op.left->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name) {
 		// Default initialize the output value
@@ -182,9 +208,9 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 
 	gmmcProc* proc_before = g->proc;
 	gmmcBasicBlock* bb_before = g->bb;
-	ffzType* proc_type_before = g->proc_type;
+	ProcInfo* proc_info_before = g->proc_info;
+	g->proc_info = proc_info;
 	g->proc = proc;
-	g->proc_type = proc_type;
 	g->bb = entry_bb;
 
 	ffzNodeProcTypeInst proc_type_inst = proc_type->unique_node;
@@ -199,7 +225,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 
 		gmmcOpIdx param_val = gmmc_op_param(proc, i + (u32)big_return);
 		
-		LooseReg val = {};
+		Value val = {};
 		val.local_addr = param_val;
 		if (param->type->size > 8) {
 			// NOTE: this is Microsoft-X64 calling convention specific!
@@ -223,7 +249,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 		gmmc_op_return(g->bb, GMMC_REG_NONE);
 	}
 
-	g->proc_type = proc_type_before;
+	g->proc_info = proc_info_before;
 	g->proc = proc_before;
 	g->bb = bb_before;
 	
@@ -377,6 +403,10 @@ static void gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* type) {
 	else {
 		gmmc_op_store(g->bb, addr, value);
 	}
+}
+
+static void set_debug_info_loc(Gen* g, gmmcOpIdx op, u32 line_num) {
+	f_array_push(&g->proc_info->debug_info_lines, DebugInfoLine{ op, line_num });
 }
 
 static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
@@ -581,10 +611,10 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 			if (left.node->kind == ffzNodeKind_Identifier && left.node->Identifier.name == F_LIT("in")) {
 				F_ASSERT(!address_of); // TODO
-				for (u32 i = 0; i < g->proc_type->Proc.in_params.len; i++) {
-					ffzTypeProcParameter& param = g->proc_type->Proc.in_params[i];
+				for (u32 i = 0; i < g->proc_info->type->Proc.in_params.len; i++) {
+					ffzTypeProcParameter& param = g->proc_info->type->Proc.in_params[i];
 					if (param.name->Identifier.name == member_name) {
-						out = gmmc_op_param(g->proc, i + (u32)has_big_return(g->proc_type));
+						out = gmmc_op_param(g->proc, i + (u32)has_big_return(g->proc_info->type));
 						F_ASSERT(param.type->size <= 8);
 					}
 				}
@@ -725,7 +755,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			ffzNodeIdentifierInst def = ffz_get_definition(g->project, inst);
 			if (def.node->Identifier.is_constant) F_BP;
 
-			LooseReg* val = f_map64_get(&g->value_from_definition, ffz_hash_node_inst(def));
+			Value* val = f_map64_get(&g->value_from_definition, ffz_hash_node_inst(def));
 			F_ASSERT(val);
 			out = val->symbol ? gmmc_op_addr_of_symbol(g->bb, val->symbol) : val->local_addr;
 			should_dereference = !address_of;
@@ -782,7 +812,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 
 		if (ffz_decl_is_runtime_variable(inst.node)) {
 			ffzNodeInst rhs = CHILD(inst, Op.right);
-			LooseReg val = {};
+			Value val = {};
 			if (ffz_get_tag(g->project, inst, ffzKeyword_global)) {
 				ffzCheckedExpr rhs_checked = ffz_decl_get_checked(g->project, rhs); // get the initial value
 
@@ -880,7 +910,11 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	} break;
 
 	case ffzNodeKind_Keyword: {
-		gmmc_op_debugbreak(g->bb);
+		//if (inst.node->kind == ffzNodeKind_Keyword) { // debugbreak()
+		//}
+
+		gmmcOpIdx op = gmmc_op_debugbreak(g->bb);
+		set_debug_info_loc(g, op, inst.node->loc.start.line_num);
 	} break;
 
 	case ffzNodeKind_Return: {
@@ -910,6 +944,149 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	}
 }
 
+static void build_x64(Gen* g, fString build_dir) {
+	gmmcAsmModule* asm_module = gmmc_asm_build_x64(g->gmmc);
+
+	// Add codeview debug info to the object file
+
+	enum SectionNum {
+		SectionNum_Code = 1,
+		SectionNum_xdata = 2,
+		SectionNum_pdata = 3,
+		SectionNum_debugS = 4,
+		SectionNum_debugT = 5,
+		//SectionNum_Data = 2,
+		//SectionNum_RData = 3,
+		//SectionNum_BSS = 4,
+	};
+
+	fArray(coffSection) sections = f_array_make<coffSection>(g->alc);
+	fArray(coffSymbol) symbols = f_array_make<coffSymbol>(g->alc);
+
+	{
+		coffSection sect = {};
+		sect.name = F_LIT(".code");
+		sect.Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_ALIGN_16BYTES | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
+		sect.data = gmmc_asm_get_code_section(asm_module);
+		//sect.relocations = text_relocs.data;
+		//sect.relocations_count = (int)text_relocs.len;
+		f_array_push(&sections, sect);
+	}
+
+	{
+		coffSection sect = {};
+		sect.name = F_LIT(".xdata");
+		sect.Characteristics = 0x40300040;
+		f_array_push(&sections, sect);
+	}
+
+	{
+		coffSection sect = {};
+		sect.name = F_LIT(".pdata");
+		sect.Characteristics = 0x40300040;
+		f_array_push(&sections, sect);
+	}
+	
+	{
+		coffSection sect = {};
+		sect.name = F_LIT(".debug$S");
+		sect.Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_ALIGN_1BYTES | IMAGE_SCN_MEM_READ;
+		f_array_push(&sections, sect);
+	}
+
+	{
+		coffSection sect = {};
+		sect.name = F_LIT(".debug$T");
+		sect.Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_ALIGN_1BYTES | IMAGE_SCN_MEM_READ;
+		f_array_push(&sections, sect);
+	}
+
+	for (u16 i = 0; i < sections.len; i++) { // add sections as symbols
+		coffSymbol sym = {};
+		sym.name = sections[i].name;
+		sym.is_section = true;
+		sym.section_number = i + 1;
+		f_array_push(&symbols, sym);
+	}
+
+	fArray(msCVFunction) cv_functions = f_array_make_cap<msCVFunction>(g->proc_from_hash.alive_count, g->alc);
+
+	ProcInfo** _proc_info;
+	for f_map64_each_raw(&g->proc_from_hash, proc_hash, (void**)&_proc_info) {
+		ProcInfo* proc_info = *_proc_info;
+		gmmcProc* proc = proc_info->gmmc_proc;
+
+		coffSymbol sym = {};
+		sym.name = proc->sym.name;
+		sym.type = 0x20;
+		sym.section_number = SectionNum_Code;
+		sym.value = gmmc_asm_get_proc_start_offset(asm_module, proc);
+		sym.external = true;
+		u32 sym_idx = (u32)f_array_push(&symbols, sym);
+
+		msCVFunction cv_func = {};
+		cv_func.name = proc->sym.name;
+		cv_func.sym_index = sym_idx;
+		cv_func.section_sym_index = SectionNum_Code - 1;
+		cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_get_proc_prologue_size(asm_module, proc);
+		cv_func.stack_frame_size = gmmc_asm_get_proc_stack_frame_size(asm_module, proc);
+		cv_func.file_idx = proc_info->parser_idx;
+		
+		fSlice(msCVLine) lines = f_make_slice_garbage<msCVLine>(proc_info->debug_info_lines.len, g->alc);
+
+		for (uint i = 0; i < proc_info->debug_info_lines.len; i++) {
+			DebugInfoLine it = proc_info->debug_info_lines[i];
+			lines[i].offset = gmmc_asm_get_instruction_offset(asm_module, proc, it.op);
+			lines[i].line_num = it.line_number;
+		}
+		
+		cv_func.lines = lines.data;
+		cv_func.lines_count = (u32)lines.len;
+		cv_func.block.start_offset = sym.value;
+		cv_func.block.end_offset = gmmc_asm_get_proc_end_offset(asm_module, proc);
+		f_array_push(&cv_functions, cv_func);
+	}
+
+	fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("\\a.obj"));
+
+	msCVGenerateDebugInfoDesc cv_desc = {};
+	cv_desc.obj_name = obj_file_path;
+	cv_desc.files = g->cv_file_from_parser_idx.data;
+	cv_desc.files_count = (u32)g->cv_file_from_parser_idx.len;
+	cv_desc.functions = cv_functions.data;
+	cv_desc.functions_count = (u32)cv_functions.len;
+	cv_desc.xdata_section_sym_index = SectionNum_xdata - 1;
+	mscv_generate_debug_info(&cv_desc, g->alc);
+
+	sections[SectionNum_xdata-1].data = cv_desc.result.xdata;
+
+	sections[SectionNum_pdata-1].data = cv_desc.result.pdata;
+	sections[SectionNum_pdata-1].relocations = cv_desc.result.pdata_relocs.data;
+	sections[SectionNum_pdata-1].relocations_count = (u32)cv_desc.result.pdata_relocs.len;
+
+	sections[SectionNum_debugS-1].data = cv_desc.result.debugS;
+	sections[SectionNum_debugS-1].relocations = cv_desc.result.debugS_relocs.data;
+	sections[SectionNum_debugS-1].relocations_count = (int)cv_desc.result.debugS_relocs.len;
+
+	sections[SectionNum_debugT-1].data = cv_desc.result.debugT;
+
+	coffDesc coff_desc = {};
+	coff_desc.sections = sections.data;
+	coff_desc.sections_count = (u32)sections.len;
+	coff_desc.symbols = symbols.data;
+	coff_desc.symbols_count = (u32)symbols.len;
+	
+	coff_create([](fString result, void* userptr) {
+		fString obj_file_path = *(fString*)userptr;
+		
+		bool ok = f_files_write_whole(obj_file_path, result);
+		F_ASSERT(ok);
+
+		}, & obj_file_path, &coff_desc);
+
+	printf("TODO: linker\n");
+}
+
 bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 	fString build_dir = F_STR_T_JOIN(project->directory, F_LIT("\\.build"));
 	F_ASSERT(f_files_make_directory(build_dir));
@@ -924,9 +1101,24 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 	g.alc = f_temp_alc();
 	g.project = project;
 	//g.tb_file_from_parser_idx = f_array_make<TB_FileID>(g.alc);
-	g.value_from_definition = f_map64_make<LooseReg>(g.alc);
-	g.proc_from_hash = f_map64_make<gmmcProc*>(g.alc);
-	
+	g.value_from_definition = f_map64_make<Value>(g.alc);
+	g.proc_from_hash = f_map64_make<ProcInfo*>(g.alc);
+	g.cv_file_from_parser_idx = f_array_make<msCVSourceFile>(g.alc);
+
+	for (u32 i = 0; i < project->parsers.len; i++) {
+		ffzParser* parser = project->parsers[i];
+
+		msCVSourceFile file = {};
+		file.filepath = parser->source_code_filepath;
+		
+		SHA256_CTX sha256;
+		sha256_init(&sha256);
+		sha256_update(&sha256, parser->source_code.data, parser->source_code.len);
+		sha256_final(&sha256, &file.hash.bytes[0]);
+		
+		f_array_push(&g.cv_file_from_parser_idx, file);
+	}
+
 	for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
 		ffzChecker* checker = project->checkers_dependency_sorted[i];
 		g.checker = checker;
@@ -941,13 +1133,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 
 	bool x64 = true;
 	if (x64) {
-		fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.obj"));
-		FILE* obj_file = fopen(f_str_t_to_cstr(obj_file_path), "wb");
-		
-		gmmc_x64_export_module(obj_file, gmmc);
-		
-		fclose(obj_file);
-		printf("TODO: linker\n");
+		build_x64(&g, build_dir);
 	}
 	else {
 		// compile to C

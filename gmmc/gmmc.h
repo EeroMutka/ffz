@@ -40,6 +40,8 @@ typedef struct { uint8_t* ptr; uint64_t len; } gmmcString;
 #endif
 
 typedef uint32_t gmmcOpIdx;
+typedef uint32_t gmmcProcIdx;
+typedef u32 gmmcBasicBlockIdx;
 typedef struct gmmcModule gmmcModule;
 typedef struct gmmcProc gmmcProc;
 typedef struct gmmcGlobal gmmcGlobal;
@@ -118,8 +120,6 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_COUNT,
 } gmmcOpKind;
 
-typedef u32 gmmcOpIdx; // TODO: rename to gmmcOp
-
 typedef enum gmmcType {
 	gmmcType_None = 0,
 	gmmcType_ptr = 1,
@@ -170,7 +170,6 @@ typedef struct gmmcOpData {
 	u64 imm_raw;
 } gmmcOpData;
 
-typedef u32 gmmcBasicBlockIdx;
 typedef struct gmmcBasicBlock {
 	gmmcModule* mod;
 	gmmcProc* proc;
@@ -208,6 +207,7 @@ typedef struct gmmcLocal {
 
 typedef struct gmmcProc {
 	gmmcSymbol sym; // NOTE: must be the first member!
+	gmmcProcIdx self_idx;
 
 	gmmcProcSignature* signature;
 	gmmcBasicBlock* entry_bb;
@@ -217,7 +217,6 @@ typedef struct gmmcProc {
 
 	fSlice(gmmcOpIdx) params;
 	fArray(gmmcLocal) locals; // 0 is invalid!
-
 	//fArray(gmmcRegInfo) reg_infos;
 	//fSlice(u8) built_x64_instructions;
 } gmmcProc;
@@ -255,6 +254,7 @@ typedef struct gmmcModule {
 	fArray(gmmcProc*) procs;
 	fArray(gmmcSymbol*) external_symbols;
 
+	// should we hold like an "extra sections"
 	//fArray(u8) code_section;
 } gmmcModule;
 
@@ -275,8 +275,13 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 	gmmcProcSignature* signature,
 	gmmcString name, gmmcBasicBlock** out_entry_bb);
 
+
+// need some way of mapping back from instruction offset -> op,
+// I guess we could cache the offset per-op, and let the user inspect that.
+// But only for ASM targets.
+
 //GMMC_API void gmmc_proc_compile(gmmcProc* proc);
-GMMC_API void gmmc_x64_export_module(FILE* output_obj_file, gmmcModule* m);
+//GMMC_API void gmmc_x64_export_module(FILE* output_obj_file, gmmcModule* m);
 
 GMMC_API void gmmc_module_print(FILE* b, gmmcModule* m);
 GMMC_API void gmmc_proc_print(FILE* b, gmmcProc* proc);
@@ -300,10 +305,10 @@ GMMC_API void gmmc_global_add_relocation(gmmcGlobal* global, uint32_t offset, gm
 // -- Operations --------------------------------------------------------------
 //
 
-GMMC_API void gmmc_op_debugbreak(gmmcBasicBlock* bb);
+GMMC_API gmmcOpIdx gmmc_op_debugbreak(gmmcBasicBlock* bb);
 
 // empty string will insert a newline
-GMMC_API void gmmc_op_comment(gmmcBasicBlock* bb, fString text);
+GMMC_API gmmcOpIdx gmmc_op_comment(gmmcBasicBlock* bb, fString text);
 
 // Comparisons always return a boolean
 
@@ -319,7 +324,7 @@ GMMC_API gmmcOpIdx gmmc_op_ge(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool
 
 // TODO: add align? for SIMD types?
 GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr);
-GMMC_API void gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value);
+GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value);
 
 // result = base + offset
 GMMC_API gmmcOpIdx gmmc_op_member_access(gmmcBasicBlock* bb, gmmcOpIdx base, uint32_t offset);
@@ -328,14 +333,14 @@ GMMC_API gmmcOpIdx gmmc_op_member_access(gmmcBasicBlock* bb, gmmcOpIdx base, uin
 GMMC_API gmmcOpIdx gmmc_op_array_access(gmmcBasicBlock* bb, gmmcOpIdx base, gmmcOpIdx index, uint32_t stride);
 
 // `size` can be any integer type
-GMMC_API void gmmc_op_memmove(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx src_ptr, gmmcOpIdx size);
-GMMC_API void gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx value_i8, gmmcOpIdx size);
+GMMC_API gmmcOpIdx gmmc_op_memmove(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx src_ptr, gmmcOpIdx size);
+GMMC_API gmmcOpIdx gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx value_i8, gmmcOpIdx size);
 
-GMMC_API void gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasicBlock* true_bb, gmmcBasicBlock* false_bb);
-GMMC_API void gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
+GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasicBlock* true_bb, gmmcBasicBlock* false_bb);
+GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
 
 // value should be GMMC_REG_NONE if the procedure returns no value
-GMMC_API void gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value);
+GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value);
 
 GMMC_API gmmcOpIdx gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcOpIdx value);
 GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
@@ -390,6 +395,54 @@ GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align);
 
 GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol);
 
+
+// -- Machine code target ----------------------
+
+typedef struct gmmcAsmModule gmmcAsmModule;
+typedef u32 gmmcAsmSectionNum;
+
+// 'build' and 'export' are separated here to give you a chance to inspect the assembly output before exporting an object file.
+// This can be useful for embedding debug information into the module; i.e. Microsoft's CodeView debug information is stored
+// in a few different sections (.debug$S, .debug$T, .pdata, .xdata) in a COFF object file.
+
+// hmm... I wonder if we should even include the COFF module with GMMC. Maybe we should just give you the generated assembly blobs
+
+GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m); // TODO: pass a separate allocator
+
+//GMMC_API void gmmc_asm_export_x64(fString obj_filepath, gmmcAsmModule* m);
+
+// returns the offset relative to the beginning of the code-section.
+GMMC_API u32 gmmc_asm_get_instruction_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op);
+GMMC_API u32 gmmc_asm_get_proc_start_offset(gmmcAsmModule* m, gmmcProc* proc);
+GMMC_API u32 gmmc_asm_get_proc_end_offset(gmmcAsmModule* m, gmmcProc* proc);
+
+GMMC_API u32 gmmc_asm_get_proc_prologue_size(gmmcAsmModule* m, gmmcProc* proc);
+GMMC_API u32 gmmc_asm_get_proc_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc);
+
+GMMC_API gmmcString gmmc_asm_get_code_section(gmmcAsmModule* m);
+
+
+/*
+
+typedef u16 gmmcAsmRelocationType;
+enum {
+	gmmcAsmRelocationType_ADDR32NB = 0x0003, // TODO: remove?
+	gmmcAsmRelocationType_SECREL = 0x000B, // SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
+	gmmcAsmRelocationType_SECTION = 0x000A, // SECTION sets the relocated value to be the section number of the target symbol
+};
+
+typedef struct gmmcAsmRelocation {
+	uint32_t offset;
+	uint32_t sym_idx;
+	gmmcAsmRelocationType type;
+} gmmcAsmRelocation;
+
+GMMC_API gmmcAsmSectionNum gmmc_asm_add_section(gmmcAsmModule* m, fString name);
+GMMC_API u32 gmmc_asm_section_get_sym_index(gmmcAsmModule* m, gmmcAsmSectionNum section);
+
+GMMC_API void gmmc_asm_section_set_data(gmmcAsmModule* m, gmmcAsmSectionNum section, fString data);
+GMMC_API void gmmc_asm_section_set_relocations(gmmcAsmModule* m, gmmcAsmSectionNum section, gmmcAsmRelocation* relocations, u32 count);
+*/
 
 // -- Common utilities -------------------------
 

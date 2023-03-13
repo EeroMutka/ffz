@@ -2,17 +2,56 @@
 
 #define gmmcString fString
 #include "gmmc.h"
-#include "gmmc_coff.h"
+
+//#define coffString fString
+//#include "coff.h"
 
 #include "Zydis/Zydis.h"
 
+#include <stdio.h> // for fopen
+
 #define VALIDATE(x) F_ASSERT(x)
 
-enum SectionNum {
-	SectionNum_Code = 1,
-	SectionNum_Data = 2,
-	SectionNum_RData = 3,
+//enum SectionNum {
+//	SectionNum_Code = 1,
+//	SectionNum_Data = 2,
+//	SectionNum_RData = 3,
+//};
+
+
+typedef u16 RegSize;
+
+struct gmmcAsmProc;
+
+struct gmmcAsmModule {
+	//gmmcModule* module;
+	fArray(u8) code_section;
+	fSlice(gmmcAsmProc) procs;
 };
+
+GMMC_API gmmcString gmmc_asm_get_code_section(gmmcAsmModule* m) { return { m->code_section.data, m->code_section.len }; }
+
+//GMMC_API gmmcAsmSectionNum gmmc_asm_add_section(gmmcAsmModule* m, fString name) {
+//	coffSection section = {};
+//	section.Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_ALIGN_4BYTES | IMAGE_SCN_MEM_READ;
+//	section.name = name;
+//	return (gmmcAsmSectionNum)f_array_push(&m->sections, section) + 1; // section numbers start from 1
+//}
+//
+//GMMC_API void gmmc_asm_section_set_data(gmmcAsmModule* m, gmmcAsmSectionNum section, fString data) {
+//	m->sections[section-1].data = data;
+//}
+//
+//GMMC_API void gmmc_asm_section_set_relocations(gmmcAsmModule* m, gmmcAsmSectionNum section, gmmcAsmRelocation* relocations, u32 count) {
+//	// NOTE: gmmcAsmRelocation is binarily compatible with coffRelocation, so we can just reinterpret the bytes
+//	m->sections[section-1].relocations = (coffRelocation*)relocations;
+//	m->sections[section-1].relocations_count = count;
+//}
+//
+//GMMC_API u32 gmmc_asm_section_get_sym_index(gmmcAsmModule* m, gmmcAsmSectionNum section) {
+//	F_BP;
+//	return 0;
+//}
 
 enum GPR {
 	GPR_INVALID,
@@ -35,32 +74,32 @@ enum GPR {
 	GPR_COUNT,
 };
 
-typedef u16 RegSize;
+//typedef struct gmmcAsmBB {
+//	int x;
+//} gmmcAsmBB;
 
-struct ProcGen;
+struct gmmcAsmOp {
+	gmmcOpIdx last_use_time;
+	s32 spill_offset_frame_rel;
 
-struct ModuleGen {
-	//gmmcModule* module;
-	fArray(u8) code_section;
-	fSlice(ProcGen) procs;
+	GPR currently_in_register; // GPR_INVALID means it's on the stack / not inside a register
+
+	u32 instruction_offset;
 };
 
-typedef struct BasicBlockGen {
-	int x;
-} BasicBlockGen;
-
-struct ProcGen {
-	ModuleGen* module_gen;
+struct gmmcAsmProc {
+	gmmcAsmModule* module;
 
 	gmmcProc* proc;
 	fSlice(s32) local_frame_rel_offset; // per-local
 
-	fSlice(s32) ops_spill_frame_rel_offset;
-	fSlice(GPR) ops_currently_in_register; // GPR_INVALID means it's on the stack / not inside a register
+	fSlice(gmmcAsmOp) ops;
+	//fSlice(s32) ops_spill_offset_frame_rel;
+	//fSlice(GPR) ops_currently_in_register; // 
+	//fSlice(gmmcOpIdx) ops_last_use_time; // 0 if never used
+	//fSlice(gmmcOpIdx) ops_instruction_offset;
 
-	fSlice(gmmcOpIdx) ops_last_use_time; // 0 if never used
-
-	fSlice(BasicBlockGen) basic_blocks;
+	//fSlice(gmmcAsmBB) basic_blocks;
 
 	//gmmcBasicBlockIdx current_bb;
 	gmmcOpIdx current_op;
@@ -73,6 +112,7 @@ struct ProcGen {
 	u32 code_section_end_offset;
 
 	u32 stack_frame_size;
+	u8 prologue_size;
 
 	u32 temp_registers_used_count;
 
@@ -87,20 +127,20 @@ struct ProcGen {
 
 //s32 frame_rel_to_rsp_rel_offset(ProcGen* gen, s32 offset) { return gen->stack_frame_size + offset; }
 
-static void emit(ProcGen* p, const ZydisEncoderRequest& req, const char* comment = "") {
+static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* comment = "") {
 	u8 instr[ZYDIS_MAX_INSTRUCTION_LENGTH];
 	uint instr_len = sizeof(instr);
 	bool ok = ZYAN_SUCCESS(ZydisEncoderEncodeInstruction(&req, instr, &instr_len));
 	VALIDATE(ok);
 
-	f_array_push_n(&p->module_gen->code_section, { instr, instr_len });
+	f_array_push_n(&p->module->code_section, { instr, instr_len });
 
 	// print disassembly
 	{
-		uint sect_rel_offset = p->module_gen->code_section.len - instr_len;
+		uint sect_rel_offset = p->module->code_section.len - instr_len;
 		uint proc_rel_offset = sect_rel_offset - p->code_section_offset;
 
-		u8* data = p->module_gen->code_section.data + proc_rel_offset;
+		u8* data = p->module->code_section.data + proc_rel_offset;
 		
 		ZydisDisassembledInstruction instruction;
 		if (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, proc_rel_offset, instr, instr_len, &instruction))) {
@@ -165,8 +205,8 @@ ZydisEncoderOperand make_x64_reg_operand(GPR gpr, RegSize size) {
 struct LooseReg { gmmcOpIdx source_op; };
 
 
-ZydisEncoderOperand make_x64_operand(ProcGen* p, LooseReg loose_reg, RegSize size) {
-	GPR reg = p->ops_currently_in_register[loose_reg.source_op];
+ZydisEncoderOperand make_x64_operand(gmmcAsmProc* p, LooseReg loose_reg, RegSize size) {
+	GPR reg = p->ops[loose_reg.source_op].currently_in_register;
 	
 	if (reg) {
 		ZydisEncoderOperand operand = { ZYDIS_OPERAND_TYPE_REGISTER };
@@ -176,19 +216,19 @@ ZydisEncoderOperand make_x64_operand(ProcGen* p, LooseReg loose_reg, RegSize siz
 	else {
 		ZydisEncoderOperand operand = { ZYDIS_OPERAND_TYPE_MEMORY };
 		operand.mem.base = ZYDIS_REGISTER_RSP;
-		operand.mem.displacement = p->ops_spill_frame_rel_offset[loose_reg.source_op] + p->stack_frame_size;
+		operand.mem.displacement = p->ops[loose_reg.source_op].spill_offset_frame_rel + p->stack_frame_size;
 		operand.mem.size = size;
 		return operand;
 	}
 }
 
-static GPR allocate_gpr(ProcGen* p) {
+static GPR allocate_gpr(gmmcAsmProc* p) {
 	GPR gpr = GPR_INVALID;
 	if (p->emitting) {
 
 		for (u32 i = 0; i < p->temp_registers_used_count; i++) {
 			gmmcOpIdx taken_by_op = p->temp_reg_taken_by_op[i];
-			if (p->current_op > p->ops_last_use_time[taken_by_op]) { // this op value will never be accessed later
+			if (p->current_op > p->ops[taken_by_op].last_use_time) { // this op value will never be accessed later
 				gpr = (GPR)i;
 				break;
 			}
@@ -218,25 +258,25 @@ static GPR allocate_gpr(ProcGen* p) {
 	return gpr;
 }
 
-static GPR allocate_op_result(ProcGen* p, gmmcOpIdx op_idx) {
+static GPR allocate_op_result(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 	GPR reg = allocate_gpr(p);
 	if (p->emitting) {
 		p->temp_reg_taken_by_op[reg] = op_idx;
-		p->ops_currently_in_register[op_idx] = reg;
+		p->ops[op_idx].currently_in_register = reg;
 	}
 	return reg;
 }
 
-static GPR use_op_value_strict(ProcGen* p, gmmcOpIdx op_idx) {
+static GPR use_op_value_strict(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 	GPR result = GPR_INVALID;
-	p->ops_last_use_time[op_idx] = p->current_op;
+	p->ops[op_idx].last_use_time = p->current_op;
 
 	if (p->emitting) {
-		result = p->ops_currently_in_register[op_idx];
+		result = p->ops[op_idx].currently_in_register;
 		if (result) return result;
 
 		result = allocate_gpr(p);
-		p->ops_currently_in_register[op_idx] = result;
+		p->ops[op_idx].currently_in_register = result;
 
 		
 		// if the op is a `local`, then its value (address) isn't ever stored on the stack.
@@ -272,7 +312,7 @@ static GPR use_op_value_strict(ProcGen* p, gmmcOpIdx op_idx) {
 			req.operands[0] = make_x64_reg_operand(result, size);
 			req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
 			req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
-			req.operands[1].mem.displacement = p->ops_spill_frame_rel_offset[op_idx] + p->stack_frame_size;
+			req.operands[1].mem.displacement = p->ops[op_idx].spill_offset_frame_rel + p->stack_frame_size;
 			req.operands[1].mem.size = size;
 			emit(p, req, " ; load spilled value");
 		}
@@ -281,15 +321,15 @@ static GPR use_op_value_strict(ProcGen* p, gmmcOpIdx op_idx) {
 	return result;
 }
 
-static LooseReg use_op_value(ProcGen* p, gmmcOpIdx op_idx) {
+static LooseReg use_op_value(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 	LooseReg result = {};
-	p->ops_last_use_time[op_idx] = p->current_op;
+	p->ops[op_idx].last_use_time = p->current_op;
 
 	if (p->emitting) {
 		result.source_op = op_idx;
 		//result.reg = p->ops_currently_in_register[op_idx];
 		//if (!result.reg) {
-		//	result.rsp_rel_offset = p->ops_spill_frame_rel_offset[op_idx] + p->stack_frame_size;
+		//	result.rsp_rel_offset = p->ops_spill_offset_frame_rel[op_idx] + p->stack_frame_size;
 		//}
 	}
 	return result;
@@ -346,7 +386,7 @@ static LooseReg use_op_value(ProcGen* p, gmmcOpIdx op_idx) {
 	}
 }*/
 
-static void emit_mov_to_r(ProcGen* p, GPR dst, LooseReg src) {
+static void emit_mov_to_r(gmmcAsmProc* p, GPR dst, LooseReg src) {
 	ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 	req.mnemonic = ZYDIS_MNEMONIC_MOV;
 	req.operand_count = 2;
@@ -355,7 +395,7 @@ static void emit_mov_to_r(ProcGen* p, GPR dst, LooseReg src) {
 	emit(p, req);
 }
 
-static void emit_mov(ProcGen* p, LooseReg dst, LooseReg src) {
+static void emit_mov(gmmcAsmProc* p, LooseReg dst, LooseReg src) {
 	ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 	req.mnemonic = ZYDIS_MNEMONIC_MOV;
 	req.operand_count = 2;
@@ -373,7 +413,13 @@ static void emit_mov(ProcGen* p, LooseReg dst, LooseReg src) {
 //	emit(p, req);
 //}
 
-static void gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
+GMMC_API u32 gmmc_asm_get_instruction_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op) { return m->procs[proc->self_idx].ops[op].instruction_offset; }
+GMMC_API u32 gmmc_asm_get_proc_start_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_offset; }
+GMMC_API u32 gmmc_asm_get_proc_end_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_end_offset; }
+GMMC_API u32 gmmc_asm_get_proc_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].stack_frame_size; }
+GMMC_API u32 gmmc_asm_get_proc_prologue_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].prologue_size; }
+
+static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 	gmmcBasicBlock* bb = p->proc->basic_blocks[bb_idx];
 	
 	//if (p->emitting) {
@@ -383,6 +429,10 @@ static void gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 	for (uint i = 0; i < bb->ops.len; i++) {
 		p->current_op = bb->ops[i];
 		gmmcOpData* op = &p->proc->ops[p->current_op];
+		
+		if (p->emitting) {
+			p->ops[p->current_op].instruction_offset = (u32)p->module->code_section.len;
+		}
 
 		switch (op->kind) {
 		
@@ -539,19 +589,21 @@ static void gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 	VALIDATE(gmmc_op_is_terminating(last_op_kind));
 }
 
-GMMC_API void gmmc_gen_proc(ModuleGen* module_gen, ProcGen* p, gmmcProc* proc) {
+
+GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc* proc) {
 	printf("---- generating proc: '%.*s' ----\n", F_STRF(proc->sym.name));
 	
 	gmmc_proc_print(stdout, proc);
 	printf("---\n");
 	
-	p->module_gen = module_gen;
+	p->module = module_gen;
 	p->proc = proc;
 	
 	p->local_frame_rel_offset = f_make_slice_garbage<s32>(proc->locals.len, f_temp_alc());
-	p->ops_last_use_time = f_make_slice<gmmcOpIdx>(proc->ops.len, {}, f_temp_alc());
 	
-	p->basic_blocks = f_make_slice<BasicBlockGen>(proc->basic_blocks.len, {}, f_temp_alc());
+	p->ops = f_make_slice<gmmcAsmOp>(proc->ops.len, {}, f_temp_alc());
+	
+	//p->basic_blocks = f_make_slice<gmmcAsmBB>(proc->basic_blocks.len, {}, f_temp_alc());
 
 	// When entering a procedure, the stack is always aligned to (16+8) bytes, because
 	// before the CALL instruction it must be aligned to 16 bytes.
@@ -570,11 +622,9 @@ GMMC_API void gmmc_gen_proc(ModuleGen* module_gen, ProcGen* p, gmmcProc* proc) {
 		p->local_frame_rel_offset[i] = offset;
 	}
 
-	p->ops_currently_in_register = f_make_slice<GPR>(proc->ops.len, GPR_INVALID, f_temp_alc());
 
 	// reserve spill-space for all the ops
 
-	p->ops_spill_frame_rel_offset = f_make_slice_garbage<s32>(proc->ops.len, f_temp_alc());
 	for (uint i = 0; i < proc->ops.len; i++) {
 		// TODO: for `op_param`, we should put the spill rsp rel offset to the home-space of the parameter.
 		gmmcOpData* op = &proc->ops[i];
@@ -590,7 +640,7 @@ GMMC_API void gmmc_gen_proc(ModuleGen* module_gen, ProcGen* p, gmmcProc* proc) {
 		F_ASSERT(size <= 8);
 		offset = F_ALIGN_DOWN_POW2(offset, size);
 
-		p->ops_spill_frame_rel_offset[i] = offset;
+		p->ops[i].spill_offset_frame_rel = offset;
 	}
 	
 	// Reserve the worst-case space for register spilling (128 bytes)
@@ -609,7 +659,7 @@ GMMC_API void gmmc_gen_proc(ModuleGen* module_gen, ProcGen* p, gmmcProc* proc) {
 	// emit
 	{
 		p->emitting = true;
-		p->code_section_offset = (u32)p->module_gen->code_section.len;
+		p->code_section_offset = (u32)p->module->code_section.len;
 
 		// reserve stack-frame
 		p->stack_frame_size = -offset;
@@ -622,63 +672,61 @@ GMMC_API void gmmc_gen_proc(ModuleGen* module_gen, ProcGen* p, gmmcProc* proc) {
 			req.operands[1].imm.s = p->stack_frame_size;
 			emit(p, req);
 		}
+		p->prologue_size = (u32)p->module->code_section.len - p->code_section_offset; // size of the initial sub RSP instruction
 
 		gen_bb(p, 0);
-		p->code_section_end_offset = (u32)p->module_gen->code_section.len;
+		p->code_section_end_offset = (u32)p->module->code_section.len;
 	}
 	
 
 	printf("---------------------------------\n");
 }
 
-void gmmc_x64_export_module(FILE* output_file, gmmcModule* m) {
-	coffDesc coff_desc = {};
+GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
+	gmmcAsmModule* gen = f_mem_clone(gmmcAsmModule{}, m->allocator);
 
-	fArray(coffSection) sections = f_array_make<coffSection>(m->allocator);
-	fArray(coffSymbol) symbols = f_array_make<coffSymbol>(m->allocator);
+	//gen->sections = f_array_make<coffSection>(m->allocator);
+	//gen->symbols = f_array_make<coffSymbol>(m->allocator);
 
-	ModuleGen gen = {};
-	gen.code_section = f_array_make<u8>(m->allocator);
-	gen.procs = f_make_slice<ProcGen>(m->procs.len, {}, m->allocator);
+	gen->code_section = f_array_make<u8>(m->allocator);
+	gen->procs = f_make_slice<gmmcAsmProc>(m->procs.len, {}, m->allocator);
 
 	// compile procedures
 	for (uint i = 0; i < m->procs.len; i++) {
 		gmmcProc* proc = m->procs[i];
-		gmmc_gen_proc(&gen, &gen.procs[i], proc);
+		gmmc_gen_proc(gen, &gen->procs[i], proc);
 	}
 
-	for (uint i = 0; i < m->procs.len; i++) {
-		gmmcProc* proc = m->procs[i];
-		
-		coffSymbol sym = {};
-		sym.name = proc->sym.name;
-		sym.type = 0x20;
-		sym.section_number = SectionNum_Code;
-		
-		sym.value = gen.procs[i].code_section_offset; // offset into the section
-		sym.external = true;
-		f_array_push(&symbols, sym);
-	}
+	/*
 	
 	{
 		coffSection sect = {};
 		sect.name = F_LIT(".code");
 		sect.Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_ALIGN_16BYTES | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
-		sect.data = gen.code_section.slice;
+		sect.data = gen->code_section.slice;
 		//sect.relocations = text_relocs.data;
 		//sect.relocations_count = (int)text_relocs.len;
-		f_array_push(&sections, sect);
-	}
+		f_array_push(&gen->sections, sect);
+	}*/
 
-	coff_desc.sections = sections.data;
-	coff_desc.sections_count = (u32)sections.len;
-	coff_desc.symbols = symbols.data;
-	coff_desc.symbols_count = (u32)symbols.len;
-
-	coff_create([](fString result, void* userptr) {
-		fwrite(result.data, result.len, 1, (FILE*)userptr);
-		}, output_file, &coff_desc);
+	return gen;
 }
+
+//GMMC_API void gmmc_asm_export_x64(fString obj_filepath, gmmcAsmModule* m) {
+//	FILE* obj_file = fopen(f_str_t_to_cstr(obj_filepath), "wb");
+//	
+//	coffDesc coff_desc = {};
+//	coff_desc.sections = m->sections.data;
+//	coff_desc.sections_count = (u32)m->sections.len;
+//	coff_desc.symbols = m->symbols.data;
+//	coff_desc.symbols_count = (u32)m->symbols.len;
+//
+//	coff_create([](fString result, void* userptr) {
+//		fwrite(result.data, result.len, 1, (FILE*)userptr);
+//		}, obj_file, &coff_desc);
+//	
+//	fclose(obj_file);
+//}
 
 
 /*

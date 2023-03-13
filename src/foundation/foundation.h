@@ -572,7 +572,7 @@ inline bool f_map64_iterate(fMap64Raw* map, uint* i, uint* key, void** value_ptr
 	}
 }
 
-#define f_map64_each_raw(map, key, value_ptr) (uint _i=0, key=0; f_map64_iterate(map, &_i, &key, value_ptr); )
+#define f_map64_each_raw(map, key, value_ptr) (uint _i=0, key=0; f_map64_iterate((fMap64Raw*)map, &_i, &key, value_ptr); )
 
 // WARNING: The largest 2 key values (see HASHMAP64_LAST_VALID_KEY)
 // are reserved internally for marking empty/destroyed slots by the hashmap, so you cannot use them as valid keys.
