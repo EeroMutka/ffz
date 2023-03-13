@@ -76,6 +76,7 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_if,
 	
 	// immediates. NOTE: the order must match the order in gmmcType!!! see :gmmc_op_immediate
+	// :gmmc_op_is_immediate
 	gmmcOpKind_bool,
 	gmmcOpKind_i8,
 	gmmcOpKind_i16,
@@ -212,10 +213,10 @@ typedef struct gmmcProc {
 	gmmcBasicBlock* entry_bb;
 
 	fArray(gmmcBasicBlock*) basic_blocks;
-	fArray(gmmcOpData) ops;
+	fArray(gmmcOpData) ops; // 0 is invalid!
 
 	fSlice(gmmcOpIdx) params;
-	fArray(gmmcLocal) locals;
+	fArray(gmmcLocal) locals; // 0 is invalid!
 
 	//fArray(gmmcRegInfo) reg_infos;
 	//fSlice(u8) built_x64_instructions;
@@ -399,4 +400,5 @@ GMMC_API u32 gmmc_type_size(gmmcType type);
 inline bool gmmc_type_is_integer(gmmcType t) { return t >= gmmcType_i8 && t <= gmmcType_i128; }
 inline bool gmmc_type_is_float(gmmcType t) { return t >= gmmcType_f32 && t <= gmmcType_f64; }
 inline bool gmmc_op_is_terminating(gmmcOpKind op) { return op >= gmmcOpKind_return && op <= gmmcOpKind_if; }
+inline bool gmmc_op_is_immediate(gmmcOpKind op) { return op >= gmmcOpKind_bool && op <= gmmcOpKind_f64; }
 

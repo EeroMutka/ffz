@@ -15,7 +15,7 @@
 
 #define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
 
-struct Value {
+struct LooseReg {
 	gmmcSymbol* symbol;
 	gmmcOpIdx local_addr; // local_addr should be valid if symbol is NULL
 };
@@ -36,7 +36,7 @@ struct Gen {
 	uint dummy_name_counter;
 	
 	fMap64(gmmcProc*) proc_from_hash;
-	fMap64(Value) value_from_definition;
+	fMap64(LooseReg) value_from_definition;
 };
 
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
@@ -199,7 +199,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 
 		gmmcOpIdx param_val = gmmc_op_param(proc, i + (u32)big_return);
 		
-		Value val = {};
+		LooseReg val = {};
 		val.local_addr = param_val;
 		if (param->type->size > 8) {
 			// NOTE: this is Microsoft-X64 calling convention specific!
@@ -725,7 +725,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			ffzNodeIdentifierInst def = ffz_get_definition(g->project, inst);
 			if (def.node->Identifier.is_constant) F_BP;
 
-			Value* val = f_map64_get(&g->value_from_definition, ffz_hash_node_inst(def));
+			LooseReg* val = f_map64_get(&g->value_from_definition, ffz_hash_node_inst(def));
 			F_ASSERT(val);
 			out = val->symbol ? gmmc_op_addr_of_symbol(g->bb, val->symbol) : val->local_addr;
 			should_dereference = !address_of;
@@ -782,7 +782,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 
 		if (ffz_decl_is_runtime_variable(inst.node)) {
 			ffzNodeInst rhs = CHILD(inst, Op.right);
-			Value val = {};
+			LooseReg val = {};
 			if (ffz_get_tag(g->project, inst, ffzKeyword_global)) {
 				ffzCheckedExpr rhs_checked = ffz_decl_get_checked(g->project, rhs); // get the initial value
 
@@ -924,7 +924,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 	g.alc = f_temp_alc();
 	g.project = project;
 	//g.tb_file_from_parser_idx = f_array_make<TB_FileID>(g.alc);
-	g.value_from_definition = f_map64_make<Value>(g.alc);
+	g.value_from_definition = f_map64_make<LooseReg>(g.alc);
 	g.proc_from_hash = f_map64_make<gmmcProc*>(g.alc);
 	
 	for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {

@@ -122,6 +122,8 @@ GMMC_API void gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx va
 }
 
 GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align) {
+	VALIDATE(size > 0);
+
 	gmmcOpData op = { gmmcOpKind_local };
 	op.local_idx = (u32)f_array_push(&proc->locals, gmmcLocal{ size, align });
 	op.type = gmmcType_ptr;

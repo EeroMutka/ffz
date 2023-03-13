@@ -1,11 +1,8 @@
 
 #ffz_entry: proc() {
 	
-	a: u32(623)
-	a = 2
-	
-	b: a
-	b = 1
+	a: u32(0xffdd)
+	a = 0xffeeff
 	
 	dbgbreak
 	dbgbreak
