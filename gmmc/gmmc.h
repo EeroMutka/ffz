@@ -169,6 +169,7 @@ typedef struct gmmcOpData {
 	u64 imm_raw;
 } gmmcOpData;
 
+typedef u32 gmmcBasicBlockIdx;
 typedef struct gmmcBasicBlock {
 	gmmcModule* mod;
 	gmmcProc* proc;
@@ -176,10 +177,10 @@ typedef struct gmmcBasicBlock {
 
 	fArray(gmmcOpIdx) ops;
 
-	struct {
-		u32 code_section_offset; // U32_MAX if not been built yet
-		u32 code_section_end_offset;
-	} gen;
+	//struct {
+	//	u32 code_section_offset; // U32_MAX if not been built yet
+	//	u32 code_section_end_offset;
+	//} gen;
 } gmmcBasicBlock;
 
 typedef enum gmmcSymbolKind {
@@ -195,7 +196,7 @@ typedef struct gmmcProcSignature {
 
 typedef struct gmmcSymbol {
 	gmmcSymbolKind kind;
-	gmmcModule* mod;
+	gmmcModule* module;
 	gmmcString name;
 } gmmcSymbol;
 
@@ -253,7 +254,7 @@ typedef struct gmmcModule {
 	fArray(gmmcProc*) procs;
 	fArray(gmmcSymbol*) external_symbols;
 
-	fArray(u8) code_section;
+	//fArray(u8) code_section;
 } gmmcModule;
 
 GMMC_API gmmcModule* gmmc_init(fAllocator* allocator);

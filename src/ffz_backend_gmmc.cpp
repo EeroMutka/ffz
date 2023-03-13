@@ -939,7 +939,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 		}
 	}
 
-	bool x64 = false;
+	bool x64 = true;
 	if (x64) {
 		fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.obj"));
 		FILE* obj_file = fopen(f_str_t_to_cstr(obj_file_path), "wb");

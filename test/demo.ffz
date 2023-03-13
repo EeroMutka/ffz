@@ -2,7 +2,10 @@
 #ffz_entry: proc() {
 	
 	a: u32(623)
-	//a = 2
+	a = 2
+	
+	b: a
+	b = 1
 	
 	dbgbreak
 	dbgbreak

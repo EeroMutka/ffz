@@ -259,11 +259,10 @@ GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol
 }
 
 GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc) {
-	gmmcBasicBlock* b = f_mem_clone(gmmcBasicBlock{}, proc->sym.mod->allocator);
-	b->gen.code_section_offset = F_U32_MAX;
-	b->mod = proc->sym.mod;
+	gmmcBasicBlock* b = f_mem_clone(gmmcBasicBlock{}, proc->sym.module->allocator);
+	b->mod = proc->sym.module;
 	b->proc = proc;
-	b->ops = f_array_make<gmmcOpIdx>(proc->sym.mod->allocator);
+	b->ops = f_array_make<gmmcOpIdx>(proc->sym.module->allocator);
 	b->bb_index = (u32)f_array_push(&proc->basic_blocks, b);
 	return b;
 }
@@ -271,7 +270,7 @@ GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc) {
 GMMC_API gmmcSymbol* gmmc_make_external_symbol(gmmcModule* m, gmmcString name) {
 	gmmcSymbol* sym = f_mem_clone(gmmcSymbol{gmmcSymbolKind_Extern}, m->allocator);
 	f_array_push(&m->external_symbols, sym);
-	sym->mod = m;
+	sym->module = m;
 	sym->name = name;
 	return sym;
 }
@@ -283,7 +282,7 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 	gmmcProc* proc = f_mem_clone(gmmcProc{}, m->allocator);
 	f_array_push(&m->procs, proc);
 	proc->sym.kind = gmmcSymbolKind_Proc;
-	proc->sym.mod = m;
+	proc->sym.module = m;
 	proc->sym.name = name;
 	proc->signature = signature;
 	
@@ -331,7 +330,6 @@ GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
 GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 	gmmcModule* m = f_mem_clone(gmmcModule{}, allocator);
 	m->allocator = allocator;
-	m->code_section = f_array_make<u8>(m->allocator);
 	m->proc_signatures = f_array_make<gmmcProcSignature*>(m->allocator);
 	m->globals = f_array_make<gmmcGlobal*>(m->allocator);
 	f_array_push(&m->globals, (gmmcGlobal*)0); // just to make 0 index invalid
@@ -347,7 +345,7 @@ GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t ali
 	gmmcGlobal* global = f_mem_clone(gmmcGlobal{}, m->allocator);
 	u32 idx = (u32)f_array_push(&m->globals, global);
 	global->sym.kind = gmmcSymbolKind_Global;
-	global->sym.mod = m;
+	global->sym.module = m;
 	global->sym.name = f_str_format(m->allocator, "g$%u", idx);
 	global->size = size;
 	global->align = align;
