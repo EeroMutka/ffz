@@ -60,7 +60,7 @@ struct cviewLocal {
 };
 
 struct cviewBlock {
-	u32 start_offset; // block start offset into the code section
+	u32 start_offset; // block start offset into the code section. QUESTION: should this include the prologue?
 	u32 end_offset; // block end offset into the code section
 
 	cviewBlock* child_blocks;

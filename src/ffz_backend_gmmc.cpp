@@ -64,6 +64,7 @@ struct Gen {
 	uint dummy_name_counter;
 	
 	fMap64(ProcInfo*) proc_from_hash;
+	fArray(ProcInfo*) procs_sorted;
 	fMap64(Value) value_from_definition;
 	
 	// debug info
@@ -213,6 +214,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	proc_info->dbginfo_locals = f_array_make<DebugInfoLocal>(g->alc);
 	proc_info->dbginfo_lines = f_array_make<DebugInfoLine>(g->alc);
 
+	f_array_push(&g->procs_sorted, proc_info);
 	*insertion._unstable_ptr = proc_info;
 
 	if (inst.node->Op.left->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name) {
@@ -1147,9 +1149,9 @@ static bool build_x64(Gen* g, fString build_dir) {
 
 	fArray(cviewFunction) cv_functions = f_array_make_cap<cviewFunction>(g->proc_from_hash.alive_count, g->alc);
 
-	ProcInfo** _proc_info;
-	for f_map64_each_raw(&g->proc_from_hash, proc_hash, (void**)&_proc_info) {
-		ProcInfo* proc_info = *_proc_info;
+	// the procs need to be sorted for debug info
+	for (uint i = 0; i < g->procs_sorted.len; i++) {
+		ProcInfo* proc_info = g->procs_sorted[i];
 		gmmcProc* proc = proc_info->gmmc_proc;
 
 		u32 start_offset = gmmc_asm_proc_get_start_offset(asm_module, proc);
@@ -1371,6 +1373,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 	//g.tb_file_from_parser_idx = f_array_make<TB_FileID>(g.alc);
 	g.value_from_definition = f_map64_make<Value>(g.alc);
 	g.proc_from_hash = f_map64_make<ProcInfo*>(g.alc);
+	g.procs_sorted = f_array_make<ProcInfo*>(g.alc);
 	g.cv_file_from_parser_idx = f_array_make<cviewSourceFile>(g.alc);
 	g.cv_types = f_array_make<cviewType>(g.alc);
 

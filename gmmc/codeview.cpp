@@ -54,8 +54,16 @@ static void GenerateXDataAndPDataSections(fArray(u8)* pdata_builder, fArray(coff
 	F_ASSERT(pdata_builder->len == 0);
 	F_ASSERT(pdata_relocs->len == 0);
 
+	s32 prev_sym_index = -1;
+	s32 prev_fn_offset = -1;
 	for (u32 i = 0; i < desc->functions_count; i++) {
 		cviewFunction& fn = desc->functions[i];
+		
+		// The functions must be sorted! Otherwise the linker will complain.
+		VALIDATE((s32)fn.sym_index > prev_sym_index);
+		VALIDATE((s32)fn.block.start_offset > prev_fn_offset);
+		prev_sym_index = (s32)fn.sym_index;
+		prev_fn_offset = (s32)fn.block.start_offset;
 
 		u32 unwind_info_address = (u32)xdata_builder->len;
 
@@ -64,6 +72,7 @@ static void GenerateXDataAndPDataSections(fArray(u8)* pdata_builder, fArray(coff
 			// Do we need IMAGE_REL_AMD64_ADDR32NB???
 			// "In an object file, an RVA is less meaningful because
 			// "memory locations are not assigned.In this case, an RVA would be an address within a section"
+
 			{
 				coffRelocation reloc = {};
 				reloc.offset = (u32)pdata_builder->len;

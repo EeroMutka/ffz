@@ -65,7 +65,7 @@
 #ffz_entry: proc() {
 	dbgbreak
 	
-	foo: kiwi
+	kiwi()
 	
 	dbgbreak
 	dbgbreak
