@@ -221,7 +221,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 		} break;
 
 		case gmmcOpKind_return: {
-			if (op->operands[0] != GMMC_REG_NONE) fprintf(f, "return _$%u;\n", op->operands[0]);
+			if (op->operands[0] != GMMC_OP_IDX_INVALID) fprintf(f, "return _$%u;\n", op->operands[0]);
 			else fprintf(f, "return;\n");
 		} break;
 

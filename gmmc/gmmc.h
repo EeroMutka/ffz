@@ -50,7 +50,7 @@ typedef struct gmmcProcSignature gmmcProcSignature;
 typedef struct gmmcBasicBlock gmmcBasicBlock;
 typedef struct gmmcSymbol gmmcSymbol;
 
-enum { GMMC_REG_NONE = 0 };
+enum { GMMC_OP_IDX_INVALID = 0 };
 
 typedef enum gmmcOpKind {
 	gmmcOpKind_Invalid = 0,
@@ -434,7 +434,10 @@ GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc);
 // NOTE: always returns a negative value, since the stack grows downwards
 GMMC_API s32 gmmc_asm_local_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx local);
 
-GMMC_API u32 gmmc_asm_proc_get_prologue_size(gmmcAsmModule* m, gmmcProc* proc);
+// returns the size of the initial sub RSP instruction
+GMMC_API u32 gmmc_asm_proc_get_prolog_size(gmmcAsmModule* m, gmmcProc* proc);
+
+// returns the amount that is subtracted from RSP at the start of the procedure.
 GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc);
 
 GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection section);

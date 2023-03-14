@@ -65,12 +65,26 @@
 #ffz_entry: proc() {
 	dbgbreak
 	
-	kiwi()
+	a: 50
+	b: 50
+	c: a + b
+	d: 50
+	e: c + d
+	f: 66
+	g: 32
+	h: a + b
+	i: e + h
+	j: c + i
+	
+	//e: b + d
+	//f: a + e
+	
+	//k: kiwi(50, 32)
 	
 	dbgbreak
 	dbgbreak
 }
 
-#kiwi: proc() {
-	dbgbreak
-}
+//#kiwi: proc(a: int, b: int) {
+//	//ret
+//}

@@ -262,7 +262,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	}
 	
 	if (!proc_type->Proc.out_param) { // automatically generate a return statement if the proc doesn't return a value
-		gmmcOpIdx op = gmmc_op_return(g->bb, GMMC_REG_NONE);
+		gmmcOpIdx op = gmmc_op_return(g->bb, GMMC_OP_IDX_INVALID);
 		set_dbginfo_loc(g, op, inst.node->loc.end.line_num);
 	}
 
@@ -1169,7 +1169,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 			cv_func.name = proc->sym.name;
 			cv_func.sym_index = sym_idx;
 			cv_func.section_sym_index = build_x64_section_get_sym_idx(SectionNum_Code);
-			cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prologue_size(asm_module, proc);
+			cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prolog_size(asm_module, proc);
 			cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
 			cv_func.file_idx = proc_info->node->id.parser_id;
 

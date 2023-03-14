@@ -243,7 +243,7 @@ GMMC_API gmmcOpIdx gmmc_op_trunc(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType t
 GMMC_API gmmcOpIdx gmmc_op_and(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b) { return op_basic_2(bb, gmmcOpKind_and, a, b, false); }
 GMMC_API gmmcOpIdx gmmc_op_or(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b) { return op_basic_2(bb, gmmcOpKind_or, a, b, false); }
 GMMC_API gmmcOpIdx gmmc_op_xor(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b) { return op_basic_2(bb, gmmcOpKind_xor, a, b, false); }
-GMMC_API gmmcOpIdx gmmc_op_not(gmmcBasicBlock* bb, gmmcOpIdx value) { return op_basic_2(bb, gmmcOpKind_not, value, GMMC_REG_NONE, false); }
+GMMC_API gmmcOpIdx gmmc_op_not(gmmcBasicBlock* bb, gmmcOpIdx value) { return op_basic_2(bb, gmmcOpKind_not, value, GMMC_OP_IDX_INVALID, false); }
 GMMC_API gmmcOpIdx gmmc_op_shl(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift) { return op_basic_2(bb, gmmcOpKind_shl, value, shift, false); }
 GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift) { return op_basic_2(bb, gmmcOpKind_shr, value, shift, false); }
 
