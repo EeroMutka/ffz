@@ -162,7 +162,7 @@ GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasic
 	return gmmc_push_op(bb, op);
 }
 
-GMMC_API gmmcOpIdx gmmc_op_param(gmmcProc* proc, uint32_t index) {
+GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index) {
 	return proc->params[index];
 }
 
@@ -298,8 +298,8 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 
 	proc->params = f_make_slice_garbage<gmmcOpIdx>(signature->params.len, m->allocator);
 	for (uint i = 0; i < signature->params.len; i++) {
-		gmmcOpData op = { gmmcOpKind_param };
-		op.type = signature->params[i];
+		gmmcOpData op = { gmmcOpKind_addr_of_param };
+		op.type = gmmcType_ptr; //signature->params[i];
 		op.imm_raw = i;
 		proc->params[i] = (gmmcOpIdx)f_array_push(&proc->ops, op);
 	}

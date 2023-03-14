@@ -34,7 +34,7 @@ struct DebugInfoLine {
 
 struct DebugInfoLocal {
 	coffString name;
-	gmmcOpIdx local;
+	gmmcOpIdx local_or_param;
 	u32 type_idx;
 };
 
@@ -42,6 +42,7 @@ struct ProcInfo {
 	gmmcProc* gmmc_proc;
 	ffzType* type;
 	ffzNode* node;
+	gmmcOpIdx addr_of_big_return;
 	
 	fArray(DebugInfoLine) dbginfo_lines; // we wouldn't need this if we could compile one procedure at a time with gmmc_asm_x64
 	fArray(DebugInfoLocal) dbginfo_locals; // we wouldn't need this if we could compile one procedure at a time with gmmc_asm_x64
@@ -171,6 +172,80 @@ static void set_dbginfo_loc(Gen* g, gmmcOpIdx op, u32 line_num) {
 	f_array_push(&g->proc_info->dbginfo_lines, DebugInfoLine{ op, line_num });
 }
 
+static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
+	cviewType cv_type = {};
+	switch (type->tag) {
+	case ffzTypeTag_Bool: {
+		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
+		cv_type.size = 1;
+	} break;
+
+	case ffzTypeTag_Raw: {
+		F_BP; // TODO
+	} break;
+	case ffzTypeTag_Proc: {
+		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
+		cv_type.size = 8;
+	} break;
+	case ffzTypeTag_Pointer: {
+		cv_type.tag = cviewTypeTag_Pointer;
+		cv_type.Pointer.type_idx = get_debuginfo_type(g, type->Pointer.pointer_to);
+	} break;
+
+	case ffzTypeTag_DefaultSint: // fallthrough
+	case ffzTypeTag_Sint: {
+		cv_type.tag = cviewTypeTag_Int;
+		cv_type.size = type->size;
+	} break;
+
+	case ffzTypeTag_DefaultUint: // fallthrough
+	case ffzTypeTag_Uint: {
+		cv_type.tag = cviewTypeTag_UnsignedInt;
+		cv_type.size = type->size;
+	} break;
+		//case ffzTypeTag_Float: {} break;
+		//case ffzTypeTag_Proc: {} break;
+
+	case ffzTypeTag_Slice: // fallthrough
+	case ffzTypeTag_String: // fallthrough
+	case ffzTypeTag_Record: {
+		F_BP; // TODO
+	} break;
+
+		//case ffzTypeTag_Enum: {} break;
+	case ffzTypeTag_FixedArray: {
+		F_BP; // TODO: for real!!
+		/*
+		fArray(TB_DebugType*) tb_fields = f_array_make<TB_DebugType*>(g->alc);
+		TB_DebugType* elem_type_tb = get_tb_debug_type(g, type->FixedArray.elem_type);
+
+		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
+			const char* name = f_str_to_cstr(f_str_format(g->alc, "[%u]", i), g->alc);
+			TB_DebugType* t = tb_debug_create_field(g->tb, elem_type_tb, name, i * type->FixedArray.elem_type->size);
+			f_array_push(&tb_fields, t);
+		}
+
+		TB_DebugType* out = tb_debug_create_struct(g->tb, make_name(g));
+		tb_debug_complete_record(out, tb_fields.data, tb_fields.len, type->size, type->align);
+		return out;*/
+	} break;
+
+	default: F_BP;
+	}
+
+	// TODO: deduplicate types?
+	return (u32)f_array_push(&g->cv_types, cv_type);
+}
+
+
+static void add_dbginfo_local(Gen* g, fString name, gmmcOpIdx addr, ffzType* type) {
+	DebugInfoLocal dbginfo_local;
+	dbginfo_local.local_or_param = addr;
+	dbginfo_local.name = name;
+	dbginfo_local.type_idx = get_debuginfo_type(g, type);
+	f_array_push(&g->proc_info->dbginfo_locals, dbginfo_local);
+}
+
 static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	auto insertion = f_map64_insert(&g->proc_from_hash, ffz_hash_node_inst(inst), (ProcInfo*)0, fMapInsert_DoNotOverride);
 	if (!insertion.added) return (*insertion._unstable_ptr)->gmmc_proc;
@@ -233,26 +308,29 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	u32 i = 0;
 	for FFZ_EACH_CHILD_INST(n, proc_type_inst) {
 		ffzTypeProcParameter* param = &proc_type->Proc.in_params[i];
-
+		
 		F_ASSERT(n.node->kind == ffzNodeKind_Declare);
 		ffzNodeIdentifierInst param_definition = CHILD(n, Op.left);
 		param_definition.polymorph = inst.polymorph; // hmmm...
 		ffzNodeInstHash hash = ffz_hash_node_inst(param_definition);
 
-		gmmcOpIdx param_val = gmmc_op_param(proc, i + (u32)big_return);
+		gmmcOpIdx param_addr = gmmc_op_addr_of_param(proc, i + (u32)big_return);
 		
 		Value val = {};
-		val.local_addr = param_val;
+		val.local_addr = param_addr;
 		if (param->type->size > 8) {
 			// NOTE: this is Microsoft-X64 calling convention specific!
+			val.local_addr = gmmc_op_load(entry_bb, gmmcType_ptr, val.local_addr);
 		}
 		else {
 			// from language perspective, it'd be the nicest to be able to get the address of a reg,
 			// and to be able to assign to a reg. But that's a bit weird for the backend. Let's just make a local every time for now.
-			val.local_addr = gmmc_op_local(g->proc, param->type->size, param->type->align);
-			gmmc_op_store(g->bb, val.local_addr, param_val);
+			//val.local_addr = gmmc_op_local(g->proc, param->type->size, param->type->align);
+			//gmmc_op_store(g->bb, val.local_addr, param_val);
+			
+			add_dbginfo_local(g, param->name->Identifier.name, val.local_addr, param->type);
 		}
-		
+
 		f_map64_insert(&g->value_from_definition, hash, val);
 		i++;
 	}
@@ -623,14 +701,20 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			fString member_name = right.node->Identifier.name;
 
 			if (left.node->kind == ffzNodeKind_Identifier && left.node->Identifier.name == F_LIT("in")) {
-				F_ASSERT(!address_of); // TODO
+				//F_ASSERT(!address_of); // TODO
+				
+				bool found = false;
 				for (u32 i = 0; i < g->proc_info->type->Proc.in_params.len; i++) {
 					ffzTypeProcParameter& param = g->proc_info->type->Proc.in_params[i];
 					if (param.name->Identifier.name == member_name) {
-						out = gmmc_op_param(g->proc, i + (u32)has_big_return(g->proc_info->type));
+						out = gmmc_op_addr_of_param(g->proc, i + (u32)has_big_return(g->proc_info->type));
 						F_ASSERT(param.type->size <= 8);
+						found = true;
+						//out = gmmc_op_load(g->bb, param.type
+						//F_BP;//out = gmmc_op_param(g->proc, ));
 					}
 				}
+				F_ASSERT(found);
 			}
 			else {
 				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
@@ -643,8 +727,8 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				F_ASSERT(addr_of_struct);
 
 				out = field.offset ? gmmc_op_member_access(g->bb, addr_of_struct, field.offset) : addr_of_struct;
-				should_dereference = !address_of;
 			}
+			should_dereference = !address_of;
 		} break;
 
 		case ffzNodeKind_PostCurlyBrackets: {
@@ -805,71 +889,6 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 static bool node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
 
-static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
-	cviewType cv_type = {};
-	switch (type->tag) {
-	case ffzTypeTag_Bool: {
-		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
-		cv_type.size = 1;
-	} break;
-
-	case ffzTypeTag_Raw: {
-		F_BP; // TODO
-	} break;
-	case ffzTypeTag_Proc: {
-		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
-		cv_type.size = 8;
-	} break;
-	case ffzTypeTag_Pointer: {
-		cv_type.tag = cviewTypeTag_Pointer;
-		cv_type.Pointer.type_idx = get_debuginfo_type(g, type->Pointer.pointer_to);
-	} break;
-
-	case ffzTypeTag_DefaultSint: // fallthrough
-	case ffzTypeTag_Sint: {
-		cv_type.tag = cviewTypeTag_Int;
-		cv_type.size = type->size;
-	} break;
-
-	case ffzTypeTag_DefaultUint: // fallthrough
-	case ffzTypeTag_Uint: {
-		cv_type.tag = cviewTypeTag_UnsignedInt;
-		cv_type.size = type->size;
-	} break;
-	//case ffzTypeTag_Float: {} break;
-	//case ffzTypeTag_Proc: {} break;
-
-	case ffzTypeTag_Slice: // fallthrough
-	case ffzTypeTag_String: // fallthrough
-	case ffzTypeTag_Record: {
-		F_BP; // TODO
-	} break;
-
-		//case ffzTypeTag_Enum: {} break;
-	case ffzTypeTag_FixedArray: {
-		F_BP; // TODO: for real!!
-		/*
-		fArray(TB_DebugType*) tb_fields = f_array_make<TB_DebugType*>(g->alc);
-		TB_DebugType* elem_type_tb = get_tb_debug_type(g, type->FixedArray.elem_type);
-
-		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
-			const char* name = f_str_to_cstr(f_str_format(g->alc, "[%u]", i), g->alc);
-			TB_DebugType* t = tb_debug_create_field(g->tb, elem_type_tb, name, i * type->FixedArray.elem_type->size);
-			f_array_push(&tb_fields, t);
-		}
-
-		TB_DebugType* out = tb_debug_create_struct(g->tb, make_name(g));
-		tb_debug_complete_record(out, tb_fields.data, tb_fields.len, type->size, type->align);
-		return out;*/
-	} break;
-
-	default: F_BP;
-	}
-
-	// TODO: deduplicate types?
-	return (u32)f_array_push(&g->cv_types, cv_type);
-}
-
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	
 	if (g->proc) {
@@ -906,11 +925,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 				gmmcOpIdx rhs_value = gen_expr(g, rhs);
 				val.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 
-				DebugInfoLocal dbginfo_local;
-				dbginfo_local.local = val.local_addr;
-				dbginfo_local.name = definition.node->Identifier.name;
-				dbginfo_local.type_idx = get_debuginfo_type(g, checked.type);
-				f_array_push(&g->proc_info->dbginfo_locals, dbginfo_local);
+				add_dbginfo_local(g, definition.node->Identifier.name, val.local_addr, checked.type);
 
 				gen_store(g, val.local_addr, rhs_value, checked.type);
 				first_op = rhs_value;
@@ -1012,7 +1027,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 			ffzType* ret_type = ffz_expr_get_type(g->project, CHILD(ret,Return.value));
 			gmmcOpIdx return_value = gen_expr(g, CHILD(ret,Return.value));
 			if (ret_type->size > 8) {
-				val = gmmc_op_param(g->proc, 0); // :BigReturn
+				F_BP; //val = gmmc_op_param(g->proc, 0); // :BigReturn
 				gmmc_op_memmove(g->bb, val, return_value, gmmc_op_i32(g->bb, ret_type->size));
 			}
 			else {
@@ -1178,7 +1193,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 				DebugInfoLocal it = proc_info->dbginfo_locals[i];
 				cviewLocal local;
 				local.name = it.name;
-				local.rsp_rel_offset = gmmc_asm_local_get_frame_rel_offset(asm_module, proc, it.local) + cv_func.stack_frame_size;
+				local.rsp_rel_offset = gmmc_asm_get_frame_rel_offset(asm_module, proc, it.local_or_param) + cv_func.stack_frame_size;
 				local.type_idx = it.type_idx;
 				f_array_push(&locals, local);
 			}

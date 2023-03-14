@@ -76,7 +76,9 @@
 	i: e + h
 	j: a + i
 	k: i + b + a + c + d + e + f + h + j
-	//e: b + d
+	
+	fff: kiwi(k, j)
+	//ee: ff
 	//f: a + e
 	
 	//k: kiwi(50, 32)
@@ -85,6 +87,8 @@
 	dbgbreak
 }
 
-//#kiwi: proc(a: int, b: int) {
-//	//ret
-//}
+#kiwi: proc(a: int, b: int) => int {
+	c: a
+	d: b
+	ret c + d
+}

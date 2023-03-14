@@ -108,7 +108,7 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_sxt,
 	gmmcOpKind_trunc,
 
-	gmmcOpKind_param,
+	gmmcOpKind_addr_of_param,
 	
 	gmmcOpKind_call,
 	gmmcOpKind_vcall,
@@ -389,7 +389,8 @@ GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
 	gmmcType return_type, gmmcOpIdx proc_address,
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 
-GMMC_API gmmcOpIdx gmmc_op_param(gmmcProc* proc, uint32_t index);
+//GMMC_API gmmcOpIdx gmmc_op_param(gmmcProc* proc, uint32_t index);
+GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index);
 
 // returns a pointer to the local
 GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align);
@@ -431,10 +432,14 @@ GMMC_API u32 gmmc_asm_instruction_get_offset(gmmcAsmModule* m, gmmcProc* proc, g
 GMMC_API u32 gmmc_asm_proc_get_start_offset(gmmcAsmModule* m, gmmcProc* proc);
 GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc);
 
-// NOTE: always returns a negative value, since the stack grows downwards
-GMMC_API s32 gmmc_asm_local_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx local);
+// This works for both `op_local`, as well as for `op_addr_of_param`.
+// For locals, this will always return a negative value, as the local
+// is inside our stack frame, stack growing downwards.
+// For params, this will be a positive value, as it will be in the shadow space,
+// outside of our stack frame.
+GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx local_or_param);
 
-// returns the size of the initial sub RSP instruction
+// returns the size of the initial SUB RSP instruction
 GMMC_API u32 gmmc_asm_proc_get_prolog_size(gmmcAsmModule* m, gmmcProc* proc);
 
 // returns the amount that is subtracted from RSP at the start of the procedure.
@@ -442,27 +447,6 @@ GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc
 
 GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection section);
 GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcAsmRelocation)* out_relocs);
-/*
-
-typedef u16 gmmcAsmRelocationType;
-enum {
-	gmmcAsmRelocationType_ADDR32NB = 0x0003, // TODO: remove?
-	gmmcAsmRelocationType_SECREL = 0x000B, // SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
-	gmmcAsmRelocationType_SECTION = 0x000A, // SECTION sets the relocated value to be the section number of the target symbol
-};
-
-typedef struct gmmcAsmRelocation {
-	uint32_t offset;
-	uint32_t sym_idx;
-	gmmcAsmRelocationType type;
-} gmmcAsmRelocation;
-
-GMMC_API gmmcAsmSectionNum gmmc_asm_add_section(gmmcAsmModule* m, fString name);
-GMMC_API u32 gmmc_asm_section_get_sym_index(gmmcAsmModule* m, gmmcAsmSectionNum section);
-
-GMMC_API void gmmc_asm_section_set_data(gmmcAsmModule* m, gmmcAsmSectionNum section, fString data);
-GMMC_API void gmmc_asm_section_set_relocations(gmmcAsmModule* m, gmmcAsmSectionNum section, gmmcAsmRelocation* relocations, u32 count);
-*/
 
 // -- Common utilities -------------------------
 
@@ -474,4 +458,3 @@ inline bool gmmc_type_is_integer(gmmcType t) { return t >= gmmcType_i8 && t <= g
 inline bool gmmc_type_is_float(gmmcType t) { return t >= gmmcType_f32 && t <= gmmcType_f64; }
 inline bool gmmc_op_is_terminating(gmmcOpKind op) { return op >= gmmcOpKind_return && op <= gmmcOpKind_if; }
 inline bool gmmc_op_is_immediate(gmmcOpKind op) { return op >= gmmcOpKind_bool && op <= gmmcOpKind_f64; }
-
