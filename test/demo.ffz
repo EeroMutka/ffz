@@ -63,19 +63,19 @@
 
 
 #ffz_entry: proc() {
-	dbgbreak
+	//dbgbreak
 	
-	a: 50
-	b: 50
+	a: 32
+	b: 1
 	c: a + b
-	d: 50
+	d: 5
 	e: c + d
 	f: 66
-	g: 32
+	//g: 32
 	h: a + b
 	i: e + h
-	j: c + i
-	
+	j: a + i
+	k: i + b + a + c + d + e + f + h + j
 	//e: b + d
 	//f: a + e
 	

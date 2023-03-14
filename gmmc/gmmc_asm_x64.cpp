@@ -153,7 +153,7 @@ static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* com
 		uint proc_rel_offset = sect_rel_offset - p->code_section_offset;
 
 		u8* data = code_section->data.data + proc_rel_offset;
-		if (proc_rel_offset == 0x3c) F_BP;
+	//	if (proc_rel_offset == 0x3c) F_BP;
 
 		ZydisDisassembledInstruction instruction;
 		if (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, proc_rel_offset, instr, instr_len, &instruction))) {
@@ -168,7 +168,7 @@ const static GPR temp_registers[] = {
 	GPR_12,
 	GPR_13,
 	GPR_14,
-	//GPR_15,
+	GPR_15,
 	//GPR_DI,
 	//GPR_SI,
 	//GPR_BX,
@@ -297,7 +297,9 @@ static GPR allocate_gpr(gmmcAsmProc* p, gmmcOpIdx for_op) {
 			
 			gmmcOpData* victim_op = &p->proc->ops[victim];
 			if (op_is_to_be_spilled(victim_op->kind)) {
-				
+				// if computation is required to find out the value of the op, store it on the stack.
+				// locals, immediates and addr_of_symbol don't need to be stored on the stack.
+
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 				req.mnemonic = ZYDIS_MNEMONIC_MOV;
 				req.operand_count = 2;
@@ -307,9 +309,9 @@ static GPR allocate_gpr(gmmcAsmProc* p, gmmcOpIdx for_op) {
 				req.operands[0].mem.size = gmmc_type_size(victim_op->type);
 				req.operands[1] = make_reg_operand(gpr, 8);
 				emit(p, req, " ; steal a register, spill the op value");
-
-				p->ops[victim].currently_in_register = GPR_INVALID;
 			}
+
+			p->ops[victim].currently_in_register = GPR_INVALID;
 		}
 	}
 
@@ -541,7 +543,8 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 
 	for (uint i = 0; i < bb->ops.len; i++) {
 		p->current_op = bb->ops[i];
-		//if (p->current_op == 12) F_BP;
+		//if (p->emitting && p->current_op == 16) F_BP;
+		//if (p->emitting && p->current_op == 12) F_BP;
 
 		gmmcOpData* op = &p->proc->ops[p->current_op];
 
