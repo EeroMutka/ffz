@@ -41,6 +41,7 @@ typedef struct { uint8_t* ptr; uint64_t len; } gmmcString;
 
 typedef uint32_t gmmcOpIdx; // Each procedure has its own array of ops, where 1 is the first valid index.
 typedef uint32_t gmmcProcIdx;
+typedef uint32_t gmmcGlobalIdx; // starts from 1
 typedef u32 gmmcBasicBlockIdx;
 typedef struct gmmcModule gmmcModule;
 typedef struct gmmcProc gmmcProc;
@@ -222,35 +223,37 @@ typedef struct gmmcProc {
 } gmmcProc;
 
 
-typedef struct gmmcReloc {
+typedef struct gmmcRelocation {
 	uint32_t offset;
 	gmmcSymbol* target;
-} gmmcReloc;
+} gmmcRelocation;
 
-typedef enum {
-	gmmcSection_Invalid = 0,
-	gmmcSection_RData = 1,
-	gmmcSection_Data = 2,
-	//gmmcSection_Threadlocal = 3,
-	gmmcSection_Code = 4,
+typedef enum gmmcSection {
+	gmmcSection_Code,
+	gmmcSection_RData,
+	gmmcSection_Data,
+	//gmmcSection_Threadlocal
+	// TODO: BSS section?
+	gmmcSection_COUNT,
 } gmmcSection;
 
 typedef struct gmmcGlobal {
 	gmmcSymbol sym; // NOTE: must be the first member!
+	gmmcGlobalIdx self_idx; // TODO: get rid of this / use gmmcGlobalIdx instead everywhere?
 
 	u32 size;
 	u32 align;
 	gmmcSection section;
 	void* data;
 
-	fArray(gmmcReloc) relocations;
+	fArray(gmmcRelocation) relocations;
 } gmmcGlobal;
 
 typedef struct gmmcModule {
 	fAllocator* allocator;
 
 	fArray(gmmcProcSignature*) proc_signatures;
-	fArray(gmmcGlobal*) globals;
+	fArray(gmmcGlobal*) globals; // starts from index 1
 	fArray(gmmcProc*) procs;
 	fArray(gmmcSymbol*) external_symbols;
 
@@ -350,6 +353,7 @@ GMMC_API gmmcOpIdx gmmc_op_trunc(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType t
 
 // -- Immediates --------------------------------
 
+// TODO: make immediates not part of a basic block, like with locals/addr_of_symbol
 GMMC_API gmmcOpIdx gmmc_op_bool(gmmcBasicBlock* bb, bool value);
 GMMC_API gmmcOpIdx gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value);
 GMMC_API gmmcOpIdx gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value);
@@ -393,13 +397,27 @@ GMMC_API gmmcOpIdx gmmc_op_param(gmmcProc* proc, uint32_t index);
 // returns a pointer to the local
 GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align);
 
-GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol);
+// TODO: make this not part of a basic block
+GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol); // maybe we should ask for a u32 offset since we get that for free with relocations?
 
 
 // -- Machine code target ----------------------
 
+// IMPORTANT!!!!!!
+// All GMMC sections must be 16-byte aligned. This is because globals are aligned to a certain value,
+// and that alignment will be used when adding the global's data into its section.
+// And so, if the section is not aligned to the largest possible alignment (16),
+// the global might not get aligned correctly.
+
 typedef struct gmmcAsmModule gmmcAsmModule;
 typedef u32 gmmcAsmSectionNum;
+
+// The runtime address of `target_section` will be added to the
+// 64-bit integer value that lies at `offset`.
+typedef struct gmmcAsmRelocation {
+	u32 offset;
+	gmmcSection target_section;
+} gmmcAsmRelocation;
 
 // 'build' and 'export' are separated here to give you a chance to inspect the assembly output before exporting an object file.
 // This can be useful for embedding debug information into the module; i.e. Microsoft's CodeView debug information is stored
@@ -422,9 +440,8 @@ GMMC_API s32 gmmc_asm_local_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* pro
 GMMC_API u32 gmmc_asm_proc_get_prologue_size(gmmcAsmModule* m, gmmcProc* proc);
 GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc);
 
-GMMC_API gmmcString gmmc_asm_get_code_section(gmmcAsmModule* m);
-
-
+GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection section);
+GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcAsmRelocation)* out_relocs);
 /*
 
 typedef u16 gmmcAsmRelocationType;

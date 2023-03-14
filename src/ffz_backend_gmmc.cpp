@@ -909,7 +909,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 				dbginfo_local.type_idx = get_debuginfo_type(g, checked.type);
 				f_array_push(&g->proc_info->dbginfo_locals, dbginfo_local);
 
-				first_op = gen_store(g, val.local_addr, rhs_value, checked.type);
+				gen_store(g, val.local_addr, rhs_value, checked.type);
+				first_op = rhs_value;
 			}
 			f_map64_insert(&g->value_from_definition, ffz_hash_node_inst(definition), val);
 		}
@@ -1034,35 +1035,73 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 // TODO: command-line option for console/no console
 const bool BUILD_WITH_CONSOLE = true;
 
+enum SectionNum {
+	SectionNum_Code = 1,
+	SectionNum_Data,
+	SectionNum_RData,
+	SectionNum_xdata,
+	SectionNum_pdata,
+	SectionNum_debugS,
+	SectionNum_debugT,
+	//SectionNum_Data = 2,
+	//SectionNum_RData = 3,
+	//SectionNum_BSS = 4,
+};
+
+static u32 build_x64_section_get_sym_idx(SectionNum section) {
+	return (u32)section - 1; // sections come first in the symbol table
+}
+
+static SectionNum build_x64_section_num_from_gmmc_section(gmmcSection section) {
+	switch (section) {
+	case gmmcSection_Code: return SectionNum_Code;
+	case gmmcSection_Data: return SectionNum_Data;
+	case gmmcSection_RData: return SectionNum_RData;
+	}
+	F_BP; return {};
+}
+
+static void build_x64_add_section(Gen* g, gmmcAsmModule* asm_module, fArray(coffSection)* sections,
+	gmmcSection gmmc_section, fString name, coffSectionCharacteristics flags)
+{
+	coffSection sect = {};
+	sect.name = name;
+	sect.Characteristics = flags | IMAGE_SCN_ALIGN_16BYTES | IMAGE_SCN_MEM_READ;
+	sect.data = gmmc_asm_get_section_data(asm_module, gmmc_section);
+
+	fSlice(gmmcAsmRelocation) asm_relocs;
+	gmmc_asm_get_section_relocations(asm_module, gmmc_section, &asm_relocs);
+
+	fSlice(coffRelocation) relocs = f_make_slice_garbage<coffRelocation>(asm_relocs.len, g->alc);
+	for (uint i = 0; i < asm_relocs.len; i++) {
+		gmmcAsmRelocation asm_reloc = asm_relocs[i];
+		SectionNum target_section = build_x64_section_num_from_gmmc_section(asm_reloc.target_section);
+
+		coffRelocation* reloc = &relocs[i];
+		reloc->offset = asm_reloc.offset;
+		reloc->sym_idx = build_x64_section_get_sym_idx(target_section);
+		reloc->type = IMAGE_REL_AMD64_ADDR64;
+	}
+
+	sect.relocations = relocs.data;
+	sect.relocations_count = (u32)relocs.len;
+	f_array_push(sections, sect);
+}
+
 static bool build_x64(Gen* g, fString build_dir) {
 	gmmcAsmModule* asm_module = gmmc_asm_build_x64(g->gmmc);
 
+	// TODO: have a strict temp scope here
+	
 	// Add codeview debug info to the object file
-
-	enum SectionNum {
-		SectionNum_Code = 1,
-		SectionNum_xdata = 2,
-		SectionNum_pdata = 3,
-		SectionNum_debugS = 4,
-		SectionNum_debugT = 5,
-		//SectionNum_Data = 2,
-		//SectionNum_RData = 3,
-		//SectionNum_BSS = 4,
-	};
 
 	fArray(coffSection) sections = f_array_make<coffSection>(g->alc);
 	fArray(coffSymbol) symbols = f_array_make<coffSymbol>(g->alc);
 
-	{
-		coffSection sect = {};
-		sect.name = F_LIT(".code");
-		sect.Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_ALIGN_16BYTES | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
-		sect.data = gmmc_asm_get_code_section(asm_module);
-		//sect.relocations = text_relocs.data;
-		//sect.relocations_count = (int)text_relocs.len;
-		f_array_push(&sections, sect);
-	}
-
+	build_x64_add_section(g, asm_module, &sections, gmmcSection_Code, F_LIT(".code"), IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE);
+	build_x64_add_section(g, asm_module, &sections, gmmcSection_Data, F_LIT(".data"), IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_WRITE);
+	build_x64_add_section(g, asm_module, &sections, gmmcSection_RData, F_LIT(".rdata"), IMAGE_SCN_CNT_INITIALIZED_DATA);
+	
 	{
 		coffSection sect = {};
 		sect.name = F_LIT(".xdata");
@@ -1119,7 +1158,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 		cviewFunction cv_func = {};
 		cv_func.name = proc->sym.name;
 		cv_func.sym_index = sym_idx;
-		cv_func.section_sym_index = SectionNum_Code - 1;
+		cv_func.section_sym_index = build_x64_section_get_sym_idx(SectionNum_Code);
 		cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prologue_size(asm_module, proc);
 		cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
 		cv_func.file_idx = proc_info->node->id.parser_id;
@@ -1163,7 +1202,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 	cv_desc.files_count = (u32)g->cv_file_from_parser_idx.len;
 	cv_desc.functions = cv_functions.data;
 	cv_desc.functions_count = (u32)cv_functions.len;
-	cv_desc.xdata_section_sym_index = SectionNum_xdata - 1;
+	cv_desc.xdata_section_sym_index = build_x64_section_get_sym_idx(SectionNum_xdata);
 	cv_desc.types = g->cv_types.data;
 	cv_desc.types_count = (u32)g->cv_types.len;
 	codeview_generate_debug_info(&cv_desc, g->alc);

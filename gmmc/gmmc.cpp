@@ -27,7 +27,7 @@ GMMC_API gmmcProcSignature* gmmc_make_proc_signature(gmmcModule* m, gmmcType ret
 //F_STATIC_ASSERT(gmmcOpKind_COUNT == F_LEN(gmmcOpKind_to_string));
 
 GMMC_API void gmmc_global_add_relocation(gmmcGlobal* global, uint32_t offset, gmmcSymbol* target) {
-	f_array_push(&global->relocations, gmmcReloc{offset, target});
+	f_array_push(&global->relocations, gmmcRelocation{offset, target});
 }
 
 //static gmmcOpIdx make_reg(gmmcProc* proc, gmmcType type, u32 local_idx = 0);
@@ -334,7 +334,7 @@ GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 	m->allocator = allocator;
 	m->proc_signatures = f_array_make<gmmcProcSignature*>(m->allocator);
 	m->globals = f_array_make<gmmcGlobal*>(m->allocator);
-	f_array_push(&m->globals, (gmmcGlobal*)0); // just to make 0 index invalid
+	f_array_push(&m->globals, (gmmcGlobal*)0);
 	m->procs = f_array_make<gmmcProc*>(m->allocator);
 	m->external_symbols = f_array_make<gmmcSymbol*>(m->allocator);
 	return m;
@@ -343,17 +343,18 @@ GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_data) {
 	void* data = f_mem_alloc(size, align, m->allocator);
 	memset(data, 0, size);
+	F_ASSERT(section != gmmcSection_Code); // hmm... todo? this should be fine on the assembly target, but what about C?
 
 	gmmcGlobal* global = f_mem_clone(gmmcGlobal{}, m->allocator);
-	u32 idx = (u32)f_array_push(&m->globals, global);
+	global->self_idx = (gmmcGlobalIdx)f_array_push(&m->globals, global);
 	global->sym.kind = gmmcSymbolKind_Global;
 	global->sym.module = m;
-	global->sym.name = f_str_format(m->allocator, "g$%u", idx);
+	global->sym.name = f_str_format(m->allocator, "g$%u", global->self_idx);
 	global->size = size;
 	global->align = align;
 	global->section = section;
 	global->data = data;
-	global->relocations = f_array_make<gmmcReloc>(m->allocator);
+	global->relocations = f_array_make<gmmcRelocation>(m->allocator);
 
 	*out_data = data;
 	return global;

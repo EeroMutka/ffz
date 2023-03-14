@@ -6,7 +6,7 @@
 #include <stdlib.h> // for qsort
 
 static int reloc_compare_fn(const void* a, const void* b) {
-	return ((gmmcReloc*)a)->offset - ((gmmcReloc*)b)->offset;
+	return ((gmmcRelocation*)a)->offset - ((gmmcRelocation*)b)->offset;
 }
 
 static u32 operand_bits(gmmcBasicBlock* bb, gmmcOpData* op) {
@@ -391,7 +391,7 @@ static void mem_set(void *dest, int c, size_t len) {
 		const char* name = f_str_to_cstr(global->sym.name, alc);
 
 		// sort the relocations
-		qsort(global->relocations.data, global->relocations.len, sizeof(gmmcReloc), reloc_compare_fn);
+		qsort(global->relocations.data, global->relocations.len, sizeof(gmmcRelocation), reloc_compare_fn);
 
 		//fprintf(f, "_Alignas(%u) ", global->align);
 		fprintf(f, "struct %s_T {", name);
@@ -454,7 +454,7 @@ static void mem_set(void *dest, int c, size_t len) {
 
 				if (next_reloc_idx >= global->relocations.len) break;
 
-				gmmcReloc reloc = global->relocations[next_reloc_idx];
+				gmmcRelocation reloc = global->relocations[next_reloc_idx];
 				u64 reloc_offset = *(u64*)((u8*)global->data + offset);
 
 				fprintf(f, "(i64)(");

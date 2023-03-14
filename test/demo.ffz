@@ -1,10 +1,82 @@
 
-#ffz_entry: proc() {
+// TODO:
+
+// [x]  gmmcOpKind_add,
+// []  gmmcOpKind_sub,
+// []  gmmcOpKind_mul,
+// []  gmmcOpKind_div,
+// []  gmmcOpKind_mod,
+
+// []  gmmcOpKind_eq,
+// []  gmmcOpKind_ne,
+// []  gmmcOpKind_lt,
+// []  gmmcOpKind_le,
+// []  gmmcOpKind_gt,
+// []  gmmcOpKind_ge,
+
+// []  gmmcOpKind_load,
+// []  gmmcOpKind_store,
+
+// []  gmmcOpKind_local,
+
+// []  gmmcOpKind_member_access,
+// []  gmmcOpKind_array_access,
+
+// []  // :gmmc_op_is_terminating
+// []  gmmcOpKind_return,
+// []  gmmcOpKind_goto,
+// []  gmmcOpKind_if,
+
+// []  // immediates. NOTE: the order must match the order in gmmcType!!! see :gmmc_op_immediate
+// []  // :gmmc_op_is_immediate
+// []  gmmcOpKind_bool,
+// []  gmmcOpKind_i8,
+// []  gmmcOpKind_i16,
+// []  gmmcOpKind_i32,
+// []  gmmcOpKind_i64,
+// []  gmmcOpKind_i128,
+// []  gmmcOpKind_f32,
+// []  gmmcOpKind_f64,
+
+// []  gmmcOpKind_and,
+// []  gmmcOpKind_or,
+// []  gmmcOpKind_xor,
+// []  gmmcOpKind_not,
+// []  gmmcOpKind_shl,
+// []  gmmcOpKind_shr,
+
+// []  gmmcOpKind_int2ptr,
+// []  gmmcOpKind_ptr2int,
+// []  gmmcOpKind_zxt,
+// []  gmmcOpKind_sxt,
+// []  gmmcOpKind_trunc,
+
+// []  gmmcOpKind_param,
+
+// []  gmmcOpKind_call,
+// []  gmmcOpKind_vcall,
+
+// []  gmmcOpKind_memmove,
+// []  gmmcOpKind_memset,
+
+// []  gmmcOpKind_addr_of_symbol,
+
+/*#kiwi: proc() {
 	dbgbreak
+	dbgbreak
+	dbgbreak
+}*/
+
+@*global
+my_global: u32(1050)
+
+#ffz_entry: proc() {
 	
-	a: u32(0xffdd)
-	a = 0xffeeff
-	a = 5290
+	dbgbreak
+	a: my_global
+	a = 50
+	
+	//kiwi()
 	
 	dbgbreak
 	dbgbreak
