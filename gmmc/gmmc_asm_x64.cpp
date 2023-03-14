@@ -413,11 +413,17 @@ static void emit_mov(gmmcAsmProc* p, LooseReg dst, LooseReg src) {
 //	emit(p, req);
 //}
 
-GMMC_API u32 gmmc_asm_get_instruction_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op) { return m->procs[proc->self_idx].ops[op].instruction_offset; }
-GMMC_API u32 gmmc_asm_get_proc_start_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_offset; }
-GMMC_API u32 gmmc_asm_get_proc_end_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_end_offset; }
-GMMC_API u32 gmmc_asm_get_proc_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].stack_frame_size; }
-GMMC_API u32 gmmc_asm_get_proc_prologue_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].prologue_size; }
+GMMC_API u32 gmmc_asm_instruction_get_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op) { return m->procs[proc->self_idx].ops[op].instruction_offset; }
+GMMC_API u32 gmmc_asm_proc_get_start_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_offset; }
+GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_end_offset; }
+GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].stack_frame_size; }
+GMMC_API u32 gmmc_asm_proc_get_prologue_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].prologue_size; }
+
+GMMC_API s32 gmmc_asm_local_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx local) {
+	F_ASSERT(proc->ops[local].kind == gmmcOpKind_local);
+	u32 local_idx = proc->ops[local].local_idx;
+	return m->procs[proc->self_idx].local_frame_rel_offset[local_idx];
+}
 
 static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 	gmmcBasicBlock* bb = p->proc->basic_blocks[bb_idx];
@@ -648,7 +654,6 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 		offset = F_ALIGN_DOWN_POW2(offset - 8, 8);
 		p->temp_reg_restore_frame_rel_offset[i] = offset;
 	}
-	//p->temp_reg_restore_rsp_rel_offset = f_make_slice_garbage<s32>(proc->ops.len, f_temp_alc());
 
 	// find the live ranges
 	{

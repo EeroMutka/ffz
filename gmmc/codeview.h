@@ -1,76 +1,76 @@
 // microsoft codeview debug information
 
-struct msCVLine {
+struct cviewLine {
 	uint32_t line_num;
 	uint32_t offset; // offset into the .text section
 };
 
-typedef uint32_t msCVTypeIdx;
+typedef uint32_t cviewTypeIdx;
 
 typedef struct {
 	coffString name;
-	msCVTypeIdx type_idx;
+	cviewTypeIdx type_idx;
 	uint32_t offset_of_member;
-} msCVStructMember;
+} cviewStructMember;
 
-typedef enum msCVTypeTag {
-	msCVTypeTag_Invalid,
-	msCVTypeTag_Int,
-	msCVTypeTag_UnsignedInt,
-	msCVTypeTag_Struct,
-	msCVTypeTag_Pointer,
-	msCVTypeTag_Enum,
+typedef enum cviewTypeTag {
+	cviewTypeTag_Invalid,
+	cviewTypeTag_Int,
+	cviewTypeTag_UnsignedInt,
+	cviewTypeTag_Struct,
+	cviewTypeTag_Pointer,
+	cviewTypeTag_Enum,
 	// TODO: fixed length arrays
-} msCVTypeTag;
+} cviewTypeTag;
 
 typedef struct {
 	coffString name;
 	uint32_t value; // values > 2^32 are not supported by Codeview
-} msCVEnumField;
+} cviewEnumField;
 
-typedef struct msCVType {
-	msCVTypeTag tag;
+typedef struct cviewType {
+	cviewTypeTag tag;
 	uint32_t size;
 
 	union {
 		struct {
 			coffString name;
-			msCVStructMember* fields;
+			cviewStructMember* fields;
 			uint32_t fields_count;
 		} Struct;
 
 		struct {
-			msCVTypeIdx type_idx;
+			cviewTypeIdx type_idx;
 			bool cpp_style_reference;
 		} Pointer;
 
 		struct {
 			coffString name;
 
-			msCVEnumField* fields;
+			cviewEnumField* fields;
 			uint32_t fields_count;
 		} Enum;
 	};
-} msCVType;
+} cviewType;
 
-struct msCVLocal {
+struct cviewLocal {
 	coffString name;
 	u32 rsp_rel_offset;
-	msCVTypeIdx type_idx; // index into the `types` array
+	cviewTypeIdx type_idx; // index into the `types` array
 };
 
-struct msCVBlock {
+struct cviewBlock {
 	u32 start_offset; // block start offset into the code section
 	u32 end_offset; // block end offset into the code section
 
-	msCVBlock* child_blocks;
+	cviewBlock* child_blocks;
 	u32 child_blocks_count;
 
-	msCVLocal* locals;
+	cviewLocal* locals;
 	u32 locals_count;
 };
 
-struct msCVFunction {
+struct cviewFunction {
 	coffString name;
 	uint32_t sym_index;
 	uint32_t section_sym_index; // symbol index of the code section this function belongs to
@@ -79,10 +79,10 @@ struct msCVFunction {
 	uint32_t stack_frame_size; // describes how much is subtracted from RSP at the start of the procedure
 
 	u32 file_idx;
-	msCVLine* lines;
+	cviewLine* lines;
 	u32 lines_count;
 
-	msCVBlock block;
+	cviewBlock block;
 };
 
 typedef struct { uint8_t bytes[32]; } coffHashSHA256;
@@ -92,18 +92,18 @@ typedef struct {
 	// You can find an implementation of the SHA256 hashing algorithm for example in
 	// https://github.com/B-Con/crypto-algorithms
 	coffHashSHA256 hash;
-} msCVSourceFile;
+} cviewSourceFile;
 
-struct msCVGenerateDebugInfoDesc {
+struct cviewGenerateDebugInfoDesc {
 	coffString obj_name; // path to the obj file. NOTE: path separators must be backslashes!!
 
-	msCVSourceFile* files;
+	cviewSourceFile* files;
 	u32 files_count;
 
-	msCVFunction* functions;
+	cviewFunction* functions;
 	u32 functions_count;
 
-	msCVType* types;
+	cviewType* types;
 	u32 types_count;
 
 	// the pdata section will have relocations that reference the xdata section,
@@ -136,7 +136,7 @@ struct msCVGenerateDebugInfoDesc {
 extern "C" {
 #endif
 
-void mscv_generate_debug_info(msCVGenerateDebugInfoDesc* desc, fAllocator* alc);
+void codeview_generate_debug_info(cviewGenerateDebugInfoDesc* desc, fAllocator* alc);
 
 #ifdef __cplusplus
 }

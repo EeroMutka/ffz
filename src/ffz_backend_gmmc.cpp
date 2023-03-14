@@ -32,12 +32,19 @@ struct DebugInfoLine {
 	u32 line_number;
 };
 
+struct DebugInfoLocal {
+	coffString name;
+	gmmcOpIdx local;
+	u32 type_idx;
+};
+
 struct ProcInfo {
 	gmmcProc* gmmc_proc;
 	ffzType* type;
-	u32 parser_idx;
+	ffzNode* node;
 	
-	fArray(DebugInfoLine) debug_info_lines;
+	fArray(DebugInfoLine) dbginfo_lines; // we wouldn't need this if we could compile one procedure at a time with gmmc_asm_x64
+	fArray(DebugInfoLocal) dbginfo_locals; // we wouldn't need this if we could compile one procedure at a time with gmmc_asm_x64
 };
 
 struct Gen {
@@ -59,7 +66,9 @@ struct Gen {
 	fMap64(ProcInfo*) proc_from_hash;
 	fMap64(Value) value_from_definition;
 	
-	fArray(msCVSourceFile) cv_file_from_parser_idx;
+	// debug info
+	fArray(cviewType) cv_types;
+	fArray(cviewSourceFile) cv_file_from_parser_idx;
 };
 
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
@@ -157,6 +166,10 @@ static bool has_big_return(ffzType* proc_type) {
 	return proc_type->Proc.out_param && proc_type->Proc.out_param->type->size > 8; // :BigReturn
 }
 
+static void set_dbginfo_loc(Gen* g, gmmcOpIdx op, u32 line_num) {
+	f_array_push(&g->proc_info->dbginfo_lines, DebugInfoLine{ op, line_num });
+}
+
 static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	auto insertion = f_map64_insert(&g->proc_from_hash, ffz_hash_node_inst(inst), (ProcInfo*)0, fMapInsert_DoNotOverride);
 	if (!insertion.added) return (*insertion._unstable_ptr)->gmmc_proc;
@@ -195,9 +208,10 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	
 	ProcInfo* proc_info = f_mem_clone(ProcInfo{}, g->alc);
 	proc_info->gmmc_proc = proc;
-	proc_info->parser_idx = inst.node->id.parser_id;
+	proc_info->node = inst.node;
 	proc_info->type = proc_type;
-	proc_info->debug_info_lines = f_array_make<DebugInfoLine>(g->alc);
+	proc_info->dbginfo_locals = f_array_make<DebugInfoLocal>(g->alc);
+	proc_info->dbginfo_lines = f_array_make<DebugInfoLine>(g->alc);
 
 	*insertion._unstable_ptr = proc_info;
 
@@ -246,7 +260,8 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	}
 	
 	if (!proc_type->Proc.out_param) { // automatically generate a return statement if the proc doesn't return a value
-		gmmc_op_return(g->bb, GMMC_REG_NONE);
+		gmmcOpIdx op = gmmc_op_return(g->bb, GMMC_REG_NONE);
+		set_dbginfo_loc(g, op, inst.node->loc.end.line_num);
 	}
 
 	g->proc_info = proc_info_before;
@@ -396,17 +411,13 @@ static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset
 	}
 }
 
-static void gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* type) {
+static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* type) {
 	if (type->size > 8) {
-		gmmc_op_memmove(g->bb, addr, value, gmmc_op_i32(g->bb, type->size));
+		return gmmc_op_memmove(g->bb, addr, value, gmmc_op_i32(g->bb, type->size));
 	}
 	else {
-		gmmc_op_store(g->bb, addr, value);
+		return gmmc_op_store(g->bb, addr, value);
 	}
-}
-
-static void set_debug_info_loc(Gen* g, gmmcOpIdx op, u32 line_num) {
-	f_array_push(&g->proc_info->debug_info_lines, DebugInfoLine{ op, line_num });
 }
 
 static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
@@ -792,6 +803,70 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 static bool node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
 
+static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
+	cviewType cv_type = {};
+	switch (type->tag) {
+	case ffzTypeTag_Bool: {
+		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
+		cv_type.size = 1;
+	} break;
+
+	case ffzTypeTag_Raw: {
+		F_BP; // TODO
+	} break;
+	case ffzTypeTag_Proc: {
+		F_BP; // TODO
+	} break;
+	case ffzTypeTag_Pointer: {
+		cv_type.tag = cviewTypeTag_Pointer;
+		cv_type.Pointer.type_idx = get_debuginfo_type(g, type->Pointer.pointer_to);
+	} break;
+
+	case ffzTypeTag_DefaultSint: // fallthrough
+	case ffzTypeTag_Sint: {
+		cv_type.tag = cviewTypeTag_Int;
+		cv_type.size = type->size;
+	} break;
+
+	case ffzTypeTag_DefaultUint: // fallthrough
+	case ffzTypeTag_Uint: {
+		cv_type.tag = cviewTypeTag_UnsignedInt;
+		cv_type.size = type->size;
+	} break;
+	//case ffzTypeTag_Float: {} break;
+	//case ffzTypeTag_Proc: {} break;
+
+	case ffzTypeTag_Slice: // fallthrough
+	case ffzTypeTag_String: // fallthrough
+	case ffzTypeTag_Record: {
+		F_BP; // TODO
+	} break;
+
+		//case ffzTypeTag_Enum: {} break;
+	case ffzTypeTag_FixedArray: {
+		F_BP; // TODO: for real!!
+		/*
+		fArray(TB_DebugType*) tb_fields = f_array_make<TB_DebugType*>(g->alc);
+		TB_DebugType* elem_type_tb = get_tb_debug_type(g, type->FixedArray.elem_type);
+
+		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
+			const char* name = f_str_to_cstr(f_str_format(g->alc, "[%u]", i), g->alc);
+			TB_DebugType* t = tb_debug_create_field(g->tb, elem_type_tb, name, i * type->FixedArray.elem_type->size);
+			f_array_push(&tb_fields, t);
+		}
+
+		TB_DebugType* out = tb_debug_create_struct(g->tb, make_name(g));
+		tb_debug_complete_record(out, tb_fields.data, tb_fields.len, type->size, type->align);
+		return out;*/
+	} break;
+
+	default: F_BP;
+	}
+
+	// TODO: deduplicate types?
+	return (u32)f_array_push(&g->cv_types, cv_type);
+}
+
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	
 	if (g->proc) {
@@ -804,6 +879,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		}
 	}
 	
+	gmmcOpIdx first_op = 0;
+
 	switch (inst.node->kind) {
 		
 	case ffzNodeKind_Declare: {
@@ -825,7 +902,14 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 			else {
 				gmmcOpIdx rhs_value = gen_expr(g, rhs);
 				val.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
-				gen_store(g, val.local_addr, rhs_value, checked.type);
+
+				DebugInfoLocal dbginfo_local;
+				dbginfo_local.local = val.local_addr;
+				dbginfo_local.name = definition.node->Identifier.name;
+				dbginfo_local.type_idx = get_debuginfo_type(g, checked.type);
+				f_array_push(&g->proc_info->dbginfo_locals, dbginfo_local);
+
+				first_op = gen_store(g, val.local_addr, rhs_value, checked.type);
 			}
 			f_map64_insert(&g->value_from_definition, ffz_hash_node_inst(definition), val);
 		}
@@ -846,7 +930,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		gmmcOpIdx lhs_addr = gen_expr(g, lhs, true);
 		
 		gmmcOpIdx rhs_value = gen_expr(g, rhs);
-		gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs));
+		first_op = gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs));
 	} break;
 
 	case ffzNodeKind_Scope: {
@@ -913,8 +997,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		//if (inst.node->kind == ffzNodeKind_Keyword) { // debugbreak()
 		//}
 
-		gmmcOpIdx op = gmmc_op_debugbreak(g->bb);
-		set_debug_info_loc(g, op, inst.node->loc.start.line_num);
+		first_op = gmmc_op_debugbreak(g->bb);
 	} break;
 
 	case ffzNodeKind_Return: {
@@ -933,18 +1016,25 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 			}
 		}
 
-		gmmc_op_return(g->bb, val);
+		first_op = gmmc_op_return(g->bb, val);
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: {
-		gen_call(g, inst);
+		first_op = gen_call(g, inst);
 	} break;
 
 	default: F_BP;
 	}
+
+	if (first_op) {
+		set_dbginfo_loc(g, first_op, inst.node->loc.start.line_num);
+	}
 }
 
-static void build_x64(Gen* g, fString build_dir) {
+// TODO: command-line option for console/no console
+const bool BUILD_WITH_CONSOLE = true;
+
+static bool build_x64(Gen* g, fString build_dir) {
 	gmmcAsmModule* asm_module = gmmc_asm_build_x64(g->gmmc);
 
 	// Add codeview debug info to the object file
@@ -1009,54 +1099,74 @@ static void build_x64(Gen* g, fString build_dir) {
 		f_array_push(&symbols, sym);
 	}
 
-	fArray(msCVFunction) cv_functions = f_array_make_cap<msCVFunction>(g->proc_from_hash.alive_count, g->alc);
+	fArray(cviewFunction) cv_functions = f_array_make_cap<cviewFunction>(g->proc_from_hash.alive_count, g->alc);
 
 	ProcInfo** _proc_info;
 	for f_map64_each_raw(&g->proc_from_hash, proc_hash, (void**)&_proc_info) {
 		ProcInfo* proc_info = *_proc_info;
 		gmmcProc* proc = proc_info->gmmc_proc;
 
+		u32 start_offset = gmmc_asm_proc_get_start_offset(asm_module, proc);
+
 		coffSymbol sym = {};
 		sym.name = proc->sym.name;
 		sym.type = 0x20;
 		sym.section_number = SectionNum_Code;
-		sym.value = gmmc_asm_get_proc_start_offset(asm_module, proc);
+		sym.value = start_offset;
 		sym.external = true;
 		u32 sym_idx = (u32)f_array_push(&symbols, sym);
 
-		msCVFunction cv_func = {};
+		cviewFunction cv_func = {};
 		cv_func.name = proc->sym.name;
 		cv_func.sym_index = sym_idx;
 		cv_func.section_sym_index = SectionNum_Code - 1;
-		cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_get_proc_prologue_size(asm_module, proc);
-		cv_func.stack_frame_size = gmmc_asm_get_proc_stack_frame_size(asm_module, proc);
-		cv_func.file_idx = proc_info->parser_idx;
+		cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prologue_size(asm_module, proc);
+		cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
+		cv_func.file_idx = proc_info->node->id.parser_id;
 		
-		fSlice(msCVLine) lines = f_make_slice_garbage<msCVLine>(proc_info->debug_info_lines.len, g->alc);
+		fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->alc);
+		for (uint i = 0; i < proc_info->dbginfo_locals.len; i++) {
+			DebugInfoLocal it = proc_info->dbginfo_locals[i];
+			cviewLocal local;
+			local.name = it.name;
+			local.rsp_rel_offset = gmmc_asm_local_get_frame_rel_offset(asm_module, proc, it.local) + cv_func.stack_frame_size;
+			local.type_idx = it.type_idx;
+			f_array_push(&locals, local);
+		}
+		
+		cv_func.block.locals = locals.data;
+		cv_func.block.locals_count = (u32)locals.len;
+		
+		fArray(cviewLine) lines = f_array_make_cap<cviewLine>(proc_info->dbginfo_lines.len + 1, g->alc);
+		f_array_push(&lines, cviewLine{proc_info->node->loc.start.line_num, start_offset});
 
-		for (uint i = 0; i < proc_info->debug_info_lines.len; i++) {
-			DebugInfoLine it = proc_info->debug_info_lines[i];
-			lines[i].offset = gmmc_asm_get_instruction_offset(asm_module, proc, it.op);
-			lines[i].line_num = it.line_number;
+		for (uint i = 0; i < proc_info->dbginfo_lines.len; i++) {
+			DebugInfoLine it = proc_info->dbginfo_lines[i];
+			cviewLine line;
+			line.line_num = it.line_number;
+			line.offset = gmmc_asm_instruction_get_offset(asm_module, proc, it.op);
+			f_array_push(&lines, line);
 		}
 		
 		cv_func.lines = lines.data;
 		cv_func.lines_count = (u32)lines.len;
-		cv_func.block.start_offset = sym.value;
-		cv_func.block.end_offset = gmmc_asm_get_proc_end_offset(asm_module, proc);
+		cv_func.block.start_offset = start_offset;
+		cv_func.block.end_offset = gmmc_asm_proc_get_end_offset(asm_module, proc);
 		f_array_push(&cv_functions, cv_func);
 	}
 
 	fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("\\a.obj"));
 
-	msCVGenerateDebugInfoDesc cv_desc = {};
+	cviewGenerateDebugInfoDesc cv_desc = {};
 	cv_desc.obj_name = obj_file_path;
 	cv_desc.files = g->cv_file_from_parser_idx.data;
 	cv_desc.files_count = (u32)g->cv_file_from_parser_idx.len;
 	cv_desc.functions = cv_functions.data;
 	cv_desc.functions_count = (u32)cv_functions.len;
 	cv_desc.xdata_section_sym_index = SectionNum_xdata - 1;
-	mscv_generate_debug_info(&cv_desc, g->alc);
+	cv_desc.types = g->cv_types.data;
+	cv_desc.types_count = (u32)g->cv_types.len;
+	codeview_generate_debug_info(&cv_desc, g->alc);
 
 	sections[SectionNum_xdata-1].data = cv_desc.result.xdata;
 
@@ -1084,7 +1194,115 @@ static void build_x64(Gen* g, fString build_dir) {
 
 		}, & obj_file_path, &coff_desc);
 
-	printf("TODO: linker\n");
+
+	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
+	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, g->alc); // contains cl.exe, link.exe
+	fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, g->alc); // contains <string.h>, etc
+	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, g->alc); // contains kernel32.lib, etc
+	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, g->alc); // contains libucrt.lib, etc
+	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, g->alc); // contains MSVCRT.lib etc
+	fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, g->alc); // contains vcruntime.h
+
+	fArray(fString) ms_linker_args = f_array_make<fString>(g->alc);
+	f_array_push(&ms_linker_args, F_STR_T_JOIN(msvc_directory, F_LIT("\\link.exe")));
+	f_array_push(&ms_linker_args, obj_file_path);
+
+	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
+	f_array_push(&ms_linker_args, F_LIT("/ENTRY:ffz_entry"));
+	f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
+	f_array_push(&ms_linker_args, F_LIT("/NODEFAULTLIB")); // disable CRT
+	f_array_push(&ms_linker_args, F_LIT("/DEBUG"));
+	
+	for (uint i = 0; i < g->project->link_libraries.len; i++) {
+		f_array_push(&ms_linker_args, g->project->link_libraries[i]);
+	}
+	for (uint i = 0; i < g->project->link_system_libraries.len; i++) {
+		f_array_push(&ms_linker_args, g->project->link_system_libraries[i]);
+	}
+
+	// specify reserve and commit for the stack.
+	f_array_push(&ms_linker_args, F_LIT("/STACK:0x200000,200000"));
+
+	printf("Running link.exe: ");
+	for (uint i = 0; i < ms_linker_args.len; i++) {
+		printf("\"%.*s\" ", F_STRF(ms_linker_args[i]));
+	}
+	printf("\n");
+
+	u32 exit_code;
+	if (!f_os_run_command(ms_linker_args.slice, build_dir, &exit_code)) {
+		printf("link.exe couldn't be found! Have you installed visual studio?\n");
+		return false;
+	}
+	return exit_code == 0;
+}
+
+static bool build_c(Gen* g, fString build_dir) {
+	fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
+	FILE* c_file = fopen(f_str_t_to_cstr(c_file_path), "wb");
+	if (!c_file) {
+		printf("Failed writing temporary C file to disk!\n");
+		return false;
+	}
+
+	gmmc_module_print(c_file, g->gmmc);
+
+	fclose(c_file);
+
+	fArray(fString) clang_args = f_array_make<fString>(f_temp_alc());
+
+	f_array_push(&clang_args, F_LIT("clang"));
+
+	if (true) { // with debug info?
+		f_array_push(&clang_args, F_LIT("-gcodeview"));
+		f_array_push(&clang_args, F_LIT("--debug"));
+	}
+	else {
+		f_array_push(&clang_args, F_LIT("-O1"));
+	}
+
+	// Use the LLD linker
+	//f_array_push(&clang_args, F_LIT("-fuse-ld=lld"));
+
+	f_array_push(&clang_args, F_LIT("-I../include"));
+	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
+	f_array_push(&clang_args, c_file_path);
+
+	fArray(u8) clang_linker_args = f_array_make<u8>(f_temp_alc());
+	f_str_printf(&clang_linker_args, "-Wl"); // pass comma-separated argument list to the linker
+	f_str_printf(&clang_linker_args, ",/SUBSYSTEM:%s", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
+	f_str_printf(&clang_linker_args, ",/ENTRY:ffz_entry,");
+	f_str_printf(&clang_linker_args, ",/INCREMENTAL:NO");
+	f_str_printf(&clang_linker_args, ",/NODEFAULTLIB"); // disable CRT
+	//f_str_printf(&linker_args, ",libucrt.lib");
+
+	for (uint i = 0; i < g->project->link_libraries.len; i++) {
+		f_str_printf(&clang_linker_args, ",%.*s", F_STRF(g->project->link_libraries[i]));
+	}
+	for (uint i = 0; i < g->project->link_system_libraries.len; i++) {
+		f_str_printf(&clang_linker_args, ",%.*s", F_STRF(g->project->link_system_libraries[i]));
+	}
+
+	// https://metricpanda.com/rival-fortress-update-45-dealing-with-__chkstk-__chkstk_ms-when-cross-compiling-for-windows/
+
+	// specify reserve and commit for the stack. We have to use -Xlinker for this, because of the comma ambiguity...
+	f_array_push(&clang_args, F_LIT("-Xlinker"));
+	f_array_push(&clang_args, F_LIT("/STACK:0x200000,200000"));
+
+	f_array_push(&clang_args, clang_linker_args.slice);
+
+	printf("Running clang: ");
+	for (uint i = 0; i < clang_args.len; i++) {
+		printf("\"%.*s\" ", F_STRF(clang_args[i]));
+	}
+	printf("\n");
+
+	u32 exit_code;
+	if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
+		printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");
+		return false;
+	}
+	return exit_code == 0;
 }
 
 bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
@@ -1103,12 +1321,13 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 	//g.tb_file_from_parser_idx = f_array_make<TB_FileID>(g.alc);
 	g.value_from_definition = f_map64_make<Value>(g.alc);
 	g.proc_from_hash = f_map64_make<ProcInfo*>(g.alc);
-	g.cv_file_from_parser_idx = f_array_make<msCVSourceFile>(g.alc);
+	g.cv_file_from_parser_idx = f_array_make<cviewSourceFile>(g.alc);
+	g.cv_types = f_array_make<cviewType>(g.alc);
 
 	for (u32 i = 0; i < project->parsers.len; i++) {
 		ffzParser* parser = project->parsers[i];
 
-		msCVSourceFile file = {};
+		cviewSourceFile file = {};
 		file.filepath = parser->source_code_filepath;
 		
 		SHA256_CTX sha256;
@@ -1133,80 +1352,11 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 
 	bool x64 = true;
 	if (x64) {
-		build_x64(&g, build_dir);
+		return build_x64(&g, build_dir);
 	}
 	else {
-		// compile to C
-		fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
-		FILE* c_file = fopen(f_str_t_to_cstr(c_file_path), "wb");
-		if (!c_file) {
-			printf("Failed writing temporary C file to disk!\n");
-			return false;
-		}
-
-		gmmc_module_print(c_file, gmmc);
-
-		fclose(c_file);
-
-		fArray(fString) clang_args = f_array_make<fString>(f_temp_alc());
-
-		f_array_push(&clang_args, F_LIT("clang"));
-
-		if (true) { // with debug info?
-			f_array_push(&clang_args, F_LIT("-gcodeview"));
-			f_array_push(&clang_args, F_LIT("--debug"));
-		}
-		else {
-			f_array_push(&clang_args, F_LIT("-O1"));
-		}
-
-		// Use the LLD linker
-		//f_array_push(&clang_args, F_LIT("-fuse-ld=lld"));
-
-		f_array_push(&clang_args, F_LIT("-I../include"));
-		f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
-		f_array_push(&clang_args, c_file_path);
-
-		// TODO: command-line option for console/no console
-		bool console = true;
-
-		fArray(u8) linker_args = f_array_make<u8>(f_temp_alc());
-		f_str_printf(&linker_args, "-Wl"); // pass comma-separated argument list to the linker
-		f_str_printf(&linker_args, ",/SUBSYSTEM:%s", console ? "CONSOLE" : "WINDOWS");
-		f_str_printf(&linker_args, ",/ENTRY:ffz_entry,");
-		f_str_printf(&linker_args, ",/INCREMENTAL:NO");
-		f_str_printf(&linker_args, ",/NODEFAULTLIB"); // disable CRT
-		//f_str_printf(&linker_args, ",libucrt.lib");
-
-		for (uint i = 0; i < project->link_libraries.len; i++) {
-			f_str_printf(&linker_args, ",%.*s", F_STRF(project->link_libraries[i]));
-		}
-		for (uint i = 0; i < project->link_system_libraries.len; i++) {
-			f_str_printf(&linker_args, ",%.*s", F_STRF(project->link_system_libraries[i]));
-		}
-
-		// https://metricpanda.com/rival-fortress-update-45-dealing-with-__chkstk-__chkstk_ms-when-cross-compiling-for-windows/
-
-		// specify reserve and commit for the stack. We have to use -Xlinker for this, because of the comma ambiguity...
-		f_array_push(&clang_args, F_LIT("-Xlinker"));
-		f_array_push(&clang_args, F_LIT("/STACK:0x200000,200000"));
-
-		f_array_push(&clang_args, linker_args.slice);
-
-		printf("Running clang: ");
-		for (uint i = 0; i < clang_args.len; i++) {
-			printf("\"%.*s\" ", F_STRF(clang_args[i]));
-		}
-		printf("\n");
-
-		u32 exit_code;
-		if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
-			printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");
-			return false;
-		}
-		if (exit_code != 0) return false;
-
-		f_temp_set_mark(temp_base);
+		return build_c(&g, build_dir);
+		//f_temp_set_mark(temp_base);
 	}
 
 	return true;

@@ -49,13 +49,13 @@ static void CodeviewPatchRecordLength(fArray(u8)* builder, uint offset_of_len_fi
 	f_slice_copy(f_slice(*builder, offset_of_len_field, offset_of_len_field + 2), F_AS_BYTES(len));
 }
 
-static void GenerateXDataAndPDataSections(fArray(u8)* pdata_builder, fArray(coffRelocation)* pdata_relocs, fArray(u8)* xdata_builder, msCVGenerateDebugInfoDesc* desc) {
+static void GenerateXDataAndPDataSections(fArray(u8)* pdata_builder, fArray(coffRelocation)* pdata_relocs, fArray(u8)* xdata_builder, cviewGenerateDebugInfoDesc* desc) {
 	F_ASSERT(xdata_builder->len == 0);
 	F_ASSERT(pdata_builder->len == 0);
 	F_ASSERT(pdata_relocs->len == 0);
 
 	for (u32 i = 0; i < desc->functions_count; i++) {
-		msCVFunction& fn = desc->functions[i];
+		cviewFunction& fn = desc->functions[i];
 
 		u32 unwind_info_address = (u32)xdata_builder->len;
 
@@ -147,12 +147,12 @@ struct GenerateDebugSectionContext {
 	fArray(coffRelocation)* debugS_relocs;
 	fArray(u8)* debugT_builder;
 
-	msCVGenerateDebugInfoDesc* desc;
+	cviewGenerateDebugInfoDesc* desc;
 };
 
-static void GenerateDebugSection_AddLocals(GenerateDebugSectionContext* ctx, fSlice(u32) to_codeview_type_idx, msCVFunction* fn, msCVBlock* parent) {
+static void GenerateDebugSection_AddLocals(GenerateDebugSectionContext* ctx, fSlice(u32) to_codeview_type_idx, cviewFunction* fn, cviewBlock* parent) {
 	for (u32 i = 0; i < parent->locals_count; i++) {
-		msCVLocal& local = parent->locals[i];
+		cviewLocal& local = parent->locals[i];
 		VALIDATE(local.name.len < F_U16_MAX);
 
 		REGREL32 sym = {};
@@ -172,7 +172,7 @@ static void GenerateDebugSection_AddLocals(GenerateDebugSectionContext* ctx, fSl
 	}
 
 	for (u32 i = 0; i < parent->child_blocks_count; i++) {
-		msCVBlock* block = &parent->child_blocks[i];
+		cviewBlock* block = &parent->child_blocks[i];
 		{
 			BLOCKSYM32 sym = {};
 			sym.reclen = sizeof(BLOCKSYM32) - 2;
@@ -274,7 +274,7 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 {
 	if (to_codeview_type_idx[index] != 0) return;
 
-	msCVType& type = ctx.desc->types[index];
+	cviewType& type = ctx.desc->types[index];
 
 	u32 t = 0;
 
@@ -283,7 +283,7 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 		unsigned short leaf;
 	};
 
-	if (type.tag == msCVTypeTag_Pointer) {
+	if (type.tag == cviewTypeTag_Pointer) {
 		/*u16 len = 0; // filled in later
 		s64 base = ctx.debugT_builder->len;
 		f_array_push_n(ctx.debugT_builder, F_AS_BYTES(len));
@@ -291,7 +291,7 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 		CV_Pointer cv_pointer = {};
 		cv_pointer.u.leaf = LF_POINTER;
 
-		if (ctx.desc->types[type.Pointer.type_idx].tag == msCVTypeTag_Struct) {
+		if (ctx.desc->types[type.Pointer.type_idx].tag == cviewTypeTag_Struct) {
 			// Use the forward reference
 			cv_pointer.u.utype = struct_forward_ref_idx[type.Pointer.type_idx];
 		}
@@ -311,21 +311,21 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 		t = (*next_custom_type_idx)++;*/
 		t = T_UINT8;
 	}
-	else if (type.tag == msCVTypeTag_Int) {
+	else if (type.tag == cviewTypeTag_Int) {
 		if (type.size == 1) t = T_INT1;
 		else if (type.size == 2) t = T_INT2;
 		else if (type.size == 4) t = T_INT4;
 		else if (type.size == 8) t = T_INT8;
 		else VALIDATE(false);
 	}
-	else if (type.tag == msCVTypeTag_UnsignedInt) {
+	else if (type.tag == cviewTypeTag_UnsignedInt) {
 		if (type.size == 1) t = T_UINT1;
 		else if (type.size == 2) t = T_UINT2;
 		else if (type.size == 4) t = T_UINT4;
 		else if (type.size == 8) t = T_UINT8;
 		else VALIDATE(false);
 	}
-	else if (type.tag == msCVTypeTag_Enum) {
+	else if (type.tag == cviewTypeTag_Enum) {
 		// LF_FIELDLIST
 		u32 fieldlist_type_idx = 0;
 		{
@@ -337,7 +337,7 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 
 			for (uint field_i = 0; field_i < type.Enum.fields_count; field_i++) {
 				F_ASSERT(F_HAS_ALIGNMENT_POW2(ctx.debugT_builder->len, 4));
-				msCVEnumField& field = type.Enum.fields[field_i];
+				cviewEnumField& field = type.Enum.fields[field_i];
 				//F_ASSERT(IS_POWER_OF_2(ctx.debugT_builder->len));
 				struct CodeviewEnumField { // lfEnumerate
 					unsigned short  leaf;       // LF_ENUMERATE
@@ -387,12 +387,12 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 		//t = T_UINT8;
 		t = (*next_custom_type_idx)++;
 	}
-	else if (type.tag == msCVTypeTag_Struct) {
+	else if (type.tag == cviewTypeTag_Struct) {
 		// see `strForFieldList` in the microsoft pdb dump
 
 		// first generate the member types
 		for (u32 member_i = 0; member_i < type.Struct.fields_count; member_i++) {
-			msCVStructMember& member = type.Struct.fields[member_i];
+			cviewStructMember& member = type.Struct.fields[member_i];
 			GenerateCVType(ctx, struct_forward_ref_idx, to_codeview_type_idx, next_custom_type_idx, member.type_idx);
 		}
 
@@ -407,7 +407,7 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_fieldlist));
 
 			for (u32 member_i = 0; member_i < type.Struct.fields_count; member_i++) {
-				msCVStructMember& member = type.Struct.fields[member_i];
+				cviewStructMember& member = type.Struct.fields[member_i];
 				struct _lfMember { // lfMember
 					unsigned short  leaf;           // LF_MEMBER
 
@@ -490,8 +490,8 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 	// First create forward references for all the struct types
 
 	for (u32 i = 0; i < ctx.desc->types_count; i++) {
-		msCVType& type = ctx.desc->types[i];
-		if (type.tag == msCVTypeTag_Struct) {
+		cviewType& type = ctx.desc->types[i];
+		if (type.tag == cviewTypeTag_Struct) {
 			uint base = ctx.debugT_builder->len;
 			CV_Structure cv_structure = {};
 			const int x = sizeof(CV_Structure);
@@ -571,7 +571,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 	const uint size_of_file_checksum_entry = 40;
 
 	for (u32 i = 0; i < ctx.desc->functions_count; i++) {
-		msCVFunction& fn = ctx.desc->functions[i];
+		cviewFunction& fn = ctx.desc->functions[i];
 
 		// *** SYMBOLS
 		{
@@ -724,7 +724,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 				// add the lines
 
 				for (u32 i = 0; i < fn.lines_count; i++) {
-					msCVLine& line = fn.lines[i];
+					cviewLine& line = fn.lines[i];
 
 					CV_Line_t l = {};
 					l.linenumStart = line.line_num;
@@ -792,7 +792,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 		u32 subsection_base = (u32)ctx.debugS_builder->len;
 
 		for (uint i = 0; i < ctx.desc->files_count; i++) {
-			msCVSourceFile* file = &ctx.desc->files[i];
+			cviewSourceFile* file = &ctx.desc->files[i];
 
 			uint len_before = ctx.debugS_builder->len;
 
@@ -857,7 +857,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 	}
 }
 
-extern "C" void mscv_generate_debug_info(msCVGenerateDebugInfoDesc* desc, fAllocator* alc) {
+extern "C" void codeview_generate_debug_info(cviewGenerateDebugInfoDesc* desc, fAllocator* alc) {
 	// See DumpObjFileSections from the microsoft's pdb source code dump.
 
 	fArray(u8) debugS_builder = f_array_make_cap<u8>(1024, alc);

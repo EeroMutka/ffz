@@ -39,7 +39,7 @@ typedef struct { uint8_t* ptr; uint64_t len; } gmmcString;
 #define gmmcString gmmcString
 #endif
 
-typedef uint32_t gmmcOpIdx;
+typedef uint32_t gmmcOpIdx; // Each procedure has its own array of ops, where 1 is the first valid index.
 typedef uint32_t gmmcProcIdx;
 typedef u32 gmmcBasicBlockIdx;
 typedef struct gmmcModule gmmcModule;
@@ -412,12 +412,15 @@ GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m); // TODO: pass a separ
 //GMMC_API void gmmc_asm_export_x64(fString obj_filepath, gmmcAsmModule* m);
 
 // returns the offset relative to the beginning of the code-section.
-GMMC_API u32 gmmc_asm_get_instruction_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op);
-GMMC_API u32 gmmc_asm_get_proc_start_offset(gmmcAsmModule* m, gmmcProc* proc);
-GMMC_API u32 gmmc_asm_get_proc_end_offset(gmmcAsmModule* m, gmmcProc* proc);
+GMMC_API u32 gmmc_asm_instruction_get_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op);
+GMMC_API u32 gmmc_asm_proc_get_start_offset(gmmcAsmModule* m, gmmcProc* proc);
+GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc);
 
-GMMC_API u32 gmmc_asm_get_proc_prologue_size(gmmcAsmModule* m, gmmcProc* proc);
-GMMC_API u32 gmmc_asm_get_proc_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc);
+// NOTE: always returns a negative value, since the stack grows downwards
+GMMC_API s32 gmmc_asm_local_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx local);
+
+GMMC_API u32 gmmc_asm_proc_get_prologue_size(gmmcAsmModule* m, gmmcProc* proc);
+GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc);
 
 GMMC_API gmmcString gmmc_asm_get_code_section(gmmcAsmModule* m);
 
