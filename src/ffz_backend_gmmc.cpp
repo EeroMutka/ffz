@@ -815,7 +815,8 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 		F_BP; // TODO
 	} break;
 	case ffzTypeTag_Proc: {
-		F_BP; // TODO
+		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
+		cv_type.size = 8;
 	} break;
 	case ffzTypeTag_Pointer: {
 		cv_type.tag = cviewTypeTag_Pointer;
@@ -1039,6 +1040,8 @@ enum SectionNum {
 	SectionNum_Code = 1,
 	SectionNum_Data,
 	SectionNum_RData,
+	
+	// Optional, required for debug info
 	SectionNum_xdata,
 	SectionNum_pdata,
 	SectionNum_debugS,
@@ -1091,43 +1094,47 @@ static void build_x64_add_section(Gen* g, gmmcAsmModule* asm_module, fArray(coff
 static bool build_x64(Gen* g, fString build_dir) {
 	gmmcAsmModule* asm_module = gmmc_asm_build_x64(g->gmmc);
 
+	const bool INCLUDE_DEBUG_INFO = true;
+
 	// TODO: have a strict temp scope here
 	
 	// Add codeview debug info to the object file
 
 	fArray(coffSection) sections = f_array_make<coffSection>(g->alc);
 	fArray(coffSymbol) symbols = f_array_make<coffSymbol>(g->alc);
-
+	
 	build_x64_add_section(g, asm_module, &sections, gmmcSection_Code, F_LIT(".code"), IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE);
 	build_x64_add_section(g, asm_module, &sections, gmmcSection_Data, F_LIT(".data"), IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_WRITE);
 	build_x64_add_section(g, asm_module, &sections, gmmcSection_RData, F_LIT(".rdata"), IMAGE_SCN_CNT_INITIALIZED_DATA);
 	
-	{
-		coffSection sect = {};
-		sect.name = F_LIT(".xdata");
-		sect.Characteristics = 0x40300040;
-		f_array_push(&sections, sect);
-	}
+	if (INCLUDE_DEBUG_INFO) {
+		{
+			coffSection sect = {};
+			sect.name = F_LIT(".xdata");
+			sect.Characteristics = 0x40300040;
+			f_array_push(&sections, sect);
+		}
 
-	{
-		coffSection sect = {};
-		sect.name = F_LIT(".pdata");
-		sect.Characteristics = 0x40300040;
-		f_array_push(&sections, sect);
-	}
-	
-	{
-		coffSection sect = {};
-		sect.name = F_LIT(".debug$S");
-		sect.Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_ALIGN_1BYTES | IMAGE_SCN_MEM_READ;
-		f_array_push(&sections, sect);
-	}
+		{
+			coffSection sect = {};
+			sect.name = F_LIT(".pdata");
+			sect.Characteristics = 0x40300040;
+			f_array_push(&sections, sect);
+		}
 
-	{
-		coffSection sect = {};
-		sect.name = F_LIT(".debug$T");
-		sect.Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_ALIGN_1BYTES | IMAGE_SCN_MEM_READ;
-		f_array_push(&sections, sect);
+		{
+			coffSection sect = {};
+			sect.name = F_LIT(".debug$S");
+			sect.Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_ALIGN_1BYTES | IMAGE_SCN_MEM_READ;
+			f_array_push(&sections, sect);
+		}
+
+		{
+			coffSection sect = {};
+			sect.name = F_LIT(".debug$T");
+			sect.Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_ALIGN_1BYTES | IMAGE_SCN_MEM_READ;
+			f_array_push(&sections, sect);
+		}
 	}
 
 	for (u16 i = 0; i < sections.len; i++) { // add sections as symbols
@@ -1155,69 +1162,73 @@ static bool build_x64(Gen* g, fString build_dir) {
 		sym.external = true;
 		u32 sym_idx = (u32)f_array_push(&symbols, sym);
 
-		cviewFunction cv_func = {};
-		cv_func.name = proc->sym.name;
-		cv_func.sym_index = sym_idx;
-		cv_func.section_sym_index = build_x64_section_get_sym_idx(SectionNum_Code);
-		cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prologue_size(asm_module, proc);
-		cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
-		cv_func.file_idx = proc_info->node->id.parser_id;
-		
-		fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->alc);
-		for (uint i = 0; i < proc_info->dbginfo_locals.len; i++) {
-			DebugInfoLocal it = proc_info->dbginfo_locals[i];
-			cviewLocal local;
-			local.name = it.name;
-			local.rsp_rel_offset = gmmc_asm_local_get_frame_rel_offset(asm_module, proc, it.local) + cv_func.stack_frame_size;
-			local.type_idx = it.type_idx;
-			f_array_push(&locals, local);
-		}
-		
-		cv_func.block.locals = locals.data;
-		cv_func.block.locals_count = (u32)locals.len;
-		
-		fArray(cviewLine) lines = f_array_make_cap<cviewLine>(proc_info->dbginfo_lines.len + 1, g->alc);
-		f_array_push(&lines, cviewLine{proc_info->node->loc.start.line_num, start_offset});
+		if (INCLUDE_DEBUG_INFO) {
+			cviewFunction cv_func = {};
+			cv_func.name = proc->sym.name;
+			cv_func.sym_index = sym_idx;
+			cv_func.section_sym_index = build_x64_section_get_sym_idx(SectionNum_Code);
+			cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prologue_size(asm_module, proc);
+			cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
+			cv_func.file_idx = proc_info->node->id.parser_id;
 
-		for (uint i = 0; i < proc_info->dbginfo_lines.len; i++) {
-			DebugInfoLine it = proc_info->dbginfo_lines[i];
-			cviewLine line;
-			line.line_num = it.line_number;
-			line.offset = gmmc_asm_instruction_get_offset(asm_module, proc, it.op);
-			f_array_push(&lines, line);
+			fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->alc);
+			for (uint i = 0; i < proc_info->dbginfo_locals.len; i++) {
+				DebugInfoLocal it = proc_info->dbginfo_locals[i];
+				cviewLocal local;
+				local.name = it.name;
+				local.rsp_rel_offset = gmmc_asm_local_get_frame_rel_offset(asm_module, proc, it.local) + cv_func.stack_frame_size;
+				local.type_idx = it.type_idx;
+				f_array_push(&locals, local);
+			}
+
+			cv_func.block.locals = locals.data;
+			cv_func.block.locals_count = (u32)locals.len;
+
+			fArray(cviewLine) lines = f_array_make_cap<cviewLine>(proc_info->dbginfo_lines.len + 1, g->alc);
+			f_array_push(&lines, cviewLine{ proc_info->node->loc.start.line_num, start_offset });
+
+			for (uint i = 0; i < proc_info->dbginfo_lines.len; i++) {
+				DebugInfoLine it = proc_info->dbginfo_lines[i];
+				cviewLine line;
+				line.line_num = it.line_number;
+				line.offset = gmmc_asm_instruction_get_offset(asm_module, proc, it.op);
+				f_array_push(&lines, line);
+			}
+
+			cv_func.lines = lines.data;
+			cv_func.lines_count = (u32)lines.len;
+			cv_func.block.start_offset = start_offset;
+			cv_func.block.end_offset = gmmc_asm_proc_get_end_offset(asm_module, proc);
+			f_array_push(&cv_functions, cv_func);
 		}
-		
-		cv_func.lines = lines.data;
-		cv_func.lines_count = (u32)lines.len;
-		cv_func.block.start_offset = start_offset;
-		cv_func.block.end_offset = gmmc_asm_proc_get_end_offset(asm_module, proc);
-		f_array_push(&cv_functions, cv_func);
 	}
 
 	fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("\\a.obj"));
 
-	cviewGenerateDebugInfoDesc cv_desc = {};
-	cv_desc.obj_name = obj_file_path;
-	cv_desc.files = g->cv_file_from_parser_idx.data;
-	cv_desc.files_count = (u32)g->cv_file_from_parser_idx.len;
-	cv_desc.functions = cv_functions.data;
-	cv_desc.functions_count = (u32)cv_functions.len;
-	cv_desc.xdata_section_sym_index = build_x64_section_get_sym_idx(SectionNum_xdata);
-	cv_desc.types = g->cv_types.data;
-	cv_desc.types_count = (u32)g->cv_types.len;
-	codeview_generate_debug_info(&cv_desc, g->alc);
+	if (INCLUDE_DEBUG_INFO) {
+		cviewGenerateDebugInfoDesc cv_desc = {};
+		cv_desc.obj_name = obj_file_path;
+		cv_desc.files = g->cv_file_from_parser_idx.data;
+		cv_desc.files_count = (u32)g->cv_file_from_parser_idx.len;
+		cv_desc.functions = cv_functions.data;
+		cv_desc.functions_count = (u32)cv_functions.len;
+		cv_desc.xdata_section_sym_index = build_x64_section_get_sym_idx(SectionNum_xdata);
+		cv_desc.types = g->cv_types.data;
+		cv_desc.types_count = (u32)g->cv_types.len;
+		codeview_generate_debug_info(&cv_desc, g->alc);
 
-	sections[SectionNum_xdata-1].data = cv_desc.result.xdata;
+		sections[SectionNum_xdata - 1].data = cv_desc.result.xdata;
 
-	sections[SectionNum_pdata-1].data = cv_desc.result.pdata;
-	sections[SectionNum_pdata-1].relocations = cv_desc.result.pdata_relocs.data;
-	sections[SectionNum_pdata-1].relocations_count = (u32)cv_desc.result.pdata_relocs.len;
+		sections[SectionNum_pdata - 1].data = cv_desc.result.pdata;
+		sections[SectionNum_pdata - 1].relocations = cv_desc.result.pdata_relocs.data;
+		sections[SectionNum_pdata - 1].relocations_count = (u32)cv_desc.result.pdata_relocs.len;
 
-	sections[SectionNum_debugS-1].data = cv_desc.result.debugS;
-	sections[SectionNum_debugS-1].relocations = cv_desc.result.debugS_relocs.data;
-	sections[SectionNum_debugS-1].relocations_count = (int)cv_desc.result.debugS_relocs.len;
+		sections[SectionNum_debugS - 1].data = cv_desc.result.debugS;
+		sections[SectionNum_debugS - 1].relocations = cv_desc.result.debugS_relocs.data;
+		sections[SectionNum_debugS - 1].relocations_count = (int)cv_desc.result.debugS_relocs.len;
 
-	sections[SectionNum_debugT-1].data = cv_desc.result.debugT;
+		sections[SectionNum_debugT - 1].data = cv_desc.result.debugT;
+	}
 
 	coffDesc coff_desc = {};
 	coff_desc.sections = sections.data;
@@ -1284,7 +1295,7 @@ static bool build_c(Gen* g, fString build_dir) {
 		return false;
 	}
 
-	gmmc_module_print(c_file, g->gmmc);
+	gmmc_module_print_c(c_file, g->gmmc);
 
 	fclose(c_file);
 

@@ -218,10 +218,7 @@ typedef struct gmmcProc {
 
 	fSlice(gmmcOpIdx) params;
 	fArray(gmmcLocal) locals; // 0 is invalid!
-	//fArray(gmmcRegInfo) reg_infos;
-	//fSlice(u8) built_x64_instructions;
 } gmmcProc;
-
 
 typedef struct gmmcRelocation {
 	uint32_t offset;
@@ -286,8 +283,8 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 //GMMC_API void gmmc_proc_compile(gmmcProc* proc);
 //GMMC_API void gmmc_x64_export_module(FILE* output_obj_file, gmmcModule* m);
 
-GMMC_API void gmmc_module_print(FILE* b, gmmcModule* m);
-GMMC_API void gmmc_proc_print(FILE* b, gmmcProc* proc);
+GMMC_API void gmmc_module_print_c(FILE* b, gmmcModule* m);
+GMMC_API void gmmc_proc_print_c(FILE* b, gmmcProc* proc);
 
 inline gmmcSymbol* gmmc_proc_as_symbol(gmmcProc* proc) { return (gmmcSymbol*)proc; }
 inline gmmcSymbol* gmmc_global_as_symbol(gmmcGlobal* global) { return (gmmcSymbol*)global; }

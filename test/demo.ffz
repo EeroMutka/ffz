@@ -61,23 +61,16 @@
 
 // []  gmmcOpKind_addr_of_symbol,
 
-/*#kiwi: proc() {
-	dbgbreak
-	dbgbreak
-	dbgbreak
-}*/
-
-@*global
-my_global: u32(1050)
 
 #ffz_entry: proc() {
+	dbgbreak
+	
+	foo: kiwi
 	
 	dbgbreak
-	a: my_global
-	a = 50
-	
-	//kiwi()
-	
 	dbgbreak
+}
+
+#kiwi: proc() {
 	dbgbreak
 }

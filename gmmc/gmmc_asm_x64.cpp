@@ -32,6 +32,8 @@ struct gmmcAsmModule {
 	Section sections[gmmcSection_COUNT];
 	fSlice(gmmcAsmProc) procs;
 	fSlice(gmmcAsmGlobal) globals;
+
+	fArray(gmmcRelocation) code_section_late_fix_relocations;
 };
 
 GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection section) {
@@ -318,23 +320,15 @@ static GPR use_op_value_strict(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 			
 			// The relocation will be applied to the encoded immediate operand
 			u32 reloc_offset = (u32)code_section->data.len - 8;
-			u64* imm = (u64*)(code_section->data.data + reloc_offset);
+			
+			// In order to make a gmmcAsmRelocation, we need to know the offset of the symbol in its section.
+			// We cannot know it yet, because we haven't built all procedures yet (and thus don't know their offsets),
+			// so we need to defer this into a later stage.
 
-			if (sym->kind == gmmcSymbolKind_Extern) {
-				F_BP;
-			}
-			else if (sym->kind == gmmcSymbolKind_Global) {
-				gmmcGlobal* target = (gmmcGlobal*)sym;
-				
-				gmmcAsmRelocation reloc;
-				reloc.offset = reloc_offset;
-				reloc.target_section = target->section;
-				*imm = p->module->globals[target->self_idx].offset;
-				f_array_push(&p->module->sections[gmmcSection_Code].relocs, reloc);
-			}
-			else if (sym->kind == gmmcSymbolKind_Proc) {
-				F_BP;
-			}
+			gmmcRelocation late_reloc = {};
+			late_reloc.offset = reloc_offset;
+			late_reloc.target = sym;
+			f_array_push(&p->module->code_section_late_fix_relocations, late_reloc);
 		}
 		else if (gmmc_op_is_immediate(op->kind)) { // immediates aren't stored on the stack either.
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -651,7 +645,7 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc* proc) {
 	printf("---- generating proc: '%.*s' ----\n", F_STRF(proc->sym.name));
 	
-	gmmc_proc_print(stdout, proc);
+	gmmc_proc_print_c(stdout, proc);
 	printf("---\n");
 	
 	p->module = module_gen;
@@ -748,8 +742,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
 	gmmcAsmModule* gen = f_mem_clone(gmmcAsmModule{}, m->allocator);
 
-	//gen->sections = f_array_make<coffSection>(m->allocator);
-	//gen->symbols = f_array_make<coffSymbol>(m->allocator);
+	gen->code_section_late_fix_relocations = f_array_make<gmmcRelocation>(m->allocator);
 
 	for (uint i = 0; i < gmmcSection_COUNT; i++) {
 		gen->sections[i].data = f_array_make<u8>(m->allocator);
@@ -772,7 +765,13 @@ GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
 		f_array_push_n(&section->data, fSlice(u8){(u8*)global->data, global->size});
 	}
 
-	// add global relocations now that all globals have an offset assigned to them
+	// compile procedures
+	for (uint i = 0; i < m->procs.len; i++) {
+		gmmcProc* proc = m->procs[i];
+		gmmc_gen_proc(gen, &gen->procs[i], proc);
+	}
+	
+	// add relocations now that all globals and procedures have an offset assigned to them
 
 	for (uint i = 1; i < m->globals.len; i++) {
 		gmmcGlobal* global = m->globals[i];
@@ -794,74 +793,36 @@ GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
 				*embedded_reloc_displacement = gen->globals[target->self_idx].offset + *embedded_reloc_displacement;
 			}
 			else F_BP;
-			
+
 			f_array_push(&section->relocs, asm_reloc);
 		}
 	}
 
+	for (uint i = 0; i < gen->code_section_late_fix_relocations.len; i++) {
+		gmmcRelocation reloc = gen->code_section_late_fix_relocations[i];
+		
+		u64* imm = (u64*)(gen->sections[gmmcSection_Code].data.data + reloc.offset);
 
-	// compile procedures
-	for (uint i = 0; i < m->procs.len; i++) {
-		gmmcProc* proc = m->procs[i];
-		gmmc_gen_proc(gen, &gen->procs[i], proc);
+		gmmcAsmRelocation asm_reloc;
+		asm_reloc.offset = reloc.offset;
+
+		if (reloc.target->kind == gmmcSymbolKind_Extern) {
+			F_BP;
+		}
+		else if (reloc.target->kind == gmmcSymbolKind_Global) {
+			gmmcGlobal* target = (gmmcGlobal*)reloc.target;
+
+			asm_reloc.target_section = target->section;
+			*imm = gen->globals[target->self_idx].offset;
+		}
+		else if (reloc.target->kind == gmmcSymbolKind_Proc) {
+			gmmcProc* target = (gmmcProc*)reloc.target;
+
+			asm_reloc.target_section = gmmcSection_Code;
+			*imm = gen->procs[target->self_idx].code_section_offset;
+		}
+		f_array_push(&gen->sections[gmmcSection_Code].relocs, asm_reloc);
 	}
-
-	/*
-	
-	{
-		coffSection sect = {};
-		sect.name = F_LIT(".code");
-		sect.Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_ALIGN_16BYTES | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
-		sect.data = gen->code_section.slice;
-		//sect.relocations = text_relocs.data;
-		//sect.relocations_count = (int)text_relocs.len;
-		f_array_push(&gen->sections, sect);
-	}*/
 
 	return gen;
 }
-
-//GMMC_API void gmmc_asm_export_x64(fString obj_filepath, gmmcAsmModule* m) {
-//	FILE* obj_file = fopen(f_str_t_to_cstr(obj_filepath), "wb");
-//	
-//	coffDesc coff_desc = {};
-//	coff_desc.sections = m->sections.data;
-//	coff_desc.sections_count = (u32)m->sections.len;
-//	coff_desc.symbols = m->symbols.data;
-//	coff_desc.symbols_count = (u32)m->symbols.len;
-//
-//	coff_create([](fString result, void* userptr) {
-//		fwrite(result.data, result.len, 1, (FILE*)userptr);
-//		}, obj_file, &coff_desc);
-//	
-//	fclose(obj_file);
-//}
-
-
-/*
-
-GMMC_API void gmmc_test() {
-	fAllocator* temp = f_temp_alc();
-	f_os_set_working_dir(F_LIT("C:\\dev\\ffz\\gmmc\\test"));
-
-	gmmcModule* m = gmmc_init(temp);
-
-	gmmcProcSignature* sig = gmmc_make_proc_signature(m, gmmcType_None, NULL, 0);
-
-	gmmcBasicBlock* bb;
-	gmmcProc* test_proc = gmmc_make_proc(m, sig, F_LIT("bot"), &bb);
-
-	gmmc_op_debugbreak(bb);
-	gmmc_op_debugbreak(bb);
-	gmmc_op_debugbreak(bb);
-	gmmc_op_debugbreak(bb);
-
-	gmmc_op_return(bb, GMMC_REG_NONE);
-
-	gmmc_proc_compile(test_proc);
-
-	gmmc_create_coff(m, F_LIT("test.obj"));
-	printf("Done!\n");
-
-}*/
-

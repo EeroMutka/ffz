@@ -231,7 +231,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 	}
 }
 
-GMMC_API void gmmc_proc_print(FILE* f, gmmcProc* proc) {
+GMMC_API void gmmc_proc_print_c(FILE* f, gmmcProc* proc) {
 	fString name = proc->sym.name;
 	
 	fprintf(f, "%s %.*s(", (proc->signature->return_type ?
@@ -269,7 +269,7 @@ GMMC_API void gmmc_proc_print(FILE* f, gmmcProc* proc) {
 	fprintf(f, "}\n");
 }
 
-GMMC_API void gmmc_module_print(FILE* f, gmmcModule* m) {
+GMMC_API void gmmc_module_print_c(FILE* f, gmmcModule* m) {
 	fprintf(f, "%s", R"(
 // ------------------ GMMC prelude for C11 ----------------------------------
 
@@ -475,7 +475,7 @@ static void mem_set(void *dest, int c, size_t len) {
 	fprintf(f, "\n// ------------------------\n\n");
 
 	for (uint i = 0; i < m->procs.len; i++) {
-		gmmc_proc_print(f, m->procs[i]);
+		gmmc_proc_print_c(f, m->procs[i]);
 		fprintf(f, "\n");
 	}
 }
