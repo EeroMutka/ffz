@@ -377,7 +377,7 @@ static void mem_set(void *dest, int c, size_t len) {
 	}
 
 	for (uint i = 0; i < m->external_symbols.len; i++) {
-		fString name = m->external_symbols[i]->name;
+		fString name = m->external_symbols[i]->sym.name;
 		if (name == F_LIT("mem_set")) continue; // already defined in the prelude
 		if (name == F_LIT("mem_move")) continue; // already defined in the prelude
 

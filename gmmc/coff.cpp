@@ -189,11 +189,11 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 			s->SectionNumber = symbol.section_number;  // special values: IMAGE_SYM_ABSOLUTE, IMAGE_SYM_UNDEFINED, IMAGE_SYM_DEBUG
 			s->Value = symbol.value;
 			s->Type = symbol.type; // 0x20 means 'function'
-			s->StorageClass = symbol.external ? IMAGE_SYM_CLASS_EXTERNAL : IMAGE_SYM_CLASS_STATIC;
+			s->StorageClass = symbol.is_external ? IMAGE_SYM_CLASS_EXTERNAL : IMAGE_SYM_CLASS_STATIC;
 			s->NumberOfAuxSymbols = 0;
 
 			if (symbol.is_section) {
-				VALIDATE(!symbol.external);
+				VALIDATE(!symbol.is_external);
 
 				IMAGE_SECTION_HEADER* section = sections[symbol.section_number - 1];
 

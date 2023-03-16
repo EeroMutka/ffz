@@ -420,7 +420,7 @@ static gmmcOpIdx load_small(Gen* g, gmmcOpIdx ptr, ffzType* type) {
 static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
 	if (proc_node.node->kind == ffzNodeKind_ProcType) { // @extern proc
 		fString name = make_name(g, proc_node);
-		return gmmc_make_external_symbol(g->gmmc, name);
+		return gmmc_extern_as_symbol(gmmc_make_extern(g->gmmc, name));
 	}
 	else {
 		return gmmc_proc_as_symbol(gen_procedure(g, proc_node));
@@ -1081,6 +1081,55 @@ static SectionNum build_x64_section_num_from_gmmc_section(gmmcSection section) {
 	F_BP; return {};
 }
 
+static void build_x64_add_section_relocs(Gen* g, gmmcAsmModule* asm_mod, gmmcSection gmmc_section,
+	coffSection* sect, u32 first_external_symbol_index)
+{
+	fSlice(gmmcRelocation) relocs;
+	gmmc_asm_get_section_relocations(asm_mod, gmmc_section, &relocs);
+
+	fSlice(coffRelocation) coff_relocs = f_make_slice_garbage<coffRelocation>(relocs.len, g->alc);
+
+	for (uint i = 0; i < relocs.len; i++) {
+		gmmcRelocation reloc = relocs[i];
+		coffRelocation* coff_reloc = &coff_relocs[i];
+
+		if (reloc.target->kind == gmmcSymbolKind_Global) {
+			gmmcGlobal* target = (gmmcGlobal*)reloc.target;
+
+			u32 target_offset = gmmc_asm_global_get_offset(asm_mod, target);
+			SectionNum target_section_num = build_x64_section_num_from_gmmc_section(target->section);
+
+			// We need to add the offset of the target into the relocation value
+			u64* reloc_value = (u64*)(sect->data.data + reloc.offset);
+			*reloc_value += target_offset;
+
+			// So the runtime address of the sym_idx (the section of the target global) will be
+			// added to the relocation value, which is the offset of the target global within its section +
+			// the value that was there before
+			coff_reloc->sym_idx = build_x64_section_get_sym_idx(target_section_num);
+		}
+		else if (reloc.target->kind == gmmcSymbolKind_Proc) {
+			gmmcProc* target = (gmmcProc*)reloc.target;
+
+			u32 target_offset = gmmc_asm_proc_get_start_offset(asm_mod, target);
+			u64* reloc_value = (u64*)(sect->data.data + reloc.offset);
+			*reloc_value += target_offset;
+
+			coff_reloc->sym_idx = build_x64_section_get_sym_idx(SectionNum_Code);
+		}
+		else {
+			gmmcExtern* target = (gmmcExtern*)reloc.target;
+			coff_reloc->sym_idx = first_external_symbol_index + target->self_idx;
+		}
+
+		coff_reloc->offset = reloc.offset;
+		coff_reloc->type = IMAGE_REL_AMD64_ADDR64;
+	}
+
+	sect->relocations = coff_relocs.data;
+	sect->relocations_count = (u32)coff_relocs.len;
+}
+
 static void build_x64_add_section(Gen* g, gmmcAsmModule* asm_module, fArray(coffSection)* sections,
 	gmmcSection gmmc_section, fString name, coffSectionCharacteristics flags)
 {
@@ -1088,23 +1137,6 @@ static void build_x64_add_section(Gen* g, gmmcAsmModule* asm_module, fArray(coff
 	sect.name = name;
 	sect.Characteristics = flags | IMAGE_SCN_ALIGN_16BYTES | IMAGE_SCN_MEM_READ;
 	sect.data = gmmc_asm_get_section_data(asm_module, gmmc_section);
-
-	fSlice(gmmcAsmRelocation) asm_relocs;
-	gmmc_asm_get_section_relocations(asm_module, gmmc_section, &asm_relocs);
-
-	fSlice(coffRelocation) relocs = f_make_slice_garbage<coffRelocation>(asm_relocs.len, g->alc);
-	for (uint i = 0; i < asm_relocs.len; i++) {
-		gmmcAsmRelocation asm_reloc = asm_relocs[i];
-		SectionNum target_section = build_x64_section_num_from_gmmc_section(asm_reloc.target_section);
-
-		coffRelocation* reloc = &relocs[i];
-		reloc->offset = asm_reloc.offset;
-		reloc->sym_idx = build_x64_section_get_sym_idx(target_section);
-		reloc->type = IMAGE_REL_AMD64_ADDR64;
-	}
-
-	sect.relocations = relocs.data;
-	sect.relocations_count = (u32)relocs.len;
 	f_array_push(sections, sect);
 }
 
@@ -1123,7 +1155,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 	build_x64_add_section(g, asm_module, &sections, gmmcSection_Code, F_LIT(".code"), IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE);
 	build_x64_add_section(g, asm_module, &sections, gmmcSection_Data, F_LIT(".data"), IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_WRITE);
 	build_x64_add_section(g, asm_module, &sections, gmmcSection_RData, F_LIT(".rdata"), IMAGE_SCN_CNT_INITIALIZED_DATA);
-	
+
 	if (INCLUDE_DEBUG_INFO) {
 		{
 			coffSection sect = {};
@@ -1161,6 +1193,24 @@ static bool build_x64(Gen* g, fString build_dir) {
 		sym.section_number = i + 1;
 		f_array_push(&symbols, sym);
 	}
+	
+	u32 first_external_symbol_index = (u32)symbols.len;
+
+	// then external symbols
+	for (uint i = 0; i < g->gmmc->external_symbols.len; i++) {
+		gmmcExtern* extern_sym = g->gmmc->external_symbols[i];
+		coffSymbol sym = {};
+		sym.section_number = IMAGE_SYM_UNDEFINED;
+		sym.is_external = true;
+		sym.type = 0x20;
+		sym.name = extern_sym->sym.name;
+		f_array_push(&symbols, sym);
+	}
+
+	// When we add the relocations, we need to know the symbol index of the first external symbol
+	build_x64_add_section_relocs(g, asm_module, gmmcSection_Code, &sections[0], first_external_symbol_index);
+	build_x64_add_section_relocs(g, asm_module, gmmcSection_Data, &sections[1], first_external_symbol_index);
+	build_x64_add_section_relocs(g, asm_module, gmmcSection_RData, &sections[2], first_external_symbol_index);
 
 	fArray(cviewFunction) cv_functions = f_array_make_cap<cviewFunction>(g->proc_from_hash.alive_count, g->alc);
 
@@ -1176,7 +1226,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 		sym.type = 0x20;
 		sym.section_number = SectionNum_Code;
 		sym.value = start_offset;
-		sym.external = true;
+		sym.is_external = true;
 		u32 sym_idx = (u32)f_array_push(&symbols, sym);
 
 		if (INCLUDE_DEBUG_INFO) {

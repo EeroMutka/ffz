@@ -61,10 +61,15 @@
 
 // []  gmmcOpKind_addr_of_symbol,
 
+@*extern{"c_things.obj"}
+#hello: proc(x: u32)
 
 #ffz_entry: proc() {
 	//dbgbreak
 	
+	hello(520)
+	
+	/*
 	a: 32
 	b: 1
 	c: a + b
@@ -76,9 +81,8 @@
 	i: e + h
 	j: a + i
 	k: i + b + a + c + d + e + f + h + j
-	
-	
-	aaaa: kiwi(5, 6, 520, 1, k)
+	*/
+	//aaaa: kiwi(5, 6, 520, 1, 502)
 	
 	//ee: ff
 	//f: a + e
@@ -89,6 +93,6 @@
 	dbgbreak
 }
 
-#kiwi: proc(a: int, b: int, c: int, d: int, e: int) => int {
-	ret e + d
-}
+//#kiwi: proc(a: int, b: int, c: int, d: int, e: int) => int {
+//	ret e + d
+//}

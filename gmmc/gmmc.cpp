@@ -269,11 +269,11 @@ GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc) {
 	return b;
 }
 
-GMMC_API gmmcSymbol* gmmc_make_external_symbol(gmmcModule* m, gmmcString name) {
-	gmmcSymbol* sym = f_mem_clone(gmmcSymbol{gmmcSymbolKind_Extern}, m->allocator);
-	f_array_push(&m->external_symbols, sym);
-	sym->module = m;
-	sym->name = name;
+GMMC_API gmmcExtern* gmmc_make_extern(gmmcModule* m, gmmcString name) {
+	gmmcExtern* sym = f_mem_clone(gmmcExtern{{gmmcSymbolKind_Extern}}, m->allocator);
+	sym->self_idx = (gmmcExternIdx)f_array_push(&m->external_symbols, sym);
+	sym->sym.module = m;
+	sym->sym.name = name;
 	return sym;
 }
 
@@ -336,7 +336,7 @@ GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 	m->globals = f_array_make<gmmcGlobal*>(m->allocator);
 	f_array_push(&m->globals, (gmmcGlobal*)0);
 	m->procs = f_array_make<gmmcProc*>(m->allocator);
-	m->external_symbols = f_array_make<gmmcSymbol*>(m->allocator);
+	m->external_symbols = f_array_make<gmmcExtern*>(m->allocator);
 	return m;
 }
 

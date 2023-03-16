@@ -95,11 +95,15 @@ typedef struct {
 
 typedef struct {
 	coffString name;
-	uint16_t section_number; // starts from 1. Special values: IMAGE_SYM_UNDEFINED (0), IMAGE_SYM_ABSOLUTE (-1), IMAGE_SYM_DEBUG (-2)
-	uint16_t type; // 0x20 means 'function', 0 means 'not a function'. I don't think this matters more than that, if at all
+
+	// starts from 1. Special values: IMAGE_SYM_UNDEFINED (0), IMAGE_SYM_ABSOLUTE (-1), IMAGE_SYM_DEBUG (-2)
+	// For external symbols, this should be IMAGE_SYM_UNDEFINED.
+	uint16_t section_number;
+
+	uint16_t type; // 0x20 means 'function', 0 means 'not a function'. I don't know if this matters anywhere
 	uint32_t value;
 
-	bool external; // external/static
+	bool is_external; // external/static
 	bool is_section;
 
 	u32 _checksum; // This field doesn't seem to matter at all, but it's still encoded in here

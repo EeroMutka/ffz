@@ -17,13 +17,13 @@ typedef u16 RegSize;
 struct gmmcAsmProc;
 
 struct gmmcAsmGlobal {
-	gmmcGlobal* global;
+	gmmcGlobal* global; // hmm... why do we store this? its accessible by the index
 	u32 offset;
 };
 
 struct Section {
 	fArray(u8) data;
-	fArray(gmmcAsmRelocation) relocs;
+	fArray(gmmcRelocation) relocs;
 };
 
 struct gmmcAsmModule {
@@ -33,14 +33,14 @@ struct gmmcAsmModule {
 	fSlice(gmmcAsmProc) procs;
 	fSlice(gmmcAsmGlobal) globals;
 
-	fArray(gmmcRelocation) code_section_late_fix_relocations;
+	//fArray(gmmcRelocation) code_section_late_fix_relocations;
 };
 
 GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection section) {
 	return { m->sections[section].data.data, m->sections[section].data.len };
 }
 
-GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcAsmRelocation)* out_relocs) {
+GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcRelocation)* out_relocs) {
 	*out_relocs = m->sections[section].relocs.slice;
 }
 
@@ -380,15 +380,12 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 
 		// The relocation will be applied to the encoded immediate operand
 		u32 reloc_offset = (u32)code_section->data.len - 8;
+		*(u64*)(code_section->data.data + reloc_offset) = 0; // get rid of the fefefefe
 
-		// In order to make a gmmcAsmRelocation, we need to know the offset of the symbol in its section.
-		// We cannot know it yet, because we haven't built all procedures yet (and thus don't know their offsets),
-		// so we need to defer this into a later stage.
-
-		gmmcRelocation late_reloc = {};
-		late_reloc.offset = reloc_offset;
-		late_reloc.target = sym;
-		f_array_push(&p->module->code_section_late_fix_relocations, late_reloc);
+		gmmcRelocation reloc = {};
+		reloc.offset = reloc_offset;
+		reloc.target = sym;
+		f_array_push(&code_section->relocs, reloc);
 	}
 	else if (gmmc_op_is_immediate(op->kind)) { // immediates aren't stored on the stack either.
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -522,6 +519,7 @@ GMMC_API u32 gmmc_asm_proc_get_start_offset(gmmcAsmModule* m, gmmcProc* proc) { 
 GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_end_offset; }
 GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].stack_frame_size; }
 GMMC_API u32 gmmc_asm_proc_get_prolog_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].prolog_size; }
+GMMC_API u32 gmmc_asm_global_get_offset(gmmcAsmModule* m, gmmcGlobal* global) { return m->globals[global->self_idx].offset; }
 
 GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx local_or_param) {
 	gmmcOpData* op = &proc->ops[local_or_param];
@@ -881,11 +879,11 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
 	gmmcAsmModule* gen = f_mem_clone(gmmcAsmModule{}, m->allocator);
 
-	gen->code_section_late_fix_relocations = f_array_make<gmmcRelocation>(m->allocator);
+	//gen->code_section_late_fix_relocations = f_array_make<gmmcRelocation>(m->allocator);
 
 	for (uint i = 0; i < gmmcSection_COUNT; i++) {
 		gen->sections[i].data = f_array_make<u8>(m->allocator);
-		gen->sections[i].relocs = f_array_make<gmmcAsmRelocation>(m->allocator);
+		gen->sections[i].relocs = f_array_make<gmmcRelocation>(m->allocator);
 	}
 
 	gen->procs = f_make_slice<gmmcAsmProc>(m->procs.len, {}, m->allocator);
@@ -917,27 +915,32 @@ GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
 		Section* section = &gen->sections[global->section];
 
 		for (uint j = 0; j < global->relocations.len; j++) {
-			gmmcRelocation reloc = global->relocations[j];
+			gmmcRelocation global_reloc = global->relocations[j];
 
-			gmmcAsmRelocation asm_reloc;
-			asm_reloc.offset = gen->globals[i].offset + reloc.offset;
+			gmmcRelocation reloc = global_reloc;
+			reloc.offset += gen->globals[i].offset;
+			f_array_push(&section->relocs, reloc);
 
-			// The user might have some 64-bit offset (usually 0) that is embedded in the section,
-			// and is supposed to be added to the address of the symbol.
-			u64* embedded_reloc_displacement = (u64*)(section->data.data + asm_reloc.offset);
 
-			if (reloc.target->kind == gmmcSymbolKind_Global) {
-				gmmcGlobal* target = (gmmcGlobal*)reloc.target;
-				asm_reloc.target_section = target->section;
-				*embedded_reloc_displacement = gen->globals[target->self_idx].offset + *embedded_reloc_displacement;
-			}
-			else F_BP;
-
-			f_array_push(&section->relocs, asm_reloc);
+			//gmmcAsmRelocation asm_reloc;
+			//asm_reloc.offset = gen->globals[i].offset + reloc.offset;
+			//
+			//// The user might have some 64-bit offset (usually 0) that is embedded in the section,
+			//// and is supposed to be added to the address of the symbol.
+			//u64* embedded_reloc_displacement = (u64*)(section->data.data + asm_reloc.offset);
+			//
+			//if (reloc.target->kind == gmmcSymbolKind_Global) {
+			//	gmmcGlobal* target = (gmmcGlobal*)reloc.target;
+			//	asm_reloc.target_section = target->section;
+			//	*embedded_reloc_displacement = gen->globals[target->self_idx].offset + *embedded_reloc_displacement;
+			//}
+			//else F_BP;
+			//
+			//f_array_push(&section->relocs, asm_reloc);
 		}
 	}
 
-	for (uint i = 0; i < gen->code_section_late_fix_relocations.len; i++) {
+	/*for (uint i = 0; i < gen->code_section_late_fix_relocations.len; i++) {
 		gmmcRelocation reloc = gen->code_section_late_fix_relocations[i];
 		
 		u64* imm = (u64*)(gen->sections[gmmcSection_Code].data.data + reloc.offset);
@@ -961,7 +964,7 @@ GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
 			*imm = gen->procs[target->self_idx].code_section_offset;
 		}
 		f_array_push(&gen->sections[gmmcSection_Code].relocs, asm_reloc);
-	}
+	}*/
 
 	return gen;
 }

@@ -42,6 +42,7 @@ typedef struct { uint8_t* ptr; uint64_t len; } gmmcString;
 typedef uint32_t gmmcOpIdx; // Each procedure has its own array of ops, where 1 is the first valid index.
 typedef uint32_t gmmcProcIdx;
 typedef uint32_t gmmcGlobalIdx; // starts from 1
+typedef uint32_t gmmcExternIdx;
 typedef u32 gmmcBasicBlockIdx;
 typedef struct gmmcModule gmmcModule;
 typedef struct gmmcProc gmmcProc;
@@ -201,6 +202,11 @@ typedef struct gmmcSymbol {
 	gmmcString name;
 } gmmcSymbol;
 
+typedef struct gmmcExtern {
+	gmmcSymbol sym;
+	gmmcExternIdx self_idx;
+} gmmcExtern;
+
 typedef struct gmmcLocal {
 	u32 size;
 	u32 align;
@@ -236,13 +242,13 @@ typedef enum gmmcSection {
 
 typedef struct gmmcGlobal {
 	gmmcSymbol sym; // NOTE: must be the first member!
-	gmmcGlobalIdx self_idx; // TODO: get rid of this / use gmmcGlobalIdx instead everywhere?
+	gmmcGlobalIdx self_idx;
 
 	u32 size;
 	u32 align;
 	gmmcSection section;
 	void* data;
-
+	
 	fArray(gmmcRelocation) relocations;
 } gmmcGlobal;
 
@@ -250,9 +256,9 @@ typedef struct gmmcModule {
 	fAllocator* allocator;
 
 	fArray(gmmcProcSignature*) proc_signatures;
-	fArray(gmmcGlobal*) globals; // starts from index 1
-	fArray(gmmcProc*) procs;
-	fArray(gmmcSymbol*) external_symbols;
+	fArray(gmmcGlobal*) globals; // starts from index 1, can be indexed with gmmcGlobalIdx
+	fArray(gmmcProc*) procs; // can be indexed with gmmcProcIdx
+	fArray(gmmcExtern*) external_symbols; // can be indexed with gmmcExternIdx
 
 	// should we hold like an "extra sections"
 	//fArray(u8) code_section;
@@ -288,8 +294,9 @@ GMMC_API void gmmc_proc_print_c(FILE* b, gmmcProc* proc);
 
 inline gmmcSymbol* gmmc_proc_as_symbol(gmmcProc* proc) { return (gmmcSymbol*)proc; }
 inline gmmcSymbol* gmmc_global_as_symbol(gmmcGlobal* global) { return (gmmcSymbol*)global; }
+inline gmmcSymbol* gmmc_extern_as_symbol(gmmcExtern* extern_sym) { return (gmmcSymbol*)extern_sym; }
 
-GMMC_API gmmcSymbol* gmmc_make_external_symbol(gmmcModule* m, gmmcString name);
+GMMC_API gmmcExtern* gmmc_make_extern(gmmcModule* m, gmmcString name);
 
 // TODO: is there a way to mark the memory as executable?
 GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_data);
@@ -410,12 +417,15 @@ GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol
 typedef struct gmmcAsmModule gmmcAsmModule;
 typedef u32 gmmcAsmSectionNum;
 
-// The runtime address of `target_section` will be added to the
+// The runtime address of the target (either extern or section) will be added to the
 // 64-bit integer value that lies at `offset`.
-typedef struct gmmcAsmRelocation {
-	u32 offset;
-	gmmcSection target_section;
-} gmmcAsmRelocation;
+//typedef struct gmmcAsmRelocation {
+//	u32 offset;
+//
+//	// The target is `target_extern` when non-null, otherwise `target_section`
+//	gmmcExtern* target_extern;
+//	gmmcSection target_section;
+//} gmmcAsmRelocation;
 
 // 'build' and 'export' are separated here to give you a chance to inspect the assembly output before exporting an object file.
 // This can be useful for embedding debug information into the module; i.e. Microsoft's CodeView debug information is stored
@@ -445,8 +455,13 @@ GMMC_API u32 gmmc_asm_proc_get_prolog_size(gmmcAsmModule* m, gmmcProc* proc);
 // returns the amount that is subtracted from RSP at the start of the procedure.
 GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc);
 
+// returns the offset relative to the beginning of the section this global is part of.
+GMMC_API u32 gmmc_asm_global_get_offset(gmmcAsmModule* m, gmmcGlobal* global);
+
+// NOTE: Returns a slice to the bytes of a built section. You are allowed to modify this data (i.e. for relocations).
 GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection section);
-GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcAsmRelocation)* out_relocs);
+
+GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcRelocation)* out_relocs);
 
 // -- Common utilities -------------------------
 
