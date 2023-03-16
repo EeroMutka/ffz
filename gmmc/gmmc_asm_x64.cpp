@@ -577,7 +577,7 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 			GPR proc_addr_reg = use_op_value(p, op->call.target);
 			
 			// https://learn.microsoft.com/en-us/cpp/build/stack-usage?view=msvc-170
-			u32 shadow_space_base = p->stack_frame_size + 8; // + 8 is for the caller return address
+			//u32 shadow_space_base = p->stack_frame_size + 8; // 
 			
 			for (u32 i = (u32)op->call.arguments.len-1; i < op->call.arguments.len; i--) {
 				LooseReg arg = use_op_value_loose(p, op->call.arguments[i]);
@@ -594,7 +594,7 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 						req.operand_count = 2;
 						req.operands[0].type = ZYDIS_OPERAND_TYPE_MEMORY;
 						req.operands[0].mem.base = ZYDIS_REGISTER_RSP;
-						req.operands[0].mem.displacement = shadow_space_base + i * 8;
+						req.operands[0].mem.displacement = i * 8;
 						req.operands[0].mem.size = 8;
 						req.operands[1] = make_reg_operand(arg_reg, 8);
 						emit(p, req);

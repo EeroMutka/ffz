@@ -439,7 +439,7 @@ GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc);
 // outside of our stack frame.
 GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx local_or_param);
 
-// returns the size of the initial SUB RSP instruction
+// Returns the size of the initial SUB RSP instruction.
 GMMC_API u32 gmmc_asm_proc_get_prolog_size(gmmcAsmModule* m, gmmcProc* proc);
 
 // returns the amount that is subtracted from RSP at the start of the procedure.
