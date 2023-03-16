@@ -2,7 +2,7 @@
 // TODO:
 
 // [x]  gmmcOpKind_add,
-// []  gmmcOpKind_sub,
+// [x]  gmmcOpKind_sub,
 // []  gmmcOpKind_mul,
 // []  gmmcOpKind_div,
 // []  gmmcOpKind_mod,
@@ -27,20 +27,9 @@
 // []  gmmcOpKind_goto,
 // []  gmmcOpKind_if,
 
-// []  // immediates. NOTE: the order must match the order in gmmcType!!! see :gmmc_op_immediate
-// []  // :gmmc_op_is_immediate
-// []  gmmcOpKind_bool,
-// []  gmmcOpKind_i8,
-// []  gmmcOpKind_i16,
-// []  gmmcOpKind_i32,
-// []  gmmcOpKind_i64,
-// []  gmmcOpKind_i128,
-// []  gmmcOpKind_f32,
-// []  gmmcOpKind_f64,
-
-// []  gmmcOpKind_and,
-// []  gmmcOpKind_or,
-// []  gmmcOpKind_xor,
+// [x]  gmmcOpKind_and,
+// [x]  gmmcOpKind_or,
+// [x]  gmmcOpKind_xor,
 // []  gmmcOpKind_not,
 // []  gmmcOpKind_shl,
 // []  gmmcOpKind_shr,
@@ -61,13 +50,17 @@
 
 // []  gmmcOpKind_addr_of_symbol,
 
-@*extern{"c_things.obj"}
-#hello: proc(x: u32)
+//@*extern{"c_things.obj"}
+//#hello: proc(x: u32)
 
 #ffz_entry: proc() {
 	//dbgbreak
 	
-	hello(520)
+	a: s8(-32)
+	b: s8(2)
+	c: a / b
+	
+	//hello(520)
 	
 	/*
 	a: 32

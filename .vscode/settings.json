@@ -1,0 +1,13 @@
+{
+	"files.associations": {
+		".demo.ffz": "odin",
+		"*.ffz": "odin",
+		"limits": "cpp",
+		"initializer_list": "cpp",
+		"type_traits": "cpp",
+		"vector": "cpp",
+		"xstring": "cpp",
+		"xutility": "cpp",
+		"*.inc": "cpp"
+	}
+}

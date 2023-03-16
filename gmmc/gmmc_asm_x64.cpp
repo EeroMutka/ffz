@@ -3,9 +3,6 @@
 #define gmmcString fString
 #include "gmmc.h"
 
-//#define coffString fString
-//#include "coff.h"
-
 #include "Zydis/Zydis.h"
 
 #include <stdio.h> // for fopen
@@ -43,28 +40,6 @@ GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection sect
 GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcRelocation)* out_relocs) {
 	*out_relocs = m->sections[section].relocs.slice;
 }
-
-//GMMC_API gmmcAsmSectionNum gmmc_asm_add_section(gmmcAsmModule* m, fString name) {
-//	coffSection section = {};
-//	section.Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_ALIGN_4BYTES | IMAGE_SCN_MEM_READ;
-//	section.name = name;
-//	return (gmmcAsmSectionNum)f_array_push(&m->sections, section) + 1; // section numbers start from 1
-//}
-//
-//GMMC_API void gmmc_asm_section_set_data(gmmcAsmModule* m, gmmcAsmSectionNum section, fString data) {
-//	m->sections[section-1].data = data;
-//}
-//
-//GMMC_API void gmmc_asm_section_set_relocations(gmmcAsmModule* m, gmmcAsmSectionNum section, gmmcAsmRelocation* relocations, u32 count) {
-//	// NOTE: gmmcAsmRelocation is binarily compatible with coffRelocation, so we can just reinterpret the bytes
-//	m->sections[section-1].relocations = (coffRelocation*)relocations;
-//	m->sections[section-1].relocations_count = count;
-//}
-//
-//GMMC_API u32 gmmc_asm_section_get_sym_index(gmmcAsmModule* m, gmmcAsmSectionNum section) {
-//	F_BP;
-//	return 0;
-//}
 
 enum GPR {
 	GPR_INVALID,
@@ -317,16 +292,49 @@ static GPR allocate_op_result(gmmcAsmProc* p) {
 	return GPR_INVALID;
 }
 
+enum ExtendBits {
+	ExtendBits_None,
+	ExtendBits_Zero,
+	ExtendBits_Sign,
+};
+
+static void emit_mov_reg_to_reg(gmmcAsmProc* p, GPR to, GPR from, RegSize size, ExtendBits extend = ExtendBits_None) {
+	if (extend == ExtendBits_Zero && size <= 2) {
+		// From section 2.3, AMD64 Architecture Programmer's Manual, Volume 3:
+		// "The high 32 bits of doubleword operands are zero-extended to 64 bits, but the high
+		// bits of word and byte operands are not modified by operations in 64-bit mode".
+		// So if the size is 4, then the MOV will be sign-extended automatically.
+
+		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+		req.mnemonic = ZYDIS_MNEMONIC_MOVZX;
+		req.operand_count = 2;
+		req.operands[0] = make_reg_operand(to, 8);
+		req.operands[1] = make_reg_operand(from, size);
+		emit(p, req);
+	}
+	else if (extend == ExtendBits_Sign && size <= 4) {
+		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+		req.mnemonic = size == 4 ? ZYDIS_MNEMONIC_MOVSXD : ZYDIS_MNEMONIC_MOVSX;
+		req.operand_count = 2;
+		req.operands[0] = make_reg_operand(to, 8);
+		req.operands[1] = make_reg_operand(from, size);
+		emit(p, req);
+	}
+	else {
+		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+		req.mnemonic = ZYDIS_MNEMONIC_MOV;
+		req.operand_count = 2;
+		req.operands[0] = make_reg_operand(to, size);
+		req.operands[1] = make_reg_operand(from, size);
+		emit(p, req);
+	}
+}
+
 static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_INVALID) {
 	GPR result = p->ops[op_idx].currently_in_register;
 	if (result) {
 		if (specify_reg) {
-			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-			req.mnemonic = ZYDIS_MNEMONIC_MOV;
-			req.operand_count = 2;
-			req.operands[0] = make_reg_operand(specify_reg, 8);
-			req.operands[1] = make_reg_operand(result, 8);
-			emit(p, req);
+			emit_mov_reg_to_reg(p, specify_reg, result, 8);
 			return specify_reg;
 		}
 
@@ -436,84 +444,6 @@ static LooseReg use_op_value_loose(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 	return result;
 }
 
-/*ZydisEncoderOperand op_to_x64_operand(ProcGen* p, gmmcOpIdx op_idx, RegSize operand_size) {
-	gmmcOpData op = p->proc->ops[op_idx];
-	switch (op.kind) {
-	case gmmcOpKind_local: {
-		ZydisEncoderOperand operand = { ZYDIS_OPERAND_TYPE_MEMORY };
-		operand.mem.base = ZYDIS_REGISTER_RSP;
-		operand.mem.displacement = p->local_rsp_rel_offset[op.local_idx];
-		operand.mem.size = operand_size;
-		F_ASSERT(operand_size > 0);
-		//u32 local_idx = ->proc->ops[op.operands[0]].
-		//
-		//operand.mem.size = gmmc_type_size(p.type);
-		return operand;
-	}
-
-	case gmmcOpKind_bool: // fallthrough
-	case gmmcOpKind_i8: // fallthrough
-	case gmmcOpKind_i16: // fallthrough
-	case gmmcOpKind_i32: // fallthrough
-	case gmmcOpKind_i64: {
-		ZydisEncoderOperand operand = { ZYDIS_OPERAND_TYPE_IMMEDIATE };
-		operand.imm.u = op.imm_raw;
-		return operand;
-	}
-	}
-
-	GPR op_in_register = p->ops_current_register[op_idx];
-	if (op_in_register) {
-		ZydisEncoderOperand operand = { ZYDIS_OPERAND_TYPE_REGISTER };
-		operand.reg.value = get_x64_register(op_in_register, operand_size);
-		return operand;
-	}
-	else {
-		s32 offset = p->ops_spill_rsp_rel_offset[op_idx];
-
-		// let's load the op into a register
-		GPR reg = take_gpr(p);
-
-		ZydisEncoderOperand operand = { ZYDIS_OPERAND_TYPE_REGISTER };
-		operand.reg.value = get_x64_register(reg, operand_size);
-		return operand;
-
-		// hmm. I guess sometimes we have to load the value into a register, but if we don't have to, let's use a memory-based operand
-		//ZydisEncoderOperand operand = { ZYDIS_OPERAND_TYPE_MEMORY };
-		//operand.mem.base = ZYDIS_REGISTER_RSP;
-		//operand.mem.displacement = offset;
-		//operand.mem.size = operand_size;
-		//return operand;
-	}
-}*/
-
-//static void emit_mov_to_r(gmmcAsmProc* p, GPR dst, LooseReg src) {
-//	ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-//	req.mnemonic = ZYDIS_MNEMONIC_MOV;
-//	req.operand_count = 2;
-//	req.operands[0] = make_reg_operand(dst, 8);
-//	req.operands[1] = make_loose_operand(p, src, 8);
-//	emit(p, req);
-//}
-
-//static void emit_mov(gmmcAsmProc* p, LooseReg dst, LooseReg src) {
-//	ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-//	req.mnemonic = ZYDIS_MNEMONIC_MOV;
-//	req.operand_count = 2;
-//	req.operands[0] = make_loose_operand(p, dst, 8);
-//	req.operands[1] = make_loose_operand(p, src, 8);
-//	emit(p, req);
-//}
-
-//static void emit_mov_reg_to_reg(ProcGen* p, GPR dst, GPR src) {
-//	ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-//	req.mnemonic = ZYDIS_MNEMONIC_MOV;
-//	req.operand_count = 2;
-//	req.operands[0] = make_x64_reg_operand(dst, 8);
-//	req.operands[1] = make_x64_reg_operand(src, 8);
-//	emit(p, req);
-//}
-
 GMMC_API u32 gmmc_asm_instruction_get_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op) { return m->procs[proc->self_idx].ops[op].instruction_offset; }
 GMMC_API u32 gmmc_asm_proc_get_start_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_offset; }
 GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_end_offset; }
@@ -536,6 +466,70 @@ GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmm
 }
 
 const static GPR ms_x64_param_regs[4] = { GPR_CX, GPR_DX, GPR_8, GPR_9 };
+
+static void gen_op_basic(gmmcAsmProc* p, gmmcOpData* op, ZydisMnemonic mnemonic) {
+	GPR result_value = allocate_op_result(p);
+	LooseReg a = use_op_value_loose(p, op->operands[0]);
+	GPR b = use_op_value(p, op->operands[1]);
+
+	if (p->emitting) {
+		op_value_to_reg(p, a.source_op, result_value); // ADD instruction overwrites the first operand with the result
+
+		RegSize size = gmmc_type_size(op->type);
+		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+		req.mnemonic = mnemonic;
+		req.operand_count = 2;
+		req.operands[0] = make_reg_operand(result_value, size);
+		req.operands[1] = make_reg_operand(b, size);
+		emit(p, req);
+	}
+}
+
+static void emit_mov_imm_to_reg(gmmcAsmProc* p, GPR reg, u64 imm) {
+	ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+	req.mnemonic = ZYDIS_MNEMONIC_MOV;
+	req.operand_count = 2;
+	req.operands[0] = make_reg_operand(reg, 8);
+	req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
+	req.operands[1].imm.u = imm;
+	emit(p, req);
+}
+
+static void gen_div_or_mod(gmmcAsmProc* p, gmmcOpData* op, GPR take_result_from) {
+	GPR result_value = allocate_op_result(p);
+
+	use_op_value(p, op->operands[0], GPR_AX); // dividend
+	GPR divisor = use_op_value(p, op->operands[1]);
+
+	if (p->emitting) {
+		//op->is_signed
+		RegSize size = gmmc_type_size(op->type);
+		
+		// if the size is 1 or 2, sign/zero extend the dividend and divisor into 64 bits
+		if (size <= 2) {
+			emit_mov_reg_to_reg(p, GPR_AX, GPR_AX, size, op->is_signed ? ExtendBits_Sign : ExtendBits_Zero);
+			emit_mov_reg_to_reg(p, divisor, divisor, size, op->is_signed ? ExtendBits_Sign : ExtendBits_Zero);
+		}
+
+		if (op->is_signed) {
+			// sign-extend the dividend in RAX into RDX
+			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+			req.mnemonic = ZYDIS_MNEMONIC_CQO;
+			emit(p, req);
+		}
+		else {
+			emit_mov_imm_to_reg(p, GPR_DX, 0);
+		}
+
+		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+		req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_IDIV : ZYDIS_MNEMONIC_DIV;
+		req.operand_count = 1;
+		req.operands[0] = make_reg_operand(divisor, size);
+		emit(p, req);
+
+		emit_mov_reg_to_reg(p, result_value, take_result_from, 8);
+	}
+}
 
 static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 	gmmcBasicBlock* bb = p->proc->basic_blocks[bb_idx];
@@ -624,11 +618,7 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 				emit(p, req);
 
 				if (op->type) {
-					ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-					req.mnemonic = ZYDIS_MNEMONIC_MOV;
-					req.operand_count = 2;
-					req.operands[0] = make_reg_operand(result_reg, 8);
-					req.operands[1] = make_reg_operand(GPR_AX, 8);
+					emit_mov_reg_to_reg(p, GPR_AX, result_reg, 8);
 					emit(p, req, " ; save return value");
 				}
 			}
@@ -691,23 +681,46 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_f32: break;
 		case gmmcOpKind_f64: break;
 
-		case gmmcOpKind_add: {
+		case gmmcOpKind_trunc: { // do nothing
+			GPR result_value = allocate_op_result(p);
+			LooseReg a = use_op_value_loose(p, op->operands[0]);
+			if (p->emitting) {
+				op_value_to_reg(p, a.source_op, result_value);
+			}
+		} break;
+
+		case gmmcOpKind_add: { gen_op_basic(p, op, ZYDIS_MNEMONIC_ADD); } break;
+		case gmmcOpKind_sub: { gen_op_basic(p, op, ZYDIS_MNEMONIC_SUB); } break;
+		case gmmcOpKind_mul: {
+			// https://gpfault.net/posts/asm-tut-3.txt.html
+			// NOTE: we can use IMUL always which is a bit more convenient than MUL, because
+			// we're discarding the upper half of the result, and the lower half is identical to what you'd get from MUL.
+			// This is a little bit magical to me.
+
 			GPR result_value = allocate_op_result(p);
 			LooseReg a = use_op_value_loose(p, op->operands[0]);
 			GPR b = use_op_value(p, op->operands[1]);
 
 			if (p->emitting) {
-				op_value_to_reg(p, a.source_op, result_value); // ADD instruction overwrites the first operand with the result
+				op_value_to_reg(p, a.source_op, result_value); // The instruction overwrites the first operand with the result.
 
 				RegSize size = gmmc_type_size(op->type);
+				if (size < 4) size = 4; // Only ever do 32-bit or 64-bit multiplication.
+				
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-				req.mnemonic = ZYDIS_MNEMONIC_ADD;
+				req.mnemonic = ZYDIS_MNEMONIC_IMUL;
 				req.operand_count = 2;
 				req.operands[0] = make_reg_operand(result_value, size);
 				req.operands[1] = make_reg_operand(b, size);
 				emit(p, req);
 			}
 		} break;
+		case gmmcOpKind_div: { gen_div_or_mod(p, op, GPR_AX); } break;
+		case gmmcOpKind_mod: { gen_div_or_mod(p, op, GPR_DX); } break;
+
+		case gmmcOpKind_and: { gen_op_basic(p, op, ZYDIS_MNEMONIC_AND); } break;
+		case gmmcOpKind_or: { gen_op_basic(p, op, ZYDIS_MNEMONIC_OR); } break;
+		case gmmcOpKind_xor: { gen_op_basic(p, op, ZYDIS_MNEMONIC_XOR); } break;
 
 		case gmmcOpKind_debugbreak: {
 			if (p->emitting) {
@@ -724,7 +737,7 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 			if (p->emitting) {
 				
 				if (op->operands[0] != GMMC_OP_IDX_INVALID) {
-					op_value_to_reg(p, op->operands[0], GPR_AX); // move the return value to RAX
+					op_value_to_reg(p, value_reg.source_op, GPR_AX); // move the return value to RAX
 				}
 
 				for (uint i = 0; i < p->temp_registers_used_count; i++) { // restore the state of the non-volatile registers that we used as temporary registers
@@ -920,51 +933,8 @@ GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
 			gmmcRelocation reloc = global_reloc;
 			reloc.offset += gen->globals[i].offset;
 			f_array_push(&section->relocs, reloc);
-
-
-			//gmmcAsmRelocation asm_reloc;
-			//asm_reloc.offset = gen->globals[i].offset + reloc.offset;
-			//
-			//// The user might have some 64-bit offset (usually 0) that is embedded in the section,
-			//// and is supposed to be added to the address of the symbol.
-			//u64* embedded_reloc_displacement = (u64*)(section->data.data + asm_reloc.offset);
-			//
-			//if (reloc.target->kind == gmmcSymbolKind_Global) {
-			//	gmmcGlobal* target = (gmmcGlobal*)reloc.target;
-			//	asm_reloc.target_section = target->section;
-			//	*embedded_reloc_displacement = gen->globals[target->self_idx].offset + *embedded_reloc_displacement;
-			//}
-			//else F_BP;
-			//
-			//f_array_push(&section->relocs, asm_reloc);
 		}
 	}
-
-	/*for (uint i = 0; i < gen->code_section_late_fix_relocations.len; i++) {
-		gmmcRelocation reloc = gen->code_section_late_fix_relocations[i];
-		
-		u64* imm = (u64*)(gen->sections[gmmcSection_Code].data.data + reloc.offset);
-
-		gmmcAsmRelocation asm_reloc;
-		asm_reloc.offset = reloc.offset;
-
-		if (reloc.target->kind == gmmcSymbolKind_Extern) {
-			F_BP;
-		}
-		else if (reloc.target->kind == gmmcSymbolKind_Global) {
-			gmmcGlobal* target = (gmmcGlobal*)reloc.target;
-
-			asm_reloc.target_section = target->section;
-			*imm = gen->globals[target->self_idx].offset;
-		}
-		else if (reloc.target->kind == gmmcSymbolKind_Proc) {
-			gmmcProc* target = (gmmcProc*)reloc.target;
-
-			asm_reloc.target_section = gmmcSection_Code;
-			*imm = gen->procs[target->self_idx].code_section_offset;
-		}
-		f_array_push(&gen->sections[gmmcSection_Code].relocs, asm_reloc);
-	}*/
 
 	return gen;
 }
