@@ -1,29 +1,8 @@
 
 // TODO:
 
-// [x]  gmmcOpKind_add,
-// [x]  gmmcOpKind_sub,
-// [x]  gmmcOpKind_mul,
-// [x]  gmmcOpKind_div,
-// [x]  gmmcOpKind_mod,
+// [] fixed length array debug info type
 
-// [x]  gmmcOpKind_eq,
-// [x]  gmmcOpKind_ne,
-// [x]  gmmcOpKind_lt,
-// [x]  gmmcOpKind_le,
-// [x]  gmmcOpKind_gt,
-// [x]  gmmcOpKind_ge,
-
-// [x]  gmmcOpKind_load,
-// [x]  gmmcOpKind_store,
-
-// [x]  gmmcOpKind_local,
-
-// []  gmmcOpKind_member_access,
-// []  gmmcOpKind_array_access,
-
-// []  // :gmmc_op_is_terminating
-// []  gmmcOpKind_return,
 // []  gmmcOpKind_goto,
 // []  gmmcOpKind_if,
 
@@ -36,9 +15,9 @@
 
 // []  gmmcOpKind_int2ptr,
 // []  gmmcOpKind_ptr2int,
-// []  gmmcOpKind_zxt,
-// []  gmmcOpKind_sxt,
-// []  gmmcOpKind_trunc,
+// [x]  gmmcOpKind_zxt,
+// [x]  gmmcOpKind_sxt,
+// [x]  gmmcOpKind_trunc,
 
 // []  gmmcOpKind_param,
 
@@ -53,13 +32,14 @@
 //@*extern{"c_things.obj"}
 //#hello: proc(x: u32)
 
-#V2: struct{a: int, b: int, c: int}
+//#V2: struct{a: int, b: int, c: int}
 
 #ffz_entry: proc() {
 	//dbgbreak
 	
-	thing: [6]V2
+	thing: [243]u32
 	g: thing[3]
+	
 	//thing = 500
 	
 	//hello(520)

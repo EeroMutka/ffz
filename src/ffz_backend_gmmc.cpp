@@ -236,22 +236,9 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 
 		//case ffzTypeTag_Enum: {} break;
 	case ffzTypeTag_FixedArray: {
-		// TODO: for real!!
-		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
-		cv_type.size = 8;
-		
-		//fArray(TB_DebugType*) tb_fields = f_array_make<TB_DebugType*>(g->alc);
-		//TB_DebugType* elem_type_tb = get_tb_debug_type(g, type->FixedArray.elem_type);
-		//
-		//for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
-		//	const char* name = f_str_to_cstr(f_str_format(g->alc, "[%u]", i), g->alc);
-		//	TB_DebugType* t = tb_debug_create_field(g->tb, elem_type_tb, name, i * type->FixedArray.elem_type->size);
-		//	f_array_push(&tb_fields, t);
-		//}
-		//
-		//TB_DebugType* out = tb_debug_create_struct(g->tb, make_name(g));
-		//tb_debug_complete_record(out, tb_fields.data, tb_fields.len, type->size, type->align);
-		//return out;
+		cv_type.tag = cviewTypeTag_Array;
+		cv_type.Array.elem_type_idx = get_debuginfo_type(g, type->FixedArray.elem_type);
+		cv_type.Array.length = type->FixedArray.length;
 	} break;
 
 	default: F_BP;

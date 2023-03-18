@@ -1,5 +1,6 @@
 #include "src/foundation/foundation.hpp"
 
+#define coffString fString
 #include "coff.h"
 #include "codeview.h"
 
@@ -8,11 +9,6 @@
 #define _VC_VER_INC
 #include "cvinfo.h"
 
-// do we need AlignTo4Bytes?
-static void AlignTo4Bytes(fArray(u8)* builder) {
-	f_array_resize(builder, F_ALIGN_UP_POW2(builder->len, 4), (u8)0);
-};
-
 struct xdata_UnwindCode {
 	u8 CodeOffset;
 	u8 UnwindOp : 4;
@@ -20,6 +16,60 @@ struct xdata_UnwindCode {
 };
 
 #pragma pack(push, 1)
+
+struct _TYPTYPE {
+	unsigned short len;
+	unsigned short leaf;
+};
+
+// NOTE: 1-byte alignment
+struct _lfArray {
+	u16 len;
+	unsigned short  leaf;           // LF_ARRAY
+	CV_typ_t        elemtype;       // type index of element type
+	CV_typ_t        idxtype;        // type index of indexing type
+	// followed by variable length data specifying the length of the array and name
+};
+
+// NOTE: 1-byte alignment
+struct _lfEnum {
+	u16  len;
+	unsigned short  leaf;           // LF_ENUM
+	unsigned short  count;          // count of number of elements in class
+	CV_prop_t       property;       // property attribute field
+	CV_typ_t        utype;          // underlying type of the enum
+	CV_typ_t        field;          // type index of LF_FIELD descriptor list
+	// followed by a length prefixed name of the enum
+};
+
+// NOTE: 1-byte alignment
+struct _lfMember {
+	unsigned short  leaf;           // LF_MEMBER
+	CV_fldattr_t    attr;           // u16, attribute mask
+	unsigned long   index;          // index of type record for field
+	// variable length offset of field followed by length prefixed name of field
+};
+
+// NOTE: 1-byte alignment
+struct _lfStructure {
+	u16 len;
+	unsigned short  leaf;           // LF_CLASS, LF_STRUCT, LF_INTERFACE
+	unsigned short  count;          // count of number of elements in class
+	CV_prop_t       property;       // property attribute field (prop_t)
+	CV_typ_t        field;          // type index of LF_FIELD descriptor list
+	CV_typ_t        derived;        // type index of derived from list if not zero
+	CV_typ_t        vshape;         // type index of vshape table for this class
+	// followed by data describing length of structure in bytes and name
+};
+
+// NOTE: 1-byte alignment
+struct CV_Filedata {
+	u32 offstFileName;
+	u8  cbChecksum;
+	u8  ChecksumType;
+};
+
+// NOTE: 1-byte alignment
 struct xdata_UnwindInfoHeader {
 	u8 Version : 3;
 	u8 Flags : 5;
@@ -28,8 +78,35 @@ struct xdata_UnwindInfoHeader {
 	u8 FrameRegister : 4;
 	u8 FrameOffset : 4;
 };
+
+// NOTE: 1-byte alignment
+struct _lfPointer { // lfPointer
+	struct {
+		unsigned short      leaf;           // LF_POINTER
+		CV_typ_t            utype;          // type index of the underlying type
+		struct {
+			unsigned long   ptrtype : 5; // ordinal specifying pointer type (CV_ptrtype_e)
+			unsigned long   ptrmode : 3; // ordinal specifying pointer mode (CV_ptrmode_e)
+			unsigned long   isflat32 : 1; // true if 0:32 pointer
+			unsigned long   isvolatile : 1; // TRUE if volatile pointer
+			unsigned long   isconst : 1; // TRUE if const pointer
+			unsigned long   isunaligned : 1; // TRUE if unaligned pointer
+			unsigned long   isrestrict : 1; // TRUE if restricted pointer (allow agressive opts)
+			unsigned long   size : 6; // size of pointer (in bytes)
+			unsigned long   ismocom : 1; // TRUE if it is a MoCOM pointer (^ or %)
+			unsigned long   islref : 1; // TRUE if it is this pointer of member function with & ref-qualifier
+			unsigned long   isrref : 1; // TRUE if it is this pointer of member function with && ref-qualifier
+			unsigned long   unused : 10;// pad out to 32-bits for following cv_typ_t's
+		} attr;
+	} u;
+};
+
 #pragma pack(pop)
 
+// do we need AlignTo4Bytes?
+static void AlignTo4Bytes(fArray(u8)* builder) {
+	f_array_resize(builder, F_ALIGN_UP_POW2(builder->len, 4), (u8)0);
+};
 
 static void CodeviewPadTo4Bytes(fArray(u8)* builder) {
 	uint pad = F_ALIGN_UP_POW2(builder->len, 4) - builder->len;
@@ -39,14 +116,17 @@ static void CodeviewPadTo4Bytes(fArray(u8)* builder) {
 	F_ASSERT(F_HAS_ALIGNMENT_POW2(builder->len, 4));
 };
 
-static void CodeviewAppendName(fArray(u8)* builder, coffString name) {
-	f_str_print_il(builder, { F_BITCAST(fString, name), F_LIT("\0") });
+static void append_so_called_length_prefixed_name(fArray(u8)* builder, coffString name) {
+	// ...it's actually not length-prefixed. The comments just say that, because it was like that in old codeview versions.
+	f_str_print(builder, name);
+	f_str_print(builder, F_LIT("\0"));
 	CodeviewPadTo4Bytes(builder);
 }
 
-static void CodeviewPatchRecordLength(fArray(u8)* builder, uint offset_of_len_field) {
-	u16 len = (u16)(builder->len - (offset_of_len_field + 2));
-	f_slice_copy(f_slice(*builder, offset_of_len_field, offset_of_len_field + 2), F_AS_BYTES(len));
+static void patch_reclen(fArray(u8)* builder, u32 reclen_offset) {
+	u16 len = (u16)(builder->len - (reclen_offset + 2));
+	*(u16*)(builder->data + reclen_offset) = len;
+	//f_slice_copy(f_slice(*builder, offset_of_len_field, offset_of_len_field + 2), F_AS_BYTES(len));
 }
 
 static void GenerateXDataAndPDataSections(fArray(u8)* pdata_builder, fArray(coffRelocation)* pdata_relocs, fArray(u8)* xdata_builder, cviewGenerateDebugInfoDesc* desc) {
@@ -176,7 +256,7 @@ static void GenerateDebugSection_AddLocals(GenerateDebugSectionContext* ctx, fSl
 
 		f_array_push_n(ctx->debugS_builder, fString{ (u8*)&sym, F_OFFSET_OF(REGREL32, name) });
 
-		f_array_push_n(ctx->debugS_builder, F_BITCAST(fString, local.name));
+		f_array_push_n(ctx->debugS_builder, local.name);
 		f_array_push(ctx->debugS_builder, (u8)'\0');
 	}
 
@@ -222,42 +302,7 @@ static void GenerateDebugSection_AddLocals(GenerateDebugSectionContext* ctx, fSl
 	}
 };
 
-#pragma pack(push, 1) // specify 1-byte alignment
-struct CV_Pointer { // lfPointer
-	struct {
-		unsigned short      leaf;           // LF_POINTER
-		CV_typ_t            utype;          // type index of the underlying type
-		struct {
-			unsigned long   ptrtype : 5; // ordinal specifying pointer type (CV_ptrtype_e)
-			unsigned long   ptrmode : 3; // ordinal specifying pointer mode (CV_ptrmode_e)
-			unsigned long   isflat32 : 1; // true if 0:32 pointer
-			unsigned long   isvolatile : 1; // TRUE if volatile pointer
-			unsigned long   isconst : 1; // TRUE if const pointer
-			unsigned long   isunaligned : 1; // TRUE if unaligned pointer
-			unsigned long   isrestrict : 1; // TRUE if restricted pointer (allow agressive opts)
-			unsigned long   size : 6; // size of pointer (in bytes)
-			unsigned long   ismocom : 1; // TRUE if it is a MoCOM pointer (^ or %)
-			unsigned long   islref : 1; // TRUE if it is this pointer of member function with & ref-qualifier
-			unsigned long   isrref : 1; // TRUE if it is this pointer of member function with && ref-qualifier
-			unsigned long   unused : 10;// pad out to 32-bits for following cv_typ_t's
-		} attr;
-	} u;
-};
-#pragma pack(pop)
-
-
-struct CV_Structure { // see lfStructure
-	u16 len;
-	unsigned short  leaf;           // LF_CLASS, LF_STRUCT, LF_INTERFACE
-	unsigned short  count;          // count of number of elements in class
-	CV_prop_t       property;       // property attribute field (prop_t)
-	CV_typ_t        field;          // type index of LF_FIELD descriptor list
-	CV_typ_t        derived;        // type index of derived from list if not zero
-	CV_typ_t        vshape;         // type index of vshape table for this class
-	// followed by data describing length of structure in bytes and name
-};
-
-static void CodeviewAppendVariableLengthNumber(fArray(u8)* buffer, u32 number) {
+static void append_variable_length_number(fArray(u8)* buffer, u32 number) {
 	// see `PrintNumeric` in microsoft pdb dump.
 	// values >= 2^32 are not supported by codeview.
 	if (number < 0x8000) {
@@ -275,7 +320,7 @@ static void CodeviewAppendVariableLengthNumber(fArray(u8)* buffer, u32 number) {
 	}
 }
 
-static void GenerateCVType(GenerateDebugSectionContext& ctx,
+static void generate_cv_type(GenerateDebugSectionContext& ctx,
 	fSlice(u32) struct_forward_ref_idx,
 	fSlice(u32) to_codeview_type_idx,
 	u32* next_custom_type_idx,
@@ -286,12 +331,7 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 	cviewType& type = ctx.desc->types[index];
 
 	u32 t = 0;
-
-	struct CodeviewType { // TYPTYPE 
-		unsigned short len;
-		unsigned short leaf;
-	};
-
+	
 	if (type.tag == cviewTypeTag_Pointer) {
 		/*u16 len = 0; // filled in later
 		s64 base = ctx.debugT_builder->len;
@@ -338,9 +378,8 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 		// LF_FIELDLIST
 		u32 fieldlist_type_idx = 0;
 		{
-			uint base = ctx.debugT_builder->len;
-			CodeviewType cv_fieldlist = {};
-			cv_fieldlist.len = 0; // filled in later
+			_TYPTYPE cv_fieldlist = {};
+			u32 reclen_offset = (u32)ctx.debugT_builder->len;
 			cv_fieldlist.leaf = LF_FIELDLIST;
 			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_fieldlist));
 
@@ -359,28 +398,19 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 				cv_field.attr.access = CV_public;
 				f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_field));
 
-				CodeviewAppendVariableLengthNumber(ctx.debugT_builder, field.value);
-				CodeviewAppendName(ctx.debugT_builder, field.name);
+				append_variable_length_number(ctx.debugT_builder, field.value);
+				append_so_called_length_prefixed_name(ctx.debugT_builder, field.name);
 			}
 
-			CodeviewPatchRecordLength(ctx.debugT_builder, base);
+			patch_reclen(ctx.debugT_builder, reclen_offset);
 
 			fieldlist_type_idx = (*next_custom_type_idx)++;
 		}
 
 		// LF_ENUM
 		{
-			struct { // see lfEnum
-				unsigned short  len;
-				unsigned short  leaf;           // LF_ENUM
-				unsigned short  count;          // count of number of elements in class
-				CV_prop_t       property;       // property attribute field
-				CV_typ_t        utype;          // underlying type of the enum
-				CV_typ_t        field;          // type index of LF_FIELD descriptor list
-				// followed by a length-prefixed name of the enum
-			} cv_enum = {};
-
-			uint base = ctx.debugT_builder->len; // cv_enum.len is filled in later
+			_lfEnum cv_enum = {};
+			u32 reclen_offset = (u32)ctx.debugT_builder->len;
 			cv_enum.leaf = LF_ENUM;
 			cv_enum.count = type.Enum.fields_count;
 
@@ -390,10 +420,32 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 				type.size == 4 ? T_UINT4 : T_UINT8;
 			cv_enum.field = fieldlist_type_idx;
 			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_enum));
-			CodeviewAppendName(ctx.debugT_builder, type.Enum.name);
-			CodeviewPatchRecordLength(ctx.debugT_builder, base);
+			
+			append_so_called_length_prefixed_name(ctx.debugT_builder, type.Enum.name);
+			
+			patch_reclen(ctx.debugT_builder, reclen_offset);
 		}
 		//t = T_UINT8;
+		t = (*next_custom_type_idx)++;
+	}
+	else if (type.tag == cviewTypeTag_Array) {
+		// LF_ARRAY
+
+		// generate the element type first
+		generate_cv_type(ctx, struct_forward_ref_idx, to_codeview_type_idx, next_custom_type_idx, type.Array.elem_type_idx);
+
+		_lfArray cv_array = {};
+		u32 reclen_offset = (u32)ctx.debugT_builder->len;
+		cv_array.leaf = LF_ARRAY;
+		cv_array.elemtype = to_codeview_type_idx[type.Pointer.type_idx];
+		cv_array.idxtype = T_UQUAD; // 64-bit unsigned
+		f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_array));
+		
+		append_variable_length_number(ctx.debugT_builder, type.Array.length);
+		append_so_called_length_prefixed_name(ctx.debugT_builder, coffString{});
+
+		patch_reclen(ctx.debugT_builder, reclen_offset);
+		
 		t = (*next_custom_type_idx)++;
 	}
 	else if (type.tag == cviewTypeTag_Record) {
@@ -402,29 +454,20 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 		// first generate the member types
 		for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
 			cviewStructMember& member = type.Record.fields[member_i];
-			GenerateCVType(ctx, struct_forward_ref_idx, to_codeview_type_idx, next_custom_type_idx, member.type_idx);
+			generate_cv_type(ctx, struct_forward_ref_idx, to_codeview_type_idx, next_custom_type_idx, member.type_idx);
 		}
 
 		// LF_FIELDLIST
 		u32 fieldlist_type_idx = 0;
 		{
-			uint base = ctx.debugT_builder->len;
-			//lfFieldList
-			CodeviewType cv_fieldlist = {};
-			cv_fieldlist.len = 0; // filled in later
+
+			_TYPTYPE cv_fieldlist = {};
+			u32 reclen_offset = (u32)ctx.debugT_builder->len;
 			cv_fieldlist.leaf = LF_FIELDLIST;
 			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_fieldlist));
 
 			for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
 				cviewStructMember& member = type.Record.fields[member_i];
-				struct _lfMember { // lfMember
-					unsigned short  leaf;           // LF_MEMBER
-
-					CV_fldattr_t    attr;           // u16, attribute mask
-					unsigned long   index;          // index of type record for field
-					// variable length offset of field followed
-					// by length prefixed (@em: NOT length-prefixed! it's null-terminated in the latest codeview version) name of field
-				};
 
 				_lfMember cv_member = {};
 				cv_member.leaf = LF_MEMBER;
@@ -434,19 +477,19 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 				F_ASSERT(cv_member.index != 0);
 				f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_member));
 
-				CodeviewAppendVariableLengthNumber(ctx.debugT_builder, member.offset_of_member);
-				CodeviewAppendName(ctx.debugT_builder, member.name);
+				append_variable_length_number(ctx.debugT_builder, member.offset_of_member);
+				append_so_called_length_prefixed_name(ctx.debugT_builder, member.name);
 			}
 
-			CodeviewPatchRecordLength(ctx.debugT_builder, base);
+			patch_reclen(ctx.debugT_builder, reclen_offset);
 
 			fieldlist_type_idx = (*next_custom_type_idx)++;
 		}
 
 		// LF_STRUCTURE
 		{
-			uint base = ctx.debugT_builder->len;
-			CV_Structure cv_structure = {};
+			_lfStructure cv_structure = {};
+			u32 reclen_offset = (u32)ctx.debugT_builder->len;
 
 			VALIDATE(type.Record.fields_count < F_U16_MAX);
 			VALIDATE(type.size < F_U16_MAX);
@@ -459,10 +502,10 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 			//cv_structure.vshape
 			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_structure));
 
-			CodeviewAppendVariableLengthNumber(ctx.debugT_builder, type.size);
-			CodeviewAppendName(ctx.debugT_builder, type.Record.name);
+			append_variable_length_number(ctx.debugT_builder, type.size);
+			append_so_called_length_prefixed_name(ctx.debugT_builder, type.Record.name);
 
-			CodeviewPatchRecordLength(ctx.debugT_builder, base);
+			patch_reclen(ctx.debugT_builder, reclen_offset);
 		}
 
 		t = (*next_custom_type_idx)++;
@@ -496,24 +539,22 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 
 	u32 next_custom_type_idx = 0x1000;
 
-	// First create forward references for all the struct types
+	// First create forward references for all the record types
 
 	for (u32 i = 0; i < ctx.desc->types_count; i++) {
 		cviewType& type = ctx.desc->types[i];
 		if (type.tag == cviewTypeTag_Record) {
-			uint base = ctx.debugT_builder->len;
-			CV_Structure cv_structure = {};
-			const int x = sizeof(CV_Structure);
-			//cv_structure.len // filled in later
+			_lfStructure cv_structure = {};
+			u32 reclen_offset = (u32)ctx.debugT_builder->len;
 			cv_structure.leaf = LF_STRUCTURE;
 			cv_structure.property.fwdref = true;
 			f_str_print(ctx.debugT_builder, F_AS_BYTES(cv_structure));
 
 			u16 struct_size = 0;
 			f_str_print(ctx.debugT_builder, F_AS_BYTES(struct_size));
-			CodeviewAppendName(ctx.debugT_builder, type.Record.name);
+			append_so_called_length_prefixed_name(ctx.debugT_builder, type.Record.name);
 
-			CodeviewPatchRecordLength(ctx.debugT_builder, base);
+			patch_reclen(ctx.debugT_builder, reclen_offset);
 
 			struct_forward_ref_idx[i] = next_custom_type_idx++;
 		}
@@ -522,7 +563,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 	// DumpModTypC7 implementation is missing from the microsoft's PDB dump.
 
 	for (u32 i = 0; i < ctx.desc->types_count; i++) {
-		GenerateCVType(ctx, struct_forward_ref_idx, to_codeview_type_idx, &next_custom_type_idx, i);
+		generate_cv_type(ctx, struct_forward_ref_idx, to_codeview_type_idx, &next_custom_type_idx, i);
 	}
 
 	// -- Symbols section --------------------------------------------------------
@@ -540,25 +581,23 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 
 		{
 			//fString name = F_LIT("C:\\dev\\slump\\GMMC\\minimal\\lettuce.obj");
-			VALIDATE(!f_str_contains(F_BITCAST(fString, ctx.desc->obj_name), F_LIT("/"))); // Only backslashes are allowed!
+			VALIDATE(!f_str_contains(ctx.desc->obj_name, F_LIT("/"))); // Only backslashes are allowed!
 
-			uint base = ctx.debugS_builder->len;
 			OBJNAMESYM objname = {};
-			// .reclen is filled in later
+			u32 reclen_offset = (u32)ctx.debugS_builder->len;
 			objname.rectyp = S_OBJNAME;
 
 			f_array_push_n(ctx.debugS_builder, { (u8*)&objname, sizeof(OBJNAMESYM) - 1 });
-			f_array_push_n(ctx.debugS_builder, F_BITCAST(fString, ctx.desc->obj_name));
+			f_array_push_n(ctx.debugS_builder, ctx.desc->obj_name);
 			f_array_push(ctx.debugS_builder, (u8)'\0');
 
-			CodeviewPatchRecordLength(ctx.debugS_builder, base);
+			patch_reclen(ctx.debugS_builder, reclen_offset);
 		}
 		{
 			fString name = F_LIT("Microsoft (R) Optimizing Compiler"); // TODO
 
-			uint base = ctx.debugS_builder->len;
+			u32 reclen_offset = (u32)ctx.debugS_builder->len;
 			COMPILESYM3 compile3 = {};
-			// .reclen is filled in later
 			compile3.rectyp = S_COMPILE3;
 			compile3.machine = CV_CFL_X64;
 
@@ -566,7 +605,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 			f_array_push_n(ctx.debugS_builder, name);
 			f_array_push(ctx.debugS_builder, (u8)'\0');
 
-			CodeviewPatchRecordLength(ctx.debugS_builder, base);
+			patch_reclen(ctx.debugS_builder, reclen_offset);
 		}
 
 		// cbLen is the size of the subsection in bytes, not including the header itself and not including
@@ -597,14 +636,14 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 				F_ASSERT(fn.name.len > 0);
 
 				PROCSYM32 proc_sym = {};
+				u32 reclen_offset = (u32)ctx.debugS_builder->len;
 				proc_sym.rectyp = S_GPROC32_ID;
 
 				proc_sym.seg = 0; // Section number of the procedure. To be relocated
 				{
 					coffRelocation seg_reloc = {};
-					seg_reloc.offset = (u32)ctx.debugS_builder->len + F_OFFSET_OF(PROCSYM32, seg);
+					seg_reloc.offset = reclen_offset + F_OFFSET_OF(PROCSYM32, seg);
 					seg_reloc.sym_idx = fn.sym_index;
-					//if (seg_reloc.sym_idx == 9) F_BP;
 					seg_reloc.type = IMAGE_REL_AMD64_SECTION; // IMAGE_REL_X_SECTION sets the relocated value to be the section number of the target symbol
 					f_array_push(ctx.debugS_relocs, seg_reloc);
 				}
@@ -612,9 +651,8 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 				proc_sym.off = 0; // Start offset of the function within the section. To be relocated
 				{
 					coffRelocation off_reloc = {};
-					off_reloc.offset = (u32)ctx.debugS_builder->len + F_OFFSET_OF(PROCSYM32, off);
+					off_reloc.offset = reclen_offset + F_OFFSET_OF(PROCSYM32, off);
 					off_reloc.sym_idx = fn.sym_index;
-					//if (off_reloc.sym_idx == 9) F_BP;
 					off_reloc.type = IMAGE_REL_AMD64_SECREL; // IMAGE_REL_X_SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
 					f_array_push(ctx.debugS_relocs, off_reloc);
 				}
@@ -627,12 +665,11 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 				proc_sym.DbgStart = 0; // this seems to always be zero
 				proc_sym.DbgEnd = proc_sym.len - 1; // this seems to usually (not always) be PROCSYM32.len - 1. Not sure what this means.
 
-				uint base = ctx.debugS_builder->len;
 				f_array_push_n(ctx.debugS_builder, { (u8*)&proc_sym, sizeof(proc_sym) - 1 });
-				f_array_push_n(ctx.debugS_builder, F_BITCAST(fString, fn.name));
+				f_array_push_n(ctx.debugS_builder, fn.name);
 				f_array_push(ctx.debugS_builder, (u8)'\0');
 
-				CodeviewPatchRecordLength(ctx.debugS_builder, base);
+				patch_reclen(ctx.debugS_builder, reclen_offset);
 			}
 
 			// S_FRAMEPROC
@@ -661,13 +698,12 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 			// S_PROC_ID_END
 			{
 				SYMTYPE sym;
-				//sym.reclen = sizeof(SYMTYPE) - 2;
+				u32 reclen_offset = (u32)ctx.debugS_builder->len;
 				sym.rectyp = S_PROC_ID_END;
 
-				uint base = ctx.debugS_builder->len;
 				f_array_push_n(ctx.debugS_builder, F_AS_BYTES(sym));
 
-				CodeviewPatchRecordLength(ctx.debugS_builder, base);
+				patch_reclen(ctx.debugS_builder, reclen_offset);
 			}
 
 
@@ -771,7 +807,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 			sym.typind = 0x1001;
 			F_BP;
 
-			uint base = ctx.debugS_builder->len;
+			u32 reclen_offset = (u32)ctx.debugS_builder->len;
 			f_array_push_n(ctx.debugS_builder, { (u8*)&sym, F_OFFSET_OF(UDTSYM, name) });
 			f_array_push_n(ctx.debugS_builder, F_LIT("MyStruct"));
 			f_array_push(ctx.debugS_builder, (u8)'\0');
@@ -804,23 +840,15 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 			cviewSourceFile* file = &ctx.desc->files[i];
 
 			uint len_before = ctx.debugS_builder->len;
-
-#pragma pack(push, 1) // specify 1-byte alignment
-			struct {
-				u32 offstFileName;
-				u8  cbChecksum;
-				u8  ChecksumType;
-			} filedata;
-#pragma pack(pop)
+			CV_Filedata filedata;
 
 			filedata.offstFileName = (u32)string_table.len; // offset to the filename in the string table
 			filedata.cbChecksum = 32; // size of the checksum, in bytes. A SHA256 hash is 32-bytes long
 			filedata.ChecksumType = CHKSUM_TYPE_SHA_256;
 
-			fString filepath = F_BITCAST(fString, file->filepath);
-			VALIDATE(!f_str_contains(filepath, F_LIT("/"))); // Only backslashes are allowed!
+			VALIDATE(!f_str_contains(file->filepath, F_LIT("/"))); // Only backslashes are allowed!
 
-			f_array_push_n(&string_table, filepath);
+			f_array_push_n(&string_table, file->filepath);
 			f_array_push(&string_table, (u8)0);
 
 			f_array_push_n(ctx.debugS_builder, F_AS_BYTES(filedata));
@@ -854,7 +882,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 		//{
 		//	f_array_push(ctx.debugS_builder, (u8)'\0');
 		//
-		//	fString filepath = F_BITCAST(fString, ctx.desc->files[0].filepath);
+		//	fString filepath = ctx.desc->files[0].filepath;
 		//	VALIDATE(!f_str_contains(filepath, F_LIT("/"))); // Only backslashes are allowed!
 		//
 		//	f_array_push_n(ctx.debugS_builder, filepath);

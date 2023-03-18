@@ -20,6 +20,7 @@ typedef enum cviewTypeTag {
 	cviewTypeTag_Record,
 	cviewTypeTag_Pointer,
 	cviewTypeTag_Enum,
+	cviewTypeTag_Array,
 	// TODO: fixed length arrays
 } cviewTypeTag;
 
@@ -50,6 +51,11 @@ typedef struct cviewType {
 			cviewEnumField* fields;
 			uint32_t fields_count;
 		} Enum;
+
+		struct {
+			cviewTypeIdx elem_type_idx;
+			uint32_t length;
+		} Array;
 	};
 } cviewType;
 
