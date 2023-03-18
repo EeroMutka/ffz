@@ -54,7 +54,6 @@ typedef struct cviewType {
 
 		struct {
 			cviewTypeIdx elem_type_idx;
-			uint32_t length;
 		} Array;
 	};
 } cviewType;

@@ -238,7 +238,6 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_FixedArray: {
 		cv_type.tag = cviewTypeTag_Array;
 		cv_type.Array.elem_type_idx = get_debuginfo_type(g, type->FixedArray.elem_type);
-		cv_type.Array.length = type->FixedArray.length;
 	} break;
 
 	default: F_BP;

@@ -28,7 +28,7 @@ struct _lfArray {
 	unsigned short  leaf;           // LF_ARRAY
 	CV_typ_t        elemtype;       // type index of element type
 	CV_typ_t        idxtype;        // type index of indexing type
-	// followed by variable length data specifying the length of the array and name
+	// followed by variable length data specifying the size in bytes and name
 };
 
 // NOTE: 1-byte alignment
@@ -441,7 +441,7 @@ static void generate_cv_type(GenerateDebugSectionContext& ctx,
 		cv_array.idxtype = T_UQUAD; // 64-bit unsigned
 		f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_array));
 		
-		append_variable_length_number(ctx.debugT_builder, type.Array.length);
+		append_variable_length_number(ctx.debugT_builder, type.size);
 		append_so_called_length_prefixed_name(ctx.debugT_builder, coffString{});
 
 		patch_reclen(ctx.debugT_builder, reclen_offset);
