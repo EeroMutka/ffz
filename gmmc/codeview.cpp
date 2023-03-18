@@ -23,6 +23,13 @@ struct _TYPTYPE {
 };
 
 // NOTE: 1-byte alignment
+struct _lfEnumerate {
+	unsigned short  leaf;       // LF_ENUMERATE
+	CV_fldattr_t    attr;       // u16, access
+	// variable length value field followed by length-prefixed name
+};
+
+// NOTE: 1-byte alignment
 struct _lfArray {
 	u16 len;
 	unsigned short  leaf;           // LF_ARRAY
@@ -103,12 +110,12 @@ struct _lfPointer { // lfPointer
 
 #pragma pack(pop)
 
-// do we need AlignTo4Bytes?
-static void AlignTo4Bytes(fArray(u8)* builder) {
+// do we need this?
+static void pad_to_4_bytes_zero(fArray(u8)* builder) {
 	f_array_resize(builder, F_ALIGN_UP_POW2(builder->len, 4), (u8)0);
 };
 
-static void CodeviewPadTo4Bytes(fArray(u8)* builder) {
+static void pad_to_4_bytes_LF_pad(fArray(u8)* builder) {
 	uint pad = F_ALIGN_UP_POW2(builder->len, 4) - builder->len;
 	if (pad >= 3) f_array_push(builder, (u8)LF_PAD3);
 	if (pad >= 2) f_array_push(builder, (u8)LF_PAD2);
@@ -120,7 +127,14 @@ static void append_so_called_length_prefixed_name(fArray(u8)* builder, coffStrin
 	// ...it's actually not length-prefixed. The comments just say that, because it was like that in old codeview versions.
 	f_str_print(builder, name);
 	f_str_print(builder, F_LIT("\0"));
-	CodeviewPadTo4Bytes(builder);
+	pad_to_4_bytes_LF_pad(builder);
+}
+
+// cbLen is the size of the subsection in bytes, not including the header itself and not including
+// the padding bytes after the subsection.
+static void patch_cbLen(fArray(u8)* debugS, u32 subsection_base) {
+	u32 cbLen = (u32)debugS->len - subsection_base;
+	*(u32*)(debugS->data + subsection_base - 4) = cbLen;
 }
 
 static void patch_reclen(fArray(u8)* builder, u32 reclen_offset) {
@@ -129,7 +143,7 @@ static void patch_reclen(fArray(u8)* builder, u32 reclen_offset) {
 	//f_slice_copy(f_slice(*builder, offset_of_len_field, offset_of_len_field + 2), F_AS_BYTES(len));
 }
 
-static void GenerateXDataAndPDataSections(fArray(u8)* pdata_builder, fArray(coffRelocation)* pdata_relocs, fArray(u8)* xdata_builder, cviewGenerateDebugInfoDesc* desc) {
+static void generate_xdata_and_pdata(fArray(u8)* pdata_builder, fArray(coffRelocation)* pdata_relocs, fArray(u8)* xdata_builder, cviewGenerateDebugInfoDesc* desc) {
 	F_ASSERT(xdata_builder->len == 0);
 	F_ASSERT(pdata_builder->len == 0);
 	F_ASSERT(pdata_relocs->len == 0);
@@ -231,15 +245,21 @@ static void GenerateXDataAndPDataSections(fArray(u8)* pdata_builder, fArray(coff
 	}
 }
 
-struct GenerateDebugSectionContext {
-	fArray(u8)* debugS_builder;
-	fArray(coffRelocation)* debugS_relocs;
-	fArray(u8)* debugT_builder;
-
+struct DebugSectionGen {
+	fArray(u8) debugS;
+	fArray(coffRelocation) debugS_relocs;
+	fArray(u8) debugT;
+	
 	cviewGenerateDebugInfoDesc* desc;
 };
 
-static void GenerateDebugSection_AddLocals(GenerateDebugSectionContext* ctx, fSlice(u32) to_codeview_type_idx, cviewFunction* fn, cviewBlock* parent) {
+struct TypeGen {
+	fSlice(u32) struct_forward_ref_idx;
+	fSlice(u32) to_codeview_type_idx;
+	u32 next_custom_type_idx;
+};
+
+static void add_locals(DebugSectionGen* ctx, TypeGen* types, cviewFunction* fn, cviewBlock* parent) {
 	for (u32 i = 0; i < parent->locals_count; i++) {
 		cviewLocal& local = parent->locals[i];
 		VALIDATE(local.name.len < F_U16_MAX);
@@ -252,12 +272,12 @@ static void GenerateDebugSection_AddLocals(GenerateDebugSectionContext* ctx, fSl
 
 		// Our API type index to codeview type index
 
-		sym.typind = to_codeview_type_idx[local.type_idx];
+		sym.typind = types->to_codeview_type_idx[local.type_idx];
 
-		f_array_push_n(ctx->debugS_builder, fString{ (u8*)&sym, F_OFFSET_OF(REGREL32, name) });
+		f_array_push_n(&ctx->debugS, fString{ (u8*)&sym, F_OFFSET_OF(REGREL32, name) });
 
-		f_array_push_n(ctx->debugS_builder, local.name);
-		f_array_push(ctx->debugS_builder, (u8)'\0');
+		f_array_push_n(&ctx->debugS, local.name);
+		f_array_push(&ctx->debugS, (u8)'\0');
 	}
 
 	for (u32 i = 0; i < parent->child_blocks_count; i++) {
@@ -271,33 +291,33 @@ static void GenerateDebugSection_AddLocals(GenerateDebugSectionContext* ctx, fSl
 			sym.seg = 0; // Section number of the block. To be relocated
 			{
 				coffRelocation seg_reloc = {};
-				seg_reloc.offset = (u32)ctx->debugS_builder->len + F_OFFSET_OF(BLOCKSYM32, seg);
+				seg_reloc.offset = (u32)ctx->debugS.len + F_OFFSET_OF(BLOCKSYM32, seg);
 				seg_reloc.sym_idx = fn->sym_index;
 				if (seg_reloc.sym_idx == 9) F_BP;
 				seg_reloc.type = IMAGE_REL_AMD64_SECTION; // IMAGE_REL_X_SECTION sets the relocated value to be the section number of the target symbol
-				f_array_push(ctx->debugS_relocs, seg_reloc);
+				f_array_push(&ctx->debugS_relocs, seg_reloc);
 			}
 
 			sym.off = block->start_offset; // Start offset of the block within the section. To be relocated
 			{
 				coffRelocation off_reloc = {};
-				off_reloc.offset = (u32)ctx->debugS_builder->len + F_OFFSET_OF(BLOCKSYM32, off);
+				off_reloc.offset = (u32)ctx->debugS.len + F_OFFSET_OF(BLOCKSYM32, off);
 				off_reloc.sym_idx = fn->sym_index;
 				if (off_reloc.sym_idx == 9) F_BP;
 				off_reloc.type = IMAGE_REL_AMD64_SECREL; // IMAGE_REL_X_SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
-				f_array_push(ctx->debugS_relocs, off_reloc);
+				f_array_push(&ctx->debugS_relocs, off_reloc);
 			}
 
-			f_array_push_n(ctx->debugS_builder, F_AS_BYTES(sym));
+			f_array_push_n(&ctx->debugS, F_AS_BYTES(sym));
 		}
 
-		GenerateDebugSection_AddLocals(ctx, to_codeview_type_idx, fn, block);
+		add_locals(ctx, types, fn, block);
 
 		{
 			u16 reclen = 2;
 			u16 rectyp = S_END;
-			f_array_push_n(ctx->debugS_builder, F_AS_BYTES(reclen));
-			f_array_push_n(ctx->debugS_builder, F_AS_BYTES(rectyp));
+			f_array_push_n(&ctx->debugS, F_AS_BYTES(reclen));
+			f_array_push_n(&ctx->debugS, F_AS_BYTES(rectyp));
 		}
 	}
 };
@@ -320,27 +340,22 @@ static void append_variable_length_number(fArray(u8)* buffer, u32 number) {
 	}
 }
 
-static void generate_cv_type(GenerateDebugSectionContext& ctx,
-	fSlice(u32) struct_forward_ref_idx,
-	fSlice(u32) to_codeview_type_idx,
-	u32* next_custom_type_idx,
-	u32 index)
-{
-	if (to_codeview_type_idx[index] != 0) return;
+static void generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index) {
+	if (types->to_codeview_type_idx[index] != 0) return;
 
-	cviewType& type = ctx.desc->types[index];
+	cviewType& type = ctx->desc->types[index];
 
 	u32 t = 0;
 	
 	if (type.tag == cviewTypeTag_Pointer) {
 		/*u16 len = 0; // filled in later
-		s64 base = ctx.debugT_builder->len;
-		f_array_push_n(ctx.debugT_builder, F_AS_BYTES(len));
+		s64 base = ctx.debugT->len;
+		f_array_push_n(&gen->debugT, F_AS_BYTES(len));
 
 		CV_Pointer cv_pointer = {};
 		cv_pointer.u.leaf = LF_POINTER;
 
-		if (ctx.desc->types[type.Pointer.type_idx].tag == cviewTypeTag_Struct) {
+		if (gen->desc->types[type.Pointer.type_idx].tag == cviewTypeTag_Struct) {
 			// Use the forward reference
 			cv_pointer.u.utype = struct_forward_ref_idx[type.Pointer.type_idx];
 		}
@@ -352,10 +367,10 @@ static void generate_cv_type(GenerateDebugSectionContext& ctx,
 		cv_pointer.u.attr.ptrtype = CV_PTR_64;
 		cv_pointer.u.attr.ptrmode = type.Pointer.cpp_style_reference ? CV_PTR_MODE_REF : CV_PTR_MODE_PTR;
 		cv_pointer.u.attr.size = 8;
-		f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_pointer));
+		f_array_push_n(&gen->debugT, F_AS_BYTES(cv_pointer));
 
-		len = (u16)(ctx.debugT_builder->len - (base + 2));
-		f_slice_copy(f_slice(*ctx.debugT_builder, base, base + 2), F_AS_BYTES(len));
+		len = (u16)(ctx.debugT->len - (base + 2));
+		f_slice_copy(f_slice(*ctx.debugT, base, base + 2), F_AS_BYTES(len));
 
 		t = (*next_custom_type_idx)++;*/
 		t = T_UINT8;
@@ -379,38 +394,32 @@ static void generate_cv_type(GenerateDebugSectionContext& ctx,
 		u32 fieldlist_type_idx = 0;
 		{
 			_TYPTYPE cv_fieldlist = {};
-			u32 reclen_offset = (u32)ctx.debugT_builder->len;
+			u32 reclen_offset = (u32)ctx->debugT.len;
 			cv_fieldlist.leaf = LF_FIELDLIST;
-			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_fieldlist));
+			f_array_push_n(&ctx->debugT, F_AS_BYTES(cv_fieldlist));
 
 			for (uint field_i = 0; field_i < type.Enum.fields_count; field_i++) {
-				F_ASSERT(F_HAS_ALIGNMENT_POW2(ctx.debugT_builder->len, 4));
+				F_ASSERT(F_HAS_ALIGNMENT_POW2(ctx->debugT.len, 4));
 				cviewEnumField& field = type.Enum.fields[field_i];
-				//F_ASSERT(IS_POWER_OF_2(ctx.debugT_builder->len));
-				struct CodeviewEnumField { // lfEnumerate
-					unsigned short  leaf;       // LF_ENUMERATE
-					CV_fldattr_t    attr;       // u16, access
-					// variable length value field followed by length-prefixed name
-				};
 
-				CodeviewEnumField cv_field = {};
+				_lfEnumerate cv_field = {};
 				cv_field.leaf = LF_ENUMERATE;
 				cv_field.attr.access = CV_public;
-				f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_field));
+				f_array_push_n(&ctx->debugT, F_AS_BYTES(cv_field));
 
-				append_variable_length_number(ctx.debugT_builder, field.value);
-				append_so_called_length_prefixed_name(ctx.debugT_builder, field.name);
+				append_variable_length_number(&ctx->debugT, field.value);
+				append_so_called_length_prefixed_name(&ctx->debugT, field.name);
 			}
 
-			patch_reclen(ctx.debugT_builder, reclen_offset);
+			patch_reclen(&ctx->debugT, reclen_offset);
 
-			fieldlist_type_idx = (*next_custom_type_idx)++;
+			fieldlist_type_idx = types->next_custom_type_idx++;
 		}
 
 		// LF_ENUM
 		{
 			_lfEnum cv_enum = {};
-			u32 reclen_offset = (u32)ctx.debugT_builder->len;
+			u32 reclen_offset = (u32)ctx->debugT.len;
 			cv_enum.leaf = LF_ENUM;
 			cv_enum.count = type.Enum.fields_count;
 
@@ -419,34 +428,34 @@ static void generate_cv_type(GenerateDebugSectionContext& ctx,
 				type.size == 2 ? T_UINT2 :
 				type.size == 4 ? T_UINT4 : T_UINT8;
 			cv_enum.field = fieldlist_type_idx;
-			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_enum));
+			f_array_push_n(&ctx->debugT, F_AS_BYTES(cv_enum));
 			
-			append_so_called_length_prefixed_name(ctx.debugT_builder, type.Enum.name);
+			append_so_called_length_prefixed_name(&ctx->debugT, type.Enum.name);
 			
-			patch_reclen(ctx.debugT_builder, reclen_offset);
+			patch_reclen(&ctx->debugT, reclen_offset);
 		}
 		//t = T_UINT8;
-		t = (*next_custom_type_idx)++;
+		t = types->next_custom_type_idx++;
 	}
 	else if (type.tag == cviewTypeTag_Array) {
 		// LF_ARRAY
 
 		// generate the element type first
-		generate_cv_type(ctx, struct_forward_ref_idx, to_codeview_type_idx, next_custom_type_idx, type.Array.elem_type_idx);
+		generate_cv_type(ctx, types, type.Array.elem_type_idx);
 
 		_lfArray cv_array = {};
-		u32 reclen_offset = (u32)ctx.debugT_builder->len;
+		u32 reclen_offset = (u32)ctx->debugT.len;
 		cv_array.leaf = LF_ARRAY;
-		cv_array.elemtype = to_codeview_type_idx[type.Pointer.type_idx];
+		cv_array.elemtype = types->to_codeview_type_idx[type.Pointer.type_idx];
 		cv_array.idxtype = T_UQUAD; // 64-bit unsigned
-		f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_array));
+		f_array_push_n(&ctx->debugT, F_AS_BYTES(cv_array));
 		
-		append_variable_length_number(ctx.debugT_builder, type.size);
-		append_so_called_length_prefixed_name(ctx.debugT_builder, coffString{});
+		append_variable_length_number(&ctx->debugT, type.size);
+		append_so_called_length_prefixed_name(&ctx->debugT, coffString{});
 
-		patch_reclen(ctx.debugT_builder, reclen_offset);
+		patch_reclen(&ctx->debugT, reclen_offset);
 		
-		t = (*next_custom_type_idx)++;
+		t = types->next_custom_type_idx++;
 	}
 	else if (type.tag == cviewTypeTag_Record) {
 		// see `strForFieldList` in the microsoft pdb dump
@@ -454,17 +463,16 @@ static void generate_cv_type(GenerateDebugSectionContext& ctx,
 		// first generate the member types
 		for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
 			cviewStructMember& member = type.Record.fields[member_i];
-			generate_cv_type(ctx, struct_forward_ref_idx, to_codeview_type_idx, next_custom_type_idx, member.type_idx);
+			generate_cv_type(ctx, types, member.type_idx);
 		}
 
 		// LF_FIELDLIST
 		u32 fieldlist_type_idx = 0;
 		{
-
 			_TYPTYPE cv_fieldlist = {};
-			u32 reclen_offset = (u32)ctx.debugT_builder->len;
+			u32 reclen_offset = (u32)ctx->debugT.len;
 			cv_fieldlist.leaf = LF_FIELDLIST;
-			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_fieldlist));
+			f_array_push_n(&ctx->debugT, F_AS_BYTES(cv_fieldlist));
 
 			for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
 				cviewStructMember& member = type.Record.fields[member_i];
@@ -473,23 +481,23 @@ static void generate_cv_type(GenerateDebugSectionContext& ctx,
 				cv_member.leaf = LF_MEMBER;
 				cv_member.attr.access = CV_public;
 
-				cv_member.index = to_codeview_type_idx[member.type_idx]; // codeview type index
+				cv_member.index = types->to_codeview_type_idx[member.type_idx]; // codeview type index
 				F_ASSERT(cv_member.index != 0);
-				f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_member));
+				f_array_push_n(&ctx->debugT, F_AS_BYTES(cv_member));
 
-				append_variable_length_number(ctx.debugT_builder, member.offset_of_member);
-				append_so_called_length_prefixed_name(ctx.debugT_builder, member.name);
+				append_variable_length_number(&ctx->debugT, member.offset_of_member);
+				append_so_called_length_prefixed_name(&ctx->debugT, member.name);
 			}
 
-			patch_reclen(ctx.debugT_builder, reclen_offset);
+			patch_reclen(&ctx->debugT, reclen_offset);
 
-			fieldlist_type_idx = (*next_custom_type_idx)++;
+			fieldlist_type_idx = types->next_custom_type_idx++;
 		}
 
 		// LF_STRUCTURE
 		{
 			_lfStructure cv_structure = {};
-			u32 reclen_offset = (u32)ctx.debugT_builder->len;
+			u32 reclen_offset = (u32)ctx->debugT.len;
 
 			VALIDATE(type.Record.fields_count < F_U16_MAX);
 			VALIDATE(type.size < F_U16_MAX);
@@ -500,75 +508,75 @@ static void generate_cv_type(GenerateDebugSectionContext& ctx,
 			cv_structure.field = fieldlist_type_idx;
 			//cv_structure.derived
 			//cv_structure.vshape
-			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_structure));
+			f_array_push_n(&ctx->debugT, F_AS_BYTES(cv_structure));
 
-			append_variable_length_number(ctx.debugT_builder, type.size);
-			append_so_called_length_prefixed_name(ctx.debugT_builder, type.Record.name);
+			append_variable_length_number(&ctx->debugT, type.size);
+			append_so_called_length_prefixed_name(&ctx->debugT, type.Record.name);
 
-			patch_reclen(ctx.debugT_builder, reclen_offset);
+			patch_reclen(&ctx->debugT, reclen_offset);
 		}
 
-		t = (*next_custom_type_idx)++;
+		t = types->next_custom_type_idx++;
 	}
 	else F_BP;
 
 	F_ASSERT(t != 0);
-	to_codeview_type_idx[index] = t;
+	types->to_codeview_type_idx[index] = t;
 }
 
 
-static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
+static void generate_debug_sections(DebugSectionGen* gen) {
 	fAllocator* temp = f_temp_alc();
 
 	u32 signature = CV_SIGNATURE_C13;
 
 	// -- Types section -------------------------------------------------------
 
-	//fString test_debugT = os_file_read_whole(F_LIT("C:\\dev\\slump\\GMMC\\minimal\\lettuce_debugT.hex"), ctx.desc->allocator);
-	//f_array_push_n(ctx.debugT_builder, test_debugT);
+	//fString test_debugT = os_file_read_whole(F_LIT("C:\\dev\\slump\\GMMC\\minimal\\lettuce_debugT.hex"), gen->desc->allocator);
+	//f_array_push_n(&gen->debugT, test_debugT);
 
-	f_array_push_n(ctx.debugT_builder, F_AS_BYTES(signature));
+	f_array_push_n(&gen->debugT, F_AS_BYTES(signature));
 
+	TypeGen types = {};
 	// We have two different concepts of a type index. The first is the type index provided by the user of the API, pointing
 	// to an element in the `CodeView_GenerateDebugInfo_Desc.types` array.
 	// The second is the type index that's used in the actual compiled binary. We'll refer to the latter as "codeview type index"
-	fSlice(u32) to_codeview_type_idx = f_make_slice_garbage<u32>(ctx.desc->types_count, temp);
-	memset(to_codeview_type_idx.data, 0, to_codeview_type_idx.len * sizeof(u32));
-
-	fSlice(u32) struct_forward_ref_idx = f_make_slice_garbage<u32>(ctx.desc->types_count, temp);
-
-	u32 next_custom_type_idx = 0x1000;
+	types.to_codeview_type_idx = f_make_slice_garbage<u32>(gen->desc->types_count, temp);
+	memset(types.to_codeview_type_idx.data, 0, types.to_codeview_type_idx.len * sizeof(u32));
+	
+	types.struct_forward_ref_idx = f_make_slice_garbage<u32>(gen->desc->types_count, temp);
+	types.next_custom_type_idx = 0x1000;
 
 	// First create forward references for all the record types
 
-	for (u32 i = 0; i < ctx.desc->types_count; i++) {
-		cviewType& type = ctx.desc->types[i];
+	for (u32 i = 0; i < gen->desc->types_count; i++) {
+		cviewType& type = gen->desc->types[i];
 		if (type.tag == cviewTypeTag_Record) {
 			_lfStructure cv_structure = {};
-			u32 reclen_offset = (u32)ctx.debugT_builder->len;
+			u32 reclen_offset = (u32)gen->debugT.len;
 			cv_structure.leaf = LF_STRUCTURE;
 			cv_structure.property.fwdref = true;
-			f_str_print(ctx.debugT_builder, F_AS_BYTES(cv_structure));
+			f_str_print(&gen->debugT, F_AS_BYTES(cv_structure));
 
 			u16 struct_size = 0;
-			f_str_print(ctx.debugT_builder, F_AS_BYTES(struct_size));
-			append_so_called_length_prefixed_name(ctx.debugT_builder, type.Record.name);
+			f_str_print(&gen->debugT, F_AS_BYTES(struct_size));
+			append_so_called_length_prefixed_name(&gen->debugT, type.Record.name);
 
-			patch_reclen(ctx.debugT_builder, reclen_offset);
+			patch_reclen(&gen->debugT, reclen_offset);
 
-			struct_forward_ref_idx[i] = next_custom_type_idx++;
+			types.struct_forward_ref_idx[i] = types.next_custom_type_idx++;
 		}
 	}
 
 	// DumpModTypC7 implementation is missing from the microsoft's PDB dump.
 
-	for (u32 i = 0; i < ctx.desc->types_count; i++) {
-		generate_cv_type(ctx, struct_forward_ref_idx, to_codeview_type_idx, &next_custom_type_idx, i);
+	for (u32 i = 0; i < gen->desc->types_count; i++) {
+		generate_cv_type(gen, &types, i);
 	}
 
 	// -- Symbols section --------------------------------------------------------
 
-	f_array_push_n(ctx.debugS_builder, F_AS_BYTES(signature));
+	f_array_push_n(&gen->debugS, F_AS_BYTES(signature));
 
 	// *** SYMBOLS
 
@@ -576,67 +584,64 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 		CV_DebugSSubsectionHeader_t subsection_header;
 		subsection_header.type = DEBUG_S_SYMBOLS;
 		// subsection_header.cbLen
-		f_array_push_n(ctx.debugS_builder, F_AS_BYTES(subsection_header));
-		u32 subsection_base = (u32)ctx.debugS_builder->len;
+		f_array_push_n(&gen->debugS, F_AS_BYTES(subsection_header));
+		u32 subsection_base = (u32)gen->debugS.len;
 
 		{
 			//fString name = F_LIT("C:\\dev\\slump\\GMMC\\minimal\\lettuce.obj");
-			VALIDATE(!f_str_contains(ctx.desc->obj_name, F_LIT("/"))); // Only backslashes are allowed!
+			VALIDATE(!f_str_contains(gen->desc->obj_name, F_LIT("/"))); // Only backslashes are allowed!
 
 			OBJNAMESYM objname = {};
-			u32 reclen_offset = (u32)ctx.debugS_builder->len;
+			u32 reclen_offset = (u32)gen->debugS.len;
 			objname.rectyp = S_OBJNAME;
 
-			f_array_push_n(ctx.debugS_builder, { (u8*)&objname, sizeof(OBJNAMESYM) - 1 });
-			f_array_push_n(ctx.debugS_builder, ctx.desc->obj_name);
-			f_array_push(ctx.debugS_builder, (u8)'\0');
+			f_array_push_n(&gen->debugS, { (u8*)&objname, sizeof(OBJNAMESYM) - 1 });
+			f_array_push_n(&gen->debugS, gen->desc->obj_name);
+			f_array_push(&gen->debugS, (u8)'\0');
 
-			patch_reclen(ctx.debugS_builder, reclen_offset);
+			patch_reclen(&gen->debugS, reclen_offset);
 		}
 		{
 			fString name = F_LIT("Microsoft (R) Optimizing Compiler"); // TODO
 
-			u32 reclen_offset = (u32)ctx.debugS_builder->len;
+			u32 reclen_offset = (u32)gen->debugS.len;
 			COMPILESYM3 compile3 = {};
 			compile3.rectyp = S_COMPILE3;
 			compile3.machine = CV_CFL_X64;
 
-			f_array_push_n(ctx.debugS_builder, { (u8*)&compile3, sizeof(compile3) - 1 });
-			f_array_push_n(ctx.debugS_builder, name);
-			f_array_push(ctx.debugS_builder, (u8)'\0');
+			f_array_push_n(&gen->debugS, { (u8*)&compile3, sizeof(compile3) - 1 });
+			f_array_push_n(&gen->debugS, name);
+			f_array_push(&gen->debugS, (u8)'\0');
 
-			patch_reclen(ctx.debugS_builder, reclen_offset);
+			patch_reclen(&gen->debugS, reclen_offset);
 		}
 
-		// cbLen is the size of the subsection in bytes, not including the header itself and not including
-		// the padding bytes after the subsection.
-		u32 cbLen = (u32)ctx.debugS_builder->len - subsection_base;
-		f_slice_copy(f_slice(*ctx.debugS_builder, subsection_base - 4, subsection_base), F_AS_BYTES(cbLen));
+		patch_cbLen(&gen->debugS, subsection_base);
 
-		AlignTo4Bytes(ctx.debugS_builder); // Subsections must be aligned to 4 byte boundaries.
+		pad_to_4_bytes_zero(&gen->debugS); // Subsections must be aligned to 4 byte boundaries.
 	}
 
 	const uint size_of_file_checksum_entry = 40;
 
-	for (u32 i = 0; i < ctx.desc->functions_count; i++) {
-		cviewFunction& fn = ctx.desc->functions[i];
+	for (u32 i = 0; i < gen->desc->functions_count; i++) {
+		cviewFunction& fn = gen->desc->functions[i];
 
 		// *** SYMBOLS
 		{
 
 			CV_DebugSSubsectionHeader_t subsection_header;
 			subsection_header.type = DEBUG_S_SYMBOLS;
-			f_array_push_n(ctx.debugS_builder, F_AS_BYTES(subsection_header));
-			u32 subsection_base = (u32)ctx.debugS_builder->len;
+			f_array_push_n(&gen->debugS, F_AS_BYTES(subsection_header));
+			u32 subsection_base = (u32)gen->debugS.len;
 
 			// S_GPROC32_ID
 			{
 				//fString name = transmute(fString)fn->fn->dbginfo_name;
-				//CodeView_Function& fn = ctx.desc->functions[0];
+				//CodeView_Function& fn = gen->desc->functions[0];
 				F_ASSERT(fn.name.len > 0);
 
 				PROCSYM32 proc_sym = {};
-				u32 reclen_offset = (u32)ctx.debugS_builder->len;
+				u32 reclen_offset = (u32)gen->debugS.len;
 				proc_sym.rectyp = S_GPROC32_ID;
 
 				proc_sym.seg = 0; // Section number of the procedure. To be relocated
@@ -645,7 +650,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 					seg_reloc.offset = reclen_offset + F_OFFSET_OF(PROCSYM32, seg);
 					seg_reloc.sym_idx = fn.sym_index;
 					seg_reloc.type = IMAGE_REL_AMD64_SECTION; // IMAGE_REL_X_SECTION sets the relocated value to be the section number of the target symbol
-					f_array_push(ctx.debugS_relocs, seg_reloc);
+					f_array_push(&gen->debugS_relocs, seg_reloc);
 				}
 
 				proc_sym.off = 0; // Start offset of the function within the section. To be relocated
@@ -654,7 +659,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 					off_reloc.offset = reclen_offset + F_OFFSET_OF(PROCSYM32, off);
 					off_reloc.sym_idx = fn.sym_index;
 					off_reloc.type = IMAGE_REL_AMD64_SECREL; // IMAGE_REL_X_SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
-					f_array_push(ctx.debugS_relocs, off_reloc);
+					f_array_push(&gen->debugS_relocs, off_reloc);
 				}
 
 				// in cvdump, this is the "Cb" field. This marks the size of the function in the .text section, in bytes.
@@ -665,11 +670,11 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 				proc_sym.DbgStart = 0; // this seems to always be zero
 				proc_sym.DbgEnd = proc_sym.len - 1; // this seems to usually (not always) be PROCSYM32.len - 1. Not sure what this means.
 
-				f_array_push_n(ctx.debugS_builder, { (u8*)&proc_sym, sizeof(proc_sym) - 1 });
-				f_array_push_n(ctx.debugS_builder, fn.name);
-				f_array_push(ctx.debugS_builder, (u8)'\0');
+				f_array_push_n(&gen->debugS, { (u8*)&proc_sym, sizeof(proc_sym) - 1 });
+				f_array_push_n(&gen->debugS, fn.name);
+				f_array_push(&gen->debugS, (u8)'\0');
 
-				patch_reclen(ctx.debugS_builder, reclen_offset);
+				patch_reclen(&gen->debugS, reclen_offset);
 			}
 
 			// S_FRAMEPROC
@@ -689,21 +694,20 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 				frameproc.flags.fOptSpeed = 1;
 				frameproc.flags.encodedLocalBasePointer = 1; // 0=none, 1=RSP, 2=RBP, 3=R13  (rgszRegAMD64[rgFramePointerRegX64[encodedLocalBasePointer]])
 				frameproc.flags.encodedParamBasePointer = 1; // same encoding as above
-				f_array_push_n(ctx.debugS_builder, F_AS_BYTES(frameproc));
+				f_array_push_n(&gen->debugS, F_AS_BYTES(frameproc));
 			}
 
-
-			GenerateDebugSection_AddLocals(&ctx, to_codeview_type_idx, &fn, &fn.block);
+			add_locals(gen, &types, &fn, &fn.block);
 
 			// S_PROC_ID_END
 			{
 				SYMTYPE sym;
-				u32 reclen_offset = (u32)ctx.debugS_builder->len;
+				u32 reclen_offset = (u32)gen->debugS.len;
 				sym.rectyp = S_PROC_ID_END;
 
-				f_array_push_n(ctx.debugS_builder, F_AS_BYTES(sym));
+				f_array_push_n(&gen->debugS, F_AS_BYTES(sym));
 
-				patch_reclen(ctx.debugS_builder, reclen_offset);
+				patch_reclen(&gen->debugS, reclen_offset);
 			}
 
 
@@ -713,12 +717,10 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 			//for (;;) {
 			//}
 
-			u32 cbLen = (u32)ctx.debugS_builder->len - subsection_base; // cbLen is the size of the subsection in bytes, not including the header itself
-			f_slice_copy(f_slice(*ctx.debugS_builder, subsection_base - 4, subsection_base), F_AS_BYTES(cbLen));
+			patch_cbLen(&gen->debugS, subsection_base);
 
-			AlignTo4Bytes(ctx.debugS_builder); // Subsections must be aligned to 4 byte boundaries
+			pad_to_4_bytes_zero(&gen->debugS); // Subsections must be aligned to 4 byte boundaries
 		}
-
 
 		// *** LINES
 		{
@@ -727,8 +729,8 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 			CV_DebugSSubsectionHeader_t subsection_header;
 			subsection_header.type = DEBUG_S_LINES;
 			// subsection_header.cbLen
-			f_array_push_n(ctx.debugS_builder, F_AS_BYTES(subsection_header));
-			u32 subsection_base = (u32)ctx.debugS_builder->len;
+			f_array_push_n(&gen->debugS, F_AS_BYTES(subsection_header));
+			u32 subsection_base = (u32)gen->debugS.len;
 
 			{
 				CV_DebugSLinesHeader_t lines_header;
@@ -736,24 +738,24 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 				lines_header.segCon = 0; // Section number containing the code. To be relocated
 				{
 					coffRelocation seg_reloc = {};
-					seg_reloc.offset = (u32)ctx.debugS_builder->len + F_OFFSET_OF(CV_DebugSLinesHeader_t, segCon);
+					seg_reloc.offset = (u32)gen->debugS.len + F_OFFSET_OF(CV_DebugSLinesHeader_t, segCon);
 					seg_reloc.sym_idx = fn.sym_index;
 					seg_reloc.type = IMAGE_REL_AMD64_SECTION; // IMAGE_REL_X_SECTION sets the relocated value to be the section number of the target symbol
-					f_array_push(ctx.debugS_relocs, seg_reloc);
+					f_array_push(&gen->debugS_relocs, seg_reloc);
 				}
 
 				lines_header.offCon = 0; // Start offset of the function within the section. To be relocated
 				{
 					coffRelocation off_reloc = {};
-					off_reloc.offset = (u32)ctx.debugS_builder->len + F_OFFSET_OF(CV_DebugSLinesHeader_t, offCon);
+					off_reloc.offset = (u32)gen->debugS.len + F_OFFSET_OF(CV_DebugSLinesHeader_t, offCon);
 					off_reloc.sym_idx = fn.sym_index;
 					off_reloc.type = IMAGE_REL_AMD64_SECREL; // IMAGE_REL_X_SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
-					f_array_push(ctx.debugS_relocs, off_reloc);
+					f_array_push(&gen->debugS_relocs, off_reloc);
 				}
 
 				lines_header.flags = 0;
 				lines_header.cbCon = fn.block.end_offset - fn.block.start_offset;
-				f_array_push_n(ctx.debugS_builder, F_AS_BYTES(lines_header));
+				f_array_push_n(&gen->debugS, F_AS_BYTES(lines_header));
 
 				struct {
 					u32 fileid;
@@ -764,7 +766,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 				file_block_header.fileid = size_of_file_checksum_entry * fn.file_idx; // the 'fileid' seems to encode the offset into the FILECHKSUMS subsection
 				file_block_header.nLines = (u32)fn.lines_count;
 				file_block_header.cbFileBlock = sizeof(file_block_header) + file_block_header.nLines * sizeof(CV_Line_t);
-				f_array_push_n(ctx.debugS_builder, F_AS_BYTES(file_block_header));
+				f_array_push_n(&gen->debugS, F_AS_BYTES(file_block_header));
 
 				// add the lines
 
@@ -779,15 +781,14 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 					l.offset = line.offset - fn.block.start_offset; // This offset is relative to lines_header.offCon (the start offset of the function)
 
 					l.fStatement = 1; // not sure what this field means in practice
-					f_array_push_n(ctx.debugS_builder, F_AS_BYTES(l));
+					f_array_push_n(&gen->debugS, F_AS_BYTES(l));
 				}
 			}
 
-			u32 cbLen = (u32)ctx.debugS_builder->len - subsection_base; // cbLen is the size of the subsection in bytes, not including the header itself
-			f_slice_copy(f_slice(*ctx.debugS_builder, subsection_base - 4, subsection_base), F_AS_BYTES(cbLen));
+			patch_cbLen(&gen->debugS, subsection_base);
 
 			// Each of the above structures are 4-byte aligned
-			F_ASSERT(ctx.debugS_builder->len % 4 == 0); // Subsections must be aligned to 4 byte boundaries
+			F_ASSERT(gen->debugS.len % 4 == 0); // Subsections must be aligned to 4 byte boundaries
 		}
 	}
 
@@ -798,8 +799,8 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 		CV_DebugSSubsectionHeader_t subsection_header;
 		subsection_header.type = DEBUG_S_SYMBOLS;
 		// subsection_header.cbLen
-		f_array_push_n(ctx.debugS_builder, F_AS_BYTES(subsection_header));
-		u32 subsection_base = (u32)ctx.debugS_builder->len;
+		f_array_push_n(&gen->debugS, F_AS_BYTES(subsection_header));
+		u32 subsection_base = (u32)gen->debugS->len;
 
 		{
 			UDTSYM sym = {};
@@ -807,19 +808,18 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 			sym.typind = 0x1001;
 			F_BP;
 
-			u32 reclen_offset = (u32)ctx.debugS_builder->len;
-			f_array_push_n(ctx.debugS_builder, { (u8*)&sym, F_OFFSET_OF(UDTSYM, name) });
-			f_array_push_n(ctx.debugS_builder, F_LIT("MyStruct"));
-			f_array_push(ctx.debugS_builder, (u8)'\0');
+			u32 reclen_offset = (u32)gen->debugS->len;
+			f_array_push_n(&gen->debugS, { (u8*)&sym, F_OFFSET_OF(UDTSYM, name) });
+			f_array_push_n(&gen->debugS, F_LIT("MyStruct"));
+			f_array_push(&gen->debugS, (u8)'\0');
 
-			sym.reclen = (u16)(ctx.debugS_builder->len - (base + 2));
-			f_slice_copy(f_slice(*ctx.debugS_builder, base, base + 2), F_AS_BYTES(sym.reclen));
+			sym.reclen = (u16)(gen->debugS->len - (base + 2));
+			f_slice_copy(f_slice(*gen->debugS, base, base + 2), F_AS_BYTES(sym.reclen));
 		}
 
-		u32 cbLen = (u32)ctx.debugS_builder->len - subsection_base; // cbLen is the size of the subsection in bytes, not including the header itself and not including the padding bytes after the subsection.
-		f_slice_copy(f_slice(*ctx.debugS_builder, subsection_base - 4, subsection_base), F_AS_BYTES(cbLen));
+		patch_cbLen(&gen->debugS, subsection_base);
 
-		AlignTo4Bytes(ctx.debugS_builder); // Subsections must be aligned to 4 byte boundaries.
+		AlignTo4Bytes(gen->debugS); // Subsections must be aligned to 4 byte boundaries.
 	}
 #endif
 
@@ -833,13 +833,13 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 		CV_DebugSSubsectionHeader_t subsection_header;
 		subsection_header.type = DEBUG_S_FILECHKSMS;
 		// subsection_header.cbLen
-		f_array_push_n(ctx.debugS_builder, F_AS_BYTES(subsection_header));
-		u32 subsection_base = (u32)ctx.debugS_builder->len;
+		f_array_push_n(&gen->debugS, F_AS_BYTES(subsection_header));
+		u32 subsection_base = (u32)gen->debugS.len;
 
-		for (uint i = 0; i < ctx.desc->files_count; i++) {
-			cviewSourceFile* file = &ctx.desc->files[i];
+		for (uint i = 0; i < gen->desc->files_count; i++) {
+			cviewSourceFile* file = &gen->desc->files[i];
 
-			uint len_before = ctx.debugS_builder->len;
+			uint len_before = gen->debugS.len;
 			CV_Filedata filedata;
 
 			filedata.offstFileName = (u32)string_table.len; // offset to the filename in the string table
@@ -851,21 +851,20 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 			f_array_push_n(&string_table, file->filepath);
 			f_array_push(&string_table, (u8)0);
 
-			f_array_push_n(ctx.debugS_builder, F_AS_BYTES(filedata));
+			f_array_push_n(&gen->debugS, F_AS_BYTES(filedata));
 
-			//F_ASSERT(ctx.desc->dbginfo->file_hashes);
+			//F_ASSERT(gen->desc->dbginfo->file_hashes);
 
-			f_array_push_n(ctx.debugS_builder, F_AS_BYTES(file->hash));
+			f_array_push_n(&gen->debugS, F_AS_BYTES(file->hash));
 
-			AlignTo4Bytes(ctx.debugS_builder); // Each entry is aligned to 4 byte boundary
+			pad_to_4_bytes_zero(&gen->debugS); // Each entry is aligned to 4 byte boundary
 
-			F_ASSERT(ctx.debugS_builder->len - len_before == size_of_file_checksum_entry);
+			F_ASSERT(gen->debugS.len - len_before == size_of_file_checksum_entry);
 		}
 
-		u32 cbLen = (u32)ctx.debugS_builder->len - subsection_base; // cbLen is the size of the subsection in bytes, not including the header itself
-		f_slice_copy(f_slice(*ctx.debugS_builder, subsection_base - 4, subsection_base), F_AS_BYTES(cbLen));
+		patch_cbLen(&gen->debugS, subsection_base);
 
-		AlignTo4Bytes(ctx.debugS_builder); // Subsections must be aligned to 4 byte boundaries
+		pad_to_4_bytes_zero(&gen->debugS); // Subsections must be aligned to 4 byte boundaries
 	}
 
 	// *** STRINGTABLE
@@ -875,45 +874,35 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 
 		CV_DebugSSubsectionHeader_t subsection_header;
 		subsection_header.type = DEBUG_S_STRINGTABLE;
-		f_array_push_n(ctx.debugS_builder, F_AS_BYTES(subsection_header));
-		u32 subsection_base = (u32)ctx.debugS_builder->len;
+		f_array_push_n(&gen->debugS, F_AS_BYTES(subsection_header));
+		u32 subsection_base = (u32)gen->debugS.len;
 
-		f_array_push_n(ctx.debugS_builder, string_table.slice);
-		//{
-		//	f_array_push(ctx.debugS_builder, (u8)'\0');
-		//
-		//	fString filepath = ctx.desc->files[0].filepath;
-		//	VALIDATE(!f_str_contains(filepath, F_LIT("/"))); // Only backslashes are allowed!
-		//
-		//	f_array_push_n(ctx.debugS_builder, filepath);
-		//	f_array_push(ctx.debugS_builder, (u8)'\0'); // null terminate each string
-		//}
+		f_array_push_n(&gen->debugS, string_table.slice);
 
-		u32 cbLen = (u32)ctx.debugS_builder->len - subsection_base; // cbLen is the size of the subsection in bytes, not including the header itself
-		f_slice_copy(f_slice(*ctx.debugS_builder, subsection_base - 4, subsection_base), F_AS_BYTES(cbLen));
+		patch_cbLen(&gen->debugS, subsection_base);
 	}
 }
 
 extern "C" void codeview_generate_debug_info(cviewGenerateDebugInfoDesc* desc, fAllocator* alc) {
 	// See DumpObjFileSections from the microsoft's pdb source code dump.
 
-	fArray(u8) debugS_builder = f_array_make_cap<u8>(1024, alc);
-	fArray(u8) debugT_builder = f_array_make_cap<u8>(1024, alc);
+	DebugSectionGen gen = {};
+	gen.debugS = f_array_make_cap<u8>(1024, alc);
+	gen.debugT = f_array_make_cap<u8>(1024, alc);
+	gen.debugS_relocs = f_array_make_cap<coffRelocation>(32, alc);
+	gen.desc = desc;
+	generate_debug_sections(&gen);
+
+	fArray(coffRelocation) pdata_relocs = f_array_make_cap<coffRelocation>(32, alc);
 	fArray(u8) pdata_builder = f_array_make_cap<u8>(1024, alc);
 	fArray(u8) xdata_builder = f_array_make_cap<u8>(1024, alc);
+	generate_xdata_and_pdata(&pdata_builder, &pdata_relocs, &xdata_builder, desc);
 
-	fArray(coffRelocation) debugS_relocs = f_array_make_cap<coffRelocation>(32, alc);
-	fArray(coffRelocation) pdata_relocs = f_array_make_cap<coffRelocation>(32, alc);
-
-	GenerateDebugSections({ &debugS_builder, &debugS_relocs, &debugT_builder, desc });
-
-	GenerateXDataAndPDataSections(&pdata_builder, &pdata_relocs, &xdata_builder, desc);
-
-	desc->result.debugS = debugS_builder.slice;
-	desc->result.debugS_relocs = debugS_relocs.slice;
+	desc->result.debugS = gen.debugS.slice;
+	desc->result.debugS_relocs = gen.debugS_relocs.slice;
 	desc->result.pdata = pdata_builder.slice;
 	desc->result.pdata_relocs = pdata_relocs.slice;
 	desc->result.xdata = xdata_builder.slice;
-	desc->result.debugT = debugT_builder.slice;
+	desc->result.debugT = gen.debugT.slice;
 }
 
