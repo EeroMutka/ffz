@@ -17,7 +17,7 @@ typedef enum cviewTypeTag {
 	cviewTypeTag_Invalid,
 	cviewTypeTag_Int,
 	cviewTypeTag_UnsignedInt,
-	cviewTypeTag_Struct,
+	cviewTypeTag_Record,
 	cviewTypeTag_Pointer,
 	cviewTypeTag_Enum,
 	// TODO: fixed length arrays
@@ -37,7 +37,7 @@ typedef struct cviewType {
 			coffString name;
 			cviewStructMember* fields;
 			uint32_t fields_count;
-		} Struct;
+		} Record;
 
 		struct {
 			cviewTypeIdx type_idx;

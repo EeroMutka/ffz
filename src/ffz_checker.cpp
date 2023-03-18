@@ -673,7 +673,7 @@ u32 get_alignment(ffzType* type, u32 pointer_size) {
 	case ffzTypeTag_Proc: // fallthrough
 	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Slice: return pointer_size;
-	case ffzTypeTag_Record: return 0; // alignment is computed at :ComputeRecordAlignment
+	case ffzTypeTag_Record: return type->align; // alignment is computed at :ComputeRecordAlignment
 	case ffzTypeTag_FixedArray: return get_alignment(type->FixedArray.elem_type, pointer_size);
 	}
 	return type->size;
@@ -1292,7 +1292,10 @@ static void ffz_record_builder_add_field(ffzChecker* c, ffzRecordBuilder* b, fSt
 	field.type = field_type;
 	field.decl = decl;
 	f_array_push(&b->fields, field);
-	b->record->align = F_MAX(b->record->align, field_type->align); // the alignment of a record is that of the largest field
+	
+	// the alignment of a record is that of the largest field  :ComputeRecordAlignment
+	b->record->align = F_MAX(b->record->align, field_type->align);
+
 	b->record->size = field.offset + field_type->size;
 }
 

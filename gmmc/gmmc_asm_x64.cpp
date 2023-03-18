@@ -100,15 +100,15 @@ struct gmmcAsmProc {
 	u32 stack_frame_size;
 	u8 prolog_size;
 
-	u32 temp_registers_used_count;
+	u32 work_registers_used_count;
 
-	gmmcOpIdx temp_reg_taken_by_op[GPR_COUNT];
+	gmmcOpIdx work_reg_taken_by_op[GPR_COUNT];
 
-	// When taking a non-volatile register as a temp register, we must insert code to store the content of that register onto the stack, and
+	// When taking a non-volatile register as a work register, we must insert code to store the content of that register onto the stack, and
 	// at the end of the procedure, restore the register's state.
-	// NOTE: when we begin emitting, we don't know yet how many non-volatile temp registers we're going to use.
-	// So for now, we just reserve stack space for each possible temp register. This could be solved if we introduced a third pass for the emitting, or if we emitted in a separate buffer and appended it at the end.
-	s32 temp_reg_restore_frame_rel_offset[GPR_COUNT];
+	// NOTE: when we begin emitting, we don't know yet how many non-volatile work registers we're going to use.
+	// So for now, we just reserve stack space for each possible work register. This could be solved if we introduced a third pass for the emitting, or if we emitted in a separate buffer and appended it at the end.
+	s32 work_reg_restore_frame_rel_offset[GPR_COUNT];
 };
 
 //s32 frame_rel_to_rsp_rel_offset(ProcGen* gen, s32 offset) { return gen->stack_frame_size + offset; }
@@ -139,7 +139,7 @@ static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* com
 
 // General-purpose registers. Prefer non-volatile registers for now
 // https://learn.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170
-const static GPR temp_registers[] = {
+const static GPR work_registers[] = {
 	GPR_12,
 	GPR_13,
 	GPR_14,
@@ -193,7 +193,7 @@ ZydisEncoderOperand make_reg_operand(GPR gpr, RegSize size) {
 struct LooseReg { gmmcOpIdx source_op; };
 
 static bool op_is_to_be_spilled(gmmcOpKind op_kind) {
-	if (gmmc_op_is_immediate(op_kind)) return false;
+	if (gmmc_is_op_immediate(op_kind)) return false;
 	if (op_kind == gmmcOpKind_local) return false;
 	if (op_kind == gmmcOpKind_addr_of_symbol) return false;
 	if (op_kind == gmmcOpKind_addr_of_param) return false;
@@ -207,11 +207,11 @@ static GPR allocate_gpr(gmmcAsmProc* p, gmmcOpIdx for_op) {
 
 	F_HITS(_c, 0);
 
-	for (u32 i = 0; i < p->temp_registers_used_count; i++) {
-		GPR temp_reg = temp_registers[i];
-		gmmcOpIdx taken_by_op = p->temp_reg_taken_by_op[temp_reg];
+	for (u32 i = 0; i < p->work_registers_used_count; i++) {
+		GPR work_reg = work_registers[i];
+		gmmcOpIdx taken_by_op = p->work_reg_taken_by_op[work_reg];
 		if (p->current_op > p->ops[taken_by_op].last_use_time) { // this op value will never be used later
-			gpr = temp_reg;
+			gpr = work_reg;
 			break;
 		}
 	}
@@ -219,16 +219,16 @@ static GPR allocate_gpr(gmmcAsmProc* p, gmmcOpIdx for_op) {
 	// Take a new register. If the registers are all in use, then loop through them and steal the one
 	// used by the OP with the greatest `last_use_time`
 	if (!gpr) {
-		if (p->temp_registers_used_count < F_LEN(temp_registers)) {
-			gpr = temp_registers[p->temp_registers_used_count++];
+		if (p->work_registers_used_count < F_LEN(work_registers)) {
+			gpr = work_registers[p->work_registers_used_count++];
 
-			// Store the original value of the non-volatile temp register, to be restored on return
+			// Store the original value of the non-volatile work register, to be restored on return
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 			req.mnemonic = ZYDIS_MNEMONIC_MOV;
 			req.operand_count = 2;
 			req.operands[0].type = ZYDIS_OPERAND_TYPE_MEMORY;
 			req.operands[0].mem.base = ZYDIS_REGISTER_RSP;
-			req.operands[0].mem.displacement = p->temp_reg_restore_frame_rel_offset[gpr] + p->stack_frame_size;
+			req.operands[0].mem.displacement = p->work_reg_restore_frame_rel_offset[gpr] + p->stack_frame_size;
 			req.operands[0].mem.size = 8;
 			req.operands[1] = make_reg_operand(gpr, 8);
 			emit(p, req, " ; take a new register, save its foreign value");
@@ -237,17 +237,17 @@ static GPR allocate_gpr(gmmcAsmProc* p, gmmcOpIdx for_op) {
 			gmmcOpIdx greatest_last_use_time = 0;
 			gmmcOpIdx victim = 0;
 			
-			for (uint i = 0; i < F_LEN(temp_registers); i++) {
-				GPR temp_reg = temp_registers[i];
-				gmmcOpIdx potential_victim = p->temp_reg_taken_by_op[temp_reg];
-				F_ASSERT(p->ops[potential_victim].currently_in_register == temp_reg);
+			for (uint i = 0; i < F_LEN(work_registers); i++) {
+				GPR work_reg = work_registers[i];
+				gmmcOpIdx potential_victim = p->work_reg_taken_by_op[work_reg];
+				F_ASSERT(p->ops[potential_victim].currently_in_register == work_reg);
 
 				gmmcOpIdx last_use_time = p->ops[potential_victim].last_use_time;
 				if (last_use_time > greatest_last_use_time) {
 					greatest_last_use_time = last_use_time;
 					
 					victim = potential_victim;
-					gpr = temp_reg;
+					gpr = work_reg;
 				}
 			}
 			
@@ -271,7 +271,7 @@ static GPR allocate_gpr(gmmcAsmProc* p, gmmcOpIdx for_op) {
 		}
 	}
 
-	p->temp_reg_taken_by_op[gpr] = for_op;
+	p->work_reg_taken_by_op[gpr] = for_op;
 	p->ops[for_op].currently_in_register = gpr;
 	
 	return gpr;
@@ -341,6 +341,10 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 		return result;
 	}
 
+	// NOTE: when `specify_reg` is set, we don't want to update the `currently_in_register` state,
+	// because we're probably wanting to put the value into a volatile register that is going to go
+	// out of date soon, i.e. RAX
+
 	result = specify_reg;
 	if (!specify_reg) {
 		result = allocate_gpr(p, op_idx);
@@ -395,7 +399,7 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 		reloc.target = sym;
 		f_array_push(&code_section->relocs, reloc);
 	}
-	else if (gmmc_op_is_immediate(op->kind)) { // immediates aren't stored on the stack either.
+	else if (gmmc_is_op_immediate(op->kind)) { // immediates aren't stored on the stack either.
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 		req.mnemonic = ZYDIS_MNEMONIC_MOV;
 		req.operand_count = 2;
@@ -467,7 +471,78 @@ GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmm
 
 const static GPR ms_x64_param_regs[4] = { GPR_CX, GPR_DX, GPR_8, GPR_9 };
 
-static void gen_op_basic(gmmcAsmProc* p, gmmcOpData* op, ZydisMnemonic mnemonic) {
+static void gen_array_access(gmmcAsmProc* p, gmmcOpData* op) {
+	GPR result_reg = allocate_op_result(p);
+	GPR base_reg = use_op_value(p, op->operands[0]);
+	GPR index_reg = use_op_value(p, op->operands[1]);
+
+	if (p->emitting) {
+		// memory-based operand `scale` can only encode 1, 2, 4 or 8 in x64.
+		bool can_encode_scale_directly = op->imm_raw == 1 || op->imm_raw == 2 || op->imm_raw == 4 || op->imm_raw == 8;
+		
+		if (!can_encode_scale_directly) {
+			// wait... this isn't legal!!! we can't just overwrite the data in the register, hmm...
+			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+			req.mnemonic = ZYDIS_MNEMONIC_IMUL;
+			req.operand_count = 3;
+			req.operands[0] = make_reg_operand(GPR_AX, 8);
+			req.operands[1] = make_reg_operand(index_reg, 8);
+			req.operands[2].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
+			req.operands[2].imm.u = (u32)op->imm_raw;
+			emit(p, req);
+
+			// NOTE: we `use_op_value` returns a read-only handle to a work register, so use RAX as a temporary
+			index_reg = GPR_AX;
+		}
+		
+		// When using the memory-operand 'index' field, we must to use the full 64 bits of it (x64 encoding forces it)
+
+		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+		req.mnemonic = ZYDIS_MNEMONIC_LEA;
+		req.operand_count = 2;
+		req.operands[0] = make_reg_operand(result_reg, 8);
+		req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
+		req.operands[1].mem.base = get_x64_reg(base_reg, 8);
+		req.operands[1].mem.index = get_x64_reg(index_reg, 8);
+		req.operands[1].mem.scale = can_encode_scale_directly ? (u8)op->imm_raw : 1;
+		req.operands[1].mem.size = 8;
+		emit(p, req, " ; array access");
+	}
+}
+
+static void gen_comparison(gmmcAsmProc* p, gmmcOpData* op) {
+	GPR result_value = allocate_op_result(p);
+	GPR a = use_op_value(p, op->operands[0]);
+	GPR b = use_op_value(p, op->operands[1]);
+	
+	if (p->emitting) {
+		{
+			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+			req.mnemonic = ZYDIS_MNEMONIC_CMP;
+			req.operand_count = 2;
+			req.operands[0] = make_reg_operand(a, 1);
+			req.operands[1] = make_reg_operand(b, 1);
+			emit(p, req);
+		}
+
+		{
+			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+			switch (op->kind) {
+			case gmmcOpKind_eq: { req.mnemonic = ZYDIS_MNEMONIC_SETZ; } break; 
+			case gmmcOpKind_ne: { req.mnemonic = ZYDIS_MNEMONIC_SETNZ; } break;
+			case gmmcOpKind_lt: { req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_SETL : ZYDIS_MNEMONIC_SETB; } break;
+			case gmmcOpKind_le: { req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_SETLE : ZYDIS_MNEMONIC_SETBE; } break;
+			case gmmcOpKind_gt: { req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_SETNLE : ZYDIS_MNEMONIC_SETNBE; } break;
+			case gmmcOpKind_ge: { req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_SETNL : ZYDIS_MNEMONIC_SETNB; } break;
+			}
+			req.operand_count = 1;
+			req.operands[0] = make_reg_operand(result_value, 1);
+			emit(p, req);
+		}
+	}
+}
+
+static void gen_op_basic_2(gmmcAsmProc* p, gmmcOpData* op, ZydisMnemonic mnemonic) {
 	GPR result_value = allocate_op_result(p);
 	LooseReg a = use_op_value_loose(p, op->operands[0]);
 	GPR b = use_op_value(p, op->operands[1]);
@@ -632,7 +707,7 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 			// hmm... what about immediates?
 				
 			if (p->emitting) {
-				RegSize size = gmmc_type_size(gmmc_op_get_type(p->proc, op->operands[1]));
+				RegSize size = gmmc_type_size(gmmc_get_op_type(p->proc, op->operands[1]));
 
 				// TODO: 64-bit immediate -> memory isn't possible with one instruction
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -648,8 +723,6 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 		} break;
 
 		case gmmcOpKind_load: {
-			
-			//F_HITS(___c, 4);
 			GPR result_reg = allocate_op_result(p);
 			GPR src_reg = use_op_value(p, op->operands[0]);
 
@@ -666,9 +739,65 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 				req.operands[1].mem.size = size;
 				emit(p, req, " ; load");
 			}
-			int a = 50;
 		} break;
 
+		case gmmcOpKind_trunc: { // do nothing
+			GPR result_value = allocate_op_result(p);
+			LooseReg a = use_op_value_loose(p, op->operands[0]);
+			if (p->emitting) {
+				op_value_to_reg(p, a.source_op, result_value);
+			}
+		} break;
+
+		case gmmcOpKind_sxt: // fallthrough
+		case gmmcOpKind_zxt: {
+			// our general purpose registers may contain garbage. i.e. when you do an 8-bit load / mov, it won't do
+			// anything to the high bits.
+
+			GPR result_value = allocate_op_result(p);
+			GPR src_reg = use_op_value(p, op->operands[0]);
+			if (p->emitting) {
+				RegSize src_size = gmmc_type_size(gmmc_get_op_type(p->proc, op->operands[0]));
+				emit_mov_reg_to_reg(p, result_value, src_reg, src_size, gmmcOpKind_sxt ? ExtendBits_Sign : ExtendBits_Zero);
+			}
+		} break;
+
+		case gmmcOpKind_memcpy: {
+			// NOTE: the direction flag should be always cleared to 0, as specified in the calling convention:
+			// "On function exit and on function entry to C Runtime Library calls and Windows system calls,
+			// the direction flag in the CPU flags register is expected to be cleared."
+			// https://learn.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170
+
+			GPR src_reg = use_op_value(p, op->operands[0], GPR_DI);
+			GPR dst_reg = use_op_value(p, op->operands[1], GPR_SI);
+			GPR size_reg = use_op_value(p, op->operands[2], GPR_CX);
+			
+			if (p->emitting) {
+				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+				req.mnemonic = ZYDIS_MNEMONIC_MOVSB;
+				req.prefixes = ZYDIS_ATTRIB_HAS_REP;
+				emit(p, req, " ; memcpy");
+			}
+		} break;
+
+		case gmmcOpKind_member_access: {
+			GPR result_reg = allocate_op_result(p);
+			GPR base_reg = use_op_value(p, op->operands[0]);
+			
+			if (p->emitting) {
+				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+				req.mnemonic = ZYDIS_MNEMONIC_LEA;
+				req.operand_count = 2;
+				req.operands[0] = make_reg_operand(result_reg, 8);
+				req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
+				req.operands[1].mem.base = get_x64_reg(base_reg, 8);
+				req.operands[1].mem.displacement = op->imm_raw;
+				req.operands[1].mem.size = 8;
+				emit(p, req, " ; member access");
+			}
+		} break;
+
+		case gmmcOpKind_array_access: { gen_array_access(p, op); } break;
 
 		// TODO: make these ops not part of a basic block
 		case gmmcOpKind_addr_of_symbol: break;
@@ -681,16 +810,15 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_f32: break;
 		case gmmcOpKind_f64: break;
 
-		case gmmcOpKind_trunc: { // do nothing
-			GPR result_value = allocate_op_result(p);
-			LooseReg a = use_op_value_loose(p, op->operands[0]);
-			if (p->emitting) {
-				op_value_to_reg(p, a.source_op, result_value);
-			}
-		} break;
+		case gmmcOpKind_eq: { gen_comparison(p, op); } break;
+		case gmmcOpKind_ne: { gen_comparison(p, op); } break;
+		case gmmcOpKind_lt: { gen_comparison(p, op); } break;
+		case gmmcOpKind_le: { gen_comparison(p, op); } break;
+		case gmmcOpKind_gt: { gen_comparison(p, op); } break;
+		case gmmcOpKind_ge: { gen_comparison(p, op); } break;
 
-		case gmmcOpKind_add: { gen_op_basic(p, op, ZYDIS_MNEMONIC_ADD); } break;
-		case gmmcOpKind_sub: { gen_op_basic(p, op, ZYDIS_MNEMONIC_SUB); } break;
+		case gmmcOpKind_add: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_ADD); } break;
+		case gmmcOpKind_sub: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_SUB); } break;
 		case gmmcOpKind_mul: {
 			// https://gpfault.net/posts/asm-tut-3.txt.html
 			// NOTE: we can use IMUL always which is a bit more convenient than MUL, because
@@ -718,10 +846,11 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_div: { gen_div_or_mod(p, op, GPR_AX); } break;
 		case gmmcOpKind_mod: { gen_div_or_mod(p, op, GPR_DX); } break;
 
-		case gmmcOpKind_and: { gen_op_basic(p, op, ZYDIS_MNEMONIC_AND); } break;
-		case gmmcOpKind_or: { gen_op_basic(p, op, ZYDIS_MNEMONIC_OR); } break;
-		case gmmcOpKind_xor: { gen_op_basic(p, op, ZYDIS_MNEMONIC_XOR); } break;
-
+		case gmmcOpKind_and: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_AND); } break;
+		case gmmcOpKind_or: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_OR); } break;
+		case gmmcOpKind_xor: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_XOR); } break;
+		//case gmmcOpKind_not
+		
 		case gmmcOpKind_debugbreak: {
 			if (p->emitting) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -740,15 +869,15 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 					op_value_to_reg(p, value_reg.source_op, GPR_AX); // move the return value to RAX
 				}
 
-				for (uint i = 0; i < p->temp_registers_used_count; i++) { // restore the state of the non-volatile registers that we used as temporary registers
-					GPR reg = temp_registers[i];
+				for (uint i = 0; i < p->work_registers_used_count; i++) { // restore the state of the non-volatile registers that we used as work registers
+					GPR reg = work_registers[i];
 					ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 					req.mnemonic = ZYDIS_MNEMONIC_MOV;
 					req.operand_count = 2;
 					req.operands[0] = make_reg_operand(reg, 8);
 					req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
 					req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
-					req.operands[1].mem.displacement = p->temp_reg_restore_frame_rel_offset[reg] + p->stack_frame_size;
+					req.operands[1].mem.displacement = p->work_reg_restore_frame_rel_offset[reg] + p->stack_frame_size;
 					req.operands[1].mem.size = 8;
 					emit(p, req, " ; restore foreign value of a register");
 				}
@@ -774,8 +903,8 @@ static void gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 	}
 
 	VALIDATE(bb->ops.len > 0);
-	gmmcOpKind last_op_kind = gmmc_op_get_kind(p->proc, bb->ops[bb->ops.len - 1]);
-	VALIDATE(gmmc_op_is_terminating(last_op_kind));
+	gmmcOpKind last_op_kind = gmmc_get_op_kind(p->proc, bb->ops[bb->ops.len - 1]);
+	VALIDATE(gmmc_is_op_terminating(last_op_kind));
 }
 
 GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc* proc) {
@@ -832,7 +961,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 	// Reserve the worst-case space for register spilling (128 bytes)
 	for (uint i = GPR_AX; i < GPR_COUNT; i++) {
 		offset = F_ALIGN_DOWN_POW2(offset - 8, 8);
-		p->temp_reg_restore_frame_rel_offset[i] = offset;
+		p->work_reg_restore_frame_rel_offset[i] = offset;
 	}
 
 	// 1st pass

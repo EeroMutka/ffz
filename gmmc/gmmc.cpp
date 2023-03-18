@@ -39,7 +39,7 @@ static gmmcOpIdx gmmc_push_op(gmmcBasicBlock* bb, const gmmcOpData& op) {
 }
 
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value) {
-	VALIDATE(gmmc_op_get_type(bb->proc, value) == bb->proc->signature->return_type);
+	VALIDATE(gmmc_get_op_type(bb->proc, value) == bb->proc->signature->return_type);
 
 	gmmcOpData op = { gmmcOpKind_return };
 	op.operands[0] = value;
@@ -58,7 +58,7 @@ GMMC_API gmmcOpIdx gmmc_op_comment(gmmcBasicBlock* bb, fString text) {
 }
 
 GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr) {
-	VALIDATE(gmmc_op_get_type(bb->proc, ptr) == gmmcType_ptr);
+	VALIDATE(gmmc_get_op_type(bb->proc, ptr) == gmmcType_ptr);
 
 	gmmcOpData op = { gmmcOpKind_load };
 	op.operands[0] = ptr;
@@ -67,7 +67,7 @@ GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr
 }
 
 GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value) {
-	VALIDATE(gmmc_op_get_type(bb->proc, ptr) == gmmcType_ptr);
+	VALIDATE(gmmc_get_op_type(bb->proc, ptr) == gmmcType_ptr);
 	
 	gmmcOpData op = { gmmcOpKind_store };
 	op.operands[0] = ptr;
@@ -76,7 +76,7 @@ GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx va
 }
 
 GMMC_API gmmcOpIdx gmmc_op_member_access(gmmcBasicBlock* bb, gmmcOpIdx base, uint32_t offset) {
-	F_ASSERT(gmmc_op_get_type(bb->proc, base) == gmmcType_ptr);
+	F_ASSERT(gmmc_get_op_type(bb->proc, base) == gmmcType_ptr);
 
 	gmmcOpData op = { gmmcOpKind_member_access };
 	op.operands[0] = base;
@@ -85,34 +85,34 @@ GMMC_API gmmcOpIdx gmmc_op_member_access(gmmcBasicBlock* bb, gmmcOpIdx base, uin
 	return gmmc_push_op(bb, op);
 }
 
-GMMC_API gmmcOpIdx gmmc_op_array_access(gmmcBasicBlock* bb, gmmcOpIdx base, gmmcOpIdx index, uint32_t stride) {
-	F_ASSERT(gmmc_op_get_type(bb->proc, base) == gmmcType_ptr);
-	F_ASSERT(gmmc_type_is_integer(gmmc_op_get_type(bb->proc, index)));
+GMMC_API gmmcOpIdx gmmc_op_array_access(gmmcBasicBlock* bb, gmmcOpIdx base, gmmcOpIdx index_i64, uint32_t stride) {
+	F_ASSERT(gmmc_get_op_type(bb->proc, base) == gmmcType_ptr);
+	F_ASSERT(gmmc_get_op_type(bb->proc, index_i64) == gmmcType_i64);
 	
 	gmmcOpData op = { gmmcOpKind_array_access };
 	op.operands[0] = base;
-	op.operands[1] = index;
+	op.operands[1] = index_i64;
 	op.imm_raw = stride;
 	op.type = gmmcType_ptr;
 	return gmmc_push_op(bb, op);
 }
 
-GMMC_API gmmcOpIdx gmmc_op_memmove(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx src_ptr, gmmcOpIdx size) {
-	VALIDATE(gmmc_op_get_type(bb->proc, dst_ptr) == gmmcType_ptr);
-	VALIDATE(gmmc_op_get_type(bb->proc, src_ptr) == gmmcType_ptr);
-	VALIDATE(gmmc_type_is_integer(gmmc_op_get_type(bb->proc, size)));
+GMMC_API gmmcOpIdx gmmc_op_memcpy(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx src_ptr, gmmcOpIdx size_i32) {
+	VALIDATE(gmmc_get_op_type(bb->proc, dst_ptr) == gmmcType_ptr);
+	VALIDATE(gmmc_get_op_type(bb->proc, src_ptr) == gmmcType_ptr);
+	VALIDATE(gmmc_get_op_type(bb->proc, size_i32) == gmmcType_i32);
 	
-	gmmcOpData op = { gmmcOpKind_memmove };
+	gmmcOpData op = { gmmcOpKind_memcpy };
 	op.operands[0] = dst_ptr;
 	op.operands[1] = src_ptr;
-	op.operands[2] = size;
+	op.operands[2] = size_i32;
 	return gmmc_push_op(bb, op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx value_i8, gmmcOpIdx size) {
-	VALIDATE(gmmc_op_get_type(bb->proc, dst_ptr) == gmmcType_ptr);
-	VALIDATE(gmmc_op_get_type(bb->proc, value_i8) == gmmcType_i8);
-	VALIDATE(gmmc_type_is_integer(gmmc_op_get_type(bb->proc, size)));
+	VALIDATE(gmmc_get_op_type(bb->proc, dst_ptr) == gmmcType_ptr);
+	VALIDATE(gmmc_get_op_type(bb->proc, value_i8) == gmmcType_i8);
+	VALIDATE(gmmc_get_op_type(bb->proc, size) == gmmcType_i32);
 
 	gmmcOpData op = { gmmcOpKind_memset };
 	op.operands[0] = dst_ptr;
@@ -131,8 +131,8 @@ GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align) 
 }
 
 static gmmcOpIdx op_comparison(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) {
-	gmmcType type = gmmc_op_get_type(bb->proc, a);
-	F_ASSERT(gmmc_op_get_type(bb->proc, b) == type);
+	gmmcType type = gmmc_get_op_type(bb->proc, a);
+	F_ASSERT(gmmc_get_op_type(bb->proc, b) == type);
 	
 	if (kind == gmmcOpKind_eq || kind == gmmcOpKind_ne) {}
 	else F_ASSERT(gmmc_type_is_integer(type));
@@ -153,7 +153,7 @@ GMMC_API gmmcOpIdx gmmc_op_gt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool
 GMMC_API gmmcOpIdx gmmc_op_ge(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) { return op_comparison(bb, gmmcOpKind_ge, a, b, is_signed); }
 
 GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasicBlock* true_bb, gmmcBasicBlock* false_bb) {
-	F_ASSERT(gmmc_op_get_type(bb->proc, cond_bool) == gmmcType_bool);
+	F_ASSERT(gmmc_get_op_type(bb->proc, cond_bool) == gmmcType_bool);
 
 	gmmcOpData op = { gmmcOpKind_if };
 	op.if_.condition = cond_bool;
@@ -200,8 +200,8 @@ GMMC_API gmmcOpIdx gmmc_op_f32(gmmcBasicBlock* bb, float value) { return gmmc_op
 GMMC_API gmmcOpIdx gmmc_op_f64(gmmcBasicBlock* bb, double value) { return gmmc_op_immediate(bb, gmmcType_f64, &value); }
 
 static gmmcOpIdx op_basic_2(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) {
-	gmmcType type = gmmc_op_get_type(bb->proc, a);
-	VALIDATE(type == gmmc_op_get_type(bb->proc, b));
+	gmmcType type = gmmc_get_op_type(bb->proc, a);
+	VALIDATE(type == gmmc_get_op_type(bb->proc, b));
 	//VALIDATE(gmmc_type_is_integer(type));
 
 	gmmcOpData op = { kind };
@@ -220,7 +220,7 @@ GMMC_API gmmcOpIdx gmmc_op_mod(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, boo
 
 
 GMMC_API gmmcOpIdx gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcOpIdx value) {
-	VALIDATE(gmmc_type_is_integer(gmmc_op_get_type(bb->proc, value)));
+	VALIDATE(gmmc_get_op_type(bb->proc, value) == gmmcType_i64);
 
 	gmmcOpData op = { gmmcOpKind_int2ptr };
 	op.operands[0] = value;
@@ -235,10 +235,24 @@ static gmmcOpIdx op_simple_convert(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpId
 	return gmmc_push_op(bb, op);
 }
 
-GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type) { return op_simple_convert(bb, gmmcOpKind_ptr2int, value, type); }
-GMMC_API gmmcOpIdx gmmc_op_zxt(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type) { return op_simple_convert(bb, gmmcOpKind_zxt, value, type); }
-GMMC_API gmmcOpIdx gmmc_op_sxt(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type) { return op_simple_convert(bb, gmmcOpKind_sxt, value, type); }
-GMMC_API gmmcOpIdx gmmc_op_trunc(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type) { return op_simple_convert(bb, gmmcOpKind_trunc, value, type); }
+GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value) { return op_simple_convert(bb, gmmcOpKind_ptr2int, value, gmmcType_i64); }
+
+GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool sign_extend) {
+	gmmcType src_type = gmmc_get_op_type(bb->proc, value);
+	F_ASSERT(gmmc_type_is_integer(target_type) && gmmc_type_is_integer(src_type));
+
+	if (gmmc_type_size(target_type) < gmmc_type_size(src_type)) {
+		return op_simple_convert(bb, gmmcOpKind_trunc, value, target_type);
+	}
+	else {
+		return sign_extend ? op_simple_convert(bb, gmmcOpKind_sxt, value, target_type) :
+			op_simple_convert(bb, gmmcOpKind_zxt, value, target_type);
+	}
+}
+
+//GMMC_API gmmcOpIdx gmmc_op_zxt(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type) { return op_simple_convert(bb, gmmcOpKind_zxt, value, type); }
+//GMMC_API gmmcOpIdx gmmc_op_sxt(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type) { return op_simple_convert(bb, gmmcOpKind_sxt, value, type); }
+//GMMC_API gmmcOpIdx gmmc_op_trunc(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type) { return op_simple_convert(bb, gmmcOpKind_trunc, value, type); }
 
 GMMC_API gmmcOpIdx gmmc_op_and(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b) { return op_basic_2(bb, gmmcOpKind_and, a, b, false); }
 GMMC_API gmmcOpIdx gmmc_op_or(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b) { return op_basic_2(bb, gmmcOpKind_or, a, b, false); }

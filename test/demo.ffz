@@ -3,21 +3,21 @@
 
 // [x]  gmmcOpKind_add,
 // [x]  gmmcOpKind_sub,
-// []  gmmcOpKind_mul,
-// []  gmmcOpKind_div,
-// []  gmmcOpKind_mod,
+// [x]  gmmcOpKind_mul,
+// [x]  gmmcOpKind_div,
+// [x]  gmmcOpKind_mod,
 
-// []  gmmcOpKind_eq,
-// []  gmmcOpKind_ne,
-// []  gmmcOpKind_lt,
-// []  gmmcOpKind_le,
-// []  gmmcOpKind_gt,
-// []  gmmcOpKind_ge,
+// [x]  gmmcOpKind_eq,
+// [x]  gmmcOpKind_ne,
+// [x]  gmmcOpKind_lt,
+// [x]  gmmcOpKind_le,
+// [x]  gmmcOpKind_gt,
+// [x]  gmmcOpKind_ge,
 
-// []  gmmcOpKind_load,
-// []  gmmcOpKind_store,
+// [x]  gmmcOpKind_load,
+// [x]  gmmcOpKind_store,
 
-// []  gmmcOpKind_local,
+// [x]  gmmcOpKind_local,
 
 // []  gmmcOpKind_member_access,
 // []  gmmcOpKind_array_access,
@@ -53,12 +53,14 @@
 //@*extern{"c_things.obj"}
 //#hello: proc(x: u32)
 
+#V2: struct{a: int, b: int, c: int}
+
 #ffz_entry: proc() {
 	//dbgbreak
 	
-	a: s8(-32)
-	b: s8(2)
-	c: a / b
+	thing: [6]V2
+	g: thing[3]
+	//thing = 500
 	
 	//hello(520)
 	

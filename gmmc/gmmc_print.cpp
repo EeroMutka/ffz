@@ -10,7 +10,7 @@ static int reloc_compare_fn(const void* a, const void* b) {
 }
 
 static u32 operand_bits(gmmcBasicBlock* bb, gmmcOpData* op) {
-	return 8 * gmmc_type_size(gmmc_op_get_type(bb->proc, op->operands[0]));
+	return 8 * gmmc_type_size(gmmc_get_op_type(bb->proc, op->operands[0]));
 }
 
 
@@ -44,7 +44,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 			fprintf(f, "    ");
 		}
 		
-		u32 result_bits = 8 * gmmc_type_size(gmmc_op_get_type(bb->proc, op_idx));
+		u32 result_bits = 8 * gmmc_type_size(gmmc_get_op_type(bb->proc, op_idx));
 		const char* sign_postfix = op->is_signed ? "signed" : "unsigned";
 
 		switch (op->kind) {
@@ -68,7 +68,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 		
 		case gmmcOpKind_int2ptr: { fprintf(f, "_$%u = (void*)_$%u;\n", op_idx, op->operands[0]); } break;
 		case gmmcOpKind_ptr2int: {
-			gmmcType value_type = gmmc_op_get_type(bb->proc, op_idx);
+			gmmcType value_type = gmmc_get_op_type(bb->proc, op_idx);
 			fprintf(f, "_$%u = (%s)_$%u;\n", op_idx, gmmc_type_get_cstr(value_type), op->operands[0]);
 		} break;
 
@@ -140,12 +140,12 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 		} break;
 
 		case gmmcOpKind_store: {
-			gmmcType value_type = gmmc_op_get_type(bb->proc, op->operands[1]);
+			gmmcType value_type = gmmc_get_op_type(bb->proc, op->operands[1]);
 			fprintf(f, "$store(%s, _$%u, _$%u);\n", gmmc_type_get_cstr(value_type), op->operands[0], op->operands[1]);
 		} break;
 
 		case gmmcOpKind_load: {
-			gmmcType value_type = gmmc_op_get_type(bb->proc, op_idx);
+			gmmcType value_type = gmmc_get_op_type(bb->proc, op_idx);
 			fprintf(f, "_$%u = $load(%s, _$%u);\n", op_idx, gmmc_type_get_cstr(value_type), op->operands[0]);
 		} break;
 
@@ -157,7 +157,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 			fprintf(f, "_$%u = $array_access(_$%u, _$%u, %u);\n", op_idx, op->operands[0], op->operands[1], (u32)op->imm_raw);
 		} break;
 
-		case gmmcOpKind_memmove: {
+		case gmmcOpKind_memcpy: {
 			fprintf(f, "mem_move(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
 		} break;
 
@@ -179,7 +179,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 
 		case gmmcOpKind_call: // fallthrough
 		case gmmcOpKind_vcall: {
-			gmmcType ret_type = gmmc_op_get_type(bb->proc, op_idx);
+			gmmcType ret_type = gmmc_get_op_type(bb->proc, op_idx);
 			if (ret_type != gmmcType_None) {
 				fprintf(f, "_$%u = ", op_idx);
 			}
@@ -193,7 +193,7 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 				for (uint i = 0; i < op->call.arguments.len; i++) {
 					if (i > 0) fprintf(f, ", ");
 
-					gmmcType arg_type = gmmc_op_get_type(bb->proc, op->call.arguments[i]);
+					gmmcType arg_type = gmmc_get_op_type(bb->proc, op->call.arguments[i]);
 					fprintf(f, "%s", gmmc_type_get_cstr(arg_type));
 				}
 				fprintf(f, ")) _$%u ) (", op->call.target);

@@ -74,13 +74,13 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_member_access,
 	gmmcOpKind_array_access,
 
-	// :gmmc_op_is_terminating
+	// :gmmc_is_op_terminating
 	gmmcOpKind_return,
 	gmmcOpKind_goto,
 	gmmcOpKind_if,
 	
 	// immediates. NOTE: the order must match the order in gmmcType!!! see :gmmc_op_immediate
-	// :gmmc_op_is_immediate
+	// :gmmc_is_op_immediate
 	gmmcOpKind_bool,
 	gmmcOpKind_i8,
 	gmmcOpKind_i16,
@@ -114,7 +114,7 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_call,
 	gmmcOpKind_vcall,
 	
-	gmmcOpKind_memmove,
+	gmmcOpKind_memcpy,
 	gmmcOpKind_memset,
 
 	gmmcOpKind_addr_of_symbol,
@@ -337,11 +337,11 @@ GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx va
 GMMC_API gmmcOpIdx gmmc_op_member_access(gmmcBasicBlock* bb, gmmcOpIdx base, uint32_t offset);
 
 // result = base + (index * stride)
-GMMC_API gmmcOpIdx gmmc_op_array_access(gmmcBasicBlock* bb, gmmcOpIdx base, gmmcOpIdx index, uint32_t stride);
+GMMC_API gmmcOpIdx gmmc_op_array_access(gmmcBasicBlock* bb, gmmcOpIdx base_ptr, gmmcOpIdx index_i64, uint32_t stride);
 
-// `size` can be any integer type
-GMMC_API gmmcOpIdx gmmc_op_memmove(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx src_ptr, gmmcOpIdx size);
-GMMC_API gmmcOpIdx gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx value_i8, gmmcOpIdx size);
+GMMC_API gmmcOpIdx gmmc_op_memcpy(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx src_ptr, gmmcOpIdx size_i32);
+// hmm... should we have a memmove instruction or not? On x64, it makes sense to implement memmove on user-level so idk.
+GMMC_API gmmcOpIdx gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx value_i8, gmmcOpIdx size_i32);
 
 GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasicBlock* true_bb, gmmcBasicBlock* false_bb);
 GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
@@ -350,10 +350,9 @@ GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value);
 
 GMMC_API gmmcOpIdx gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcOpIdx value);
-GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
-GMMC_API gmmcOpIdx gmmc_op_zxt(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
-GMMC_API gmmcOpIdx gmmc_op_sxt(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
-GMMC_API gmmcOpIdx gmmc_op_trunc(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType type);
+GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value);
+
+GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool sign_extend);
 
 // -- Immediates --------------------------------
 
@@ -378,16 +377,19 @@ GMMC_API gmmcOpIdx gmmc_op_div(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, boo
 // `mod` doesn't work with float types
 GMMC_API gmmcOpIdx gmmc_op_mod(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
-// ----------------------------------------------
+// -- Bitwise ops -------------------------------
+// Bitwise ops work on any type, where both inputs must have the same type.
 
 GMMC_API gmmcOpIdx gmmc_op_and(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_or(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_xor(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_not(gmmcBasicBlock* bb, gmmcOpIdx value);
+
+// hmm... `shift` should probably have a strict type
 GMMC_API gmmcOpIdx gmmc_op_shl(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift);
 GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift);
 
-
+// ----------------------------------------------
 
 GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb, gmmcType return_type, gmmcSymbol* procedure,
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
@@ -465,11 +467,11 @@ GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection sec
 
 // -- Common utilities -------------------------
 
-inline gmmcOpKind gmmc_op_get_kind(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].kind; }
-inline gmmcType gmmc_op_get_type(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].type; }
+inline gmmcOpKind gmmc_get_op_kind(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].kind; }
+inline gmmcType gmmc_get_op_type(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].type; }
 GMMC_API u32 gmmc_type_size(gmmcType type);
 
 inline bool gmmc_type_is_integer(gmmcType t) { return t >= gmmcType_i8 && t <= gmmcType_i128; }
 inline bool gmmc_type_is_float(gmmcType t) { return t >= gmmcType_f32 && t <= gmmcType_f64; }
-inline bool gmmc_op_is_terminating(gmmcOpKind op) { return op >= gmmcOpKind_return && op <= gmmcOpKind_if; }
-inline bool gmmc_op_is_immediate(gmmcOpKind op) { return op >= gmmcOpKind_bool && op <= gmmcOpKind_f64; }
+inline bool gmmc_is_op_terminating(gmmcOpKind op) { return op >= gmmcOpKind_return && op <= gmmcOpKind_if; }
+inline bool gmmc_is_op_immediate(gmmcOpKind op) { return op >= gmmcOpKind_bool && op <= gmmcOpKind_f64; }

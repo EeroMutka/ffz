@@ -396,12 +396,12 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 		//t = T_UINT8;
 		t = (*next_custom_type_idx)++;
 	}
-	else if (type.tag == cviewTypeTag_Struct) {
+	else if (type.tag == cviewTypeTag_Record) {
 		// see `strForFieldList` in the microsoft pdb dump
 
 		// first generate the member types
-		for (u32 member_i = 0; member_i < type.Struct.fields_count; member_i++) {
-			cviewStructMember& member = type.Struct.fields[member_i];
+		for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
+			cviewStructMember& member = type.Record.fields[member_i];
 			GenerateCVType(ctx, struct_forward_ref_idx, to_codeview_type_idx, next_custom_type_idx, member.type_idx);
 		}
 
@@ -415,8 +415,8 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 			cv_fieldlist.leaf = LF_FIELDLIST;
 			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_fieldlist));
 
-			for (u32 member_i = 0; member_i < type.Struct.fields_count; member_i++) {
-				cviewStructMember& member = type.Struct.fields[member_i];
+			for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
+				cviewStructMember& member = type.Record.fields[member_i];
 				struct _lfMember { // lfMember
 					unsigned short  leaf;           // LF_MEMBER
 
@@ -448,11 +448,11 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 			uint base = ctx.debugT_builder->len;
 			CV_Structure cv_structure = {};
 
-			VALIDATE(type.Struct.fields_count < F_U16_MAX);
+			VALIDATE(type.Record.fields_count < F_U16_MAX);
 			VALIDATE(type.size < F_U16_MAX);
 
 			cv_structure.leaf = LF_STRUCTURE;
-			cv_structure.count = (u16)type.Struct.fields_count;
+			cv_structure.count = (u16)type.Record.fields_count;
 			//cv_structure.property
 			cv_structure.field = fieldlist_type_idx;
 			//cv_structure.derived
@@ -460,7 +460,7 @@ static void GenerateCVType(GenerateDebugSectionContext& ctx,
 			f_array_push_n(ctx.debugT_builder, F_AS_BYTES(cv_structure));
 
 			CodeviewAppendVariableLengthNumber(ctx.debugT_builder, type.size);
-			CodeviewAppendName(ctx.debugT_builder, type.Struct.name);
+			CodeviewAppendName(ctx.debugT_builder, type.Record.name);
 
 			CodeviewPatchRecordLength(ctx.debugT_builder, base);
 		}
@@ -500,7 +500,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 
 	for (u32 i = 0; i < ctx.desc->types_count; i++) {
 		cviewType& type = ctx.desc->types[i];
-		if (type.tag == cviewTypeTag_Struct) {
+		if (type.tag == cviewTypeTag_Record) {
 			uint base = ctx.debugT_builder->len;
 			CV_Structure cv_structure = {};
 			const int x = sizeof(CV_Structure);
@@ -511,7 +511,7 @@ static void GenerateDebugSections(GenerateDebugSectionContext ctx) {
 
 			u16 struct_size = 0;
 			f_str_print(ctx.debugT_builder, F_AS_BYTES(struct_size));
-			CodeviewAppendName(ctx.debugT_builder, type.Struct.name);
+			CodeviewAppendName(ctx.debugT_builder, type.Record.name);
 
 			CodeviewPatchRecordLength(ctx.debugT_builder, base);
 
