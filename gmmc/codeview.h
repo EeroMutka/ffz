@@ -19,9 +19,9 @@ typedef enum cviewTypeTag {
 	cviewTypeTag_UnsignedInt,
 	cviewTypeTag_Record,
 	cviewTypeTag_Pointer,
+	cviewTypeTag_VoidPointer,
 	cviewTypeTag_Enum,
 	cviewTypeTag_Array,
-	// TODO: fixed length arrays
 } cviewTypeTag;
 
 typedef struct {

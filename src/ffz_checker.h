@@ -232,7 +232,7 @@ typedef struct ffzType {
 		} FixedArray;
 
 		struct {
-			ffzType* /*opt*/ pointer_to;
+			ffzType* pointer_to;
 		} Pointer;
 	};
 } ffzType;

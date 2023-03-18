@@ -186,16 +186,17 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 		cv_type.size = 1;
 	} break;
 
-	case ffzTypeTag_Raw: {
-		F_BP; // TODO
-	} break;
 	case ffzTypeTag_Proc: {
 		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
 		cv_type.size = 8;
 	} break;
 	case ffzTypeTag_Pointer: {
-		cv_type.tag = cviewTypeTag_Pointer;
-		cv_type.Pointer.type_idx = get_debuginfo_type(g, type->Pointer.pointer_to);
+		if (type->Pointer.pointer_to->tag == ffzTypeTag_Raw) {
+			cv_type.tag = cviewTypeTag_VoidPointer;
+		} else {
+			cv_type.tag = cviewTypeTag_Pointer;
+			cv_type.Pointer.type_idx = get_debuginfo_type(g, type->Pointer.pointer_to);
+		}
 	} break;
 
 	case ffzTypeTag_DefaultSint: // fallthrough
@@ -234,7 +235,7 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 			make_name(g, type->unique_node);
 	} break;
 
-		//case ffzTypeTag_Enum: {} break;
+	//case ffzTypeTag_Enum: {} break;
 	case ffzTypeTag_FixedArray: {
 		cv_type.tag = cviewTypeTag_Array;
 		cv_type.Array.elem_type_idx = get_debuginfo_type(g, type->FixedArray.elem_type);

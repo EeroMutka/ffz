@@ -32,13 +32,14 @@
 //@*extern{"c_things.obj"}
 //#hello: proc(x: u32)
 
-//#V2: struct{a: int, b: int, c: int}
+#V2: struct{a: int, b: int}
 
 #ffz_entry: proc() {
 	//dbgbreak
 	
-	thing: [243]u32
-	g: thing[3]
+	thing: [2]V2{V2{5, 2}, V2{10, 204}}
+	g: thing[1]
+	g2: ^raw(&thing[1])
 	
 	//thing = 500
 	
