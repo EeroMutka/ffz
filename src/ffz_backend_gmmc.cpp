@@ -175,7 +175,9 @@ static bool has_big_return(ffzType* proc_type) {
 }
 
 static void set_dbginfo_loc(Gen* g, gmmcOpIdx op, u32 line_num) {
-	f_array_push(&g->proc_info->dbginfo_lines, DebugInfoLine{ op, line_num });
+	if (!gmmc_is_op_immediate_(g->proc, op)) {
+		f_array_push(&g->proc_info->dbginfo_lines, DebugInfoLine{ op, line_num });
+	}
 }
 
 static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
@@ -935,7 +937,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		}
 	}
 	
-	gmmcOpIdx first_op = 0;
+	//gmmcOpIdx first_op = 0;
+	u32 line_num = inst.node->loc.start.line_num;
 
 	switch (inst.node->kind) {
 		
@@ -957,12 +960,12 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 			}
 			else {
 				gmmcOpIdx rhs_value = gen_expr(g, rhs);
+				set_dbginfo_loc(g, rhs_value, line_num);
 				val.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 
 				add_dbginfo_local(g, definition.node->Identifier.name, val.local_addr, checked.type);
 
-				gen_store(g, val.local_addr, rhs_value, checked.type);
-				first_op = rhs_value;
+				set_dbginfo_loc(g, gen_store(g, val.local_addr, rhs_value, checked.type), line_num);
 			}
 			f_map64_insert(&g->value_from_definition, ffz_hash_node_inst(definition), val);
 		}
@@ -983,7 +986,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		gmmcOpIdx lhs_addr = gen_expr(g, lhs, true);
 		
 		gmmcOpIdx rhs_value = gen_expr(g, rhs);
-		first_op = gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs));
+		set_dbginfo_loc(g, gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs)), line_num);
 	} break;
 
 	case ffzNodeKind_Scope: {
@@ -994,7 +997,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 
 	case ffzNodeKind_If: {
 		gmmcOpIdx cond = gen_expr(g, CHILD(inst, If.condition));
-		
+		set_dbginfo_loc(g, cond, line_num);
+
 		gmmcBasicBlock* true_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* false_bb;
 		if (inst.node->If.else_scope) {
@@ -1002,7 +1006,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		}
 
 		gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
-		first_op = gmmc_op_if(g->bb, cond, true_bb, inst.node->If.else_scope ? false_bb : after_bb);
+		set_dbginfo_loc(g, gmmc_op_if(g->bb, cond, true_bb, inst.node->If.else_scope ? false_bb : after_bb), line_num);
 		g->bb = true_bb;
 		gen_statement(g, CHILD(inst,If.true_scope));
 		gmmc_op_goto(g->bb, after_bb);
@@ -1049,7 +1053,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		//if (inst.node->kind == ffzNodeKind_Keyword) { // debugbreak()
 		//}
 
-		first_op = gmmc_op_debugbreak(g->bb);
+		set_dbginfo_loc(g, gmmc_op_debugbreak(g->bb), line_num);
 	} break;
 
 	case ffzNodeKind_Return: {
@@ -1068,19 +1072,16 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 			}
 		}
 
-		first_op = gmmc_op_return(g->bb, val);
+		set_dbginfo_loc(g, gmmc_op_return(g->bb, val), line_num);
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: {
-		first_op = gen_call(g, inst);
+		set_dbginfo_loc(g, gen_call(g, inst), line_num);
 	} break;
 
 	default: F_BP;
 	}
 
-	if (first_op) {
-		set_dbginfo_loc(g, first_op, inst.node->loc.start.line_num);
-	}
 }
 
 // TODO: command-line option for console/no console

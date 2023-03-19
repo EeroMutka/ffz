@@ -195,13 +195,13 @@ ZydisEncoderOperand make_reg_operand(GPR gpr, RegSize size) {
 // Loose register - stored either in a register or on the stack
 struct LooseReg { gmmcOpIdx source_op; };
 
-static bool op_is_to_be_spilled(gmmcOpKind op_kind) {
-	if (gmmc_is_op_immediate(op_kind)) return false;
-	if (op_kind == gmmcOpKind_local) return false;
-	if (op_kind == gmmcOpKind_addr_of_symbol) return false;
-	if (op_kind == gmmcOpKind_addr_of_param) return false;
-	return true;
-}
+//static bool op_is_to_be_spilled(gmmcOpKind op_kind) {
+//	if (gmmc_is_op_immediate(op_kind)) return false;
+//	if (op_kind == gmmcOpKind_local) return false;
+//	if (op_kind == gmmcOpKind_addr_of_symbol) return false;
+//	if (op_kind == gmmcOpKind_addr_of_param) return false;
+//	return true;
+//}
 
 static void spill(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 	// hmm... are you allowed to use an op value from another basic block?
@@ -214,7 +214,8 @@ static void spill(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 	F_ASSERT(p->work_reg_taken_by_op[reg] == op_idx);
 
 	gmmcOpData* op = &p->proc->ops[op_idx];
-	if (op_is_to_be_spilled(op->kind)) {
+	
+	if (!gmmc_is_op_immediate_(p->proc, op_idx)) {
 		// if computation is required to find out the value of the op, store it on the stack.
 		// locals, immediates and addr_of_symbol don't need to be stored on the stack.
 
@@ -413,7 +414,7 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 		reloc.target = sym;
 		f_array_push(&code_section->relocs, reloc);
 	}
-	else if (gmmc_is_op_immediate(op->kind)) { // immediates aren't stored on the stack either.
+	else if (gmmc_is_op_immediate_(p->proc, op_idx)) {
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 		req.mnemonic = ZYDIS_MNEMONIC_MOV;
 		req.operand_count = 2;
@@ -423,7 +424,6 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 		emit(p, req, " ; immediate to reg");
 	}
 	else {
-		F_ASSERT(op_is_to_be_spilled(op->kind));
 		//F_ASSERT(p->ops[op_idx].currently_in_register == GPR_INVALID);
 
 		RegSize size = gmmc_type_size(p->proc->ops[op_idx].type);
@@ -740,7 +740,6 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 
 	for (uint i = 0; i < bb->ops.len; i++) {
 		p->current_op = bb->ops[i];
-		if (p->current_op == 1) F_BP;
 
 		gmmcOpData* op = &p->proc->ops[p->current_op];
 
@@ -1089,13 +1088,13 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 
 	// reserve spill-space for all the ops
 
-	for (uint i = 0; i < proc->ops.len; i++) {
+	for (gmmcOpIdx i = 0; i < proc->ops.len; i++) {
 		// TODO: for `op_param`, we should put the spill rsp rel offset to the shadow-space of the parameter.
 		gmmcOpData* op = &proc->ops[i];
 		u32 size = gmmc_type_size(op->type);
 		if (size == 0) continue;
 		
-		if (!op_is_to_be_spilled(op->kind)) continue;
+		if (gmmc_is_op_immediate_(proc, i)) continue; // immediates can't get spilled
 		
 		offset -= size;
 

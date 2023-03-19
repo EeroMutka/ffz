@@ -12,7 +12,10 @@
 
 #ffz_entry: proc() {
 	
-	if false {
+	a: u32(40)
+	b: u32(600)
+	
+	if a > b {
 		dbgbreak
 		dbgbreak
 	}

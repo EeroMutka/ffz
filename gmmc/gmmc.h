@@ -208,9 +208,6 @@ typedef struct gmmcLocal {
 	u32 align;
 } gmmcLocal;
 
-// This is for procedure-wide values that do not require computation, i.e. immediates, address-of's, etc.
-#define GMMC_BB_INDEX_NONE 0xFFFFFFFF
-
 typedef struct gmmcProc {
 	gmmcSymbol sym; // NOTE: must be the first member!
 	gmmcProcIdx self_idx;
@@ -389,6 +386,8 @@ GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
 //
 // Immediate values don't take effort to compute, and such aren't tied to any specific basic block.
 //
+#define GMMC_BB_INDEX_NONE 0xFFFFFFFF
+inline bool gmmc_is_op_immediate_(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].bb_idx == GMMC_BB_INDEX_NONE; }
 
 GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index);
 
@@ -473,4 +472,4 @@ GMMC_API u32 gmmc_type_size(gmmcType type);
 inline bool gmmc_type_is_integer(gmmcType t) { return t >= gmmcType_i8 && t <= gmmcType_i128; }
 inline bool gmmc_type_is_float(gmmcType t) { return t >= gmmcType_f32 && t <= gmmcType_f64; }
 inline bool gmmc_is_op_terminating(gmmcOpKind op) { return op >= gmmcOpKind_return && op <= gmmcOpKind_if; }
-inline bool gmmc_is_op_immediate(gmmcOpKind op) { return op >= gmmcOpKind_bool && op <= gmmcOpKind_f64; }
+//inline bool gmmc_is_op_immediate(gmmcOpKind op) { return op >= gmmcOpKind_bool && op <= gmmcOpKind_f64; }
