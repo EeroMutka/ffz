@@ -84,6 +84,8 @@ struct cviewFunction {
 	uint32_t stack_frame_size; // describes how much is subtracted from RSP at the start of the procedure
 
 	u32 file_idx;
+	
+	// The lines must be sorted by 'offset', in growing order
 	cviewLine* lines;
 	u32 lines_count;
 

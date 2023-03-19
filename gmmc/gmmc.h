@@ -141,7 +141,7 @@ typedef enum gmmcType {
 
 typedef struct gmmcOpData {
 	gmmcOpKind kind;
-	
+	gmmcBasicBlockIdx bb_idx;
 	gmmcType type;
 
 	union {
@@ -154,11 +154,12 @@ typedef struct gmmcOpData {
 		
 		struct {
 			gmmcOpIdx condition;
-			gmmcBasicBlock* dst_bb[2];
+			gmmcBasicBlockIdx true_bb;
+			gmmcBasicBlockIdx false_bb;
 		} if_;
 
 		struct {
-			gmmcBasicBlock* dst_bb;
+			gmmcBasicBlockIdx dst_bb;
 		} goto_;
 
 		struct {
@@ -175,14 +176,9 @@ typedef struct gmmcOpData {
 typedef struct gmmcBasicBlock {
 	gmmcModule* mod;
 	gmmcProc* proc;
-	u32 bb_index;
+	gmmcBasicBlockIdx self_idx;
 
 	fArray(gmmcOpIdx) ops;
-
-	//struct {
-	//	u32 code_section_offset; // U32_MAX if not been built yet
-	//	u32 code_section_end_offset;
-	//} gen;
 } gmmcBasicBlock;
 
 typedef enum gmmcSymbolKind {
@@ -211,6 +207,9 @@ typedef struct gmmcLocal {
 	u32 size;
 	u32 align;
 } gmmcLocal;
+
+// This is for procedure-wide values that do not require computation, i.e. immediates, address-of's, etc.
+#define GMMC_BB_INDEX_NONE 0xFFFFFFFF
 
 typedef struct gmmcProc {
 	gmmcSymbol sym; // NOTE: must be the first member!
@@ -354,17 +353,6 @@ GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value);
 
 GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool sign_extend);
 
-// -- Immediates --------------------------------
-
-// TODO: make immediates not part of a basic block, like with locals/addr_of_symbol
-GMMC_API gmmcOpIdx gmmc_op_bool(gmmcBasicBlock* bb, bool value);
-GMMC_API gmmcOpIdx gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value);
-GMMC_API gmmcOpIdx gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value);
-GMMC_API gmmcOpIdx gmmc_op_i32(gmmcBasicBlock* bb, uint32_t value);
-GMMC_API gmmcOpIdx gmmc_op_i64(gmmcBasicBlock* bb, uint64_t value);
-GMMC_API gmmcOpIdx gmmc_op_f32(gmmcBasicBlock* bb, float value);
-GMMC_API gmmcOpIdx gmmc_op_f64(gmmcBasicBlock* bb, double value);
-GMMC_API gmmcOpIdx gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, void* data);
 
 // -- Arithmetic --------------------------------
 // Arithmetic ops work on any integer and float type, where both inputs must have the same type.
@@ -385,9 +373,8 @@ GMMC_API gmmcOpIdx gmmc_op_or(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_xor(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_not(gmmcBasicBlock* bb, gmmcOpIdx value);
 
-// hmm... `shift` should probably have a strict type
-GMMC_API gmmcOpIdx gmmc_op_shl(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift);
-GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift);
+GMMC_API gmmcOpIdx gmmc_op_shl(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift_u8);
+GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift_u8);
 
 // ----------------------------------------------
 
@@ -398,14 +385,26 @@ GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
 	gmmcType return_type, gmmcOpIdx proc_address,
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 
-//GMMC_API gmmcOpIdx gmmc_op_param(gmmcProc* proc, uint32_t index);
+// -- Immediate values --------------------------
+//
+// Immediate values don't take effort to compute, and such aren't tied to any specific basic block.
+//
+
 GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index);
 
 // returns a pointer to the local
 GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align);
 
-// TODO: make this not part of a basic block
-GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol); // maybe we should ask for a u32 offset since we get that for free with relocations?
+GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcProc* proc, gmmcSymbol* symbol); // maybe we should ask for a u32 offset since we get that for free with relocations?
+
+GMMC_API gmmcOpIdx gmmc_op_bool(gmmcProc* proc, bool value);
+GMMC_API gmmcOpIdx gmmc_op_i8(gmmcProc* proc, uint8_t value);
+GMMC_API gmmcOpIdx gmmc_op_i16(gmmcProc* proc, uint16_t value);
+GMMC_API gmmcOpIdx gmmc_op_i32(gmmcProc* proc, uint32_t value);
+GMMC_API gmmcOpIdx gmmc_op_i64(gmmcProc* proc, uint64_t value);
+GMMC_API gmmcOpIdx gmmc_op_f32(gmmcProc* proc, float value);
+GMMC_API gmmcOpIdx gmmc_op_f64(gmmcProc* proc, double value);
+GMMC_API gmmcOpIdx gmmc_op_immediate(gmmcProc* proc, gmmcType type, void* data);
 
 
 // -- Machine code target ----------------------

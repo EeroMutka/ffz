@@ -32,107 +32,152 @@ GMMC_API void gmmc_global_add_relocation(gmmcGlobal* global, uint32_t offset, gm
 
 //static gmmcOpIdx make_reg(gmmcProc* proc, gmmcType type, u32 local_idx = 0);
 
-static gmmcOpIdx gmmc_push_op(gmmcBasicBlock* bb, const gmmcOpData& op) {
-	gmmcOpIdx idx = (gmmcOpIdx)f_array_push(&bb->proc->ops, op);
+static gmmcOpIdx gmmc_push_op(gmmcBasicBlock* bb, gmmcOpData* op) {
+	op->bb_idx = bb->self_idx;
+
+	gmmcOpIdx idx = (gmmcOpIdx)f_array_push(&bb->proc->ops, *op);
 	f_array_push(&bb->ops, idx);
 	return idx;
 }
 
+static void validate_operand(gmmcBasicBlock* bb, gmmcOpIdx operand, gmmcType required_type = gmmcType_None) {
+#ifdef _DEBUG
+	// ops can use operands only from the same basic block, or from GMMC_BB_INDEX_NONE
+	gmmcOpData* op = &bb->proc->ops[operand];
+	gmmcBasicBlockIdx operand_bb_idx = op->bb_idx;
+	VALIDATE(operand_bb_idx == bb->self_idx || operand_bb_idx == GMMC_BB_INDEX_NONE);
+
+	if (required_type) VALIDATE(op->type == required_type);
+#endif
+}
+
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value) {
-	VALIDATE(gmmc_get_op_type(bb->proc, value) == bb->proc->signature->return_type);
+	if (bb->proc->signature->return_type) {
+		validate_operand(bb, value, bb->proc->signature->return_type);
+	} else {
+		VALIDATE(value == GMMC_OP_IDX_INVALID);
+	}
 
 	gmmcOpData op = { gmmcOpKind_return };
 	op.operands[0] = value;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_debugbreak(gmmcBasicBlock* bb) {
 	gmmcOpData op = { gmmcOpKind_debugbreak };
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_comment(gmmcBasicBlock* bb, fString text) {
 	gmmcOpData op = { gmmcOpKind_comment };
 	op.comment = text;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr) {
-	VALIDATE(gmmc_get_op_type(bb->proc, ptr) == gmmcType_ptr);
+	validate_operand(bb, ptr, gmmcType_ptr);
 
 	gmmcOpData op = { gmmcOpKind_load };
 	op.operands[0] = ptr;
 	op.type = type;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value) {
-	VALIDATE(gmmc_get_op_type(bb->proc, ptr) == gmmcType_ptr);
+	validate_operand(bb, ptr, gmmcType_ptr);
+	validate_operand(bb, value);
 	
 	gmmcOpData op = { gmmcOpKind_store };
 	op.operands[0] = ptr;
 	op.operands[1] = value;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_member_access(gmmcBasicBlock* bb, gmmcOpIdx base, uint32_t offset) {
-	F_ASSERT(gmmc_get_op_type(bb->proc, base) == gmmcType_ptr);
+	validate_operand(bb, base, gmmcType_ptr);
 
 	gmmcOpData op = { gmmcOpKind_member_access };
 	op.operands[0] = base;
 	op.imm_raw = offset;
 	op.type = gmmcType_ptr;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_array_access(gmmcBasicBlock* bb, gmmcOpIdx base, gmmcOpIdx index_i64, uint32_t stride) {
-	F_ASSERT(gmmc_get_op_type(bb->proc, base) == gmmcType_ptr);
-	F_ASSERT(gmmc_get_op_type(bb->proc, index_i64) == gmmcType_i64);
+	validate_operand(bb, base, gmmcType_ptr);
+	validate_operand(bb, index_i64, gmmcType_i64);
 	
 	gmmcOpData op = { gmmcOpKind_array_access };
 	op.operands[0] = base;
 	op.operands[1] = index_i64;
 	op.imm_raw = stride;
 	op.type = gmmcType_ptr;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_memcpy(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx src_ptr, gmmcOpIdx size_i32) {
-	VALIDATE(gmmc_get_op_type(bb->proc, dst_ptr) == gmmcType_ptr);
-	VALIDATE(gmmc_get_op_type(bb->proc, src_ptr) == gmmcType_ptr);
-	VALIDATE(gmmc_get_op_type(bb->proc, size_i32) == gmmcType_i32);
+	validate_operand(bb, dst_ptr, gmmcType_ptr);
+	validate_operand(bb, src_ptr, gmmcType_ptr);
+	validate_operand(bb, size_i32, gmmcType_i32);
 	
 	gmmcOpData op = { gmmcOpKind_memcpy };
 	op.operands[0] = dst_ptr;
 	op.operands[1] = src_ptr;
 	op.operands[2] = size_i32;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpIdx value_i8, gmmcOpIdx size) {
-	VALIDATE(gmmc_get_op_type(bb->proc, dst_ptr) == gmmcType_ptr);
-	VALIDATE(gmmc_get_op_type(bb->proc, value_i8) == gmmcType_i8);
-	VALIDATE(gmmc_get_op_type(bb->proc, size) == gmmcType_i32);
+	validate_operand(bb, dst_ptr, gmmcType_ptr);
+	validate_operand(bb, value_i8, gmmcType_i8);
+	validate_operand(bb, size, gmmcType_i32);
 
 	gmmcOpData op = { gmmcOpKind_memset };
 	op.operands[0] = dst_ptr;
 	op.operands[1] = value_i8;
 	op.operands[2] = size;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
+}
+
+GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcProc* proc, gmmcSymbol* symbol) {
+	gmmcOpData op = { gmmcOpKind_addr_of_symbol };
+	op.bb_idx = GMMC_BB_INDEX_NONE;
+	op.symbol = symbol;
+	op.type = gmmcType_ptr;
+	return (gmmcOpIdx)f_array_push(&proc->ops, op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align) {
 	VALIDATE(size > 0);
 
 	gmmcOpData op = { gmmcOpKind_local };
+	op.bb_idx = GMMC_BB_INDEX_NONE;
 	op.local_idx = (u32)f_array_push(&proc->locals, gmmcLocal{ size, align });
 	op.type = gmmcType_ptr;
-	return (gmmcOpIdx)f_array_push(&proc->ops, op); // NOTE: we're not adding the local to any BB
+	return (gmmcOpIdx)f_array_push(&proc->ops, op);
 }
+
+gmmcOpIdx gmmc_op_immediate(gmmcProc* proc, gmmcType type, void* data) {
+	gmmcOpData op = {};
+	op.kind = (gmmcOpKind)(gmmcOpKind_bool + (type - gmmcType_bool));
+	op.bb_idx = GMMC_BB_INDEX_NONE;
+	memcpy(&op.imm_raw, data, gmmc_type_size(type));
+	op.type = type;
+	return (gmmcOpIdx)f_array_push(&proc->ops, op);
+}
+
+GMMC_API gmmcOpIdx gmmc_op_bool(gmmcProc* proc, bool value) { return gmmc_op_immediate(proc, gmmcType_bool, &value); }
+GMMC_API gmmcOpIdx gmmc_op_i8(gmmcProc* proc, uint8_t value) { return gmmc_op_immediate(proc, gmmcType_i8, &value); }
+GMMC_API gmmcOpIdx gmmc_op_i16(gmmcProc* proc, uint16_t value) { return gmmc_op_immediate(proc, gmmcType_i16, &value); }
+GMMC_API gmmcOpIdx gmmc_op_i32(gmmcProc* proc, uint32_t value) { return gmmc_op_immediate(proc, gmmcType_i32, &value); }
+GMMC_API gmmcOpIdx gmmc_op_i64(gmmcProc* proc, uint64_t value) { return gmmc_op_immediate(proc, gmmcType_i64, &value); }
+GMMC_API gmmcOpIdx gmmc_op_f32(gmmcProc* proc, float value) { return gmmc_op_immediate(proc, gmmcType_f32, &value); }
+GMMC_API gmmcOpIdx gmmc_op_f64(gmmcProc* proc, double value) { return gmmc_op_immediate(proc, gmmcType_f64, &value); }
 
 static gmmcOpIdx op_comparison(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) {
 	gmmcType type = gmmc_get_op_type(bb->proc, a);
-	F_ASSERT(gmmc_get_op_type(bb->proc, b) == type);
+	validate_operand(bb, a);
+	validate_operand(bb, b, type);
 	
 	if (kind == gmmcOpKind_eq || kind == gmmcOpKind_ne) {}
 	else F_ASSERT(gmmc_type_is_integer(type));
@@ -142,7 +187,7 @@ static gmmcOpIdx op_comparison(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx a,
 	op.operands[0] = a;
 	op.operands[1] = b;
 	op.type = gmmcType_bool;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_eq(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b) { return op_comparison(bb, gmmcOpKind_eq, a, b, false); }
@@ -157,9 +202,9 @@ GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasic
 
 	gmmcOpData op = { gmmcOpKind_if };
 	op.if_.condition = cond_bool;
-	op.if_.dst_bb[0] = true_bb;
-	op.if_.dst_bb[1] = false_bb;
-	return gmmc_push_op(bb, op);
+	op.if_.true_bb = true_bb->self_idx;
+	op.if_.false_bb = false_bb->self_idx;
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index) {
@@ -183,33 +228,23 @@ GMMC_API u32 gmmc_type_size(gmmcType type) {
 	return 0;
 }
 
-gmmcOpIdx gmmc_op_immediate(gmmcBasicBlock* bb, gmmcType type, void* data) {
-	gmmcOpKind op_kind = (gmmcOpKind)(gmmcOpKind_bool + (type - gmmcType_bool));
-	gmmcOpData op = { op_kind };
-	memcpy(&op.imm_raw, data, gmmc_type_size(type));
-	op.type = type;
-	return gmmc_push_op(bb, op);
-}
-
-GMMC_API gmmcOpIdx gmmc_op_bool(gmmcBasicBlock* bb, bool value) { return gmmc_op_immediate(bb, gmmcType_bool, &value); }
-GMMC_API gmmcOpIdx gmmc_op_i8(gmmcBasicBlock* bb, uint8_t value) { return gmmc_op_immediate(bb, gmmcType_i8, &value); }
-GMMC_API gmmcOpIdx gmmc_op_i16(gmmcBasicBlock* bb, uint16_t value) { return gmmc_op_immediate(bb, gmmcType_i16, &value); }
-GMMC_API gmmcOpIdx gmmc_op_i32(gmmcBasicBlock* bb, uint32_t value) { return gmmc_op_immediate(bb, gmmcType_i32, &value); }
-GMMC_API gmmcOpIdx gmmc_op_i64(gmmcBasicBlock* bb, uint64_t value) { return gmmc_op_immediate(bb, gmmcType_i64, &value); }
-GMMC_API gmmcOpIdx gmmc_op_f32(gmmcBasicBlock* bb, float value) { return gmmc_op_immediate(bb, gmmcType_f32, &value); }
-GMMC_API gmmcOpIdx gmmc_op_f64(gmmcBasicBlock* bb, double value) { return gmmc_op_immediate(bb, gmmcType_f64, &value); }
-
 static gmmcOpIdx op_basic_2(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) {
 	gmmcType type = gmmc_get_op_type(bb->proc, a);
-	VALIDATE(type == gmmc_get_op_type(bb->proc, b));
-	//VALIDATE(gmmc_type_is_integer(type));
+	validate_operand(bb, a);
+
+	if (kind == gmmcOpKind_not) {}
+	else if (kind == gmmcOpKind_shl || kind == gmmcOpKind_shr) {
+		validate_operand(bb, b, gmmcType_i8);
+	} else {
+		validate_operand(bb, b, type);
+	}
 
 	gmmcOpData op = { kind };
 	op.is_signed = is_signed;
 	op.operands[0] = a;
 	op.operands[1] = b;
 	op.type = type;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_add(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b) { return op_basic_2(bb, gmmcOpKind_add, a, b, false); }
@@ -218,24 +253,26 @@ GMMC_API gmmcOpIdx gmmc_op_mul(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, boo
 GMMC_API gmmcOpIdx gmmc_op_div(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) { return op_basic_2(bb, gmmcOpKind_div, a, b, is_signed); }
 GMMC_API gmmcOpIdx gmmc_op_mod(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) { return op_basic_2(bb, gmmcOpKind_mod, a, b, is_signed); }
 
-
 GMMC_API gmmcOpIdx gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcOpIdx value) {
-	VALIDATE(gmmc_get_op_type(bb->proc, value) == gmmcType_i64);
+	validate_operand(bb, value, gmmcType_i64);
 
 	gmmcOpData op = { gmmcOpKind_int2ptr };
 	op.operands[0] = value;
 	op.type = gmmcType_ptr;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 static gmmcOpIdx op_simple_convert(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx value, gmmcType type) {
+	validate_operand(bb, value);
 	gmmcOpData op = { kind };
 	op.operands[0] = value;
 	op.type = type;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
-GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value) { return op_simple_convert(bb, gmmcOpKind_ptr2int, value, gmmcType_i64); }
+GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value) {
+	return op_simple_convert(bb, gmmcOpKind_ptr2int, value, gmmcType_i64);
+}
 
 GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool sign_extend) {
 	gmmcType src_type = gmmc_get_op_type(bb->proc, value);
@@ -263,15 +300,8 @@ GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx sh
 
 GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to) {
 	gmmcOpData op = { gmmcOpKind_goto };
-	op.goto_.dst_bb = to;
-	return gmmc_push_op(bb, op);
-}
-
-GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcBasicBlock* bb, gmmcSymbol* symbol) {
-	gmmcOpData op = { gmmcOpKind_addr_of_symbol };
-	op.symbol = symbol;
-	op.type = gmmcType_ptr;
-	return gmmc_push_op(bb, op);
+	op.goto_.dst_bb = to->self_idx;
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc) {
@@ -279,7 +309,7 @@ GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc) {
 	b->mod = proc->sym.module;
 	b->proc = proc;
 	b->ops = f_array_make<gmmcOpIdx>(proc->sym.module->allocator);
-	b->bb_index = (u32)f_array_push(&proc->basic_blocks, b);
+	b->self_idx = (gmmcBasicBlockIdx)f_array_push(&proc->basic_blocks, b);
 	return b;
 }
 
@@ -313,6 +343,7 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 	proc->params = f_make_slice_garbage<gmmcOpIdx>(signature->params.len, m->allocator);
 	for (uint i = 0; i < signature->params.len; i++) {
 		gmmcOpData op = { gmmcOpKind_addr_of_param };
+		op.bb_idx = GMMC_BB_INDEX_NONE;
 		op.type = gmmcType_ptr; //signature->params[i];
 		op.imm_raw = i;
 		proc->params[i] = (gmmcOpIdx)f_array_push(&proc->ops, op);
@@ -326,21 +357,27 @@ GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb, gmmcType return_type, gmmcSy
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count)
 {
 	gmmcOpData op = { gmmcOpKind_call };
-	op.call.target_sym = procedure;
-	op.call.arguments = f_clone_slice<gmmcOpIdx>({ in_arguments, in_arguments_count }, bb->mod->allocator);
-	op.type = return_type;
-	return gmmc_push_op(bb, op);
+	F_BP; // do we want to even have a 'call' op like this? maybe it should just always be 'vcall'
+	//op.call.target_sym = procedure;
+	//op.call.arguments = f_clone_slice<gmmcOpIdx>({ in_arguments, in_arguments_count }, bb->mod->allocator);
+	//op.type = return_type;
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
 	gmmcType return_type, gmmcOpIdx proc_address,
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count)
 {
+	validate_operand(bb, proc_address, gmmcType_ptr);
+	for (u32 i = 0; i < in_arguments_count; i++) {
+		validate_operand(bb, in_arguments[i]);
+	}
+
 	gmmcOpData op = { gmmcOpKind_vcall };
 	op.call.target = proc_address;
 	op.call.arguments = f_clone_slice<gmmcOpIdx>({ in_arguments, in_arguments_count }, bb->mod->allocator);
 	op.type = return_type;
-	return gmmc_push_op(bb, op);
+	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {

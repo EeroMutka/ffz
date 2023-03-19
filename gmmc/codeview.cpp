@@ -773,6 +773,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 				// add the lines
 
+				u32 prev_line_offset = fn.block.start_offset;
 				for (u32 i = 0; i < fn.lines_count; i++) {
 					cviewLine& line = fn.lines[i];
 
@@ -780,7 +781,9 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 					l.linenumStart = line.line_num;
 					// line.deltaLineEnd is only used when column information is stored
 
-					VALIDATE(line.offset >= fn.block.start_offset);
+					VALIDATE(line.offset >= prev_line_offset); // The lines must be sorted by offset
+					prev_line_offset = line.offset;
+
 					l.offset = line.offset - fn.block.start_offset; // This offset is relative to lines_header.offCon (the start offset of the function)
 
 					l.fStatement = 1; // not sure what this field means in practice

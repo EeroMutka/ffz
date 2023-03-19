@@ -1,30 +1,8 @@
 
 // TODO:
 
-// [x] fixed length array debug info type
-
 // []  gmmcOpKind_goto,
 // []  gmmcOpKind_if,
-
-// [x]  gmmcOpKind_and,
-// [x]  gmmcOpKind_or,
-// [x]  gmmcOpKind_xor,
-// []  gmmcOpKind_not,
-// []  gmmcOpKind_shl,
-// []  gmmcOpKind_shr,
-
-// []  gmmcOpKind_int2ptr,
-// []  gmmcOpKind_ptr2int,
-// [x]  gmmcOpKind_zxt,
-// [x]  gmmcOpKind_sxt,
-// [x]  gmmcOpKind_trunc,
-
-// []  gmmcOpKind_param,
-
-// []  gmmcOpKind_call,
-// []  gmmcOpKind_vcall,
-
-// []  gmmcOpKind_memmove,
 // []  gmmcOpKind_memset,
 
 //@*extern{"c_things.obj"}
@@ -32,41 +10,44 @@
 
 //#V2: struct{a: int, b: int}
 
-#foo: proc(v: [9]u8) {
-	dbgbreak
-	dbgbreak
-}
-
 #ffz_entry: proc() {
-	//dbgbreak
 	
-	things: [9]u8{1, 2, 3, 4, 5, 6, 7, 8, 9}
-	foo(things)
+	if false {
+		dbgbreak
+		dbgbreak
+	}
+	else {
+		dbgbreak
+		dbgbreak
+		dbgbreak
+		dbgbreak
+	}
 	
-	/*
-	a: 32
-	b: 1
-	c: a + b
-	d: 5
-	e: c + d
-	f: 66
-	//g: 32
-	h: a + b
-	i: e + h
-	j: a + i
-	k: i + b + a + c + d + e + f + h + j
-	*/
-	//aaaa: kiwi(5, 6, 520, 1, 502)
-	
-	//ee: ff
-	//f: a + e
-	
-	//k: kiwi(50, 32)
-	
-	dbgbreak
-	dbgbreak
 }
 
 //#kiwi: proc(a: int, b: int, c: int, d: int, e: int) => int {
 //	ret e + d
 //}
+
+// we should have a file called CodegenCrashTest with insane expressions
+
+/*
+a: 32
+b: 1
+c: a + b
+d: 5
+e: c + d
+f: 66
+//g: 32
+h: a + b
+i: e + h
+j: a + i
+k: i + b + a + c + d + e + f + h + j
+*/
+//aaaa: kiwi(5, 6, 520, 1, 502)
+
+//ee: ff
+//f: a + e
+
+//k: kiwi(50, 32)
+

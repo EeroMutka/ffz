@@ -34,7 +34,7 @@ static fString gmmc_type_get_string(gmmcType type) {
 static char* gmmc_type_get_cstr(gmmcType type) { return (char*)gmmc_type_get_string(type).data; }
 
 void print_bb(FILE* f, gmmcBasicBlock* bb) {
-	fprintf(f, "b$%u:\n", bb->bb_index);
+	fprintf(f, "b$%u:\n", bb->self_idx);
 
 	for (uint i = 0; i < bb->ops.len; i++) {
 		gmmcOpIdx op_idx = bb->ops[i];
@@ -166,11 +166,11 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 		} break;
 
 		case gmmcOpKind_goto: {
-			fprintf(f, "goto b$%u;\n", op->goto_.dst_bb->bb_index);
+			fprintf(f, "goto b$%u;\n", op->goto_.dst_bb);
 		} break;
 
 		case gmmcOpKind_if: {
-			fprintf(f, "if (_$%u) goto b$%u; else goto b$%u;\n", op->if_.condition, op->if_.dst_bb[0]->bb_index, op->if_.dst_bb[1]->bb_index);
+			fprintf(f, "if (_$%u) goto b$%u; else goto b$%u;\n", op->if_.condition, op->if_.true_bb, op->if_.false_bb);
 		} break;
 
 		case gmmcOpKind_debugbreak: {
