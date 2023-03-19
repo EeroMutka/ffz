@@ -1,7 +1,7 @@
 
 // TODO:
 
-// [] fixed length array debug info type
+// [x] fixed length array debug info type
 
 // []  gmmcOpKind_goto,
 // []  gmmcOpKind_if,
@@ -27,23 +27,21 @@
 // []  gmmcOpKind_memmove,
 // []  gmmcOpKind_memset,
 
-// []  gmmcOpKind_addr_of_symbol,
-
 //@*extern{"c_things.obj"}
 //#hello: proc(x: u32)
 
-#V2: struct{a: int, b: int}
+//#V2: struct{a: int, b: int}
+
+#foo: proc(v: [9]u8) {
+	dbgbreak
+	dbgbreak
+}
 
 #ffz_entry: proc() {
 	//dbgbreak
 	
-	thing: [2]V2{V2{5, 2}, V2{10, 204}}
-	g: thing[1]
-	g2: ^raw(&thing[1])
-	
-	//thing = 500
-	
-	//hello(520)
+	things: [9]u8{1, 2, 3, 4, 5, 6, 7, 8, 9}
+	foo(things)
 	
 	/*
 	a: 32

@@ -250,11 +250,21 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 }
 
 
-static void add_dbginfo_local(Gen* g, fString name, gmmcOpIdx addr, ffzType* type) {
+static void add_dbginfo_local(Gen* g, fString name, gmmcOpIdx addr, ffzType* type, bool ref = false) {
 	DebugInfoLocal dbginfo_local;
 	dbginfo_local.local_or_param = addr;
 	dbginfo_local.name = name;
 	dbginfo_local.type_idx = get_debuginfo_type(g, type);
+	
+	if (ref) {
+		cviewType cv_type = {};
+		cv_type.size = type->size;
+		cv_type.tag = cviewTypeTag_Pointer;
+		cv_type.Pointer.cpp_style_reference = true;
+		cv_type.Pointer.type_idx = dbginfo_local.type_idx;
+		dbginfo_local.type_idx = (u32)f_array_push(&g->cv_types, cv_type);
+	}
+
 	f_array_push(&g->proc_info->dbginfo_locals, dbginfo_local);
 }
 
@@ -282,8 +292,9 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	for (uint i = 0; i < proc_type->Proc.in_params.len; i++) {
 		ffzTypeProcParameter* param = &proc_type->Proc.in_params[i];
 		
-		// TODO: [3]u8
-		gmmcType param_type = param->type->size > 8 ? gmmcType_ptr : get_gmmc_type(g, param->type);
+		// NOTE: [3]u8 is not direct, and it does indeed get the type 'ptr', but since it's small, its stored directly
+		// in the parameter (as per X64 calling convention)
+		gmmcType param_type = value_is_direct(param->type) ? get_gmmc_type(g, param->type) : gmmcType_ptr;
 		f_array_push(&param_types, param_type);
 	}
 
@@ -331,17 +342,11 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 		
 		Value val = {};
 		val.local_addr = param_addr;
+		add_dbginfo_local(g, param->name->Identifier.name, val.local_addr, param->type, param->type->size > 8);
+		
 		if (param->type->size > 8) {
 			// NOTE: this is Microsoft-X64 calling convention specific!
 			val.local_addr = gmmc_op_load(entry_bb, gmmcType_ptr, val.local_addr);
-		}
-		else {
-			// from language perspective, it'd be the nicest to be able to get the address of a reg,
-			// and to be able to assign to a reg. But that's a bit weird for the backend. Let's just make a local every time for now.
-			//val.local_addr = gmmc_op_local(g->proc, param->type->size, param->type->align);
-			//gmmc_op_store(g->bb, val.local_addr, param_val);
-			
-			add_dbginfo_local(g, param->name->Identifier.name, val.local_addr, param->type);
 		}
 
 		f_map64_insert(&g->value_from_definition, hash, val);
@@ -389,7 +394,6 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 	gmmcOpIdx out = {};
 	if (big_return) {
 		out = gmmc_op_local(g->proc, ret_type->size, ret_type->align);
-		//out.ptr_can_be_stolen = true;
 		f_array_push(&args, out);
 	}
 
@@ -398,15 +402,23 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 		ffzType* param_type = left_chk.type->Proc.in_params[i].type;
 		gmmcOpIdx arg = gen_expr(g, n);
 		
+
 		if (param_type->size > 8) {
 			// make a copy on the stack for the parameter
-			// TODO: use the `ptr_can_be_stolen` here!
 			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
 			gmmc_op_memcpy(g->bb, local_copy_addr, arg, gmmc_op_i32(g->bb, param_type->size));
 			f_array_push(&args, local_copy_addr);
 		}
 		else {
-			f_array_push(&args, arg);
+			if (!value_is_direct(param_type)) {
+				// we need to do this to make sure we aren't reading out of bounds memory
+				gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, 8, 8);
+				gmmc_op_memcpy(g->bb, local_copy_addr, arg, gmmc_op_i32(g->bb, param_type->size));
+				f_array_push(&args, gmmc_op_load(g->bb, gmmcType_i64, local_copy_addr));
+			}
+			else {
+				f_array_push(&args, arg);
+			}
 		}
 		i++;
 	}
