@@ -9,6 +9,7 @@ workspace "raylib"
 project "raylib"
 	kind "StaticLib"
 	language "C"
+	toolset "clang"
 	
 	flags "NoIncrementalLink"
 	defines "PLATFORM_DESKTOP"

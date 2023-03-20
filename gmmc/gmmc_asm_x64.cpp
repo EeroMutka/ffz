@@ -729,8 +729,14 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 	if (existing_offset != F_U32_MAX) return existing_offset; // already visited
 
 	if (p->emitting) {
-		// Clear out the state of work-registers for this basic block.
-		memset(&p->work_reg_taken_by_op, 0, GPR_COUNT * sizeof(gmmcOpIdx));
+		// Clear out the state of work-registers, as this is a fresh basic block
+		for (uint i = 0; i < GPR_COUNT; i++) {
+			gmmcOpIdx taken_by_op = p->work_reg_taken_by_op[i];
+			if (taken_by_op != GMMC_OP_IDX_INVALID) {
+				p->ops[taken_by_op].currently_in_register = GPR_INVALID;
+				p->work_reg_taken_by_op[i] = GMMC_OP_IDX_INVALID;
+			}
+		}
 	}
 
 	u32 bb_offset = p->emitting ? (u32)p->module->sections[gmmcSection_Code].data.len : 0;
@@ -1169,8 +1175,6 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 
 GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
 	gmmcAsmModule* gen = f_mem_clone(gmmcAsmModule{}, m->allocator);
-
-	//gen->code_section_late_fix_relocations = f_array_make<gmmcRelocation>(m->allocator);
 
 	for (uint i = 0; i < gmmcSection_COUNT; i++) {
 		gen->sections[i].data = f_array_make<u8>(m->allocator);

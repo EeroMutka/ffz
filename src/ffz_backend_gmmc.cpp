@@ -75,7 +75,7 @@ struct Gen {
 	fArray(cviewSourceFile) cv_file_from_parser_idx;
 };
 
-static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc = true);
+static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num = 0);
 static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of = false);
 
 static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
@@ -922,7 +922,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 static bool node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
 
-static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
+static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 	
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
@@ -937,8 +937,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		}
 	}
 	
-	//gmmcOpIdx first_op = 0;
-	u32 line_num = inst.node->loc.start.line_num;
+	u32 line_num = overwrite_line_num ? overwrite_line_num : inst.node->loc.start.line_num;
 
 	switch (inst.node->kind) {
 		
@@ -1042,7 +1041,12 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		g->bb = body_bb;
 		gen_statement(g, body);
 			
-		if (post.node) gen_statement(g, post, false);
+		if (post.node) {
+			gen_statement(g, post, body.node->loc.end.line_num); // let's override the loc to be at the end of the body scope
+			//set_dbginfo_loc(g, 
+		}
+		//inst_loc(g, inst.node, );
+		//if (post.node) gen_statement(g, post, false); 
 
 		gmmc_op_goto(g->bb, cond_bb);
 
