@@ -1429,12 +1429,14 @@ static bool build_c(Gen* g, fString build_dir) {
 
 	f_array_push(&clang_args, F_LIT("clang"));
 
-	if (true) { // with debug info?
+	if (false) { // with debug info?
 		f_array_push(&clang_args, F_LIT("-gcodeview"));
 		f_array_push(&clang_args, F_LIT("--debug"));
 	}
 	else {
 		f_array_push(&clang_args, F_LIT("-O1"));
+		f_array_push(&clang_args, F_LIT("-gcodeview"));
+		f_array_push(&clang_args, F_LIT("--debug"));
 	}
 
 	// Use the LLD linker
@@ -1527,7 +1529,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 		}
 	}
 
-	bool x64 = true;
+	bool x64 = false;
 	if (x64) {
 		return build_x64(&g, build_dir);
 	}

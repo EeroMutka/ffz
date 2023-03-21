@@ -28,6 +28,7 @@ memcpy:
 memset:
 	mov r10, rcx ; preserve the base address
 	
+	mov rdi, rcx
 	mov al, dl
 	mov rcx, r8; repetition count
 	rep stosb
