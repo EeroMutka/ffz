@@ -126,8 +126,8 @@ static void pad_to_4_bytes_LF_pad(fArray(u8)* builder) {
 
 static void append_so_called_length_prefixed_name(fArray(u8)* builder, coffString name) {
 	// ...it's actually not length-prefixed. The comments just say that, because it was like that in old codeview versions.
-	f_str_print(builder, name);
-	f_str_print(builder, F_LIT("\0"));
+	f_str_push(builder, name);
+	f_str_push(builder, F_LIT("\0"));
 	pad_to_4_bytes_LF_pad(builder);
 }
 
@@ -559,10 +559,10 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			u32 reclen_offset = (u32)gen->debugT.len;
 			cv_structure.leaf = LF_STRUCTURE;
 			cv_structure.property.fwdref = true;
-			f_str_print(&gen->debugT, F_AS_BYTES(cv_structure));
+			f_str_push(&gen->debugT, F_AS_BYTES(cv_structure));
 
 			u16 struct_size = 0;
-			f_str_print(&gen->debugT, F_AS_BYTES(struct_size));
+			f_str_push(&gen->debugT, F_AS_BYTES(struct_size));
 			append_so_called_length_prefixed_name(&gen->debugT, type.Record.name);
 
 			patch_reclen(&gen->debugT, reclen_offset);

@@ -1,49 +1,12 @@
+#B: import(":Basic")
 
-// TODO:
+#str: import(":String")
 
-// [x]  gmmcOpKind_goto,
-// [x]  gmmcOpKind_if,
-// []  gmmcOpKind_memset,
 
-//@*extern{"c_things.obj"}
-//#hello: proc(x: u32)
 
-//#V2: struct{a: int, b: int}
+// if (bb->proc->ops.len == 7) F_BP;
 
-#ffz_entry: proc() {
-	dbgbreak
-	
-	for i: 0, i<16, i=.+1 {
-		dbgbreak
-		dbgbreak
-	}
-	
-	dbgbreak
+#entry: proc() {
+	B.print("Heyy!\n")
+	B.print("auuyy\n")
 }
-
-//#kiwi: proc(a: int, b: int, c: int, d: int, e: int) => int {
-//	ret e + d
-//}
-
-// we should have a file called CodegenCrashTest with insane expressions
-
-/*
-a: 32
-b: 1
-c: a + b
-d: 5
-e: c + d
-f: 66
-//g: 32
-h: a + b
-i: e + h
-j: a + i
-k: i + b + a + c + d + e + f + h + j
-*/
-//aaaa: kiwi(5, 6, 520, 1, 502)
-
-//ee: ff
-//f: a + e
-
-//k: kiwi(50, 32)
-

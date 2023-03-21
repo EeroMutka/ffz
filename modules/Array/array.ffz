@@ -48,7 +48,7 @@
 #push_n_raw: proc(a: ^Array[raw], elems: ^raw, n: uint, elem_size: uint, elem_align: uint) => uint {
 	reserve_raw(a, a.len + n, elem_size, elem_align)
 	
-	Basic.mem_move(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
+	Basic.memcpy(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
 	
 	out: a.len
 	a.len= .+n
@@ -74,8 +74,8 @@
 	
 	// Move existing elements forward
 	offset: uint(a.ptr) + at * elem_size
-	Basic.mem_move(^raw(offset + n * elem_size), ^raw(offset), (a.len - at) * elem_size)
+	Basic.memmove(^raw(offset + n * elem_size), ^raw(offset), (a.len - at) * elem_size)
 	
-	Basic.mem_move(^raw(offset), elem, n * elem_size)
+	Basic.memcpy(^raw(offset), elem, n * elem_size)
 	a.len = .+n
 }

@@ -657,11 +657,15 @@ u64 f_hash64_str_ex(fString s, u64 seed);
 
 #define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, 1, allocator), len }
 
-fString f_str_format(fAllocator* a, const char* fmt, ...);
-void f_str_print(fArray(u8)* buffer, fString str);
-void f_str_print_rune(fArray(u8)* buffer, rune r);
-void f_str_print_repeat(fArray(u8)* buffer, fString str, uint count);
-void f_str_printf(fArray(u8)* buffer, const char* fmt, ...);
+fString f_aprint(fAllocator* a, const char* fmt, ...);
+char* f_aprint_cstr(fAllocator* a, const char* fmt, ...);
+fString f_tprint(const char* fmt, ...);
+char* f_tprint_cstr(const char* fmt, ...);
+
+void f_str_push(fArray(u8)* buffer, fString str);
+void f_str_push_rune(fArray(u8)* buffer, rune r);
+void f_str_push_repeat(fArray(u8)* buffer, fString str, uint count);
+void f_str_pushf(fArray(u8)* buffer, const char* fmt, ...);
 
 fString f_str_advance(fString* str, uint len);
 fString f_str_clone(fString str, fAllocator* allocator);

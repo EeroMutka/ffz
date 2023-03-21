@@ -52,6 +52,7 @@ static void validate_operand(gmmcBasicBlock* bb, gmmcOpIdx operand, gmmcType req
 }
 
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value) {
+	//if (bb->proc == (void*)0x00000200001811c0 && bb->proc->ops.len == 7) F_BP;
 	if (bb->proc->signature->return_type) {
 		validate_operand(bb, value, bb->proc->signature->return_type);
 	} else {
@@ -400,7 +401,7 @@ GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t ali
 	global->self_idx = (gmmcGlobalIdx)f_array_push(&m->globals, global);
 	global->sym.kind = gmmcSymbolKind_Global;
 	global->sym.module = m;
-	global->sym.name = f_str_format(m->allocator, "g$%u", global->self_idx);
+	global->sym.name = f_aprint(m->allocator, "g$%u", global->self_idx);
 	global->size = size;
 	global->align = align;
 	global->section = section;

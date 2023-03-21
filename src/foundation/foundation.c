@@ -142,12 +142,14 @@ fString f_str_path_dir(fString path) {
 	return path;
 }
 
+// returns a zero-terminated string
 fString str_format_va_list(fAllocator* a, const char* fmt, va_list args) {
-	va_list _args = args;
+	va_list _args;
+	va_copy(_args, args);
 
 	uint needed_bytes = vsnprintf(0, 0, fmt, args) + 1;
+	
 	fString result = f_str_make(needed_bytes, a);
-
 	result.len -= 1;
 	result.data[result.len] = 0;
 
@@ -155,22 +157,20 @@ fString str_format_va_list(fAllocator* a, const char* fmt, va_list args) {
 	return result;
 }
 
-void f_str_print(Array(u8)* buffer, fString str) {
+void f_str_push(Array(u8)* buffer, fString str) {
 	f_array_push_n_raw(buffer, F_BITCAST(fSliceRaw, str), 1, 1);
 }
 
-void f_str_print_rune(Array(u8)* buffer, rune r) {
+void f_str_push_rune(Array(u8)* buffer, rune r) {
 	F_ASSERT(r < 128); // TODO
 	f_array_push_raw(buffer, &r, 1, 1);
 }
 
-//SliceRaw array_get_slice_raw(ArrayRaw* array) { return *(SliceRaw*)array; }
-
-void f_str_print_repeat(Array(u8)* buffer, fString str, uint count) {
-	for (uint i = 0; i < count; i++) f_str_print(buffer, str);
+void f_str_push_repeat(Array(u8)* buffer, fString str, uint count) {
+	for (uint i = 0; i < count; i++) f_str_push(buffer, str);
 }
 
-fString f_str_format(fAllocator* a, const char* fmt, ...) {
+fString f_aprint(fAllocator* a, const char* fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
 	fString result = str_format_va_list(a, fmt, args);
@@ -178,7 +178,31 @@ fString f_str_format(fAllocator* a, const char* fmt, ...) {
 	return result;
 }
 
-void f_str_printf(Array(u8)* buffer, const char* fmt, ...) {
+char* f_aprint_cstr(fAllocator* a, const char* fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	char* result = str_format_va_list(a, fmt, args).data;
+	va_end(args);
+	return result;
+}
+
+fString f_tprint(const char* fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	fString result = str_format_va_list(f_temp_alc(), fmt, args);
+	va_end(args);
+	return result;
+}
+
+char* f_tprint_cstr(const char* fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	char* result = str_format_va_list(f_temp_alc(), fmt, args).data;
+	va_end(args);
+	return result;
+}
+
+void f_str_pushf(Array(u8)* buffer, const char* fmt, ...) {
 	fArenaMark mark = f_temp_get_mark();
 	
 	va_list args;
@@ -186,7 +210,7 @@ void f_str_printf(Array(u8)* buffer, const char* fmt, ...) {
 	fString str = str_format_va_list(f_temp_alc(), fmt, args);
 	va_end(args);
 	
-	f_str_print(buffer, str);
+	f_str_push(buffer, str);
 	if (buffer->alc != f_temp_alc()) f_temp_set_mark(mark);
 }
 
@@ -847,28 +871,28 @@ float f_random_float_in_range(float minimum, float maximum) {
 fString f_str_from_uint(fString bytes, fAllocator* a) {
 	F_ASSERT(bytes.len == 1 || bytes.len == 2 || bytes.len == 4 || bytes.len == 8);
 	return bytes.len == 1 ?
-			f_str_format(a, "%hhu", *(u8*)bytes.data) : bytes.len == 2 ?
-			f_str_format(a, "%hu", *(u16*)bytes.data) : bytes.len == 4 ?
-			f_str_format(a, "%u", *(u32*)bytes.data) :
-			f_str_format(a, "%llu", *(u64*)bytes.data);
+			f_aprint(a, "%hhu", *(u8*)bytes.data) : bytes.len == 2 ?
+			f_aprint(a, "%hu", *(u16*)bytes.data) : bytes.len == 4 ?
+			f_aprint(a, "%u", *(u32*)bytes.data) :
+			f_aprint(a, "%llu", *(u64*)bytes.data);
 }
 
 fString f_str_from_int(fString bytes, fAllocator* a) {
 	F_ASSERT(bytes.len == 1 || bytes.len == 2 || bytes.len == 4 || bytes.len == 8);
 	return bytes.len == 1 ?
-			f_str_format(a, "%hhd", *(s8*)bytes.data) : bytes.len == 2 ?
-			f_str_format(a, "%hd", *(s16*)bytes.data) : bytes.len == 4 ?
-			f_str_format(a, "%d", *(s32*)bytes.data) :
-			f_str_format(a, "%lld", *(s64*)bytes.data);
+			f_aprint(a, "%hhd", *(s8*)bytes.data) : bytes.len == 2 ?
+			f_aprint(a, "%hd", *(s16*)bytes.data) : bytes.len == 4 ?
+			f_aprint(a, "%d", *(s32*)bytes.data) :
+			f_aprint(a, "%lld", *(s64*)bytes.data);
 }
 
 fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* a) {
 	char fmt_string[5] = { '%', '.', '0' + (char)F_MIN(num_decimals, 9), 'f', 0 };
-	return f_str_format(a, fmt_string, value);
+	return f_aprint(a, fmt_string, value);
 }
 
 fString f_str_from_float(f64 value, fAllocator* a) {
-	return f_str_format(a, "%f", value);
+	return f_aprint(a, "%f", value);
 }
 
 

@@ -382,12 +382,12 @@ GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
 	gmmcType return_type, gmmcOpIdx proc_address,
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 
-// -- Immediate values --------------------------
+// -- Instant values ----------------------------
 //
-// Immediate values don't take effort to compute, and such aren't tied to any specific basic block.
+// Instant values are values that don't require any computation and such aren't tied to any specific basic block.
 //
 #define GMMC_BB_INDEX_NONE 0xFFFFFFFF
-inline bool gmmc_is_op_immediate_(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].bb_idx == GMMC_BB_INDEX_NONE; }
+inline bool gmmc_is_op_instant(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].bb_idx == GMMC_BB_INDEX_NONE; }
 
 GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index);
 

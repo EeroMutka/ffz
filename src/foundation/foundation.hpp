@@ -236,7 +236,7 @@ inline fString f_str_join_il(fAllocator* alc, std::initializer_list<fString> arg
 }
 
 inline void f_str_print_il(fArray(u8)* buffer, std::initializer_list<fString> args) {
-	for (auto arg : args) f_str_print(buffer, arg);
+	for (auto arg : args) f_str_push(buffer, arg);
 }
 
 //

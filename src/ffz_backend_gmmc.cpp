@@ -26,7 +26,8 @@
 
 struct Value {
 	gmmcSymbol* symbol;
-	gmmcOpIdx local_addr; // local_addr should be valid if symbol is NULL
+	gmmcOpIdx local_addr; // local_addr is used if symbol is NULL
+	bool local_addr_is_indirect;
 };
 
 struct DebugInfoLine {
@@ -82,7 +83,7 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 	fArray(u8) name = f_array_make<u8>(g->alc);
 	if (inst.node) {
 		ffzNodeInst parent = ffz_parent_inst(g->project, inst);
-		f_str_print(&name, ffz_get_parent_decl_name(inst.node));
+		f_str_push(&name, ffz_get_parent_decl_name(inst.node));
 		
 		if (inst.polymorph) {
 			//if (pretty) {
@@ -98,7 +99,7 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			//}
 			//else {
 			//	// hmm.. deterministic index for polymorph, how?
-			f_str_printf(&name, "$%llx", inst.polymorph->hash);
+			f_str_pushf(&name, "$%llx", inst.polymorph->hash);
 			//}
 			//f_str_printf(&name, "$%xll", inst.polymorph->hash);
 		}
@@ -112,13 +113,13 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			bool is_module_defined_entry = ffz_get_tag(g->project, parent, ffzKeyword_module_defined_entry);
 			if (!is_extern && !is_module_defined_entry)
 			{
-				f_str_print(&name, F_LIT("$$"));
-				f_str_print(&name, g->checker->_dbg_module_import_name);
+				f_str_push(&name, F_LIT("$$"));
+				f_str_push(&name, g->checker->_dbg_module_import_name);
 			}
 		}
 	}
 	else {
-		f_str_printf(&name, "_ffz_%llu", g->dummy_name_counter);
+		f_str_pushf(&name, "_ffz_%llu", g->dummy_name_counter);
 		g->dummy_name_counter++;
 	}
 
@@ -175,7 +176,7 @@ static bool has_big_return(ffzType* proc_type) {
 }
 
 static void set_dbginfo_loc(Gen* g, gmmcOpIdx op, u32 line_num) {
-	if (!gmmc_is_op_immediate_(g->proc, op)) {
+	if (!gmmc_is_op_instant(g->proc, op)) {
 		f_array_push(&g->proc_info->dbginfo_lines, DebugInfoLine{ op, line_num });
 	}
 }
@@ -349,8 +350,10 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 		add_dbginfo_local(g, param->name->Identifier.name, val.local_addr, param->type, param->type->size > 8);
 		
 		if (param->type->size > 8) {
-			// NOTE: this is Microsoft-X64 calling convention specific!
-			val.local_addr = gmmc_op_load(entry_bb, gmmcType_ptr, val.local_addr);
+			// This is Microsoft-X64 calling convention specific!
+			// NOTE: we can't do gmmc_op_load here, because we can't access a values from other BBs.
+			val.local_addr_is_indirect = true;
+			//val.local_addr = gmmc_op_load(entry_bb, gmmcType_ptr, val.local_addr);
 		}
 
 		f_map64_insert(&g->value_from_definition, hash, val);
@@ -748,6 +751,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				F_ASSERT(found);
 			}
 			else {
+				//F_HITS(____c, 61);
 				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 				ffzType* struct_type = left_chk.type->tag == ffzTypeTag_Pointer ? left_chk.type->Pointer.pointer_to : left_chk.type;
 
@@ -887,7 +891,12 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 			Value* val = f_map64_get(&g->value_from_definition, ffz_hash_node_inst(def));
 			F_ASSERT(val);
+
 			out = val->symbol ? gmmc_op_addr_of_symbol(g->proc, val->symbol) : val->local_addr;
+			if (val->local_addr_is_indirect) {
+				out = gmmc_op_load(g->bb, gmmcType_ptr, out);
+			}
+
 			should_dereference = !address_of;
 		} break;
 
@@ -923,11 +932,11 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 static bool node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
 
 static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
-	
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
 		if (inst.node->kind == ffzNodeKind_Scope) {}
 		else if (inst.node->kind == ffzNodeKind_If) {}
+		else if (inst.node->kind == ffzNodeKind_For) {}
 		else if (node_is_keyword(inst.node, ffzKeyword_dbgbreak)) {}
 		else {
 			ffzParser* parser = g->project->parsers[inst.node->id.parser_id];
@@ -1068,7 +1077,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 			ffzType* ret_type = ffz_expr_get_type(g->project, CHILD(ret,Return.value));
 			gmmcOpIdx return_value = gen_expr(g, CHILD(ret,Return.value));
 			if (ret_type->size > 8) {
-				F_BP; //val = gmmc_op_param(g->proc, 0); // :BigReturn
+				val = gmmc_op_load(g->bb, gmmcType_ptr, gmmc_op_addr_of_param(g->proc, 0)); // :BigReturn
 				gmmc_op_memcpy(g->bb, val, return_value, gmmc_op_i32(g->proc, ret_type->size));
 			}
 			else {
@@ -1370,12 +1379,16 @@ static bool build_x64(Gen* g, fString build_dir) {
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(msvc_directory, F_LIT("\\link.exe")));
 	f_array_push(&ms_linker_args, obj_file_path);
 
+	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
+	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
+	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), vs_library_path));
+
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
 	f_array_push(&ms_linker_args, F_LIT("/ENTRY:ffz_entry"));
 	f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
 	f_array_push(&ms_linker_args, F_LIT("/NODEFAULTLIB")); // disable CRT
 	f_array_push(&ms_linker_args, F_LIT("/DEBUG"));
-	
+
 	for (uint i = 0; i < g->project->link_libraries.len; i++) {
 		f_array_push(&ms_linker_args, g->project->link_libraries[i]);
 	}
@@ -1432,18 +1445,18 @@ static bool build_c(Gen* g, fString build_dir) {
 	f_array_push(&clang_args, c_file_path);
 
 	fArray(u8) clang_linker_args = f_array_make<u8>(f_temp_alc());
-	f_str_printf(&clang_linker_args, "-Wl"); // pass comma-separated argument list to the linker
-	f_str_printf(&clang_linker_args, ",/SUBSYSTEM:%s", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
-	f_str_printf(&clang_linker_args, ",/ENTRY:ffz_entry,");
-	f_str_printf(&clang_linker_args, ",/INCREMENTAL:NO");
-	f_str_printf(&clang_linker_args, ",/NODEFAULTLIB"); // disable CRT
+	f_str_pushf(&clang_linker_args, "-Wl"); // pass comma-separated argument list to the linker
+	f_str_pushf(&clang_linker_args, ",/SUBSYSTEM:%s", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
+	f_str_pushf(&clang_linker_args, ",/ENTRY:ffz_entry,");
+	f_str_pushf(&clang_linker_args, ",/INCREMENTAL:NO");
+	f_str_pushf(&clang_linker_args, ",/NODEFAULTLIB"); // disable CRT
 	//f_str_printf(&linker_args, ",libucrt.lib");
 
 	for (uint i = 0; i < g->project->link_libraries.len; i++) {
-		f_str_printf(&clang_linker_args, ",%.*s", F_STRF(g->project->link_libraries[i]));
+		f_str_pushf(&clang_linker_args, ",%.*s", F_STRF(g->project->link_libraries[i]));
 	}
 	for (uint i = 0; i < g->project->link_system_libraries.len; i++) {
-		f_str_printf(&clang_linker_args, ",%.*s", F_STRF(g->project->link_system_libraries[i]));
+		f_str_pushf(&clang_linker_args, ",%.*s", F_STRF(g->project->link_system_libraries[i]));
 	}
 
 	// https://metricpanda.com/rival-fortress-update-45-dealing-with-__chkstk-__chkstk_ms-when-cross-compiling-for-windows/
@@ -1520,7 +1533,6 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 	}
 	else {
 		return build_c(&g, build_dir);
-		//f_temp_set_mark(temp_base);
 	}
 
 	return true;

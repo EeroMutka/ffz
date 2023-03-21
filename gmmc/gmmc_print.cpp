@@ -33,8 +33,49 @@ static fString gmmc_type_get_string(gmmcType type) {
 
 static char* gmmc_type_get_cstr(gmmcType type) { return (char*)gmmc_type_get_string(type).data; }
 
+static char* operand_to_cstr(FILE* f, gmmcBasicBlock* bb, gmmcOpIdx op_idx) {
+	gmmcOpData* op = &bb->proc->ops[op_idx];
+	switch (op->kind) {
+		case gmmcOpKind_bool: return f_tprint_cstr(op->imm_raw ? "1" : "0");
+		case gmmcOpKind_i8: return f_tprint_cstr("%hhu", (u8)op->imm_raw);
+		case gmmcOpKind_i16: return f_tprint_cstr("%hu", (u16)op->imm_raw);
+		case gmmcOpKind_i32: return f_tprint_cstr("%u", (u32)op->imm_raw);
+		case gmmcOpKind_i64: return f_tprint_cstr("%llu", (u64)op->imm_raw);
+		case gmmcOpKind_f32: {
+			F_BP;//f32 value;
+			//memcpy(&value, &op->imm_raw, 4);
+			//fprintf(f, "%ff;\n", (f64)value);
+		} break;
+
+		case gmmcOpKind_f64: {
+			F_BP;//f64 value;
+			//memcpy(&value, &op->imm_raw, 8);
+			//fprintf(f, "%f;\n", value);
+		} break;
+
+		case gmmcOpKind_addr_of_param: {
+			return f_tprint_cstr("(void*)&_$%u", op_idx);
+		} break;
+
+		case gmmcOpKind_addr_of_symbol: {
+			if (op->symbol->kind == gmmcSymbolKind_Global) {
+				return f_tprint_cstr("(void*)&%s", f_str_t_to_cstr(op->symbol->name));
+			} else {
+				return f_str_t_to_cstr(op->symbol->name);
+			}
+		} break;
+
+		default: {
+			return f_tprint_cstr("_$%u", op_idx);
+		}
+	}
+	return NULL;
+}
+
 void print_bb(FILE* f, gmmcBasicBlock* bb) {
 	fprintf(f, "b$%u:\n", bb->self_idx);
+	
+	fArenaMark mark = f_temp_get_mark();
 
 	for (uint i = 0; i < bb->ops.len; i++) {
 		gmmcOpIdx op_idx = bb->ops[i];
@@ -44,167 +85,145 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 			fprintf(f, "    ");
 		}
 		
-		u32 result_bits = 8 * gmmc_type_size(gmmc_get_op_type(bb->proc, op_idx));
+		gmmcType type = gmmc_get_op_type(bb->proc, op_idx);
+		u32 result_bits = 8 * gmmc_type_size(type);
 		const char* sign_postfix = op->is_signed ? "signed" : "unsigned";
 
-		switch (op->kind) {
-		case gmmcOpKind_bool: { fprintf(f, "_$%u = %s;\n", op_idx, op->imm_raw ? "1" : "0"); } break;
-		case gmmcOpKind_i8: { fprintf(f, "_$%u = %hhu;\n", op_idx, (u8)op->imm_raw); } break;
-		case gmmcOpKind_i16: { fprintf(f, "_$%u = %hu;\n", op_idx, (u16)op->imm_raw); } break;
-		case gmmcOpKind_i32: { fprintf(f, "_$%u = %u;\n", op_idx, (u32)op->imm_raw); } break;
-		case gmmcOpKind_i64: { fprintf(f, "_$%u = %llu;\n", op_idx, (u64)op->imm_raw); } break;
-		
-		case gmmcOpKind_f32: {
-			f32 value;
-			memcpy(&value, &op->imm_raw, 4);
-			fprintf(f, "_$%u = %ff;\n", op_idx, (f64)value);
-		} break;
+		// operand count
+		//operand_to_str(bb, op->operands[0])
 
-		case gmmcOpKind_f64: {
-			f64 value;
-			memcpy(&value, &op->imm_raw, 8);
-			fprintf(f, "_$%u = %f;\n", op_idx, value);
-		} break;
+		if (gmmc_is_op_instant(bb->proc, op_idx)) continue;
+
+		if (type != gmmcType_None) {
+			fprintf(f, "%s _$%u = ", gmmc_type_get_cstr(type), op_idx);
+		}
+
+#define OTOS(i) operand_to_cstr(f, bb, op->operands[i])
+#define OTOS_(operand) operand_to_cstr(f, bb, operand)
+
+		switch (op->kind) {
 		
-		case gmmcOpKind_int2ptr: { fprintf(f, "_$%u = (void*)_$%u;\n", op_idx, op->operands[0]); } break;
+		case gmmcOpKind_int2ptr: { fprintf(f, "(void*)%s", OTOS(0)); } break;
 		case gmmcOpKind_ptr2int: {
 			gmmcType value_type = gmmc_get_op_type(bb->proc, op_idx);
-			fprintf(f, "_$%u = (%s)_$%u;\n", op_idx, gmmc_type_get_cstr(value_type), op->operands[0]);
+			fprintf(f, "(%s)%s", gmmc_type_get_cstr(value_type), OTOS(0));
 		} break;
 
 		case gmmcOpKind_trunc: {
-			fprintf(f, "_$%u = (i%u)_$%u;\n", op_idx, result_bits, op->operands[0]);
+			fprintf(f, "(i%u)%s", result_bits, OTOS(0));
 		} break;
 
-		case gmmcOpKind_and: { fprintf(f, "_$%u = _$%u & _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_or: { fprintf(f, "_$%u = _$%u | _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_xor: { fprintf(f, "_$%u = _$%u ^ _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_not: { fprintf(f, "_$%u = ~_$%u;\n", op_idx, op->operands[0]); } break;
-		case gmmcOpKind_shl: { fprintf(f, "_$%u = _$%u << _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_shr: { fprintf(f, "_$%u = _$%u >> _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
+		case gmmcOpKind_and: { fprintf(f, "%s & %s", OTOS(0), OTOS(1)); } break;
+		case gmmcOpKind_or: { fprintf(f, "%s | %s", OTOS(0), OTOS(1)); } break;
+		case gmmcOpKind_xor: { fprintf(f, "%s ^ %s", OTOS(0), OTOS(1)); } break;
+		case gmmcOpKind_not: { fprintf(f, "~%s", OTOS(0)); } break;
+		case gmmcOpKind_shl: { fprintf(f, "%s << %s", OTOS(0), OTOS(1)); } break;
+		case gmmcOpKind_shr: { fprintf(f, "%s >> %s", OTOS(0), OTOS(1)); } break;
 
 		// I guess the nice thing about having explicit $le()  would be
 		// that we could show the type and if it's signed at the callsite. e.g.   $le_s32()
 		// the signedness thing is a bit weird. Maybe we should have the instructions more like in X64 with above/greater terms.
 		// Or name it  $le_s32() / $le_u32()
 		// $mul_s32 / $mul_u32
-		case gmmcOpKind_eq: { fprintf(f, "_$%u = _$%u == _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_ne: { fprintf(f, "_$%u = _$%u != _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
+		case gmmcOpKind_eq: { fprintf(f, "%s == %s", OTOS(0), OTOS(1)); } break;
+		case gmmcOpKind_ne: { fprintf(f, "%s != %s", OTOS(0), OTOS(1)); } break;
 		
 		case gmmcOpKind_lt: {
-			fprintf(f, "_$%u = $op_%s(%u, <, _$%u, _$%u);\n", op_idx, sign_postfix,
-				operand_bits(bb, op), op->operands[0], op->operands[1]);
+			fprintf(f, "$op_%s(%u, <, %s, %s)", sign_postfix, operand_bits(bb, op), OTOS(0), OTOS(1));
 		} break;
 		case gmmcOpKind_le: {
-			fprintf(f, "_$%u = $op_%s(%u, <=, _$%u, _$%u);\n", op_idx, sign_postfix,
-				operand_bits(bb, op), op->operands[0], op->operands[1]);
+			fprintf(f, "$op_%s(%u, <=, %s, %s)", sign_postfix, operand_bits(bb, op), OTOS(0), OTOS(1));
 		} break;
 		case gmmcOpKind_gt: {
-			fprintf(f, "_$%u = $op_%s(%u, >, _$%u, _$%u);\n", op_idx, sign_postfix,
-				operand_bits(bb, op), op->operands[0], op->operands[1]);
+			fprintf(f, "$op_%s(%u, >, %s, %s)", sign_postfix, operand_bits(bb, op), OTOS(0), OTOS(1));
 		} break;
 		case gmmcOpKind_ge: {
-			fprintf(f, "_$%u = $op_%s(%u, >=, _$%u, _$%u);\n", op_idx, sign_postfix,
-				operand_bits(bb, op), op->operands[0], op->operands[1]);
+			fprintf(f, "$op_%s(%u, >=, %s, %s)", sign_postfix, operand_bits(bb, op), OTOS(0), OTOS(1));
 		} break;
 		case gmmcOpKind_zxt: {
-			fprintf(f, "_$%u = $zxt(%u, %u, _$%u);\n", op_idx,
-				operand_bits(bb, op), result_bits, op->operands[0]);
+			fprintf(f, "$zxt(%u, %u, %s)", operand_bits(bb, op), result_bits, OTOS(0));
 		} break;
 		case gmmcOpKind_sxt: {
-			fprintf(f, "_$%u = $sxt(%u, %u, _$%u);\n", op_idx,
-				operand_bits(bb, op), result_bits, op->operands[0]);
+			fprintf(f, "$sxt(%u, %u, %s)", operand_bits(bb, op), result_bits, OTOS(0));
 		} break;
-
 
 		// TODO: make signed overflow not UB
-		case gmmcOpKind_add: { fprintf(f, "_$%u = _$%u + _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
-		case gmmcOpKind_sub: { fprintf(f, "_$%u = _$%u - _$%u;\n", op_idx, op->operands[0], op->operands[1]); } break;
+		case gmmcOpKind_add: { fprintf(f, "%s + %s", OTOS(0), OTOS(1)); } break;
+		case gmmcOpKind_sub: { fprintf(f, "%s - %s", OTOS(0), OTOS(1)); } break;
 		case gmmcOpKind_mul: {
-			fprintf(f, "_$%u = $op_%s(%u, *, _$%u, _$%u);\n", op_idx, sign_postfix, result_bits, op->operands[0], op->operands[1]);
+			fprintf(f, "$op_%s(%u, *, %s, %s)", sign_postfix, result_bits, OTOS(0), OTOS(1));
 		} break;
 		case gmmcOpKind_div: {
-			fprintf(f, "_$%u = $op_%s(%u, /, _$%u, _$%u);\n", op_idx, sign_postfix, result_bits, op->operands[0], op->operands[1]);
+			fprintf(f, "$op_%s(%u, /, %s, %s)", sign_postfix, result_bits, OTOS(0), OTOS(1));
 		} break;
 		case gmmcOpKind_mod: {
-			fprintf(f, "_$%u = $op_%s(%u, %%, _$%u, _$%u);\n", op_idx, sign_postfix, result_bits, op->operands[0], op->operands[1]);
-		} break;
-		
-		case gmmcOpKind_addr_of_symbol: {
-			if (op->symbol->kind == gmmcSymbolKind_Global) {
-				fprintf(f, "_$%u = (void*)&%s;\n", op_idx, f_str_t_to_cstr(op->symbol->name));
-			}
-			else {
-				fprintf(f, "_$%u = %s;\n", op_idx, f_str_t_to_cstr(op->symbol->name));
-			}
+			fprintf(f, "$op_%s(%u, %%, %s, %s)", sign_postfix, result_bits, OTOS(0), OTOS(1));
 		} break;
 
 		case gmmcOpKind_store: {
 			gmmcType value_type = gmmc_get_op_type(bb->proc, op->operands[1]);
-			fprintf(f, "$store(%s, _$%u, _$%u);\n", gmmc_type_get_cstr(value_type), op->operands[0], op->operands[1]);
+			fprintf(f, "$store(%s, %s, %s)", gmmc_type_get_cstr(value_type), OTOS(0), OTOS(1));
 		} break;
 
 		case gmmcOpKind_load: {
 			gmmcType value_type = gmmc_get_op_type(bb->proc, op_idx);
-			fprintf(f, "_$%u = $load(%s, _$%u);\n", op_idx, gmmc_type_get_cstr(value_type), op->operands[0]);
+			fprintf(f, "$load(%s, %s)", gmmc_type_get_cstr(value_type), OTOS(0));
 		} break;
 
 		case gmmcOpKind_member_access: {
-			fprintf(f, "_$%u = $member_access(_$%u, %u);\n", op_idx, op->operands[0], (u32)op->imm_raw);
+			fprintf(f, "$member_access(%s, %u)", OTOS(0), (u32)op->imm_raw);
 		} break;
 
 		case gmmcOpKind_array_access: {
-			fprintf(f, "_$%u = $array_access(_$%u, _$%u, %u);\n", op_idx, op->operands[0], op->operands[1], (u32)op->imm_raw);
+			fprintf(f, "$array_access(%s, %s, %u)", OTOS(0), OTOS(1), (u32)op->imm_raw);
 		} break;
 
 		case gmmcOpKind_memcpy: {
-			fprintf(f, "mem_move(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
+			fprintf(f, "memcpy(%s, %s, %s)", OTOS(0), OTOS(1), OTOS(2));
 		} break;
 
 		case gmmcOpKind_memset: {
-			fprintf(f, "mem_set(_$%u, _$%u, _$%u);\n", op->operands[0], op->operands[1], op->operands[2]);
+			fprintf(f, "memset(%s, %s, %s)", OTOS(0), OTOS(1), OTOS(2));
 		} break;
 
 		case gmmcOpKind_goto: {
-			fprintf(f, "goto b$%u;\n", op->goto_.dst_bb);
+			fprintf(f, "goto b$%u", op->goto_.dst_bb);
 		} break;
 
 		case gmmcOpKind_if: {
-			fprintf(f, "if (_$%u) goto b$%u; else goto b$%u;\n", op->if_.condition, op->if_.true_bb, op->if_.false_bb);
+			//operand_to_cstr(bb, op->if_.condition)
+			fprintf(f, "if (%s) goto b$%u; else goto b$%u", OTOS_(op->if_.condition), op->if_.true_bb, op->if_.false_bb);
 		} break;
 
 		case gmmcOpKind_debugbreak: {
-			fprintf(f, "$debugbreak();\n");
+			fprintf(f, "$debugbreak()");
 		} break;
 
-		case gmmcOpKind_call: // fallthrough
 		case gmmcOpKind_vcall: {
-			gmmcType ret_type = gmmc_get_op_type(bb->proc, op_idx);
-			if (ret_type != gmmcType_None) {
-				fprintf(f, "_$%u = ", op_idx);
-			}
+			//gmmcType ret_type = gmmc_get_op_type(bb->proc, op_idx);
 			
-			if (op->kind == gmmcOpKind_call) {
-				fprintf(f, "%s(", f_str_t_to_cstr(op->call.target_sym->name));
+			gmmcOpData* call_target = &bb->proc->ops[op->call.target];
+			if (call_target->kind == gmmcOpKind_addr_of_symbol && call_target->symbol->kind == gmmcSymbolKind_Proc) {
+				fprintf(f, "%s(", f_str_t_to_cstr(call_target->symbol->name));
 			}
 			else {
 				// function pointer cast
-				fprintf(f, "( (%s(*)(", gmmc_type_get_cstr(ret_type));
+				fprintf(f, "( (%s(*)(", gmmc_type_get_cstr(type));
 				for (uint i = 0; i < op->call.arguments.len; i++) {
 					if (i > 0) fprintf(f, ", ");
 
 					gmmcType arg_type = gmmc_get_op_type(bb->proc, op->call.arguments[i]);
 					fprintf(f, "%s", gmmc_type_get_cstr(arg_type));
 				}
-				fprintf(f, ")) _$%u ) (", op->call.target);
+				fprintf(f, ")) %s ) (", OTOS_(op->call.target));
 			}
 			
 			// args
 			for (uint i = 0; i < op->call.arguments.len; i++) {
 				if (i > 0) fprintf(f, ", ");
-				fprintf(f, "_$%u", op->call.arguments[i]);
+				fprintf(f, "%s", OTOS_(op->call.arguments[i]));
 			}
-			fprintf(f, ");\n");
+			fprintf(f, ")");
 		} break;
 
 		case gmmcOpKind_comment: {
@@ -221,14 +240,20 @@ void print_bb(FILE* f, gmmcBasicBlock* bb) {
 		} break;
 
 		case gmmcOpKind_return: {
-			if (op->operands[0] != GMMC_OP_IDX_INVALID) fprintf(f, "return _$%u;\n", op->operands[0]);
-			else fprintf(f, "return;\n");
+			if (op->operands[0] != GMMC_OP_IDX_INVALID) fprintf(f, "return %s", OTOS(0));
+			else fprintf(f, "return");
 		} break;
 
 		default: F_BP;
 		}
 
+		if (op->kind == gmmcOpKind_comment) {}
+		else {
+			if (type == gmmcType_None) fprintf(f, "; // _$%u\n", op_idx);
+			else fprintf(f, ";\n");
+		}
 	}
+	f_temp_set_mark(mark);
 }
 
 GMMC_API void gmmc_proc_print_c(FILE* f, gmmcProc* proc) {
@@ -244,28 +269,31 @@ GMMC_API void gmmc_proc_print_c(FILE* f, gmmcProc* proc) {
 	}
 	fprintf(f, ") {\n");
 
-	fprintf(f, "    ");
 	
 	// locals / regs!
 	u32 first_nonparam_reg = 1 + (u32)proc->signature->params.len;
+	//u32 counter = 1;
 	for (u32 i = first_nonparam_reg; i < proc->ops.len; i++) {
 		gmmcOpData* op = &proc->ops[i];
-		//gmmcRegInfo info = proc->reg_infos[i];
+		
 		if (op->kind == gmmcOpKind_local) {
 			gmmcLocal local = proc->locals[op->local_idx];
 			fprintf(f, "_Alignas(%u) i8 _$%u[%u]; ", local.align, i, local.size);
+			
+			//if (counter % 8 == 0) fprintf(f, "\n    ");
+			//counter++;
 		}
-		else if (op->type != gmmcType_None) {
-			fprintf(f, "%s _$%u; ", gmmc_type_get_cstr(op->type), i);
-		}
-		if (i % 8 == 0) fprintf(f, "\n    ");
+		//else if (op->type != gmmcType_None) {
+		//	fprintf(f, "%s _$%u; ", gmmc_type_get_cstr(op->type), i);
+		//}
 	}
-	fprintf(f, "\n");
+	//fprintf(f, "    ");
+	if (proc->locals.len > 0) fprintf(f, "\n");
 
 	for (uint i = 0; i < proc->basic_blocks.len; i++) {
 		print_bb(f, proc->basic_blocks[i]);
 	}
-	fprintf(f, "char _;\n"); // goto: at the end with nothing after it is illegal, this is just a dumb fix for it
+	//fprintf(f, "char _;\n"); // goto: at the end with nothing after it is illegal, this is just a dumb fix for it
 	fprintf(f, "}\n");
 }
 
@@ -302,53 +330,8 @@ int _fltused = 0x9875;
 #define $sxt(from, to, value) (i##to)(($s##to)(($s##from)value))
 #define $zxt(from, to, value) (i##to)value
 
-// TODO: better implementation!!!
-static void mem_move(void *dest, const void *src, size_t len) {
-	// https://github.com/malxau/minicrt/blob/master/crt/mem.c
-	size_t i;
-    char* char_src = (char *)src;
-    char* char_dest = (char *)dest;
-    if (char_dest > char_src) {
-        if (len == 0) {
-            return; //return dest;
-        }
-        for (i = len - 1; ; i--) {
-            char_dest[i] = char_src[i];
-            if (i==0) break;
-        }
-    } else {
-        for (i = 0; i < len; i++) {
-            char_dest[i] = char_src[i];
-        }
-    }
-    //return dest;
-}
-
-// TODO: better implementation!!!
-static void mem_set(void *dest, int c, size_t len) {
-	// https://github.com/malxau/minicrt/blob/master/crt/mem.c
-	size_t i;
-    unsigned int fill;
-    size_t chunks = len / sizeof(fill);
-    char * char_dest = (char *)dest;
-    unsigned int * uint_dest = (unsigned int *)dest;
-
-    //
-    //  Note we go from the back to the front.  This is to 
-    //  prevent newer compilers from noticing what we're doing
-    //  and trying to invoke the built-in memset instead of us.
-    //
-
-    fill = (c<<24) + (c<<16) + (c<<8) + c;
-
-    for (i = len; i > chunks * sizeof(fill); i--) {
-        char_dest[i - 1] = c;
-    }
-
-    for (i = chunks; i > 0; i--) {
-        uint_dest[i - 1] = fill;
-    }
-}
+void* memcpy(void* dst, const void* src, size_t n);
+void* memset(void* str, int c, size_t n);
 
 // --------------------------------------------------------------------------
 )");
@@ -378,8 +361,8 @@ static void mem_set(void *dest, int c, size_t len) {
 
 	for (uint i = 0; i < m->external_symbols.len; i++) {
 		fString name = m->external_symbols[i]->sym.name;
-		if (name == F_LIT("mem_set")) continue; // already defined in the prelude
-		if (name == F_LIT("mem_move")) continue; // already defined in the prelude
+		if (name == F_LIT("memset")) continue; // already defined in the prelude
+		if (name == F_LIT("memcpy")) continue; // already defined in the prelude
 
 		// pretend all external symbols are functions - I'm not sure if this works on non-functions. TODO!
 		fprintf(f, "void %.*s();\n", F_STRF(name));
@@ -432,10 +415,22 @@ static void mem_set(void *dest, int c, size_t len) {
 
 		//if (global->section == gmmcSection_Threadlocal) fprintf(f, "_Thread_local ");
 		if (global->section == gmmcSection_RData) fprintf(f, "const ");
-		fprintf(f, "static struct %s_T %s = {", name, name);
+		fprintf(f, "static struct %s_T %s", name, name);
 		//fprintf(f, "\n%s_data = {", name);
 
-		{
+		bool is_all_zeroes = true;
+		for (uint j = 0; j < global->size; j++) {
+			if (((u8*)global->data)[j] != 0) {
+				is_all_zeroes = false;
+				break;
+			}
+		}
+
+		if (is_all_zeroes) {
+			fprintf(f, "; // zeroed out\n");
+		}
+		else {
+			fprintf(f, " = {");
 			u32 next_reloc_idx = 0;
 			u32 offset = 0;
 			for (;;) {
@@ -466,8 +461,8 @@ static void mem_set(void *dest, int c, size_t len) {
 				offset += 8;
 				next_reloc_idx++;
 			}
+			fprintf(f, "};\n");
 		}
-		fprintf(f, "};\n");
 	}
 
 	fprintf(f, "\n");

@@ -18,7 +18,7 @@ bool ffz_backend_gen_executable_tb(ffzProject* project);
 #define OPT(ptr) ptr
 
 #define ERR(c, node, fmt, ...) { \
-	c->report_error(c, {}, node, f_str_format(c->alc, fmt, __VA_ARGS__)); \
+	c->report_error(c, {}, node, f_aprint(c->alc, fmt, __VA_ARGS__)); \
 	return ffzOk{false}; \
 }
 
@@ -195,49 +195,49 @@ void _print_constant(ffzProject* p, fArray(u8)* b, ffzCheckedExpr constant);
 
 void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 	switch (type->tag) {
-	case ffzTypeTag_Invalid: { f_str_printf(b, "<invalid>"); } break;
-	case ffzTypeTag_Module: { f_str_printf(b, "<module>"); } break;
-	case ffzTypeTag_PolyProc: { f_str_printf(b, "<poly-proc>"); } break;
-	case ffzTypeTag_PolyRecord: { f_str_printf(b, "<poly-struct>"); } break;
+	case ffzTypeTag_Invalid: { f_str_pushf(b, "<invalid>"); } break;
+	case ffzTypeTag_Module: { f_str_pushf(b, "<module>"); } break;
+	case ffzTypeTag_PolyProc: { f_str_pushf(b, "<poly-proc>"); } break;
+	case ffzTypeTag_PolyRecord: { f_str_pushf(b, "<poly-struct>"); } break;
 		//case TypeTag_UninstantiatedPolyStruct: { str_print(builder, F_LIT("[uninstantiated polymorphic struct]")); } break;
 	case ffzTypeTag_Type: {
-		f_str_printf(b, "<type>"); // maybe it'd be good to actually store the type type thing in the type
+		f_str_pushf(b, "<type>"); // maybe it'd be good to actually store the type type thing in the type
 	} break;
-	case ffzTypeTag_Bool: { f_str_printf(b, "bool"); } break;
-	case ffzTypeTag_Raw: { f_str_printf(b, "raw"); } break;
+	case ffzTypeTag_Bool: { f_str_pushf(b, "bool"); } break;
+	case ffzTypeTag_Raw: { f_str_pushf(b, "raw"); } break;
 	case ffzTypeTag_Pointer: {
-		f_str_printf(b, "^");
+		f_str_pushf(b, "^");
 		_print_type(p, b, type->Pointer.pointer_to);
 	} break;
-	case ffzTypeTag_DefaultSint: { f_str_printf(b, "int"); } break;
-	case ffzTypeTag_DefaultUint: { f_str_printf(b, "uint"); } break;
+	case ffzTypeTag_DefaultSint: { f_str_pushf(b, "int"); } break;
+	case ffzTypeTag_DefaultUint: { f_str_pushf(b, "uint"); } break;
 	case ffzTypeTag_Sint: {
-		f_str_printf(b, "s%u", type->size * 8);
+		f_str_pushf(b, "s%u", type->size * 8);
 	} break;
 	case ffzTypeTag_Uint: {
-		f_str_printf(b, "u%u", type->size * 8);
+		f_str_pushf(b, "u%u", type->size * 8);
 	} break;
 	case ffzTypeTag_Float: {
-		f_str_printf(b, "f%u", type->size * 8);
+		f_str_pushf(b, "f%u", type->size * 8);
 	} break;
 	case ffzTypeTag_Proc: {
 		ffzNodeInst s = type->unique_node;
 		fString name = ffz_get_parent_decl_name(s.node);
 		if (name.len > 0) {
-			f_str_print(b, name);
+			f_str_push(b, name);
 		}
 		else {
-			f_str_printf(b, "<anonymous-proc|line:%u,col:%u>",
+			f_str_pushf(b, "<anonymous-proc|line:%u,col:%u>",
 				s.node->loc.start.line_num, s.node->loc.start.column_num);
 		}
 
 		if (ffz_get_child_count(s.node->ProcType.polymorphic_parameters) > 0) {
-			f_str_printf(b, "[");
+			f_str_pushf(b, "[");
 			for (uint i = 0; i < s.polymorph->parameters.len; i++) {
-				if (i > 0) f_str_printf(b, ", ");
+				if (i > 0) f_str_pushf(b, ", ");
 				_print_type(p, b, s.polymorph->parameters[i].type);
 			}
-			f_str_printf(b, "]");
+			f_str_pushf(b, "]");
 		}
 		//str_print(builder, F_LIT("proc("));
 		//for (uint i = 0; i < type->Proc.in_parameter_types.len; i++) {
@@ -255,42 +255,42 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 		ffzNodeInst n = type->unique_node;
 		fString name = ffz_get_parent_decl_name(n.node);
 		if (name.len > 0) {
-			f_str_print(b, name);
+			f_str_push(b, name);
 		}
 		else {
-			f_str_printf(b, "[anonymous enum defined at line:%u, col:%u]", n.node->loc.start.line_num, n.node->loc.start.column_num);
+			f_str_pushf(b, "[anonymous enum defined at line:%u, col:%u]", n.node->loc.start.line_num, n.node->loc.start.column_num);
 		}
 	} break;
 	case ffzTypeTag_Record: {
 		ffzNodeRecordInst n = type->unique_node;
 		fString name = ffz_get_parent_decl_name(n.node);
 		if (name.len > 0) {
-			f_str_print(b, name);
+			f_str_push(b, name);
 		}
 		else {
-			f_str_printf(b, "[anonymous %s defined at line:%u, col:%u]",
+			f_str_pushf(b, "[anonymous %s defined at line:%u, col:%u]",
 				n.node->Record.is_union ? "union" : "struct", n.node->loc.start.line_num, n.node->loc.start.column_num);
 		}
 
 		if (ffz_get_child_count(n.node->Record.polymorphic_parameters) > 0) {
-			f_str_printf(b, "[");
+			f_str_pushf(b, "[");
 			
 			for (uint i = 0; i < n.polymorph->parameters.len; i++) {
-				if (i > 0) f_str_printf(b, ", ");
+				if (i > 0) f_str_pushf(b, ", ");
 				_print_constant(p, b, n.polymorph->parameters[i]);
 			}
-			f_str_printf(b, "]");
+			f_str_pushf(b, "]");
 		}
 	} break;
 	case ffzTypeTag_Slice: {
-		f_str_printf(b, "[]");
+		f_str_pushf(b, "[]");
 		_print_type(p, b, type->Slice.elem_type);
 	} break;
 	case ffzTypeTag_String: {
-		f_str_printf(b, "string");
+		f_str_pushf(b, "string");
 	} break;
 	case ffzTypeTag_FixedArray: {
-		f_str_printf(b, "[%u]", type->FixedArray.length);
+		f_str_pushf(b, "[%u]", type->FixedArray.length);
 		_print_type(p, b, type->FixedArray.elem_type);
 	} break;
 	default: F_ASSERT(false);

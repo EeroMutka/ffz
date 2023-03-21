@@ -116,6 +116,14 @@ struct gmmcAsmProc {
 
 //s32 frame_rel_to_rsp_rel_offset(ProcGen* gen, s32 offset) { return gen->stack_frame_size + offset; }
 
+
+// https://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
+// NOTE: high bits of 'x' must be set to 0
+static u64 sign_extend(u64 x, u32 num_bits) {
+	u64 m = 1llu << (num_bits - 1);
+	return (x ^ m) - m;
+}
+
 static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* comment = "") {
 	u8 instr[ZYDIS_MAX_INSTRUCTION_LENGTH];
 	uint instr_len = sizeof(instr);
@@ -126,7 +134,7 @@ static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* com
 	f_array_push_n(&code_section->data, { instr, instr_len });
 
 	// print disassembly
-	{
+	if (false) {
 		uint sect_rel_offset = code_section->data.len - instr_len;
 		uint proc_rel_offset = sect_rel_offset - p->code_section_offset;
 
@@ -215,7 +223,7 @@ static void spill(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 
 	gmmcOpData* op = &p->proc->ops[op_idx];
 	
-	if (!gmmc_is_op_immediate_(p->proc, op_idx)) {
+	if (!gmmc_is_op_instant(p->proc, op_idx)) {
 		// if computation is required to find out the value of the op, store it on the stack.
 		// locals, immediates and addr_of_symbol don't need to be stored on the stack.
 
@@ -402,6 +410,7 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 		req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 		req.operands[1].imm.u = 0xfefefefefefefefe; // trick zydis to emit the full 64 bits for the immediate
 		emit(p, req, " ; address of symbol (relocation will be applied to imm)");
+		//if (sym->name == F_LIT("TiB$$Basic")) F_BP;
 
 		Section* code_section = &p->module->sections[gmmcSection_Code];
 
@@ -414,14 +423,19 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 		reloc.target = sym;
 		f_array_push(&code_section->relocs, reloc);
 	}
-	else if (gmmc_is_op_immediate_(p->proc, op_idx)) {
+	else if (gmmc_is_op_instant(p->proc, op_idx)) {
+		static int __c = 0;
+		__c++;
+
+		u32 size = gmmc_type_size(op->type);
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 		req.mnemonic = ZYDIS_MNEMONIC_MOV;
 		req.operand_count = 2;
-		req.operands[0] = make_reg_operand(result, gmmc_type_size(op->type));
+		req.operands[0] = make_reg_operand(result, size);
 		req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
-		req.operands[1].imm.u = op->imm_raw;
+		req.operands[1].imm.u = sign_extend(op->imm_raw, size*8); // zydis requires sign-extended immediates
 		emit(p, req, " ; immediate to reg");
+		int aa = 5;
 	}
 	else {
 		//F_ASSERT(p->ops[op_idx].currently_in_register == GPR_INVALID);
@@ -626,7 +640,7 @@ static void gen_div_or_mod(gmmcAsmProc* p, gmmcOpData* op, GPR take_result_from)
 
 static void gen_return(gmmcAsmProc* p, gmmcOpData* op) {
 	LooseReg value_reg = {};
-	if (op->type) value_reg = use_op_value_loose(p, op->operands[0]);
+	if (op->operands[0] != GMMC_OP_IDX_INVALID) value_reg = use_op_value_loose(p, op->operands[0]);
 
 	if (p->emitting) {
 
@@ -716,7 +730,7 @@ static void gen_vcall(gmmcAsmProc* p, gmmcOpData* op) {
 		emit(p, req);
 
 		if (op->type) {
-			emit_mov_reg_to_reg(p, GPR_AX, result_reg, 8);
+			emit_mov_reg_to_reg(p, result_reg, GPR_AX, 8);
 			emit(p, req, " ; save return value");
 		}
 	}
@@ -1064,7 +1078,7 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc* proc) {
 	printf("---- generating proc: '%.*s' ----\n", F_STRF(proc->sym.name));
 	
-	gmmc_proc_print_c(stdout, proc);
+	//gmmc_proc_print_c(stdout, proc);
 	printf("---\n");
 	
 	p->module = module_gen;
@@ -1100,7 +1114,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 		u32 size = gmmc_type_size(op->type);
 		if (size == 0) continue;
 		
-		if (gmmc_is_op_immediate_(proc, i)) continue; // immediates can't get spilled
+		if (gmmc_is_op_instant(proc, i)) continue; // immediates can't get spilled
 		
 		offset -= size;
 

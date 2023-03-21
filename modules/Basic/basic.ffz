@@ -74,7 +74,7 @@ _temp_arena_tls_index: u32
 		new_allocation: arena_push(arena, in.size, in.align)
 		
 		if in.old_ptr != ^raw(0) {
-			mem_move(new_allocation.ptr, in.old_ptr, in.old_size) // first do the copy, then fill old with garbage
+			memcpy(new_allocation.ptr, in.old_ptr, in.old_size) // first do the copy, then fill old with garbage
 			
 			if ENABLE_DEBUG_CHECKS {
 				_debug_clear_memory(in.old_ptr, in.old_size)
@@ -171,7 +171,7 @@ _temp_arena_tls_index: u32
 // This procedure clears memory to 0xCC to make un/deinitialized-memory-use bugs more
 // obvious, and to trigger possible data breakpoints.
 #_debug_clear_memory: proc(ptr: ^raw, size: uint) {
-	mem_set(ptr, 0xCC, size)
+	memset(ptr, 0xCC, size)
 }
 
 #arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
@@ -227,7 +227,8 @@ _temp_arena_tls_index: u32
 
 #copy: proc[T](dst: []T, src: []T) {
 	//assert(dst.len == src.len)
-	mem_move(dst.ptr, src.ptr, src.len * size_of(T))
+	// I think copy should do a memmove...
+	dbgbreak //memcpy(dst.ptr, src.ptr, src.len * size_of(T))
 }
 
 #fill: proc[T](dst: []T, value: T) {
@@ -366,8 +367,12 @@ _temp_arena_tls_index: u32
 
 #HANDLE: ^raw
 
-@*extern{"?"} #mem_move: proc(dst: ^raw, src: ^raw, size: uint)
-@*extern{"?"} #mem_set: proc(str: ^raw, c: u32, n: uint)
+#asm_routines: *extern{"asm_routines/asm_routines.obj"}
+
+@asm_routines #memcpy: proc(dst: ^raw, src: ^raw, size: uint) => ^raw
+@asm_routines #memmove: proc(dst: ^raw, src: ^raw, size: uint) => ^raw
+@asm_routines #memset: proc(str: ^raw, c: u32, n: uint) => ^raw
+
 @Kernel32 #VirtualAlloc: proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => ^u8
 @Kernel32 #VirtualFree: proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => u32
 @Kernel32 #GetSystemInfo: proc(lpSystemInfo: ^SYSTEM_INFO)

@@ -1,0 +1,11 @@
+// data-breakpoints are amazing.
+// The only annoying thing is, they don't work with data structures that realloc, i.e. a dynamic array.
+// dynamic arrays still have their place, we can't just replace them with (exponential) bucket arrays.
+// so maybe we could make it possible to inform the debugger about realloc?
+
+// i.e.
+/*
+#realloc: proc(...) {
+	Debugger.info_memory_was_moved(from, to, size)
+}
+*/
