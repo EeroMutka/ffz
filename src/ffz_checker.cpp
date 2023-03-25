@@ -2238,13 +2238,13 @@ static bool _parse_and_check_directory(ffzProject* project, fString _directory, 
 		if (!ok.ok) return false;
 
 		if (false) {
-			fWriter w = f_get_stdout();
-			f_print(&w, "PRINTING AST: ======================================================\n");
+			fWriter* w = f_get_stdout();
+			f_print(w, "PRINTING AST: ======================================================\n");
 			for (ffzNode* n = parser->root->first_child; n; n = n->next) {
-				ffz_print_ast(&w, n);
-				f_print(&w, "\n");
+				ffz_print_ast(w, n);
+				f_print(w, "\n");
 			}
-			f_print(&w, "====================================================================\n\n");
+			f_print(w, "====================================================================\n\n");
 			int a = 250;
 		}
 		

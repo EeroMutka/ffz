@@ -5,7 +5,7 @@
 
 #include "Zydis/Zydis.h"
 
-#include <stdio.h> // for fopen
+//#include <stdio.h> // for fopen
 
 #define VALIDATE(x) F_ASSERT(x)
 
@@ -143,7 +143,7 @@ static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* com
 
 		ZydisDisassembledInstruction instruction;
 		if (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, proc_rel_offset, instr, instr_len, &instruction))) {
-			printf("(%u)  0x%llx:   %s%s\n", p->current_op, proc_rel_offset, instruction.text, comment);
+			f_cprint("(%u)  0x%llx:   %s%s\n", p->current_op, proc_rel_offset, instruction.text, comment);
 		}
 	}
 }
@@ -775,11 +775,11 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 				f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
 				for (uint i = 0; i < lines.len; i++) {
 					fString line = f_str_slice(op->comment, lines[i].lo, lines[i].hi);
-					printf("; %.*s\n", F_STRF(line));
+					f_cprint("; ~s\n", line);
 				}
 			}
 			else {
-				printf("\n");
+				f_cprint("\n");
 			}
 		} break;
 
@@ -1076,10 +1076,10 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 }
 
 GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc* proc) {
-	printf("---- generating proc: '%.*s' ----\n", F_STRF(proc->sym.name));
+	f_cprint("---- generating proc: '~s' ----\n", proc->sym.name);
 	
 	//gmmc_proc_print_c(stdout, proc);
-	printf("---\n");
+	f_cprint("---\n");
 	
 	p->module = module_gen;
 	p->proc = proc;
@@ -1184,7 +1184,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 		p->code_section_end_offset = (u32)code_section->data.len;
 	}
 	
-	printf("---------------------------------\n");
+	f_cprint("---------------------------------\n");
 }
 
 GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {

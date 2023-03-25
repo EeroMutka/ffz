@@ -378,9 +378,9 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	g->bb = bb_before;
 	
 	//gmmc_proc_print(
-	//printf("\n");
+	//f_cprint("\n");
 	//tb_function_print(func, tb_default_print_callback, stdout, false);
-	//printf("\n");
+	//f_cprint("\n");
 
 	//bool ok = tb_module_compile_function(g->gmmc, func, TB_ISEL_FAST);
 	//F_ASSERT(ok);
@@ -1403,15 +1403,15 @@ static bool build_x64(Gen* g, fString build_dir) {
 	// specify reserve and commit for the stack.
 	f_array_push(&ms_linker_args, F_LIT("/STACK:0x200000,200000"));
 
-	printf("Running link.exe: ");
+	f_cprint("Running link.exe: ");
 	for (uint i = 0; i < ms_linker_args.len; i++) {
-		printf("\"%.*s\" ", F_STRF(ms_linker_args[i]));
+		f_cprint("\"~s\" ", ms_linker_args[i]);
 	}
-	printf("\n");
+	f_cprint("\n");
 
 	u32 exit_code;
 	if (!f_os_run_command(ms_linker_args.slice, build_dir, &exit_code)) {
-		printf("link.exe couldn't be found! Have you installed visual studio?\n");
+		f_cprint("link.exe couldn't be found! Have you installed visual studio?\n");
 		return false;
 	}
 	return exit_code == 0;
@@ -1422,7 +1422,7 @@ static bool build_c(Gen* g, fString build_dir) {
 	
 	fFile c_file;
 	if (!f_files_open(c_file_path, fFileOpenMode_Write, &c_file)) {
-		printf("Failed writing temporary C file to disk!\n");
+		f_cprint("Failed writing temporary C file to disk!\n");
 		return false;
 	}
 
@@ -1456,16 +1456,16 @@ static bool build_c(Gen* g, fString build_dir) {
 	f_init_string_builder(&clang_linker_args, f_temp_alc());
 
 	f_print(clang_linker_args.w, "-Wl"); // pass comma-separated argument list to the linker
-	f_print(clang_linker_args.w, ",/SUBSYSTEM:%s", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
+	f_print(clang_linker_args.w, ",/SUBSYSTEM:~c", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
 	f_print(clang_linker_args.w, ",/ENTRY:ffz_entry,");
 	f_print(clang_linker_args.w, ",/INCREMENTAL:NO");
 	f_print(clang_linker_args.w, ",/NODEFAULTLIB"); // disable CRT
 
 	for (uint i = 0; i < g->project->link_libraries.len; i++) {
-		f_print(clang_linker_args.w, ",`s", F_STRF(g->project->link_libraries[i]));
+		f_print(clang_linker_args.w, ",~s", g->project->link_libraries[i]);
 	}
 	for (uint i = 0; i < g->project->link_system_libraries.len; i++) {
-		f_print(clang_linker_args.w, ",`s", F_STRF(g->project->link_system_libraries[i]));
+		f_print(clang_linker_args.w, ",~s", g->project->link_system_libraries[i]);
 	}
 
 	// https://metricpanda.com/rival-fortress-update-45-dealing-with-__chkstk-__chkstk_ms-when-cross-compiling-for-windows/
@@ -1476,15 +1476,15 @@ static bool build_c(Gen* g, fString build_dir) {
 
 	f_array_push(&clang_args, clang_linker_args.buffer.slice);
 
-	printf("Running clang: ");
+	f_cprint("Running clang: ");
 	for (uint i = 0; i < clang_args.len; i++) {
-		printf("\"%.*s\" ", F_STRF(clang_args[i]));
+		f_cprint("\"~s\" ", clang_args[i]);
 	}
-	printf("\n");
+	f_cprint("\n");
 
 	u32 exit_code;
 	if (!f_os_run_command(clang_args.slice, build_dir, &exit_code)) {
-		printf("clang couldn't be found! Have you added clang.exe to your PATH?\n");
+		f_cprint("clang couldn't be found! Have you added clang.exe to your PATH?\n");
 		return false;
 	}
 	return exit_code == 0;

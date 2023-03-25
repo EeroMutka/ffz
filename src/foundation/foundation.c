@@ -181,6 +181,13 @@ fString f_aprint(fAllocator* alc, const char* fmt, ...) {
 	return builder.str;
 }
 
+void f_cprint(const char* fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	f_print_va(f_get_stdout(), fmt, args);
+	va_end(args);
+}
+
 fString f_tprint(const char* fmt, ...) {
 	va_list args;
 	va_start(args, fmt);

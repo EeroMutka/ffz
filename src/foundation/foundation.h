@@ -133,7 +133,7 @@ typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allo
 #define F_LIT_COMP(x) F_STRUCT_INIT_COMP(fString){ (u8*)x, sizeof(x)-1 }
 
 // If you want to pass an fString into printf, you can do:  printf("%.*s", F_STRF(my_string))
-#define F_STRF(s) (u32)s.len, s.data
+//#define F_STRF(s) (u32)s.len, s.data
 
 #define F_LEN(x) (sizeof(x) / sizeof(x[0]))
 #define F_OFFSET_OF(T, f) ((uint)&((T*)0)->f)
@@ -629,7 +629,6 @@ u64 f_hash64_str_ex(fString s, u64 seed);
 
 #define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, allocator), len }
 
-
 // hmm... maybe these sshould be called 'prints' / 'printb', etc.
 // The difference between "printing" and "writing" is that when talking about "printing",
 // it's always text.
@@ -653,9 +652,10 @@ void f_printb(fWriter* w, uint8_t b); // print ASCII-byte. hmm.. maybe we should
 void f_print(fWriter* w, const char* fmt, ...);
 void f_print_va(fWriter* w, const char* fmt, va_list args);
 
-fString f_aprint(fAllocator* alc, const char* fmt, ...);
-fString f_tprint(const char* fmt, ...);
+fString f_aprint(fAllocator* alc, const char* fmt, ...); // allocate-print
+fString f_tprint(const char* fmt, ...);                  // temporary-print
 
+void f_cprint(const char* fmt, ...);         // console-print
 
 fString f_str_advance(fString* str, uint len);
 fString f_str_clone(fString str, fAllocator* allocator);
@@ -822,9 +822,9 @@ inline void f_close_buffered_writer(fBufferedWriter* writer) {
 	f_flush_buffered_writer(writer);
 }
 
-inline fWriter f_get_stdout() {
-	fWriter writer = { f_writer_stdout_proc, NULL };
-	return writer;
+inline fWriter* f_get_stdout() {
+	const static fWriter w = { f_writer_stdout_proc, NULL };
+	return (fWriter*)&w;
 }
 
 inline void f_init_string_builder(fStringBuilder* builder, fAllocator* alc) {
