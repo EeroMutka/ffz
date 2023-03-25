@@ -191,53 +191,53 @@ bool ffz_type_can_be_checked_for_equality(ffzType* type) {
 	return false;
 }
 
-void _print_constant(ffzProject* p, fArray(u8)* b, ffzCheckedExpr constant);
+void _write_constant(ffzProject* p, fWriter* w, ffzCheckedExpr constant);
 
-void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
+void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	switch (type->tag) {
-	case ffzTypeTag_Invalid: { f_str_pushf(b, "<invalid>"); } break;
-	case ffzTypeTag_Module: { f_str_pushf(b, "<module>"); } break;
-	case ffzTypeTag_PolyProc: { f_str_pushf(b, "<poly-proc>"); } break;
-	case ffzTypeTag_PolyRecord: { f_str_pushf(b, "<poly-struct>"); } break;
+	case ffzTypeTag_Invalid: { f_writef(w, "<invalid>"); } break;
+	case ffzTypeTag_Module: { f_writef(w, "<module>"); } break;
+	case ffzTypeTag_PolyProc: { f_writef(w, "<poly-proc>"); } break;
+	case ffzTypeTag_PolyRecord: { f_writef(w, "<poly-struct>"); } break;
 		//case TypeTag_UninstantiatedPolyStruct: { str_print(builder, F_LIT("[uninstantiated polymorphic struct]")); } break;
 	case ffzTypeTag_Type: {
-		f_str_pushf(b, "<type>"); // maybe it'd be good to actually store the type type thing in the type
+		f_writef(w, "<type>"); // maybe it'd be good to actually store the type type thing in the type
 	} break;
-	case ffzTypeTag_Bool: { f_str_pushf(b, "bool"); } break;
-	case ffzTypeTag_Raw: { f_str_pushf(b, "raw"); } break;
+	case ffzTypeTag_Bool: { f_writef(w, "bool"); } break;
+	case ffzTypeTag_Raw: { f_writef(w, "raw"); } break;
 	case ffzTypeTag_Pointer: {
-		f_str_pushf(b, "^");
-		_print_type(p, b, type->Pointer.pointer_to);
+		f_writef(w, "^");
+		_write_type(p, w, type->Pointer.pointer_to);
 	} break;
-	case ffzTypeTag_DefaultSint: { f_str_pushf(b, "int"); } break;
-	case ffzTypeTag_DefaultUint: { f_str_pushf(b, "uint"); } break;
+	case ffzTypeTag_DefaultSint: { f_writef(w, "int"); } break;
+	case ffzTypeTag_DefaultUint: { f_writef(w, "uint"); } break;
 	case ffzTypeTag_Sint: {
-		f_str_pushf(b, "s%u", type->size * 8);
+		f_writef(w, "s%u", type->size * 8);
 	} break;
 	case ffzTypeTag_Uint: {
-		f_str_pushf(b, "u%u", type->size * 8);
+		f_writef(w, "u%u", type->size * 8);
 	} break;
 	case ffzTypeTag_Float: {
-		f_str_pushf(b, "f%u", type->size * 8);
+		f_writef(w, "f%u", type->size * 8);
 	} break;
 	case ffzTypeTag_Proc: {
 		ffzNodeInst s = type->unique_node;
 		fString name = ffz_get_parent_decl_name(s.node);
 		if (name.len > 0) {
-			f_str_push(b, name);
+			f_writes(w, name);
 		}
 		else {
-			f_str_pushf(b, "<anonymous-proc|line:%u,col:%u>",
+			f_writef(w, "<anonymous-proc|line:%u,col:%u>",
 				s.node->loc.start.line_num, s.node->loc.start.column_num);
 		}
 
 		if (ffz_get_child_count(s.node->ProcType.polymorphic_parameters) > 0) {
-			f_str_pushf(b, "[");
+			f_writef(w, "[");
 			for (uint i = 0; i < s.polymorph->parameters.len; i++) {
-				if (i > 0) f_str_pushf(b, ", ");
-				_print_type(p, b, s.polymorph->parameters[i].type);
+				if (i > 0) f_writef(w, ", ");
+				_write_type(p, w, s.polymorph->parameters[i].type);
 			}
-			f_str_pushf(b, "]");
+			f_writef(w, "]");
 		}
 		//str_print(builder, F_LIT("proc("));
 		//for (uint i = 0; i < type->Proc.in_parameter_types.len; i++) {
@@ -255,79 +255,83 @@ void _print_type(ffzProject* p, fArray(u8)* b, ffzType* type) {
 		ffzNodeInst n = type->unique_node;
 		fString name = ffz_get_parent_decl_name(n.node);
 		if (name.len > 0) {
-			f_str_push(b, name);
+			f_writes(w, name);
 		}
 		else {
-			f_str_pushf(b, "[anonymous enum defined at line:%u, col:%u]", n.node->loc.start.line_num, n.node->loc.start.column_num);
+			f_writef(w, "[anonymous enum defined at line:%u, col:%u]", n.node->loc.start.line_num, n.node->loc.start.column_num);
 		}
 	} break;
 	case ffzTypeTag_Record: {
 		ffzNodeRecordInst n = type->unique_node;
 		fString name = ffz_get_parent_decl_name(n.node);
 		if (name.len > 0) {
-			f_str_push(b, name);
+			f_writes(w, name);
 		}
 		else {
-			f_str_pushf(b, "[anonymous %s defined at line:%u, col:%u]",
+			f_writef(w, "[anonymous %s defined at line:%u, col:%u]",
 				n.node->Record.is_union ? "union" : "struct", n.node->loc.start.line_num, n.node->loc.start.column_num);
 		}
 
 		if (ffz_get_child_count(n.node->Record.polymorphic_parameters) > 0) {
-			f_str_pushf(b, "[");
+			f_writef(w, "[");
 			
 			for (uint i = 0; i < n.polymorph->parameters.len; i++) {
-				if (i > 0) f_str_pushf(b, ", ");
-				_print_constant(p, b, n.polymorph->parameters[i]);
+				if (i > 0) f_writef(w, ", ");
+				_write_constant(p, w, n.polymorph->parameters[i]);
 			}
-			f_str_pushf(b, "]");
+			f_writef(w, "]");
 		}
 	} break;
 	case ffzTypeTag_Slice: {
-		f_str_pushf(b, "[]");
-		_print_type(p, b, type->Slice.elem_type);
+		f_writef(w, "[]");
+		_write_type(p, w, type->Slice.elem_type);
 	} break;
 	case ffzTypeTag_String: {
-		f_str_pushf(b, "string");
+		f_writef(w, "string");
 	} break;
 	case ffzTypeTag_FixedArray: {
-		f_str_pushf(b, "[%u]", type->FixedArray.length);
-		_print_type(p, b, type->FixedArray.elem_type);
+		f_writef(w, "[%u]", type->FixedArray.length);
+		_write_type(p, w, type->FixedArray.elem_type);
 	} break;
 	default: F_ASSERT(false);
 	}
 }
 
-void _print_constant(ffzProject* p, fArray(u8)* b, ffzCheckedExpr constant) {
+void _write_constant(ffzProject* p, fWriter* w, ffzCheckedExpr constant) {
 	if (constant.type->tag == ffzTypeTag_Type) {
-		_print_type(p, b, constant.const_val->type);
+		_write_type(p, w, constant.const_val->type);
 	}
 	else {
 		F_BP;
 	}
 }
 
+// Temp allocates the result
 fString ffz_constant_to_string(ffzProject* p, ffzCheckedExpr constant) {
-	fArray(u8) builder = f_array_make_cap<u8>(32, p->persistent_allocator);
-	_print_constant(p, &builder, constant);
-	return builder.slice;
+	fStringBuilder builder;
+	f_init_string_builder(&builder, f_temp_alc());
+	_write_constant(p, builder.w, constant);
+	return builder.buffer.slice;
 }
 
-const char* ffz_constant_to_cstring(ffzProject* p, ffzCheckedExpr constant) {
+char* ffz_constant_to_cstring(ffzProject* p, ffzCheckedExpr constant) {
 	F_BP;
 	return NULL;
 }
 
+// Temp allocates the result
 fString ffz_type_to_string(ffzProject* p, ffzType* type) {
-	fArray(u8) builder = f_array_make_cap<u8>(32, p->persistent_allocator);
-	_print_type(p, &builder, type);
-	return builder.slice;
+	fStringBuilder builder; f_init_string_builder(&builder, f_temp_alc());
+	_write_type(p, builder.w, type);
+	return builder.buffer.slice;
 }
 
-const char* ffz_type_to_cstring(ffzProject* p, ffzType* type) {
-	fArray(u8) builder = f_array_make_cap<u8>(32, p->persistent_allocator);
-	_print_type(p, &builder, type);
-	f_array_push(&builder, (u8)0);
-	return (const char*)builder.data;
+// Temp allocates the result
+char* ffz_type_to_cstring(ffzProject* p, ffzType* type) {
+	fStringBuilder builder; f_init_string_builder(&builder, f_temp_alc());
+	_write_type(p, builder.w, type);
+	f_writeb(builder.w, 0);
+	return (char*)builder.buffer.data;
 }
 
 //bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl) {
@@ -969,7 +973,7 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 
 			if (all_elems_are_constant) {
 				u32 elem_size = ffz_get_encoded_constant_size(elem_type);
-				void* ptr = f_mem_alloc(elem_size * elems_chk.len, 8, c->alc);
+				void* ptr = f_mem_alloc(elem_size * elems_chk.len, c->alc);
 				for (uint i = 0; i < elems_chk.len; i++) {
 					memcpy((u8*)ptr + elem_size * i, elems_chk[i].const_val, elem_size);
 				}
@@ -2236,13 +2240,13 @@ static bool _parse_and_check_directory(ffzProject* project, fString _directory, 
 		if (!ok.ok) return false;
 
 		if (true) {
-			f_os_print(F_LIT("PRINTING AST: ======================================================\n"));
-			fArray(u8) builder = f_array_make_cap<u8>(64, f_temp_alc());
+			fWriter w = f_get_stdout();
+			f_writef(&w, "PRINTING AST: ======================================================\n");
 			for (ffzNode* n = parser->root->first_child; n; n = n->next) {
-				f_str_print_il(&builder, { ffz_print_ast(f_temp_alc(), n), F_LIT("\n") });
+				ffz_print_ast(&w, n);
+				f_writef(&w, "\n");
 			}
-			f_os_print(builder.slice);
-			f_os_print(F_LIT("====================================================================\n\n"));
+			f_writef(&w, "====================================================================\n\n");
 			int a = 250;
 		}
 		

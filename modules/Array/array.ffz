@@ -50,9 +50,9 @@
 	
 	Basic.memcpy(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
 	
-	out: a.len
+	result: a.len
 	a.len= .+n
-	ret out
+	ret result
 }
 
 #reserve_raw: proc(a: ^Array[raw], capacity: uint, elem_size: uint, elem_align: uint) {

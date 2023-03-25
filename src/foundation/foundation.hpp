@@ -5,23 +5,23 @@
 
 #define C_ARRAY_SLICE(x) {x, sizeof(x) / sizeof(x[0])}
 
+#include <stdint.h>
+
 struct fAllocator;
-typedef unsigned long long uint;
-typedef unsigned int u32;
 
 template<typename T>
 struct fSlice_cpp {
 	T* data;
-	uint len;
+	size_t len;
 
-	inline T& operator [] (uint i) {
+	inline T& operator [] (size_t i) {
 #ifdef _DEBUG
 		if (i >= len) __debugbreak();
 #endif
 		return data[i];
 	}
 
-	inline uint size_bytes() { return len * sizeof(T); }
+	inline size_t size_bytes() { return len * sizeof(T); }
 };
 
 // NOTE: Must have the same binary layout as Array_Raw
@@ -30,15 +30,15 @@ struct fArray_cpp {
 	union {
 		struct {
 			T* data;
-			uint len;
+			size_t len;
 		};
 		fSlice_cpp<T> slice;
 	};
-	uint capacity;
+	size_t capacity;
 	
 	fAllocator* alc;
 
-	inline T& operator [] (uint i) {
+	inline T& operator [] (size_t i) {
 		if (i >= len) __debugbreak();
 		return data[i];
 	}
@@ -48,17 +48,17 @@ struct fArray_cpp {
 template<typename T>
 struct fMap64_cpp {
 	fAllocator* alc;
-	u32 value_size;
-	u32 alive_count;
-	u32 slot_count; // visual studio natvis doesn't support bitshifts, so in order to visualize it we need this here. But it might be good to store nonetheless.
-	u32 slot_count_log2;
+	uint32_t value_size;
+	uint32_t alive_count;
+	uint32_t slot_count; // visual studio natvis doesn't support bitshifts, so in order to visualize it we need this here. But it might be good to store nonetheless.
+	uint32_t slot_count_log2;
 	void* slots;
 };
 
 // We want to give structs that include templated fields different link-names between C/C++ versions,
 // because otherwise the visual studio debugger might think to display the C version without natvis support.
 #define fLeakTracker fLeakTracker_cpp
-#define fString fSlice_cpp<u8>
+#define fString fSlice_cpp<uint8_t>
 #define fArray(T) fArray_cpp<T>
 #define fSlice(T) fSlice_cpp<T>
 #define fMap64(T) fMap64_cpp<T>
@@ -69,7 +69,7 @@ struct fMap64_cpp {
 
 template<typename T>
 inline T* f_mem_clone(const T& value, fAllocator* allocator) {
-	return (T*)f_mem_clone_size(sizeof(T), F_ALIGN_OF(T), &value, allocator);
+	return (T*)f_mem_clone_size(sizeof(T), &value, allocator);
 }
 
 // The reason we have to #define and can't just typedef in the first place,
@@ -82,7 +82,7 @@ inline bool operator != (fString a, fString b) { return !f_str_equals(a, b); }
 
 template<typename T>
 inline fSlice(T) f_make_slice_garbage(uint len, fAllocator* alc) {
-	return fSlice(T){ (T*)(alc)->_proc((alc), NULL, 0, (len) * sizeof(T), F_ALIGN_OF(T)), len };
+	return fSlice(T){ (T*)(alc)->_proc((alc), NULL, 0, (len) * sizeof(T)), len };
 }
 
 template<typename T>
@@ -100,7 +100,7 @@ inline fSlice(T) f_make_slice(uint len, const T& initial_value, fAllocator* alc)
 
 template<typename T>
 inline fSlice(T) f_clone_slice(fSlice(T) x, fAllocator* allocator) {
-	return fSlice(T){ (T*)f_mem_clone_size(x.len * sizeof(T), F_ALIGN_OF(T), x.data, allocator), x.len };
+	return fSlice(T){ (T*)f_mem_clone_size(x.len * sizeof(T), x.data, allocator), x.len };
 }
 
 template<typename T>
@@ -207,11 +207,11 @@ template<typename T>
 inline void f_array_resize_garbage(fArray(T)* array, uint len) { f_array_resize_raw((fArrayRaw*)array, len, NULL, elem_size); }
 
 template<typename T>
-inline uint f_array_push(fArray(T)* array, const T& elem) { return f_array_push_raw((fArrayRaw*)array, &elem, sizeof(T), F_ALIGN_OF(T)); }
+inline uint f_array_push(fArray(T)* array, const T& elem) { return f_array_push_raw((fArrayRaw*)array, &elem, sizeof(T)); }
 
 template<typename T>
 inline void f_array_push_n(fArray(T)* array, fSlice(T) elems) {
-	f_array_push_n_raw((fArrayRaw*)array, F_BITCAST(fSliceRaw, elems), sizeof(T), F_ALIGN_OF(T));
+	f_array_push_n_raw((fArrayRaw*)array, elems.data, elems.len, sizeof(T));
 }
 
 template<typename T>
@@ -235,9 +235,9 @@ inline fString f_str_join_il(fAllocator* alc, std::initializer_list<fString> arg
 	return f_str_join(alc, { (fString*)args.begin(), args.size() });
 }
 
-inline void f_str_print_il(fArray(u8)* buffer, std::initializer_list<fString> args) {
-	for (auto arg : args) f_str_push(buffer, arg);
-}
+//inline void f_str_print_il(fArray(u8)* buffer, std::initializer_list<fString> args) {
+//	for (auto arg : args) f_write(buffer, arg);
+//}
 
 //
 //////////////////////////////////////////////////////////////////

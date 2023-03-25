@@ -1,4 +1,5 @@
 // proposal: optional types
+
 /*
 could we say that ?T is the same as struct{value: T, is: b1}
 with the exception of pointers, slices, strings, int and uint?

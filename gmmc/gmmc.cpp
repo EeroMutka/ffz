@@ -393,7 +393,7 @@ GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 }
 
 GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_data) {
-	void* data = f_mem_alloc(size, align, m->allocator);
+	void* data = f_mem_alloc(size, m->allocator);
 	memset(data, 0, size);
 	F_ASSERT(section != gmmcSection_Code); // hmm... todo? this should be fine on the assembly target, but what about C?
 

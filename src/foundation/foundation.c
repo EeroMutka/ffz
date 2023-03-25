@@ -1,26 +1,18 @@
-// required libraries
-#pragma comment(lib, "gdi32.lib") // required by glfw3
-#pragma comment(lib, "shell32.lib") // required by glfw3
-#pragma comment(lib, "user32.lib") // required by glfw3
 
+// Required static libraries
 #pragma comment(lib, "Dbghelp.lib") // os_get_stack_trace
+//
 
-#define FOUNDATION_HELPER_MACROS
 #include "foundation.h"
-
-#define OPT(ptr) ptr
 
 #define Array(T) fArrayRaw
 #define fSlice(T) fSliceRaw
 #define fMap64(T) fMap64Raw
 
-#include <stdio.h> // would be nice to get rid of this
+#include <stdio.h> // for vsnprintf
 #include <stdarg.h> // for va_list
-#include <string.h> // for memcmp
 #include <stdlib.h> // for strtod
 
-//#include "vendor/meow_hash/meow_hash_x64_aesni.h"
-//#include "vendor/meow_hash/meow_hash_x64_aesni.h"
 #define XXH_STATIC_LINKING_ONLY
 #define XXH_NO_STDLIB
 #define XXH_IMPLEMENTATION
@@ -143,13 +135,13 @@ fString f_str_path_dir(fString path) {
 }
 
 // returns a zero-terminated string
-fString str_format_va_list(fAllocator* a, const char* fmt, va_list args) {
+fString str_format_va_list(fAllocator* alc, const char* fmt, va_list args) {
 	va_list _args;
 	va_copy(_args, args);
 
 	uint needed_bytes = vsnprintf(0, 0, fmt, args) + 1;
 	
-	fString result = f_str_make(needed_bytes, a);
+	fString result = f_str_make(needed_bytes, alc);
 	result.len -= 1;
 	result.data[result.len] = 0;
 
@@ -157,17 +149,21 @@ fString str_format_va_list(fAllocator* a, const char* fmt, va_list args) {
 	return result;
 }
 
-void f_str_push(Array(u8)* buffer, fString str) {
-	f_array_push_n_raw(buffer, F_BITCAST(fSliceRaw, str), 1, 1);
+void f_writes(fWriter* w, fString str) {
+	w->proc(w, str.data, str.len);
 }
 
-void f_str_push_rune(Array(u8)* buffer, rune r) {
-	F_ASSERT(r < 128); // TODO
-	f_array_push_raw(buffer, &r, 1, 1);
+void f_writeb(fWriter* w, uint8_t b) {
+	w->proc(w, &b, 1);
 }
 
-void f_str_push_repeat(Array(u8)* buffer, fString str, uint count) {
-	for (uint i = 0; i < count; i++) f_str_push(buffer, str);
+//void f_writer(fWriter* w, rune r) {
+//	F_ASSERT(r < 128); // TODO
+//	w->proc(w, &r, 1);
+//}
+
+void f_writes_repeat(fWriter* w, fString str, uint count) {
+	for (uint i = 0; i < count; i++) f_writes(w, str);
 }
 
 fString f_aprint(fAllocator* a, const char* fmt, ...) {
@@ -202,16 +198,17 @@ char* f_tprint_cstr(const char* fmt, ...) {
 	return result;
 }
 
-void f_str_pushf(Array(u8)* buffer, const char* fmt, ...) {
-	fArenaMark mark = f_temp_get_mark();
+void f_writef(fWriter* w, const char* fmt, ...) {
+	//fArenaMark mark = f_temp_get_mark();
 	
 	va_list args;
 	va_start(args, fmt);
 	fString str = str_format_va_list(f_temp_alc(), fmt, args);
 	va_end(args);
 	
-	f_str_push(buffer, str);
-	if (buffer->alc != f_temp_alc()) f_temp_set_mark(mark);
+	f_writes(w, str);
+	// hmm... we can't do f_temp_set_mark because of the callback...
+	//f_temp_set_mark(mark);
 }
 
 void f_mem_copy(void* dst, const void* src, uint size) { memcpy(dst, src, size); }
@@ -243,109 +240,11 @@ fString f_str_path_stem(fString path) {
 	return path;
 }
 
-//const char* temp_cstr(fString str) {
-//	fSlice(u8) mem = mem_alloc(str.len + 1, TEMP_ALLOCATOR);
-//	memcpy(mem.data, str.data, str.len);
-//	mem.data[str.len] = '\0';
-//
-//	return (char*)mem.data;
-//}
-
-
-//void slot_array_test() {
-//	Slot_Array<int> arr = {};
-//
-//	Slot_Array_Handle<int> first_handle = slot_array_add(arr, 123);
-//	Slot_Array_Handle<int> bah = slot_array_add(arr, 521);
-//
-//	assert(*arr[first_handle] == 123);
-//	assert(*arr[bah] == 521);
-//
-//	*arr[first_handle] = 1293;
-//	assert(*arr[first_handle] == 1293);
-//
-//}
-
-//u32 hash_fnv32(fSlice(u8) data, u32 seed) {
-//	for (i64 i = 0; i < data.len; i++) {
-//		seed = (seed * 0x01000193) ^ data[i];
-//	}
-//	return seed;
-//}
-
-
-// idea for a bucketed slice
-// 
-// template<typename T>
-// struct BucketedIndex {
-//   void* bucket_base;
-//   u32 elem_offset;
-// 
-//   // Bucket array metadata
-//   u8 bucket_start_offset; // at offset 0, we store a pointer to the previous bucket. Maybe this field is not needed.
-//   u24 bucket_end_offset; // at this offset, we store a pointer to the next bucket.
-// }
-// 
-//template<typename T>
-//struct BucketedSlice {
-//  BucketedIndex lo;
-//  BucketedIndex hi;
-//};
-
-//void ArrayReserveRaw(RawArray* arr, uint elem_size, uint capacity) {
-//	ZoneScoped;
-
-//}
-
 fString f_str_clone(fString str, fAllocator* a) {
 	fString copied = f_str_make(str.len, a);
 	f_str_copy(copied, str);
 	return copied;
 }
-
-//fString f_str_clone(const char* cstr, fAllocator* a) {
-//	ZoneScoped;
-//	return f_str_clone(fString{ (u8*)cstr, (isize)strlen(cstr) }, allocator);
-//}
-
-//fString _str_join(fSlice(fString) strings, fAllocator* a) {
-//	ZoneScoped;
-//	i64 total_size = 0;
-//	for (i64 i = 0; i < strings.len; i++)
-//		total_size += strings.data[i].len;
-//
-//	fString result = MakeSlice(u8, total_size, allocator);
-//
-//	u8* ptr = result.data;
-//	for (i64 i = 0; i < strings.len; i++) {
-//		memcpy(ptr, (const void*)strings.data[i].data, strings.data[i].len);
-//		ptr += strings.data[i].len;
-//	}
-//
-//	return result;
-//}
-
-/*void str_split(fString str, u8 character, fAllocator* a, Slice(fString)* out) {
-	uint required_len = 1;
-	for (uint i = 0; i < str.len; i++) {
-		if (str.data[i] == character) required_len++;
-	}
-
-	Array(fString) substrings = make_array_cap_raw(sizeof(fString), required_len, a);
-	
-	uint prev = 0;
-	for (uint i = 0; i < str.len; i++) {
-		if (str.data[i] == character) {
-			fString s = str_slice(str, prev, i);
-			array_push_raw(&substrings, &s, sizeof(fString));
-			prev = i + 1;
-		}
-	}
-	
-	fString s = str_slice_after(str, prev);
-	array_push_raw(&substrings, &s, sizeof(fString));
-	*out = BITCAST(Slice(fString), substrings);
-}*/
 
 bool f_str_ends_with(fString str, fString end) {
 	return str.len >= end.len && f_str_equals(end, f_str_slice_after(str, str.len - end.len));
@@ -383,13 +282,13 @@ void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)*
 	for (uint i = 0; i < str.len; i++) {
 		if (str.data[i] == character) {
 			fRangeUint range = { prev, i };
-			f_array_push(fRangeUint, &splits, range);
+			f_array_push(&splits, range);
 			prev = i + 1;
 		}
 	}
 
 	fRangeUint range = { prev, str.len };
-	f_array_push(fRangeUint, &splits, range);
+	f_array_push(&splits, range);
 	*out = F_BITCAST(fSlice(fRangeUint), splits);
 }
 
@@ -606,10 +505,6 @@ typedef struct {
 	uint i;
 } LeakTrackerBeginEntryPass;
 
-//u64 hash64_ex(u64 value, u64 seed) {
-//	return XXH64(&value, 8, seed);
-//}
-
 u64 f_hash64_str_ex(fString data, u64 seed) {
 	return XXH64(data.data, data.len, seed);
 	//u64 h = 0xcbf29ce484222325;
@@ -631,7 +526,7 @@ static void leak_tracker_begin_entry_stacktrace_visitor(fString function, fStrin
 		}
 
 		fLeakTrackerCallstackEntry entry = { *filepath_cached, line };
-		f_array_push(fLeakTrackerCallstackEntry, &pass->entry->callstack, entry);
+		f_array_push(&pass->entry->callstack, entry);
 	}
 	pass->i++;
 }
@@ -688,44 +583,44 @@ void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size) {
 
 void f_array_free_raw(fArrayRaw* array, u32 elem_size) {
 	f_mem_free_n(u8, array->data, elem_size * array->capacity, array->alc);
-	_DEBUG_FILL_GARBAGE(array, sizeof(*array));
+	f_debug_fill_garbage(array, sizeof(*array));
 }
 
-#ifdef _DEBUG
-void _DEBUG_FILL_GARBAGE(void* ptr, uint len) { memset(ptr, 0xCC, len); }
-#endif
+uint f_array_push_n_raw(fArrayRaw* array, const void* elems, size_t n, u32 elem_size) {
+	f_array_reserve_raw(array, array->len + n, elem_size);
 
-void slice_copy_raw(fSliceRaw dst, fSliceRaw src) {
+	memcpy((u8*)array->data + elem_size * array->len, elems, elem_size * n);
+
+	uint result = array->len;
+	array->len += n;
+	return result;
 }
 
-void f_array_push_n_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size, u32 elem_align) {
-	f_array_reserve_raw(array, array->len + elems.len, elem_size);
-	for (uint i = 0; i < elems.len; i++) {
-		f_array_push_raw(array, (const void*)((u8*)elems.data + elem_size * i), elem_size, elem_align);
-	}
-}
-
-void f_array_resize_raw(fArrayRaw* array, uint len, const void* value, u32 elem_size) {
+void f_array_resize_raw(fArrayRaw* array, uint len, fOpt(const void*) value, u32 elem_size) {
 	f_array_reserve_raw(array, len, elem_size);
-	for (uint i = array->len; i < len; i++) {
-		memcpy((u8*)array->data + i * elem_size, value, elem_size);
+
+	if (value) {
+		for (uint i = array->len; i < len; i++) {
+			memcpy((u8*)array->data + i * elem_size, value, elem_size);
+		}
 	}
+
 	array->len = len;
 }
 
-uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size, u32 elem_align) {
+uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size) {
 	if (array->len >= array->capacity) {
 		// grow the array
 		uint new_capacity = F_MAX(8, array->capacity * 2);
 		
-		array->data = f_mem_resize(array->data, elem_size * array->capacity, elem_size * new_capacity, elem_align, array->alc);
+		array->data = f_mem_resize(array->data, elem_size * array->capacity, elem_size * new_capacity, array->alc);
 		array->capacity = new_capacity;
 	}
 	memcpy((u8*)array->data + array->len * elem_size, elem, elem_size);
 	return array->len++;
 }
 
-void f_array_pop_raw(fArrayRaw* array, OPT(void*) out_elem, u32 elem_size) {
+void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size) {
 	F_ASSERT(array->len >= 1);
 	array->len--;
 	if (out_elem) {
@@ -756,117 +651,7 @@ u32 f_random_u32() {
 	//ASSERT(false);
 	//return rand();
 	return 0;
-	//if (global_rand == 0) {
-	//	global_rand = read_cycle_counter();
-	//}
-	//
-	//return (u32)rand() + (u32)global_rand;
 }
-
-u64 f_random_u64() {
-	F_BP;
-	//return (((u64)rand_u32()) << 32) | (u64)rand_u32();
-	return 0;
-}
-
-
-float f_random_float_in_range(float minimum, float maximum) {
-	F_BP;
-	//ZoneScoped;
-	//return minimum + (maximum - minimum) * (((float)rand()) / (float)RAND_MAX);
-	return 0;
-}
-
-
-
-//void _custom_print_f(void(*append_fn)(fString), fString fmt, std::initializer_list<fString> args) {
-//	fSlice(fString) args_slice = { (fString*)args.begin(), args.size() };
-//
-//	uint reserve_len = fmt.len;
-//	for (int i = 0; i < args.size(); i++) reserve_len += args_slice[i].len;
-//
-//	for (uint offset = 0, offset_next = 0; rune r = str_next_rune(fmt, &offset_next); offset = offset_next) {
-//		if (r == '%') {
-//			offset = offset_next;
-//			r = str_next_rune(fmt, &offset_next);
-//
-//			if (r == '%') { // escape %
-//				append_fn(F_LIT("%"));
-//				continue;
-//			}
-//
-//			ASSERT(r >= '0' && r <= '9');
-//			append_fn(args_slice[r - '0']);
-//			continue;
-//		}
-//
-//		append_fn(slice(fmt, offset, offset_next));
-//	}
-//}
-
-//fString __aprint(fAllocator* a, const char* fmt, ...) {
-//	//ZoneScoped;
-//	va_list args;
-//	va_start(args, fmt);
-//	fString result = __aprint_va_list(allocator, fmt, args);
-//	va_end(args);
-//	return result;
-//	//__crt_va_start(args, fmt); defer(__crt_va_end(args));
-//}
-
-
-//void _print_fmt(fString fmt, std::initializer_list<fString> args) {
-//	_custom_print_f([](fString str) {
-//		os_write_to_console(str);
-//	}, fmt, args);
-//}
-
-//fString _aprint_fmt(fAllocator* a, fString fmt, std::initializer_list<fString> args) {
-//	fSlice(fString) args_slice = { (fString*)args.begin(), args.size() };
-//
-//	uint size = 0;
-//	_foundation_pass = &size;
-//	_custom_print_f([](fString str) { *(uint*)_foundation_pass += 1; }, fmt, args);
-//	
-//	fString result = MakeSlice(u8, size, allocator);
-//	
-//	_foundation_pass = result.data;
-//	_custom_print_f([](fString str) {
-//		memcpy(_foundation_pass, str.data, str.len);
-//		_foundation_pass = (u8*)_foundation_pass + str.len;
-//	}, fmt, args);
-//
-//	return result;
-//}
-
-//void _bprint_fmt(fArray(u8)* buffer, fString fmt, std::initializer_list<fString> args) {
-//	_foundation_pass = buffer;
-//	_custom_print_f([](fString str) {
-//		array_push_slice((fArray(u8)*)_foundation_pass, str);
-//		}, fmt, args);
-//}
-//
-//void _Print(std::initializer_list<fString> args) {
-//	for (fString arg : args) {
-//		os_write_to_console(arg);
-//	}
-//}
-
-//void _PrintB(fArray(u8)* buffer, std::initializer_list<fString> args) {
-//	for (fString arg : args) {
-//		array_push_slice(buffer, arg);
-//	}
-//}
-
-//fString _PrintA(fAllocator* a, std::initializer_list<fString> args) {
-//	uint size = 0;
-//	for (fString arg : args) size += arg.len;
-//
-//	fArray(u8) buf;
-//	InitArrayCap(&buf, size, allocator);
-//	for (fString arg : args) array_push_slice(&buf, arg);
-//	return buf.slice;
-//}
 
 fString f_str_from_uint(fString bytes, fAllocator* a) {
 	F_ASSERT(bytes.len == 1 || bytes.len == 2 || bytes.len == 4 || bytes.len == 8);
@@ -947,8 +732,8 @@ void f_str_copy(fString dst, fString src) {
 	memcpy(dst.data, src.data, src.len);
 }
 
-u8* f_arena_push_str(fArena* arena, fString data, uint_pow2 alignment) {
-	fString result = f_arena_push(arena, data.len, alignment);
+u8* f_arena_push_str(fArena* arena, fString data, uint_pow2 align) {
+	fString result = f_arena_push(arena, data.len, align);
 	f_str_copy(result, data);
 	return result.data;
 }
@@ -958,8 +743,8 @@ static void error_out_of_memory() {
 	exit(1);
 }
 
-fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
-	F_ASSERT(F_IS_POWER_OF_2(alignment));
+fString f_arena_push(fArena* arena, uint size, uint align) {
+	F_ASSERT(F_IS_POWER_OF_2(align));
 	//ZoneScoped;
 	u8* allocation_pos = NULL;
 
@@ -970,7 +755,7 @@ fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
 	case fArenaMode_VirtualReserveFixed: {
 		//uint allocation_pos = ALIGN_UP_POW2(arena->pos.offset, alignment);
 		//arena->pos.offset = allocation_pos + size;
-		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, alignment);
+		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, align);
 		arena->pos.head = allocation_pos + size;
 
 		if ((uint)arena->pos.head > (uint)arena->committed_end) {
@@ -988,7 +773,7 @@ fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
 	} break;
 	
 	case fArenaMode_UsingBufferFixed: {
-		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, alignment);
+		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, align);
 		arena->pos.head = allocation_pos + size;
 
 		F_ASSERT(arena->internal_base);
@@ -1000,14 +785,14 @@ fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
 	case fArenaMode_UsingAllocatorGrowing: {
 		// form a linked list of allocation blocks
 
-		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, alignment);
+		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, align);
 
 		fArenaBlock* curr_block = arena->pos.current_block;
 		if (!curr_block || ((uint)allocation_pos + size > (uint)curr_block + curr_block->size_including_header)) {
 			//HITS(_cccc, 31);
 			// The allocation doesn't fit in this block.
 
-			OPT(fArenaBlock*) next_block = curr_block ? curr_block->next : NULL;
+			fOpt(fArenaBlock*) next_block = curr_block ? curr_block->next : NULL;
 			
 			uint block_size = F_MAX(arena->desc.UsingAllocatorGrowing.min_block_size, sizeof(fArenaBlock) + size);
 
@@ -1029,8 +814,9 @@ fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment) {
 			}
 			else {
 				// allocate a new block
-				F_ASSERT(alignment <= 16); // Let's align each block to 16 bytes.
-				fArenaBlock* new_block = f_mem_alloc(block_size, 16, arena->desc.UsingAllocatorGrowing.a);
+				//F_ASSERT(align <= 16); // Let's align each block to 16 bytes.
+				// NOTE: new_block will be aligned to 16 bytes, because block_size is large
+				fArenaBlock* new_block = f_mem_alloc(block_size, arena->desc.UsingAllocatorGrowing.a);
 				new_block->size_including_header = block_size;
 				new_block->next = next_block;
 
@@ -1065,7 +851,7 @@ static u32 hashmap64_get_slot_index(u64 key, u32 slot_count_log2) {
 	return slot_index;
 }
 
-OPT(void*) f_map64_get_raw(fMap64Raw* map, u64 key) {
+fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key) {
 	F_ASSERT(key <= F_MAP64_LAST_VALID_KEY);
 	if (!map->slots) return NULL;
 
@@ -1092,7 +878,7 @@ void f_map64_resize_raw(fMap64Raw* map, u32 slot_count_log2) {
 	slot_count_log2 = F_MAX(slot_count_log2, 2); // always have at minimum 4 slots
 	u32 slot_size = map->value_size + 8;
 	
-	OPT(u8*) slots_before = map->slots;
+	fOpt(u8*) slots_before = map->slots;
 	u32 slot_count_before = (1 << map->slot_count_log2);
 
 	map->alive_count = 0;
@@ -1102,7 +888,7 @@ void f_map64_resize_raw(fMap64Raw* map, u32 slot_count_log2) {
 	//((uint) & ((T*)0)->f)
 	//uint test = ((struct _dummy { char c; Arena member; }*)0)->member;
 
-	int test = F_ALIGN_OF(int);
+	//int test = F_ALIGN_OF(int);
 
 	F_HITS(_c, 0);
 	map->slots = f_mem_alloc_n(u8, slot_size * map->slot_count, map->alc);
@@ -1177,7 +963,7 @@ fMap64Raw f_make_map64_cap_raw(u32 value_size, uint_pow2 capacity, fAllocator* a
 	return map;
 }
 
-fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, OPT(const void*) value, fMapInsert mode) {
+fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) value, fMapInsert mode) {
 	F_ASSERT(key <= F_MAP64_LAST_VALID_KEY);
 	F_HITS(_c, 0);
 
@@ -1273,7 +1059,7 @@ void f_map64_free_raw(fMap64Raw* map) {
 	if (map->slots) {
 		f_mem_free_n(u8, map->slots, slot_size * map->slot_count, map->alc);
 	}
-	_DEBUG_FILL_GARBAGE(map, sizeof(*map));
+	f_debug_fill_garbage(map, sizeof(*map));
 }
 
 //SlotArenaRaw* make_slot_arena_contiguous_raw(u32 elem_size, ArenaDesc arena_desc) {
@@ -1372,14 +1158,14 @@ void f_arena_set_mark(fArena* arena, fArenaMark mark) {
 	if (arena->desc.mode == fArenaMode_UsingAllocatorGrowing) {
 		fArenaBlock* last = arena->pos.current_block;
 		for (fArenaBlock* block = mark.current_block->next; block && block != last->next; block = block->next) {
-			_DEBUG_FILL_GARBAGE(block + 1, block->size_including_header - sizeof(fArenaBlock));
+			f_debug_fill_garbage(block + 1, block->size_including_header - sizeof(fArenaBlock));
 		}
 		F_ASSERT(mark.head >= (u8*)(mark.current_block + 1));
-		_DEBUG_FILL_GARBAGE(mark.head, ((u8*)mark.current_block + mark.current_block->size_including_header) - mark.head);
+		f_debug_fill_garbage(mark.head, ((u8*)mark.current_block + mark.current_block->size_including_header) - mark.head);
 	}
 	else {
 		F_ASSERT(mark.head <= arena->pos.head);
-		_DEBUG_FILL_GARBAGE(mark.head, arena->pos.head - mark.head); // debug; trigger data-breakpoints and garbage-fill the memory
+		f_debug_fill_garbage(mark.head, arena->pos.head - mark.head); // debug; trigger data-breakpoints and garbage-fill the memory
 	}
 #endif
 
@@ -1399,7 +1185,7 @@ void f_arena_clear(fArena* arena) {
 	}
 }
 
-static void* arena_allocator_proc(fAllocator* a, OPT(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {
+static void* arena_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_size, uint new_size) {
 	//ZoneScoped;
 
 	//F_HITS(_c, 0);
@@ -1413,10 +1199,7 @@ static void* arena_allocator_proc(fAllocator* a, OPT(u8*) old_ptr, uint old_size
 	//}
 
 	if (new_size > old_size) {
-		F_ASSERT(new_alignment > 0);
-		F_ASSERT(F_IS_POWER_OF_2(new_alignment));
-
-		fString new_allocation = f_arena_push(arena, new_size, new_alignment);
+		fString new_allocation = f_arena_push(arena, new_size, f_get_alignment(new_size));
 
 		// TODO: Reuse the end of the arena if possible?
 		//if (old_ptr + old_size == arena->internal_base + arena->internal_pos &&
@@ -1431,14 +1214,14 @@ static void* arena_allocator_proc(fAllocator* a, OPT(u8*) old_ptr, uint old_size
 
 		if (old_ptr) {
 			memcpy(new_allocation.data, old_ptr, old_size); // first do the copy, then fill old with garbage
-			_DEBUG_FILL_GARBAGE(old_ptr, old_size);
-			_DEBUG_FILL_GARBAGE(new_allocation.data + old_size, new_size - old_size);
+			f_debug_fill_garbage(old_ptr, old_size);
+			f_debug_fill_garbage(new_allocation.data + old_size, new_size - old_size);
 		}
 
 		return new_allocation.data;
 	}
 	else {
-		_DEBUG_FILL_GARBAGE(old_ptr + new_size, old_size - new_size); // erase the top
+		f_debug_fill_garbage(old_ptr + new_size, old_size - new_size); // erase the top
 		int a = 11111;
 	}
 
@@ -1457,7 +1240,7 @@ uint round_up_pow_of_2(uint x) {
 	return x + 1;
 }
 
-void* heap_allocator_proc(fAllocator* a, OPT(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {
+void* heap_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {
 	// 0b0010110
 	//
 	//uint arena_index = log2(round_up_pow_of_2(new_size)); // there's probably a better way to calculate this
@@ -1480,7 +1263,7 @@ fArena* f_arena_make(u32 min_block_size, fAllocator* a) {
 	});
 }
 
-fArena* f_arena_make_virtual_reserve_fixed(uint reserve_size, OPT(void*) reserve_base) {
+fArena* f_arena_make_virtual_reserve_fixed(uint reserve_size, fOpt(void*) reserve_base) {
 	return f_arena_make_ex((fArenaDesc) {
 		.mode = fArenaMode_VirtualReserveFixed,
 		.VirtualReserveFixed = { .reserve_size = reserve_size, .reserve_base = reserve_base },
@@ -1552,7 +1335,7 @@ void f_arena_free(fArena* arena) {
 	f_leak_tracker_end_entry(arena);
 	f_arena_clear(arena); // this will fill the arena memory with garbage in debug builds
 	if (arena->desc.mode == fArenaMode_UsingBufferFixed) {
-		_DEBUG_FILL_GARBAGE(arena, sizeof(fArena));
+		f_debug_fill_garbage(arena, sizeof(fArena));
 	}
 	else if (arena->desc.mode == fArenaMode_VirtualReserveFixed) {
 		f_mem_release(arena->internal_base);
@@ -1716,7 +1499,7 @@ bool f_str_to_s64(fString s, uint base, s64* out_value) {
 }
 
 char* f_str_to_cstr(fString s, fAllocator* a) {
-	char* bytes = f_mem_alloc(s.len + 1, 1, a);
+	char* bytes = f_mem_alloc(s.len + 1, a);
 	memcpy(bytes, s.data, s.len);
 	bytes[s.len] = 0;
 	return bytes;
@@ -1742,11 +1525,11 @@ fString f_str_replace(fString str, fString search_for, fString replace_with, fAl
 	
 	for (uint i = 0; i <= last;) {
 		if (memcmp(str.data + i, search_for.data, search_for.len) == 0) {
-			f_array_push_n_raw(&result, F_BITCAST(fSliceRaw, replace_with), 1, 1);
+			f_array_push_n_raw(&result, replace_with.data, replace_with.len, 1);
 			i += search_for.len;
 		}
 		else {
-			f_array_push_raw(&result, &str.data[i], 1, 1);
+			f_array_push_raw(&result, &str.data[i], 1);
 			i++;
 		}
 	}
@@ -1766,13 +1549,13 @@ fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fStr
 			
 			if (memcmp(str.data + i, search_for_j.data, search_for_j.len) == 0) {
 				fString replace_with_j = ((fString*)replace_with.data)[j];
-				f_array_push_n_raw(&result, F_BITCAST(fSliceRaw, replace_with_j), 1, 1);
+				f_array_push_n_raw(&result, replace_with_j.data, replace_with_j.len, 1);
 				i += search_for_j.len;
 				goto continue_outer;
 			}
 		}
 		
-		f_array_push_raw(&result, &str.data[i], 1, 1);
+		f_array_push_raw(&result, &str.data[i], 1);
 		i++;
 	continue_outer:;
 	}
@@ -2045,8 +1828,8 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		f_arena_free(stack_arena);
 	}
 
-	OPT(u8*) f_mem_reserve(u64 size, OPT(void*) address) {
-		OPT(u8*) ptr = (u8*)VirtualAlloc(address, size, MEM_RESERVE, PAGE_READWRITE);
+	fOpt(u8*) f_mem_reserve(u64 size, fOpt(void*) address) {
+		fOpt(u8*) ptr = (u8*)VirtualAlloc(address, size, MEM_RESERVE, PAGE_READWRITE);
 		return ptr;
 	}
 	
@@ -2258,46 +2041,55 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 	}
 
 	bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
-		//ZoneScoped;
-		fFile file = f_files_open(filepath, fFileOpenMode_Read);
-		if (!f_files_exists(file)) return false;
+		fFile file;
+		if (!f_files_open(filepath, fFileOpenMode_Read, &file)) return false;
 
-		uint size = f_files_size(file);
+		uint size = f_files_size(&file);
 		
 		fString result = f_str_make(size, a);
 
-		F_ASSERT(f_files_read(file, result.data, size) == size);
+		F_ASSERT(f_files_read(&file, result.data, size) == size);
 
-		f_files_close(file);
+		f_files_close(&file);
 		*out_str = result;
 		return true;
 	}
 
-	bool f_files_exists(fFile file) { return file._handle != 0; }
-	
-	fFile f_files_open(fString filepath, fFileOpenMode mode) {
-		HANDLE handle;
+	static void f_file_unbuffered_writer_proc(fWriter* writer, void* data, uint size) {
+		bool ok = f_files_write_unbuffered((fFile*)writer->userdata, (fString){ data, size });
+		F_ASSERT(ok);
+	}
 
+	bool f_files_open(fString filepath, fFileOpenMode mode, fFile* out_file) {
 		fArenaMark mark = f_temp_get_mark();
 		uint filepath_utf16_len;
 		wchar_t* filepath_utf16 = f_str_to_utf16(filepath, 1, f_temp_alc(), &filepath_utf16_len);
 
+		out_file->mode = mode;
+
 		if (mode == fFileOpenMode_Read) {
-			handle = CreateFileW(filepath_utf16, FILE_GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+			out_file->os_handle = CreateFileW(filepath_utf16, FILE_GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 		}
 		else {
 			u32 creation = mode == fFileOpenMode_Append ? OPEN_ALWAYS : CREATE_ALWAYS;
-			handle = CreateFileW(filepath_utf16, FILE_GENERIC_READ|FILE_GENERIC_WRITE, FILE_SHARE_READ, NULL, creation, 0, NULL);
+			out_file->os_handle = CreateFileW(filepath_utf16, FILE_GENERIC_READ|FILE_GENERIC_WRITE, FILE_SHARE_READ, NULL, creation, 0, NULL);
 		}
 
-		if (handle == INVALID_HANDLE_VALUE) handle = 0;
-		else f_leak_tracker_begin_entry(handle, 1);
+		bool ok = out_file->os_handle != INVALID_HANDLE_VALUE;
+		if (ok) {
+			f_leak_tracker_begin_entry(out_file->os_handle, 1);
+			
+			if (mode != fFileOpenMode_Read) {
+				out_file->backing_writer = (fWriter){ f_file_unbuffered_writer_proc, out_file };
+				out_file->buffered_writer = f_open_buffered_writer(&out_file->backing_writer, &out_file->buffer[0], F_FILE_WRITER_BUFFER_SIZE);
+			}
+		}
 
 		f_temp_set_mark(mark);
-		return (fFile){ handle };
+		return ok;
 	}
 
-	uint f_files_read(fFile file, void* dst, uint size) {
+	uint f_files_read(fFile* file, void* dst, uint size) {
 		if (dst == NULL) return 0;
 		if (size <= 0) return 0;
 
@@ -2306,7 +2098,7 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 			u32 to_read = remaining >= F_U32_MAX ? F_U32_MAX : (u32)remaining;
 
 			DWORD bytes_read;
-			BOOL ok = ReadFile(file._handle, (u8*)dst + read_so_far, to_read, &bytes_read, NULL);
+			BOOL ok = ReadFile(file->os_handle, (u8*)dst + read_so_far, to_read, &bytes_read, NULL);
 			read_so_far += bytes_read;
 			
 			if (ok != TRUE || bytes_read < to_read) {
@@ -2316,34 +2108,43 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		return size;
 	}
 
-	uint f_files_size(fFile file) {
+	uint f_files_size(fFile* file) {
 		LARGE_INTEGER size;
-		if (GetFileSizeEx(file._handle, &size) != TRUE) return -1;
+		if (GetFileSizeEx(file->os_handle, &size) != TRUE) return -1;
 		return size.QuadPart;
 	}
 	
-	bool f_files_write(fFile file, fString data) {
+	bool f_files_write_unbuffered(fFile* file, fString data) {
 		if (data.len >= F_U32_MAX) return false; // TODO: writing files greater than 4 GB
 		
 		DWORD bytes_written;
-		return WriteFile(file._handle, data.data, (DWORD)data.len, &bytes_written, NULL) == TRUE && bytes_written == data.len;
+		return WriteFile(file->os_handle, data.data, (DWORD)data.len, &bytes_written, NULL) == TRUE && bytes_written == data.len;
 	}
 
-	uint f_files_get_position(fFile file) {
+	uint f_files_get_position(fFile* file) {
 		LARGE_INTEGER offset;
-		if (SetFilePointerEx(file._handle, (LARGE_INTEGER){0}, &offset, FILE_CURRENT) != TRUE) return -1;
+		if (SetFilePointerEx(file->os_handle, (LARGE_INTEGER){0}, &offset, FILE_CURRENT) != TRUE) return -1;
 		return offset.QuadPart;
 	}
 
-	bool f_files_set_position(fFile file, uint position) {
+	bool f_files_set_position(fFile* file, uint position) {
 		LARGE_INTEGER offset;
 		offset.QuadPart = position;
-		return SetFilePointerEx(file._handle, offset, NULL, FILE_BEGIN) == TRUE;
+		return SetFilePointerEx(file->os_handle, offset, NULL, FILE_BEGIN) == TRUE;
 	}
 
-	bool f_files_close(fFile file) {
-		bool ok = CloseHandle(file._handle) == TRUE;
-		f_leak_tracker_end_entry(file._handle);
+	void f_files_flush(fFile* file) {
+		F_ASSERT(file->mode != fFileOpenMode_Read);
+		f_flush_buffered_writer(&file->buffered_writer);
+	}
+
+	bool f_files_close(fFile* file) {
+		if (file->mode != fFileOpenMode_Read) {
+			f_files_flush(file);
+		}
+
+		bool ok = CloseHandle(file->os_handle) == TRUE;
+		f_leak_tracker_end_entry(file->os_handle);
 		return ok;
 	}
 
@@ -2419,48 +2220,45 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		// https://daviddeley.com/autohotkey/parameters/parameters.htm#WINCRULESDOC
 		
 		fString* arg_strings = args.data;
-		fArrayRaw cmd_string = f_array_make_raw(f_temp_alc());
+
+		fStringBuilder cmd_string;
+		f_init_string_builder(&cmd_string, f_temp_alc());
 
 		for (uint i = 0; i < args.len; i++) {
 			fString arg = arg_strings[i];
 			
-			u8 quotation = '\"', backslash = '\\';
-			f_array_push_raw(&cmd_string, &quotation, 1, 1);
+			f_writeb(cmd_string.w, '\"');
 			
 			for (uint j = 0; j < arg.len; j++) {
-				if (arg.data[j] == quotation) {
-					f_array_push_raw(&cmd_string, &backslash, 1, 1); // escape quotation marks with a backslash
+				if (arg.data[j] == '\"') {
+					f_writeb(cmd_string.w, '\\'); // escape quotation marks with a backslash
 				}
-				else if (arg.data[j] == backslash) {
+				else if (arg.data[j] == '\\') {
 					if (j + 1 == arg.len) {
 						// if we have a backslash and it's the last character in the string,
 						// we must push \\"
-						f_array_push_raw(&cmd_string, &backslash, 1, 1);
-						f_array_push_raw(&cmd_string, &backslash, 1, 1);
+						f_writef(cmd_string.w, "\\\\");
 						break;
 					}
-					else if (arg.data[j + 1] == quotation) {
+					else if (arg.data[j + 1] == '\"') {
 						// if we have a backslash and the next character is a quotation mark,
 						// we must push \\\"
-						f_array_push_raw(&cmd_string, &backslash, 1, 1);
-						f_array_push_raw(&cmd_string, &backslash, 1, 1);
-						f_array_push_raw(&cmd_string, &backslash, 1, 1);
-						f_array_push_raw(&cmd_string, &quotation, 1, 1);
+						f_writef(cmd_string.w, "\\\\\\\"");
 						j++; // also skip the next "
 						continue;
 					}
 				}
 				
-				f_array_push_raw(&cmd_string, &arg.data[j], 1, 1);
+				f_writeb(cmd_string.w, arg.data[j]);
 			}
 			
-			f_array_push_raw(&cmd_string, &quotation, 1, 1);
+			f_writeb(cmd_string.w, '\"');
 			
-			if (i < args.len - 1) f_array_push_raw(&cmd_string, &(u8){' '}, 1, 1); // Separate each argument with a space
+			if (i < args.len - 1) f_writeb(cmd_string.w, ' '); // Separate each argument with a space
 		}
 
 		uint cmd_string_utf16_len;
-		wchar_t* cmd_string_utf16 = f_str_to_utf16((fString) { cmd_string.data, cmd_string.len }, 1, f_temp_alc(), &cmd_string_utf16_len);
+		wchar_t* cmd_string_utf16 = f_str_to_utf16(cmd_string.str, 1, f_temp_alc(), &cmd_string_utf16_len);
 
 		PROCESS_INFORMATION process_info = { 0 };
 
@@ -2542,13 +2340,11 @@ fString f_str_advance(fString* str, uint len) {
 }
 
 bool f_files_write_whole(fString filepath, fString data) {
-	//ZoneScoped;
+	fFile file;
+	if (!f_files_open(filepath, fFileOpenMode_Write, &file)) return false;
+	if (!f_files_write_unbuffered(&file, data)) return false;
 
-	fFile file = f_files_open(filepath, fFileOpenMode_Write);
-	if (!f_files_exists(file)) return false;
-	if (!f_files_write(file, data)) return false;
-
-	f_files_close(file);
+	f_files_close(&file);
 	return true;
 }
 
@@ -2574,4 +2370,45 @@ fString f_str_to_lower(fString str, fAllocator* a) {
 		out.data[i] = f_str_rune_to_lower(out.data[i]);
 	}
 	return out;
+}
+
+void f_string_builder_writer_proc(fWriter* writer, void* data, size_t size) {
+	f_array_push_n_raw(writer->userdata, data, size, 1);
+}
+
+void f_flush_buffered_writer(fBufferedWriter* writer) {
+	fWriter* backing = (fWriter*)writer->writer.userdata;
+	backing->proc(backing, writer->buffer, writer->current_pos);
+	writer->current_pos = 0;
+}
+
+void f_writer_stdout_proc(fWriter* writer, void* data, size_t size) {
+	f_os_print((fString){ data, size });
+}
+
+void f_buffered_writer_proc(fWriter* writer, void* data, size_t size) {
+	fBufferedWriter* buffered = (fBufferedWriter*)writer;
+
+	u8* src = data;
+	fWriter* backing = (fWriter*)writer->userdata;
+
+	for (;;) {
+		uint buf_remaining = buffered->buffer_size - buffered->current_pos;
+
+		if (size < buf_remaining) {
+			memcpy((u8*)buffered->buffer + buffered->current_pos, src, size);
+			buffered->current_pos += (u32)size;
+			break;
+		}
+		else {
+			// Buffer is full
+			memcpy((u8*)buffered->buffer + buffered->current_pos, src, buf_remaining);
+
+			backing->proc(backing, buffered->buffer, buffered->buffer_size); // flush
+
+			buffered->current_pos = 0;
+			size -= buf_remaining;
+			src += buf_remaining;
+		}
+	}
 }

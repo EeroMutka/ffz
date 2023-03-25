@@ -1,26 +1,70 @@
-// Give Me Machine Code
+// Give-Me-Machine-Code
 // 
-// Compilers and code generators can seem like a dark art.
-// In reality, it's just kind of a chore that not so many people, apart from the LLVM team,
-// have taken upon themselves. The main difficulty is that a lot of these things
-// aren't documented very well (I'm looking at you, microsoft's debug-info format!),
-// and that the existing code bases are difficult and complicated, and there is just a lack of
-// capable tools and documentation in this area.
+// I'm on my way to make my dream programming language. In excitement, I start reading in
+// the source code files, building some structure out of them, then, ...uhh... how exactly do I
+// make an executable?
 // 
-// Goal:
-// The goal of GMMC is to both act both as a learning resource
-// for someone who wants to know how their source code translates
-// into X64 instructions and executables files, as well as an easy-to-use
-// library to generate machine code that runs directly on your CPU.
-// This is also much of an area of research for me. Coming into this, I didn't really
-// know that much about compilers or code generation, so please forgive and let me know
-// if you think I'm doing something really stupid. I will try to leave a
-// lot of informational comments, as well as use a programming style that is easy
-// to follow (link to orthodox C++). I hope you'll find this useful :-)
+// You could compile to an existing language, and use their compiler for the task. But that begs
+// the question - how does *that* language do it?
 // 
-
-// Random resources:
-// Fast register allocation: https://www.mattkeeter.com/blog/2022-10-04-ssra/
+// In short, you generate a blob of machine code instructions for your target machine (i.e. X64, ARM, WASM)
+// and another blob of data containing your global variables, and put them inside an executable file
+// for your target OS (i.e. PE, ELF, MACH-O). In practice, it's simpler to generate an
+// intermediate object file instead of an executable directly, and run a linker on it. This way you
+// can also easily link to static libraries created in other programming languages. But the
+// principle is the same - object files, static and dynamic libraries, and executables are all
+// very similar.
+// 
+// No step along the way in particular complicated, but it still a lot of steps.
+// The goal of Give-Me-Machine-Code is to be an easy to use library to generate machine code
+// for you
+// 
+// 
+// And because there
+// didn't seem to be other easy-to-use libraries to do this, I decided to do it.
+// 
+// 
+// 
+// There are many layers of software between you writing code, and the code
+// being ran by your computer. This process of compiling code can seem like a mysterious
+// black box, where don't really know what happens between pressing compile and getting
+// and executable. And why would you even care? After all, the smart people already
+// figured it all for you!
+// 
+// Well, sort of. Modern optimizing compilers are quite amazing; it is for sure a
+// difficult task to do well. On the flipside, they tend to be huge, complicated
+// codebases that are difficult to understand, extend and contribute to. And if you
+// decide to rely on one, your project will be standing on the shoulder of giants.
+// Maybe that's fine! But the giant might also just hickup some day, and then you'll fly right off.
+// 
+// The goal of GMMC is to be easy-to-use, fast and simple library intended
+// for those who want to make programming languages/tools/whatever that needs to generate executable code.
+// This header file exposes an API for building an intermediate representation of code that can be
+// printed as straight C code or compiled into X64 machine code. The printed C code is a very direct
+// translation of the API calls, making it easy to debug and understand, i.e. 
+// 
+//     result = gmmc_op_add(block, gmmc_op_i32(proc, 5201), gmmc_op_i32(proc, 9920));
+// 
+// will print out as:
+// 
+//     _$1 = $add_i32(5201, 9920);
+// 
+// You can even step through it in a debugger!
+// 
+// The ability to print to C also means you can still use existing compilers with
+// heavy optimizations enabled to get the best performance of your code. It also means
+// that you can easily target any architecture and platform that has a C compiler
+// made for it (which is quite the list!).
+// 
+// The X64 backend is meant to be the fast path, with instant compile times and
+// the ability to plug in your own debug-information to. It can also act as a learning
+// resource and as an example for how to generate machine code directly without the compiler-middleman.
+// Though debug performance matters, the main goal isn't to generate optimal code, but
+// rather to be simple to understand with little code. The hope is to be descriptive enough with
+// good names and comments to get rid of the mystery surrounding compilers and code-generation.
+// 
+// I hope you'll find this library useful and good luck with whatever you're making :-)
+// 
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -285,8 +329,8 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 //GMMC_API void gmmc_proc_compile(gmmcProc* proc);
 //GMMC_API void gmmc_x64_export_module(FILE* output_obj_file, gmmcModule* m);
 
-GMMC_API void gmmc_module_print_c(FILE* b, gmmcModule* m);
-GMMC_API void gmmc_proc_print_c(FILE* b, gmmcProc* proc);
+GMMC_API void gmmc_module_print_c(fWriter* w, gmmcModule* m);
+GMMC_API void gmmc_proc_print_c(fWriter* w, gmmcProc* proc);
 
 inline gmmcSymbol* gmmc_proc_as_symbol(gmmcProc* proc) { return (gmmcSymbol*)proc; }
 inline gmmcSymbol* gmmc_global_as_symbol(gmmcGlobal* global) { return (gmmcSymbol*)global; }
@@ -416,16 +460,6 @@ GMMC_API gmmcOpIdx gmmc_op_immediate(gmmcProc* proc, gmmcType type, void* data);
 
 typedef struct gmmcAsmModule gmmcAsmModule;
 typedef u32 gmmcAsmSectionNum;
-
-// The runtime address of the target (either extern or section) will be added to the
-// 64-bit integer value that lies at `offset`.
-//typedef struct gmmcAsmRelocation {
-//	u32 offset;
-//
-//	// The target is `target_extern` when non-null, otherwise `target_section`
-//	gmmcExtern* target_extern;
-//	gmmcSection target_section;
-//} gmmcAsmRelocation;
 
 // 'build' and 'export' are separated here to give you a chance to inspect the assembly output before exporting an object file.
 // This can be useful for embedding debug information into the module; i.e. Microsoft's CodeView debug information is stored

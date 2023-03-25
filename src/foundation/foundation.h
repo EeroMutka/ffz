@@ -1,4 +1,5 @@
-﻿// 
+﻿
+// 
 // The foundation is a minimal set of functions and utilities
 // that I've found come in handy everywhere, and which the C/C++
 // language doesn't provide you in a good way.
@@ -6,19 +7,94 @@
 // WARNING: THIS IS ALL CURRENTLY A WORK-IN-PROGRESS CODEBASE!! Some things aren't complete or fully tested,
 // such as UTF8 support and some things might be implemented in a dumb way.
 
-#ifdef FOUNDATION_INCLUDED
-#error
-#endif
-#define FOUNDATION_INCLUDED
-
-#ifndef _CRT_SECURE_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS // should be defined before including initializer_list
-#endif
+#pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <string.h> // for memset
+#include <string.h>
 
+// the allocated memory will be aligned according to f_get_alignment()
+typedef struct fAllocator {
+	void*(*_proc)(struct fAllocator* allocator, /*opt*/ void* old_ptr, size_t old_size, size_t new_size);
+} fAllocator;
+
+typedef struct fSliceRaw {
+	void* data;
+	size_t len;
+} fSliceRaw;
+
+typedef struct fArrayRaw {
+	union {
+		struct {
+			void* data;
+			size_t len;
+		};
+		fSliceRaw slice;
+	};
+	size_t capacity;
+	fAllocator* alc;
+} fArrayRaw;
+
+// A writer is a simple interface to simply write bytes to some buffer.
+// If you're writing a library that needs to build some buffer / write some bytes and you use a Writer, the user of the library
+// can intercept that and say "write to a file instead" or "print to stdout instead" or "write to this arena".
+typedef struct fWriter {
+	void(*proc)(struct fWriter* writer, void* data, size_t size);
+	void* userdata;
+} fWriter;
+
+typedef struct fBufferedWriter {
+	fWriter writer;
+	void* buffer;
+	uint32_t buffer_size;
+	uint32_t current_pos;
+} fBufferedWriter;
+
+typedef struct fMap64Raw {
+	fAllocator* alc;
+	uint32_t value_size; // ...should we even have this?
+
+	uint32_t alive_count;
+
+	uint32_t slot_count;
+	uint32_t slot_count_log2; // if there are zero slots, this will be zero and the `slots` pointer will be null.
+	/*opt*/ void* slots;
+} fMap64Raw;
+
+typedef struct fArena fArena;
+
+#ifndef fArray
+#define fArray(T) fArrayRaw
+#endif
+
+#ifndef fSlice
+#define fSlice(T) fSliceRaw
+#endif
+
+#ifndef fMap64
+#define fMap64(T) fMap64Raw
+#endif
+
+#ifndef fString
+typedef struct {
+	uint8_t* data;
+	size_t len;
+} fString;
+#define fString fString
+#endif
+
+typedef struct fStringBuilder {
+	fWriter* w;
+	fWriter writer;
+	union {
+		fArray(uint8_t) buffer;
+		fString str;
+	};
+} fStringBuilder;
+
+#ifndef F_MINIMAL_INCLUDE
+
+// Common type aliases. These are the only things without the 'f' prefix
 typedef uint8_t   u8;
 typedef int8_t    s8;
 typedef uint16_t  u16;
@@ -78,12 +154,12 @@ typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allo
 #define F_STATIC_ASSERT(x) enum { F_CONCAT(_static_assert_, __LINE__) = 1 / ((int)!!(x)) }
 
 // https://www.wambold.com/Martin/writings/alignof.html
-#ifdef __cplusplus
-template<typename T> struct alignment_trick { char c; T member; };
-#define F_ALIGN_OF(type) F_OFFSET_OF(alignment_trick<type>, member)
-#else
-#define F_ALIGN_OF(type) (F_OFFSET_OF(struct F_CONCAT(_dummy, __COUNTER__) { char c; type member; }, member))
-#endif
+//#ifdef __cplusplus
+//template<typename T> struct alignment_trick { char c; T member; };
+//#define F_ALIGN_OF(type) F_OFFSET_OF(alignment_trick<type>, member)
+//#else
+//#define F_ALIGN_OF(type) (F_OFFSET_OF(struct F_CONCAT(_dummy, __COUNTER__) { char c; type member; }, member))
+//#endif
 
 // Useful for surpressing compiler warnings
 #define F_UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
@@ -160,53 +236,20 @@ inline bool f_does_mul_overflow(uint x, uint y) { return y && x > ((uint)-1) / y
 inline bool f_does_add_overflow(uint x, uint y) { return x + y < x; }
 inline bool f_does_sub_underflow(uint x, uint y) { return x - y > x; }
 
-#ifndef fArray
-#define fArray(T) fArrayRaw
-#endif
-
-#ifndef fSlice
-#define fSlice(T) fSliceRaw
-#endif
-
-#ifndef fMap64
-#define fMap64(T) fMap64Raw
-#endif
-
-#ifndef fString
-typedef struct {
-	u8* data;
-	uint len;
-} fString;
-#define fString fString
-#endif
-
 // c container macros
 #ifndef __cplusplus
-#define f_array_push(T, array, elem) f_array_push_raw((array), &(elem), sizeof(elem), F_ALIGN_OF(T))
+#define f_array_push(array, elem) f_array_push_raw((array), &(elem), sizeof(elem))
 #define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
 #endif
 
-// TODO: make it possible for an arena to grow.
-// It should be an enum parameter for the make_arena function.
-// In some cases, you might want the arena to have a max size instead of growing,
-// because it could be a useful assumption to know that the addresses will be all in one contiguous block of memory.
-// It should also be possible to allocate a growing child-arena out from an existing arena / slot arena
-
-typedef struct fAllocator fAllocator;
-struct fAllocator {
-	// TODO: get rid of caller-managed alignment for convenience?
-	// `old_ptr` can be NULL
-	void* (*_proc)(fAllocator* allocator, void* old_ptr, uint old_size, uint new_size, uint_pow2 new_alignment);
-};
-
-typedef enum {
+typedef enum fArenaMode {
 	fArenaMode_VirtualReserveFixed,
 	//ArenaMode_VirtualGrowing, // do we really need this since we have UsingAllocatorGrowing?
 	fArenaMode_UsingBufferFixed,
 	fArenaMode_UsingAllocatorGrowing,
 } fArenaMode;
 
-typedef struct {
+typedef struct fArenaDesc {
 	fArenaMode mode;
 	struct {
 		fOpt(u8*) reserve_base;
@@ -222,14 +265,13 @@ typedef struct {
 	} UsingAllocatorGrowing;
 } fArenaDesc;
 
-typedef struct fArenaBlock fArenaBlock;
-struct fArenaBlock {
+typedef struct fArenaBlock {
 	uint size_including_header;
-	fArenaBlock* next;
+	struct fArenaBlock* next;
 	// the block memory comes right after the header
-};
+} fArenaBlock;
 
-typedef struct fArenaPosition {
+typedef struct fArenaMark {
 	u8* head;
 	fArenaBlock* current_block; // used only with ArenaMode_UsingAllocatorGrowing
 } fArenaMark;
@@ -250,57 +292,36 @@ typedef struct fArena {
 
 #define f_make_slice_one(elem, allocator) {MemClone((elem), (allocator)), 1}
 
+inline u8 f_get_alignment(uint size) {
+	const static u8 small_aligns[] = { 0, 1, 2, 4, 4, 8, 8, 8, 8 };
+	if (size <= 8) return small_aligns[size];
+	return 16;
+}
+
 // Warning: these return uninitialized memory.
-#define f_mem_alloc(size, alignment, allocator) (void*)(allocator)->_proc((allocator), NULL, 0, (size), (alignment))
-#define f_mem_resize(ptr, old_size, new_size, new_alignment, allocator) (void*)(allocator)->_proc((allocator), (ptr), (old_size), (new_size), (new_alignment))
-#define f_mem_free(ptr, size, allocator) (allocator)->_proc((allocator), (ptr), (size), 0, 1)
+#define f_mem_alloc(size, allocator) (void*)(allocator)->_proc((allocator), NULL, 0, (size))
+#define f_mem_resize(ptr, old_size, new_size, allocator) (void*)(allocator)->_proc((allocator), (ptr), (old_size), (new_size))
+#define f_mem_free(ptr, size, allocator) (allocator)->_proc((allocator), (ptr), (size), 0)
 
-#define f_mem_alloc_n(T, count, allocator) (T*)(allocator)->_proc((allocator), NULL, 0, (count) * sizeof(T), F_ALIGN_OF(T))
-#define f_mem_resize_n(T, ptr, old_count, new_count, allocator) (T*)(allocator)->_proc((allocator), ptr, (old_count) * sizeof(T), (new_count) * sizeof(T), F_ALIGN_OF(T))
-#define f_mem_free_n(T, ptr, count, allocator) (allocator)->_proc((allocator), (ptr), (count) * sizeof(T), 0, F_ALIGN_OF(T))
+#define f_mem_alloc_n(T, count, allocator) (T*)(allocator)->_proc((allocator), NULL, 0, (count) * sizeof(T))
+#define f_mem_resize_n(T, ptr, old_count, new_count, allocator) (T*)(allocator)->_proc((allocator), ptr, (old_count) * sizeof(T), (new_count) * sizeof(T))
+#define f_mem_free_n(T, ptr, count, allocator) (allocator)->_proc((allocator), (ptr), (count) * sizeof(T), 0)
 
-#define f_mem_zero(ptr) memset(ptr, 0, sizeof(*ptr))
-#define f_mem_zero_slice(slice) memset((f_slice).data, 0, (slice).size_bytes())
+//#define f_mem_zero(ptr) memset(ptr, 0, sizeof(*ptr))
+//#define f_mem_zero_slice(slice) memset((f_slice).data, 0, (slice).size_bytes())
 
-#define f_mem_clone(T, value, allocator) f_mem_clone_size(sizeof(T), F_ALIGN_OF(T), &value, allocator)
+#define f_mem_clone(value, allocator) f_mem_clone_size(sizeof(value), &value, allocator)
 
-inline void* f_mem_clone_size(uint size, uint align, const void* value, fAllocator* a) {
-	void* result = f_mem_alloc(size, 1, a);
+inline void* f_mem_clone_size(uint size, const void* value, fAllocator* alc) {
+	void* result = f_mem_alloc(size, alc);
 	memcpy(result, value, size);
 	return result;
 }
 
-// Slice, Array and fString have the same binary layout, so they can be bitcasted between each other
-
-typedef struct {
-	void* data;
-	uint len;
-} fSliceRaw;
-
-typedef struct {
-	union {
-		struct {
-			void* data;
-			uint len;
-		};
-		fSliceRaw slice;
-	};
-	uint capacity;
-	fAllocator* alc;
-} fArrayRaw;
-
-//#define HASH_STRING(x) MeowU64From(MeowHash(MeowDefaultSeed, x.len, x.data), 0)
-
-// @speed: for release builds we could use #define HASH HASH_U64(__COUNTER__) instead, if that'd compile to better machine code.
-// But for debug, we want everything to be 100% consistent between builds.
-// Actually, for now, lets just use the counter.
-//#define HASH_LOC HASH_U64(__COUNTER__+1)
-//#define HASH_LOC (((u64)__FILE__) ^ HASH_U64((u64)__LINE__))
-
 #ifdef _DEBUG
-void _DEBUG_FILL_GARBAGE(void* ptr, uint len);
+#define f_debug_fill_garbage(ptr, len) memset(ptr, 0xCC, len);
 #else
-#define _DEBUG_FILL_GARBAGE(ptr, len)
+#define f_debug_fill_garbage(ptr, len)
 #endif
 
 typedef struct { s64 nsec; } fTick;
@@ -320,45 +341,18 @@ typedef enum {
 	fFileOpenMode_Append,
 } fFileOpenMode;
 
-typedef struct { void* _handle; } fFile;
+#ifndef F_FILE_WRITER_BUFFER_SIZE
+#define F_FILE_WRITER_BUFFER_SIZE 4096
+#endif
 
-// #define STRING_FROM_CSTR(x) fString{ (u8*)x, strlen(x) } // this shouldn't be a macro
+typedef struct fFile {
+	fFileOpenMode mode;
+	void* os_handle;
 
-// ALLOCA_C_STRING probably shouldn't be used in actual programs. Use to_cstring() instead.
-//inline const char* _temp_cstr(fString string, void* out) { ZoneScoped; memcpy(out, string.data, string.len); ((char*)out)[string.len] = '\0'; return (const char*)out; }
-//#define ALLOCA_C_STRING(str) _temp_cstr(str, alloca(str.len + 1))
-
-//#define __ACTIVATE_MANUAL_STRUCT_PADDING \
-//_Pragma("warning(3:4820)") \
-//_Pragma("warning(3:4121)")
-//#define __RESTORE_MANUAL_STRUCT_PADDING \
-//_Pragma("warning(4:4820)") \
-//_Pragma("warning(4:4121)")
-
-//typedef struct {
-//	union {
-//		u32 id; // 1 is the first valid index, 0 is invalid
-//		bool initialized;
-//	};
-//	u32 gen;
-//} SlotArrayHandle;
-
-//struct SlotArrayElemHeader {
-//	u32 gen;
-//	u32 next_free_item; // 0 means this slot is currently occupied
-//	// the value comes after the header
-//};
-
-typedef struct {
-	fAllocator* alc;
-	u32 value_size; // ...should we even have this?
-
-	u32 alive_count;
-
-	u32 slot_count;
-	u32 slot_count_log2; // if there are zero slots, this will be zero and the `slots` pointer will be null.
-	fOpt(void*) slots;
-} fMap64Raw;
+	fWriter backing_writer;
+	fBufferedWriter buffered_writer;
+	uint8_t buffer[F_FILE_WRITER_BUFFER_SIZE];
+} fFile;
 
 typedef struct {
 	fString file;
@@ -489,34 +483,6 @@ typedef fVisitDirectoryResult(*fVisitDirectoryVisitor)(const fVisitDirectoryInfo
 
 typedef struct fRangeUint { uint lo, hi; } fRangeUint;
 
-//
-// `temp_push`/`f_temp_pop` sets a convention for easily getting temporary memory
-// in a thread-safe way for a duration of some scope. Internally, foundation.cpp
-// declares a thread-local Arena.
-// 
-// If you have nested push/pop pairs, PopTemp doesn't actually pop the stack until
-// the final pop is called (when the scope counter reaches zero).
-// This is done to make sure you can safely pass the temp allocator to procedures that
-// return allocated memory back to the outer scope. e.g:
-// 
-// foo:
-//    fAllocator* temp = temp_push();
-//    MyArray<int> a = f_array_make(temp);
-//    bar(&a);
-//    f_temp_pop();
-// 
-// bar:
-//    fAllocator* temp = temp_push();
-//    Baz* baz = some_procedure_that_allocates_memory(temp);
-//    f_array_push(&a, baz->some_field)  // Potentially grow the array and require an allocation from the temp arena
-//    f_temp_pop();                  // Whoops, we might have just corrupted the entire array!
-// 
-// ... If the temp arena was popped at the end of `bar` to where it was when entering the procedure,
-// there would be a subtle bug. `f_array_push` would first use the temporary allocator to insert some value, requiring
-// a potential allocation by the array. Then `f_temp_pop` would be called, and the memory in use by the array
-// would marked available for subsequent temporary allocations, corrupting the entire array.
-// 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -533,8 +499,8 @@ fArena* f_arena_make_buffer_fixed(void* base, uint size);
 fArena* f_arena_make_ex(fArenaDesc desc);
 void f_arena_free(fArena* arena);
 
-fString f_arena_push(fArena* arena, uint size, uint_pow2 alignment);
-u8* f_arena_push_str(fArena* arena, fString data, uint_pow2 alignment);
+fString f_arena_push(fArena* arena, uint size, uint align);
+u8* f_arena_push_str(fArena* arena, fString data, uint align);
 
 u8* f_arena_get_contiguous_base(fArena* arena);
 uint f_arena_get_contiguous_cursor(fArena* arena);
@@ -593,8 +559,8 @@ fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_valu
 fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fAllocator* a);
 fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a);
 void f_array_free_raw(fArrayRaw* array, u32 elem_size);
-uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size, u32 elem_align);
-void f_array_push_n_raw(fArrayRaw* array, fSliceRaw elems, u32 elem_size, u32 elem_align);
+size_t f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size);
+size_t f_array_push_n_raw(fArrayRaw* array, const void* elems, size_t n, u32 elem_size);
 void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size);
 void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size);
 void f_array_resize_raw(fArrayRaw* array, uint len, fOpt(const void*) value, u32 elem_size); // set value to NULL to not initialize the memory
@@ -655,17 +621,22 @@ u64 f_hash64_str_ex(fString s, u64 seed);
 #define f_str_each(str, r, i) (uint i=0, r = 0, i##_next=0; r=f_str_next_rune(str, &i##_next); i=i##_next)
 #define f_str_each_reverse(str, r, i) (uint i=str.len; rune r=f_str_prev_rune(str, &i);)
 
-#define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, 1, allocator), len }
+#define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, allocator), len }
 
 fString f_aprint(fAllocator* a, const char* fmt, ...);
-char* f_aprint_cstr(fAllocator* a, const char* fmt, ...);
 fString f_tprint(const char* fmt, ...);
-char* f_tprint_cstr(const char* fmt, ...);
 
-void f_str_push(fArray(u8)* buffer, fString str);
-void f_str_push_rune(fArray(u8)* buffer, rune r);
-void f_str_push_repeat(fArray(u8)* buffer, fString str, uint count);
-void f_str_pushf(fArray(u8)* buffer, const char* fmt, ...);
+// hmm... maybe these sshould be called 'prints' / 'printb', etc.
+// The difference between "printing" and "writing" is that when talking about "printing",
+// it's always text.
+void f_writes(fWriter* writer, fString str); // write string
+void f_writeb(fWriter* writer, uint8_t b); // write byte
+// void f_writer(fWriter* writer, rune r); // write rune, TODO
+
+// TODO: custom formatting!
+void f_writef(fWriter* writer, const char* fmt, ...);
+
+void f_writes_repeat(fWriter* writer, fString str, uint count);
 
 fString f_str_advance(fString* str, uint len);
 fString f_str_clone(fString str, fAllocator* allocator);
@@ -691,7 +662,6 @@ bool f_str_starts_with(fString str, fString start);
 bool f_str_cut_end(fString* str, fString end);
 bool f_str_cut_start(fString* str, fString start);
 
-//void str_split(fString str, u8 character, fAllocator* a, Slice(fString)* out);
 void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)* out);
 
 fString f_str_join(fAllocator* a, fSlice(fString) args);
@@ -770,20 +740,28 @@ bool f_files_make_directory(fString path); // If the directory already exists, i
 bool f_files_read_whole(fString filepath, fAllocator* allocator, fString* out_str);
 bool f_files_write_whole(fString filepath, fString data);
 
-fFile f_files_open(fString filepath, fFileOpenMode mode);
-bool f_files_exists(fFile file);
-bool f_files_close(fFile file);
-uint f_files_size(fFile file);
-uint f_files_read(fFile file, void* dst, uint size);
-bool f_files_write(fFile file, fString data);
-uint f_files_get_position(fFile file);
-bool f_files_set_position(fFile file, uint position);
+bool f_files_open(fString filepath, fFileOpenMode mode, fFile* out_file);
+bool f_files_close(fFile* file);
+uint f_files_size(fFile* file);
+uint f_files_read(fFile* file, void* dst, uint size);
+bool f_files_write_unbuffered(fFile* file, fString data);
+uint f_files_get_position(fFile* file);
+bool f_files_set_position(fFile* file, uint position);
+
+void f_files_flush(fFile* file);
+inline fWriter* f_files_get_writer(fFile* file) { return (fWriter*)&file->buffered_writer; }
 
 u64 f_files_get_modtime(fString filepath); // it'd be nice if this used apollo time
 bool f_files_clone(fString src_filepath, fString dst_filepath);
 bool f_files_delete(fString filepath);
 
 fString f_files_pick_file_dialog(fAllocator* allocator);
+
+
+// TODO: writer. Should be buffered by default
+//inline fBufferedWriter f_files_writer(fFile* file) {
+//
+//}
 
 // -- Time --------------------------------------------------------------------
 
@@ -795,6 +773,44 @@ u32 f_random_u32();
 u64 f_random_u64();
 float f_random_float_in_range(float minimum, float maximum);
 
+// -- Writer --------------------------
+
+void f_writer_stdout_proc(fWriter* writer, void* data, size_t size);
+void f_string_builder_writer_proc(fWriter* writer, void* data, size_t size);
+void f_buffered_writer_proc(fWriter* writer, void* data, size_t size);
+
+void f_flush_buffered_writer(fBufferedWriter* writer);
+
+// NOTE: You must remember to call `f_close_buffered_writer`
+inline fBufferedWriter f_open_buffered_writer(fWriter* backing, u8* buffer, uint32_t buffer_size) {
+	fBufferedWriter writer;
+	writer.writer.proc = f_buffered_writer_proc;
+	writer.writer.userdata = backing;
+	writer.buffer = buffer;
+	writer.buffer_size = buffer_size;
+	writer.current_pos = 0;
+	return writer;
+}
+
+inline void f_close_buffered_writer(fBufferedWriter* writer) {
+	f_flush_buffered_writer(writer);
+}
+
+inline fWriter f_get_stdout() {
+	fWriter writer = { f_writer_stdout_proc, NULL };
+	return writer;
+}
+
+inline void f_init_string_builder(fStringBuilder* builder, fAllocator* alc) {
+	fArrayRaw buffer = f_array_make_raw(alc);
+	memcpy(&builder->buffer, &buffer, sizeof(fArrayRaw)); // memcpy because of C++ semantics and templated fArray
+	builder->writer.proc = f_string_builder_writer_proc;
+	builder->writer.userdata = &builder->buffer;
+	builder->w = &builder->writer;
+}
+
 #ifdef __cplusplus
 } // extern "C"
+#endif
+
 #endif

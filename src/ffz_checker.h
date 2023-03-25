@@ -392,10 +392,10 @@ bool ffz_type_is_grounded(ffzType* type); // a type is grounded when a runtime v
 bool ffz_type_can_be_checked_for_equality(ffzType* type);
 
 fString ffz_type_to_string(ffzProject* p, ffzType* type);
-const char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
+char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
 
 fString ffz_constant_to_string(ffzProject* p, ffzCheckedExpr constant);
-const char* ffz_constant_to_cstring(ffzProject* p, ffzCheckedExpr constant);
+char* ffz_constant_to_cstring(ffzProject* p, ffzCheckedExpr constant);
 
 //ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
 ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst);

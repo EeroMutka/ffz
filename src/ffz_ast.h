@@ -4,6 +4,9 @@
 // and utilities for dealing with the tree.
 //
 
+#define F_MINIMAL_INCLUDE
+#include "foundation/foundation.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -336,7 +339,7 @@ ffzOk ffz_parse(ffzParser* p);
 
 fOpt(ffzNode*) ffz_skip_standalone_tags(fOpt(ffzNode*) node);
 
-fString ffz_print_ast(fAllocator* alc, ffzNode* node);
+void ffz_print_ast(fWriter* w, ffzNode* node);
 
 #ifdef __cplusplus
 } // extern "C"
