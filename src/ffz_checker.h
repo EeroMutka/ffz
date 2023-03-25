@@ -1,5 +1,5 @@
 //
-// ffz_checker is a submodule within ffz whose purpose is to check if a given ffz program is valid or not.
+// The purpose of checker is to check if a given ffz program is valid or not.
 // This includes figuring out the types of expressions and checking if they match, substituting polymorphic types and making them concrete,
 // amongst other things. While doing so, the checker caches information about the program, such as type information, that can be useful in later stages.
 // The checker takes in an abstract syntax tree form of a program as input, so it is dependend on "ffz_ast.h".
@@ -74,14 +74,6 @@ typedef ffzHash ffzPolymorphHash; // PolyInstHash should be consistent across mo
 typedef ffzHash ffzTypeHash; // Should be consistent across modules across identical code!
 typedef ffzHash ffzConstantHash; // Should be consistent across modules across identical code!
 
-/*typedef union ffzCheckerRelID {
-	struct {
-		ffzCheckerID checker_id;
-		ffzCheckerLocalID local_id;
-	};
-	u64 global_id;
-} ffzCheckerRelID;*/
-
 typedef enum ffzTypeTag {
 	ffzTypeTag_Invalid,
 
@@ -152,7 +144,6 @@ typedef struct ffzPolymorph {
 	ffzNodeInst node;
 	fSlice(ffzCheckedExpr) parameters;
 } ffzPolymorph;
-
 
 struct ffzType;
 

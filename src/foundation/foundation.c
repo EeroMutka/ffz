@@ -9,7 +9,7 @@
 #define fSlice(T) fSliceRaw
 #define fMap64(T) fMap64Raw
 
-#include <stdio.h> // for vsnprintf
+#include <stdio.h> // for snprintf
 #include <stdarg.h> // for va_list
 #include <stdlib.h> // for strtod
 
@@ -135,25 +135,25 @@ fString f_str_path_dir(fString path) {
 }
 
 // returns a zero-terminated string
-fString str_format_va_list(fAllocator* alc, const char* fmt, va_list args) {
-	va_list _args;
-	va_copy(_args, args);
+//fString str_format_va_list(fAllocator* alc, const char* fmt, va_list args) {
+//	va_list _args;
+//	va_copy(_args, args);
+//
+//	uint needed_bytes = vsnprintf(0, 0, fmt, args) + 1;
+//	
+//	fString result = f_str_make(needed_bytes, alc);
+//	result.len -= 1;
+//	result.data[result.len] = 0;
+//
+//	vsnprintf((char*)result.data, needed_bytes, fmt, _args);
+//	return result;
+//}
 
-	uint needed_bytes = vsnprintf(0, 0, fmt, args) + 1;
-	
-	fString result = f_str_make(needed_bytes, alc);
-	result.len -= 1;
-	result.data[result.len] = 0;
-
-	vsnprintf((char*)result.data, needed_bytes, fmt, _args);
-	return result;
-}
-
-void f_writes(fWriter* w, fString str) {
+void f_prints(fWriter* w, fString str) {
 	w->proc(w, str.data, str.len);
 }
 
-void f_writeb(fWriter* w, uint8_t b) {
+void f_printb(fWriter* w, uint8_t b) {
 	w->proc(w, &b, 1);
 }
 
@@ -162,53 +162,100 @@ void f_writeb(fWriter* w, uint8_t b) {
 //	w->proc(w, &r, 1);
 //}
 
-void f_writes_repeat(fWriter* w, fString str, uint count) {
-	for (uint i = 0; i < count; i++) f_writes(w, str);
+void f_prints_repeat(fWriter* w, fString str, uint count) {
+	for (uint i = 0; i < count; i++) f_prints(w, str);
 }
 
-fString f_aprint(fAllocator* a, const char* fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	fString result = str_format_va_list(a, fmt, args);
-	va_end(args);
-	return result;
+void f_printc(fWriter* w, const char* str) {
+	w->proc(w, str, strlen(str));
 }
 
-char* f_aprint_cstr(fAllocator* a, const char* fmt, ...) {
+fString f_aprint(fAllocator* alc, const char* fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	char* result = str_format_va_list(a, fmt, args).data;
+
+	fStringBuilder builder; f_init_string_builder(&builder, alc);
+	f_print_va(builder.w, fmt, args);
+
 	va_end(args);
-	return result;
+	return builder.str;
 }
 
 fString f_tprint(const char* fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	fString result = str_format_va_list(f_temp_alc(), fmt, args);
+	
+	fStringBuilder builder; f_init_string_builder(&builder, f_temp_alc());
+	f_print_va(builder.w, fmt, args);
+
 	va_end(args);
-	return result;
+	return builder.str;
 }
 
-char* f_tprint_cstr(const char* fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	char* result = str_format_va_list(f_temp_alc(), fmt, args).data;
-	va_end(args);
-	return result;
+// No error handling is done, it's assumed that the format string is valid
+void f_print_va(fWriter* w, const char* fmt, va_list args) {
+	for (const char* c = fmt; *c; c++) {
+		if (*c == '~') {
+			c++;
+			if (*c == 0) return;
+
+			switch (*c) {
+			case 's': {
+				fString str = va_arg(args, fString);
+				f_prints(w, str);
+			} break;
+
+			case 'c': {
+				char* c_str = va_arg(args, char*);
+				f_printc(w, c_str);
+			} break;
+
+			case '~': {
+				f_printc(w, "`~");
+			} break;
+
+			case 'x': // fallthrough
+			case 'i': // fallthrough
+			case 'u': {
+				char format_c = *c;
+				c++;
+				if (*c == 0) return;
+				
+				uint64_t value = 0;
+				switch (*c) {
+				case '8': { value = va_arg(args, uint8_t); } break; // u8
+				case '1': { value = va_arg(args, uint16_t); } break; // u16
+				case '3': { value = va_arg(args, uint32_t); } break; // u32
+				case '6': { value = va_arg(args, uint64_t); } break; // u64
+				default: F_ASSERT(false);
+				}
+				
+				if (*c != '8') { // u8 is the only one with only 1 character
+					*c++;
+					if (*c == 0) return;
+				}
+
+				if (format_c == 'i') {
+					f_print_int(w, value, 10);
+				} else {
+					f_print_uint(w, value, format_c == 'x' ? 16 : 10);
+				}
+
+			} break;
+
+			}
+		}
+		else {
+			w->proc(w, c, 1);
+		}
+	}
 }
 
-void f_writef(fWriter* w, const char* fmt, ...) {
-	//fArenaMark mark = f_temp_get_mark();
-	
+void f_print(fWriter* w, const char* fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	fString str = str_format_va_list(f_temp_alc(), fmt, args);
+	f_print_va(w, fmt, args);
 	va_end(args);
-	
-	f_writes(w, str);
-	// hmm... we can't do f_temp_set_mark because of the callback...
-	//f_temp_set_mark(mark);
 }
 
 void f_mem_copy(void* dst, const void* src, uint size) { memcpy(dst, src, size); }
@@ -485,10 +532,10 @@ void f_leak_tracker_deinit() {
 	
 	fLeakTracker_Entry* entry;
 	for f_map64_each_raw(&_f_leak_tracker.active_allocations, key, &entry) {
-		printf("Leak tracker still has an active entry! Original callstack:\n");
+		__debugbreak();//printf("Leak tracker still has an active entry! Original callstack:\n");
 		for (uint i = 0; i < entry->callstack.len; i++) {
-			fLeakTrackerCallstackEntry stackframe = ARRAY_IDX(fLeakTrackerCallstackEntry, entry->callstack, i);
-			printf("   - file: %s, line: %u\n", f_str_t_to_cstr(stackframe.file), stackframe.line);
+			//fLeakTrackerCallstackEntry stackframe = ARRAY_IDX(fLeakTrackerCallstackEntry, entry->callstack, i);
+			__debugbreak(); //printf("   - file: %s, line: %u\n", f_str_t_to_cstr(stackframe.file), stackframe.line);
 		}
 	}
 
@@ -653,33 +700,59 @@ u32 f_random_u32() {
 	return 0;
 }
 
-fString f_str_from_uint(fString bytes, fAllocator* a) {
-	F_ASSERT(bytes.len == 1 || bytes.len == 2 || bytes.len == 4 || bytes.len == 8);
-	return bytes.len == 1 ?
-			f_aprint(a, "%hhu", *(u8*)bytes.data) : bytes.len == 2 ?
-			f_aprint(a, "%hu", *(u16*)bytes.data) : bytes.len == 4 ?
-			f_aprint(a, "%u", *(u32*)bytes.data) :
-			f_aprint(a, "%llu", *(u64*)bytes.data);
+void f_print_uint(fWriter* w, uint64_t value, size_t base) {
+	F_ASSERT(base == 10 || base == 16); // TODO
+	char buffer[32];
+	size_t buffer_size;
+	if (base == 16) {
+		buffer_size = snprintf(buffer, F_LEN(buffer), "%llx", value);
+	} else {
+		buffer_size = snprintf(buffer, F_LEN(buffer), "%llu", value);
+	}
+	w->proc(w, buffer, buffer_size);
 }
 
-fString f_str_from_int(fString bytes, fAllocator* a) {
-	F_ASSERT(bytes.len == 1 || bytes.len == 2 || bytes.len == 4 || bytes.len == 8);
-	return bytes.len == 1 ?
-			f_aprint(a, "%hhd", *(s8*)bytes.data) : bytes.len == 2 ?
-			f_aprint(a, "%hd", *(s16*)bytes.data) : bytes.len == 4 ?
-			f_aprint(a, "%d", *(s32*)bytes.data) :
-			f_aprint(a, "%lld", *(s64*)bytes.data);
+void f_print_int(fWriter* w, int64_t value, size_t base) {
+	F_ASSERT(base == 10 || base == 16); // TODO
+	char buffer[32];
+	size_t buffer_size;
+	if (base == 16) {
+		buffer_size = snprintf(buffer, F_LEN(buffer), "%llx", value);
+	} else {
+		buffer_size = snprintf(buffer, F_LEN(buffer), "%lld", value);
+	}
+	w->proc(w, buffer, buffer_size);
 }
 
-fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* a) {
-	char fmt_string[5] = { '%', '.', '0' + (char)F_MIN(num_decimals, 9), 'f', 0 };
-	return f_aprint(a, fmt_string, value);
+void f_print_float(fWriter* w, double value) {
+	char buffer[64];
+	size_t buffer_size = snprintf(buffer, F_LEN(buffer), "%f", value);
+	w->proc(w, buffer, buffer_size);
 }
 
-fString f_str_from_float(f64 value, fAllocator* a) {
-	return f_aprint(a, "%f", value);
+fString f_str_from_uint(uint64_t value, size_t base, fAllocator* alc) {
+	fStringBuilder builder; f_init_string_builder(&builder, alc);
+	f_print_uint(builder.w, value, base);
+	return builder.str;
 }
 
+fString f_str_from_int(int64_t value, size_t base, fAllocator* alc) {
+	fStringBuilder builder; f_init_string_builder(&builder, alc);
+	f_print_int(builder.w, value, base);
+	return builder.str;
+}
+
+fString f_str_from_float(double value, fAllocator* alc) {
+	fStringBuilder builder; f_init_string_builder(&builder, alc);
+	f_print_float(builder.w, value);
+	return builder.str;
+}
+
+//fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* a) {
+//	char fmt_string[5] = { '%', '.', '0' + (char)F_MIN(num_decimals, 9), 'f', 0 };
+//	return f_aprint(a, fmt_string, value);
+//}
+//
 
 //fSlice(u8) global_allocator_alloc(fAllocator* a, uint size, uint alignment) {
 //	fSlice(u8) allocation;
@@ -2055,8 +2128,8 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		return true;
 	}
 
-	static void f_file_unbuffered_writer_proc(fWriter* writer, void* data, uint size) {
-		bool ok = f_files_write_unbuffered((fFile*)writer->userdata, (fString){ data, size });
+	static void f_file_unbuffered_writer_proc(fWriter* writer, const void* data, uint size) {
+		bool ok = f_files_write_unbuffered((fFile*)writer->userdata, (fString){ (void*)data, size });
 		F_ASSERT(ok);
 	}
 
@@ -2221,40 +2294,39 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		
 		fString* arg_strings = args.data;
 
-		fStringBuilder cmd_string;
-		f_init_string_builder(&cmd_string, f_temp_alc());
+		fStringBuilder cmd_string; f_init_string_builder(&cmd_string, f_temp_alc());
 
 		for (uint i = 0; i < args.len; i++) {
 			fString arg = arg_strings[i];
 			
-			f_writeb(cmd_string.w, '\"');
+			f_printb(cmd_string.w, '\"');
 			
 			for (uint j = 0; j < arg.len; j++) {
 				if (arg.data[j] == '\"') {
-					f_writeb(cmd_string.w, '\\'); // escape quotation marks with a backslash
+					f_printb(cmd_string.w, '\\'); // escape quotation marks with a backslash
 				}
 				else if (arg.data[j] == '\\') {
 					if (j + 1 == arg.len) {
 						// if we have a backslash and it's the last character in the string,
 						// we must push \\"
-						f_writef(cmd_string.w, "\\\\");
+						f_printc(cmd_string.w, "\\\\");
 						break;
 					}
 					else if (arg.data[j + 1] == '\"') {
 						// if we have a backslash and the next character is a quotation mark,
 						// we must push \\\"
-						f_writef(cmd_string.w, "\\\\\\\"");
+						f_printc(cmd_string.w, "\\\\\\\"");
 						j++; // also skip the next "
 						continue;
 					}
 				}
 				
-				f_writeb(cmd_string.w, arg.data[j]);
+				f_printb(cmd_string.w, arg.data[j]);
 			}
 			
-			f_writeb(cmd_string.w, '\"');
+			f_printb(cmd_string.w, '\"');
 			
-			if (i < args.len - 1) f_writeb(cmd_string.w, ' '); // Separate each argument with a space
+			if (i < args.len - 1) f_printb(cmd_string.w, ' '); // Separate each argument with a space
 		}
 
 		uint cmd_string_utf16_len;

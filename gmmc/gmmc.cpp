@@ -401,7 +401,7 @@ GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t ali
 	global->self_idx = (gmmcGlobalIdx)f_array_push(&m->globals, global);
 	global->sym.kind = gmmcSymbolKind_Global;
 	global->sym.module = m;
-	global->sym.name = f_aprint(m->allocator, "g$%u", global->self_idx);
+	global->sym.name = f_aprint(m->allocator, "g$~u32", global->self_idx);
 	global->size = size;
 	global->align = align;
 	global->section = section;

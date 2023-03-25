@@ -327,13 +327,14 @@ u32 ffz_get_child_count(fOpt(ffzNode*) parent); // returns 0 if parent is NULL
 u32 ffz_operator_get_precedence(ffzNodeKind kind);
 
 fString ffz_keyword_to_string(ffzKeyword keyword);
-char* ffz_keyword_to_cstring(ffzKeyword keyword);
+//char* ffz_keyword_to_cstring(ffzKeyword keyword);
 
 fString ffz_node_kind_to_string(ffzNodeKind kind);
-char* ffz_node_kind_to_cstring(ffzNodeKind kind);
+//char* ffz_node_kind_to_cstring(ffzNodeKind kind);
 
 fString ffz_node_kind_to_op_string(ffzNodeKind kind);
-char* ffz_node_kind_to_op_cstring(ffzNodeKind kind);
+//char* ffz_node_kind_to_op_cstring(ffzNodeKind kind);
+
 
 ffzOk ffz_parse(ffzParser* p);
 

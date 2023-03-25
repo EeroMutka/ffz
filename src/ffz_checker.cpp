@@ -105,9 +105,7 @@ static ffzOk _add_unique_definition(ffzChecker* c, ffzNodeIdentifier* def) {
 	for (ffzCheckerScope* scope = c->current_scope; scope; scope = scope->parent) {
 		ffzDefinitionPath path = { scope->node, name };
 		if (ffzNodeIdentifier** existing = f_map64_get(&c->definition_map, ffz_hash_declaration_path(path))) {
-			ERR(c, def, "`%s` is already declared before (at line: %u)",
-				f_str_to_cstr(name, c->alc),
-				(*existing)->loc.start.line_num);
+			ERR(c, def, "`~s` is already declared before (at line: ~u32)", name, (*existing)->loc.start.line_num);
 		}
 	}
 	
@@ -195,49 +193,49 @@ void _write_constant(ffzProject* p, fWriter* w, ffzCheckedExpr constant);
 
 void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	switch (type->tag) {
-	case ffzTypeTag_Invalid: { f_writef(w, "<invalid>"); } break;
-	case ffzTypeTag_Module: { f_writef(w, "<module>"); } break;
-	case ffzTypeTag_PolyProc: { f_writef(w, "<poly-proc>"); } break;
-	case ffzTypeTag_PolyRecord: { f_writef(w, "<poly-struct>"); } break;
+	case ffzTypeTag_Invalid: { f_print(w, "<invalid>"); } break;
+	case ffzTypeTag_Module: { f_print(w, "<module>"); } break;
+	case ffzTypeTag_PolyProc: { f_print(w, "<poly-proc>"); } break;
+	case ffzTypeTag_PolyRecord: { f_print(w, "<poly-struct>"); } break;
 		//case TypeTag_UninstantiatedPolyStruct: { str_print(builder, F_LIT("[uninstantiated polymorphic struct]")); } break;
 	case ffzTypeTag_Type: {
-		f_writef(w, "<type>"); // maybe it'd be good to actually store the type type thing in the type
+		f_print(w, "<type>"); // maybe it'd be good to actually store the type type thing in the type
 	} break;
-	case ffzTypeTag_Bool: { f_writef(w, "bool"); } break;
-	case ffzTypeTag_Raw: { f_writef(w, "raw"); } break;
+	case ffzTypeTag_Bool: { f_print(w, "bool"); } break;
+	case ffzTypeTag_Raw: { f_print(w, "raw"); } break;
 	case ffzTypeTag_Pointer: {
-		f_writef(w, "^");
+		f_print(w, "^");
 		_write_type(p, w, type->Pointer.pointer_to);
 	} break;
-	case ffzTypeTag_DefaultSint: { f_writef(w, "int"); } break;
-	case ffzTypeTag_DefaultUint: { f_writef(w, "uint"); } break;
+	case ffzTypeTag_DefaultSint: { f_print(w, "int"); } break;
+	case ffzTypeTag_DefaultUint: { f_print(w, "uint"); } break;
 	case ffzTypeTag_Sint: {
-		f_writef(w, "s%u", type->size * 8);
+		f_print(w, "s~u32", type->size * 8);
 	} break;
 	case ffzTypeTag_Uint: {
-		f_writef(w, "u%u", type->size * 8);
+		f_print(w, "u~u32", type->size * 8);
 	} break;
 	case ffzTypeTag_Float: {
-		f_writef(w, "f%u", type->size * 8);
+		f_print(w, "f~u32", type->size * 8);
 	} break;
 	case ffzTypeTag_Proc: {
 		ffzNodeInst s = type->unique_node;
 		fString name = ffz_get_parent_decl_name(s.node);
 		if (name.len > 0) {
-			f_writes(w, name);
+			f_prints(w, name);
 		}
 		else {
-			f_writef(w, "<anonymous-proc|line:%u,col:%u>",
+			f_print(w, "<anonymous-proc|line:~u32,col:~u32>",
 				s.node->loc.start.line_num, s.node->loc.start.column_num);
 		}
 
 		if (ffz_get_child_count(s.node->ProcType.polymorphic_parameters) > 0) {
-			f_writef(w, "[");
+			f_print(w, "[");
 			for (uint i = 0; i < s.polymorph->parameters.len; i++) {
-				if (i > 0) f_writef(w, ", ");
+				if (i > 0) f_print(w, ", ");
 				_write_type(p, w, s.polymorph->parameters[i].type);
 			}
-			f_writef(w, "]");
+			f_print(w, "]");
 		}
 		//str_print(builder, F_LIT("proc("));
 		//for (uint i = 0; i < type->Proc.in_parameter_types.len; i++) {
@@ -255,42 +253,42 @@ void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 		ffzNodeInst n = type->unique_node;
 		fString name = ffz_get_parent_decl_name(n.node);
 		if (name.len > 0) {
-			f_writes(w, name);
+			f_prints(w, name);
 		}
 		else {
-			f_writef(w, "[anonymous enum defined at line:%u, col:%u]", n.node->loc.start.line_num, n.node->loc.start.column_num);
+			f_print(w, "[anonymous enum defined at line:~u32, col:~u32]", n.node->loc.start.line_num, n.node->loc.start.column_num);
 		}
 	} break;
 	case ffzTypeTag_Record: {
 		ffzNodeRecordInst n = type->unique_node;
 		fString name = ffz_get_parent_decl_name(n.node);
 		if (name.len > 0) {
-			f_writes(w, name);
+			f_prints(w, name);
 		}
 		else {
-			f_writef(w, "[anonymous %s defined at line:%u, col:%u]",
+			f_print(w, "[anonymous ~c defined at line:~u32, col:~u32]",
 				n.node->Record.is_union ? "union" : "struct", n.node->loc.start.line_num, n.node->loc.start.column_num);
 		}
 
 		if (ffz_get_child_count(n.node->Record.polymorphic_parameters) > 0) {
-			f_writef(w, "[");
+			f_print(w, "[");
 			
 			for (uint i = 0; i < n.polymorph->parameters.len; i++) {
-				if (i > 0) f_writef(w, ", ");
+				if (i > 0) f_print(w, ", ");
 				_write_constant(p, w, n.polymorph->parameters[i]);
 			}
-			f_writef(w, "]");
+			f_print(w, "]");
 		}
 	} break;
 	case ffzTypeTag_Slice: {
-		f_writef(w, "[]");
+		f_print(w, "[]");
 		_write_type(p, w, type->Slice.elem_type);
 	} break;
 	case ffzTypeTag_String: {
-		f_writef(w, "string");
+		f_print(w, "string");
 	} break;
 	case ffzTypeTag_FixedArray: {
-		f_writef(w, "[%u]", type->FixedArray.length);
+		f_print(w, "[~i32]", type->FixedArray.length);
 		_write_type(p, w, type->FixedArray.elem_type);
 	} break;
 	default: F_ASSERT(false);
@@ -330,7 +328,7 @@ fString ffz_type_to_string(ffzProject* p, ffzType* type) {
 char* ffz_type_to_cstring(ffzProject* p, ffzType* type) {
 	fStringBuilder builder; f_init_string_builder(&builder, f_temp_alc());
 	_write_type(p, builder.w, type);
-	f_writeb(builder.w, 0);
+	f_printb(builder.w, 0);
 	return (char*)builder.buffer.data;
 }
 
@@ -427,8 +425,8 @@ static ffzOk add_fields_to_field_from_name_map(ffzChecker* c, ffzType* root_type
 
 		auto insertion = f_map64_insert(&c->field_from_name_map, ffz_hash_field(root_type, field->name), field_use, fMapInsert_DoNotOverride);
 		if (!insertion.added) {
-			ERR(c, field->decl.node, "`%s` is already declared before inside (TODO: print struct name) (TODO: print line)",
-				f_str_to_cstr(field->name, c->alc)); // (*insertion._unstable_ptr)->name->start_pos.line_number);
+			ERR(c, field->decl.node, "`~s` is already declared before inside (TODO: print struct name) (TODO: print line)",
+				field->name); // (*insertion._unstable_ptr)->name->start_pos.line_number);
 		}
 
 		if (field->decl.node) {
@@ -482,8 +480,8 @@ static bool type_is_a_bit_by_bit(ffzProject* p, ffzType* src, ffzType* target) {
 
 static ffzOk check_types_match(ffzChecker* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
 	if (!type_is_a_bit_by_bit(c->project, received, expected)) {
-		ERR(c, node, "%s\n    received: %s\n    expected: %s",
-			message, ffz_type_to_cstring(c->project, received), ffz_type_to_cstring(c->project, expected));
+		ERR(c, node, "~c\n    received: ~s\n    expected: ~s",
+			message, ffz_type_to_string(c->project, received), ffz_type_to_string(c->project, expected));
 	}
 	return { true };
 }
@@ -499,7 +497,7 @@ static ffzOk check_procedure_call(ffzChecker* c, ffzNodeOpInst inst, OPT(ffzType
 
 	ffzType* type = left_chk.type;
 	if (left_chk.type->tag != ffzTypeTag_Proc) {
-		ERR(c, left.node, "Attempted to call a non-procedure (%s)", ffz_type_to_cstring(c->project, left_chk.type));
+		ERR(c, left.node, "Attempted to call a non-procedure (~s)", ffz_type_to_string(c->project, left_chk.type));
 	}
 
 	*out_type = type->Proc.out_param ? type->Proc.out_param->type : NULL;
@@ -554,8 +552,8 @@ static ffzOk check_two_sided(ffzChecker* c, ffzNodeInst left, ffzNodeInst right,
 		if (type_is_a_bit_by_bit(c->project, left_chk.type, right_chk.type))      result = right_chk.type;
 		else if (type_is_a_bit_by_bit(c->project, right_chk.type, left_chk.type)) result = left_chk.type;
 		else {
-			ERR(c, left.node->parent, "Types do not match.\n    left:    %s\n    right:   %s",
-				ffz_type_to_cstring(c->project, left_chk.type), ffz_type_to_cstring(c->project, right_chk.type));
+			ERR(c, left.node->parent, "Types do not match.\n    left:    ~s\n    right:   ~s",
+				ffz_type_to_string(c->project, left_chk.type), ffz_type_to_string(c->project, right_chk.type));
 		}
 	}
 	*out_type = result;
@@ -834,14 +832,14 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 			}
 
 			if (result->type && !is_basic_type_size(result->type->size)) {
-				ERR(c, inst.node, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: %u", result->type->size);
+				ERR(c, inst.node, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: ~u32", result->type->size);
 			}
 
 			fall = false;
 		}
 		else if (keyword == ffzKeyword_size_of || keyword == ffzKeyword_align_of) {
 			if (ffz_get_child_count(inst.node) != 1) {
-				ERR(c, inst.node, "Incorrect number of arguments to %s.", ffz_keyword_to_cstring(keyword));
+				ERR(c, inst.node, "Incorrect number of arguments to ~s.", ffz_keyword_to_string(keyword));
 			}
 
 			ffzCheckedExpr chk;
@@ -968,7 +966,7 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 				result->type = ffz_make_type_fixed_array(c, elem_type, (s32)elems_chk.len);
 			}
 			else if (elems_chk.len != expected) {
-				ERR(c, inst.node, "Incorrect number of array initializer arguments. Expected %d, got %d", expected, elems_chk.len);
+				ERR(c, inst.node, "Incorrect number of array initializer arguments. Expected ~u32, got ~u32", expected, (u32)elems_chk.len);
 			}
 
 			if (all_elems_are_constant) {
@@ -1009,7 +1007,7 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 		}
 	}
 	else {
-		ERR(c, inst.node, "{}-initializer is not allowed for `%s`.", ffz_type_to_cstring(c->project, result->type));
+		ERR(c, inst.node, "{}-initializer is not allowed for `~s`.", ffz_type_to_string(c->project, result->type));
 	}
 	return FFZ_OK;
 }
@@ -1074,8 +1072,8 @@ static ffzOk check_post_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzChec
 
 		if (!(left_chk.type->tag == ffzTypeTag_Slice || left_chk.type->tag == ffzTypeTag_FixedArray)) {
 			ERR(c, inst.node->Op.left,
-				"Expected an array, a slice, or a polymorphic type as the target of 'post-square-brackets'.\n    received: %s",
-				ffz_type_to_cstring(c->project, left_chk.type));
+				"Expected an array, a slice, or a polymorphic type as the target of 'post-square-brackets'.\n    received: ~s",
+				ffz_type_to_string(c->project, left_chk.type));
 		}
 
 		ffzType* elem_type = left_chk.type->tag == ffzTypeTag_Slice ? left_chk.type->Slice.elem_type : left_chk.type->FixedArray.elem_type;
@@ -1088,8 +1086,8 @@ static ffzOk check_post_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzChec
 			TRY(check_node(c, index, NULL, 0, &index_chk));
 
 			if (!ffz_type_is_integer(index_chk.type->tag)) {
-				ERR(c, index.node, "Incorrect type with a slice index; should be an integer.\n    received: %s",
-					ffz_type_to_cstring(c->project, index_chk.type));
+				ERR(c, index.node, "Incorrect type with a slice index; should be an integer.\n    received: ~s",
+					ffz_type_to_string(c->project, index_chk.type));
 			}
 
 			result->type = elem_type;
@@ -1188,7 +1186,7 @@ static ffzOk check_member_access(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr
 		}
 	}
 
-	if (!found) ERR(c, right.node, "Declaration not found for '%.*s' inside '%.*s'", F_STRF(member_name), F_STRF(lhs_name));
+	if (!found) ERR(c, right.node, "Declaration not found for '~s' inside '~s'", member_name, lhs_name);
 
 	return FFZ_OK;
 }
@@ -1226,7 +1224,7 @@ ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 			ERR(c, name, "Top-level declaration must be constant, or @|global, but got a non-constant.");
 		}
 	} break;
-	default: ERR(c, node, "Top-level node must be a declaration; got: %s", ffz_node_kind_to_cstring(node->kind));
+	default: ERR(c, node, "Top-level node must be a declaration; got: ~s", ffz_node_kind_to_string(node->kind));
 	}
 	return { true };
 }
@@ -1462,7 +1460,7 @@ static ffzOk check_enum(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* result)
 
 	uint i = 0;
 	for FFZ_EACH_CHILD_INST(n, inst) {
-		if (n.node->kind != ffzNodeKind_Declare) ERR(c, n.node, "Expected a declaration; got: [%s]", ffz_node_kind_to_cstring(n.node->kind));
+		if (n.node->kind != ffzNodeKind_Declare) ERR(c, n.node, "Expected a declaration; got: [~s]", ffz_node_kind_to_string(n.node->kind));
 
 		// NOTE: Infer the declaration from the enum internal type!
 		ffzCheckedExpr chk;
@@ -1477,7 +1475,7 @@ static ffzOk check_enum(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* result)
 		auto val_taken = f_map64_insert(&c->enum_value_is_taken, ffz_hash_enum_value(enum_type_ptr, val), n.node, fMapInsert_DoNotOverride);
 		if (!val_taken.added) {
 			fString taken_by = (*val_taken._unstable_ptr)->Op.left->Identifier.name;
-			ERR(c, n.node->Op.right, "The enum value `%llu` is already taken by `%.*s`.", val, F_STRF(taken_by));
+			ERR(c, n.node->Op.right, "The enum value `~u64` is already taken by `~s`.", val, taken_by);
 		}
 		i++;
 	}
@@ -1553,7 +1551,7 @@ static ffzOk check_identifier(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* r
 
 	ffzNodeIdentifierInst def = ffz_get_definition(c->project, inst);
 	if (!def.node) {
-		ERR(c, inst.node, "Declaration not found for an identifier: \"%s\"", f_str_to_cstr(name, c->alc));
+		ERR(c, inst.node, "Declaration not found for an identifier: \"~s\"", name);
 	}
 
 	/*
@@ -1868,8 +1866,8 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		TRY(check_node(c, CHILD(inst, Op.right), require_type, flags, &right_chk));
 		
 		if (!ffz_type_is_integer(right_chk.type->tag) && !ffz_type_is_float(right_chk.type->tag)) {
-			ERR(c, inst.node->Op.right, "Incorrect arithmetic type; should be an integer or a float.\n    received: %s",
-				ffz_type_to_cstring(c->project, right_chk.type));
+			ERR(c, inst.node->Op.right, "Incorrect arithmetic type; should be an integer or a float.\n    received: ~s",
+				ffz_type_to_string(c->project, right_chk.type));
 		}
 		result.type = right_chk.type;
 	} break;
@@ -1933,8 +1931,8 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 			result.type = ffz_builtin_type(c, ffzKeyword_bool);
 		}
 		else {
-			ERR(c, inst.node, "Operator '%s' is not defined for type '%s'",
-				ffz_node_kind_to_op_cstring(inst.node->kind), ffz_type_to_cstring(c->project, type));
+			ERR(c, inst.node, "Operator '~s' is not defined for type '~s'",
+				ffz_node_kind_to_op_string(inst.node->kind), ffz_type_to_string(c->project, type));
 		}
 	} break;
 
@@ -1944,8 +1942,8 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), &type));
 		
 		if (type && !ffz_type_is_integer(type->tag)) {
-			ERR(c, inst.node, "Incorrect arithmetic type; should be an integer.\n    received: ",
-				ffz_type_to_cstring(c->project, type));
+			ERR(c, inst.node, "Incorrect arithmetic type; should be an integer.\n    received: ~s",
+				ffz_type_to_string(c->project, type));
 		}
 		result.type = type;
 	} break;
@@ -1984,9 +1982,9 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 					bool ok = masked == src && (src_is_negative == masked_is_negative) && (ffz_type_is_signed_integer(require_type->tag) || !src_is_negative);
 					if (!ok) {
 						if (ffz_type_is_signed_integer(result.type->tag)) {
-							ERR(c, inst.node, "Constant type-cast failed; value '%lld' can't be represented in type '%s'.", src, ffz_type_to_cstring(c->project, require_type));
+							ERR(c, inst.node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(c->project, require_type));
 						} else {
-							ERR(c, inst.node, "Constant type-cast failed; value '%llu' can't be represented in type '%s'.", src, ffz_type_to_cstring(c->project, require_type));
+							ERR(c, inst.node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(c->project, require_type));
 						}
 					}
 					// NOTE: we don't need to make a new constant value, as the encoding for it would be exactly the same.
@@ -2096,12 +2094,12 @@ void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc
 
 	f_os_print_color(parser->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
 
-	fString line_num_str = f_str_from_uint(F_AS_BYTES(loc.start.line_num), f_temp_alc());
+	fString line_num_str = f_str_from_uint(loc.start.line_num, 10, f_temp_alc());
 
 	f_os_print(F_LIT(":"));
 	f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
 	f_os_print(F_LIT(":"));
-	f_os_print_color(f_str_from_uint(F_AS_BYTES(loc.start.column_num), f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
+	f_os_print_color(f_str_from_uint(loc.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
 	f_os_print(F_LIT(")\n  "));
 	f_os_print(error);
 	f_os_print(F_LIT("\n"));
@@ -2159,7 +2157,7 @@ void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc
 static bool _parse_and_check_directory(ffzProject* project, fString _directory, ffzChecker** out_checker, fString _dbg_module_import_name) {
 	fString directory;
 	if (!f_files_path_to_canonical({}, _directory, f_temp_alc(), &directory)) {
-		printf("Invalid directory: \"%.*s\"\n", F_STRF(directory));
+		__debugbreak();//printf("Invalid directory: \"~s\"\n", directory);
 		return false;
 	}
 	
@@ -2209,7 +2207,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString _directory, 
 			return fVisitDirectoryResult_Continue;
 		}, &visit))
 	{
-		printf("Directory `%.*s` does not exist!\n", F_STRF(directory));
+		__debugbreak(); //printf("Directory `~s` does not exist!\n", directory);
 		return false;
 	}
 
@@ -2239,14 +2237,14 @@ static bool _parse_and_check_directory(ffzProject* project, fString _directory, 
 		ffzOk ok = ffz_parse(parser);
 		if (!ok.ok) return false;
 
-		if (true) {
+		if (false) {
 			fWriter w = f_get_stdout();
-			f_writef(&w, "PRINTING AST: ======================================================\n");
+			f_print(&w, "PRINTING AST: ======================================================\n");
 			for (ffzNode* n = parser->root->first_child; n; n = n->next) {
 				ffz_print_ast(&w, n);
-				f_writef(&w, "\n");
+				f_print(&w, "\n");
 			}
-			f_writef(&w, "====================================================================\n\n");
+			f_print(&w, "====================================================================\n\n");
 			int a = 250;
 		}
 		

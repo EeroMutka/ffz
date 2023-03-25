@@ -118,17 +118,17 @@ static void pad_to_4_bytes_zero(fStringBuilder* buf) {
 
 static void pad_to_4_bytes_LF_pad(fStringBuilder* buf) {
 	uint pad = F_ALIGN_UP_POW2(buf->buffer.len, 4) - buf->buffer.len;
-	if (pad >= 3) f_writeb(buf->w, (u8)LF_PAD3);
-	if (pad >= 2) f_writeb(buf->w, (u8)LF_PAD2);
-	if (pad >= 1) f_writeb(buf->w, (u8)LF_PAD1);
+	if (pad >= 3) f_printb(buf->w, (u8)LF_PAD3);
+	if (pad >= 2) f_printb(buf->w, (u8)LF_PAD2);
+	if (pad >= 1) f_printb(buf->w, (u8)LF_PAD1);
 	F_ASSERT(F_HAS_ALIGNMENT_POW2(buf->buffer.len, 4));
 };
 
 static void append_so_called_length_prefixed_name(fStringBuilder* buf, coffString name) {
 	// ...it's actually not length-prefixed. The comments just say that, because it was like that in old codeview versions.
 
-	f_writes(buf->w, name);
-	f_writes(buf->w, F_LIT("\0"));
+	f_prints(buf->w, name);
+	f_prints(buf->w, F_LIT("\0"));
 	pad_to_4_bytes_LF_pad(buf);
 }
 
@@ -275,10 +275,10 @@ static void add_locals(DebugSectionGen* ctx, TypeGen* types, cviewFunction* fn, 
 
 		sym.typind = types->to_codeview_type_idx[local.type_idx];
 
-		f_writes(ctx->debugS.w, fString{ (u8*)&sym, F_OFFSET_OF(REGREL32, name) });
+		f_prints(ctx->debugS.w, fString{ (u8*)&sym, F_OFFSET_OF(REGREL32, name) });
 
-		f_writes(ctx->debugS.w, local.name);
-		f_writeb(ctx->debugS.w, '\0');
+		f_prints(ctx->debugS.w, local.name);
+		f_printb(ctx->debugS.w, '\0');
 	}
 
 	for (u32 i = 0; i < parent->child_blocks_count; i++) {
@@ -309,7 +309,7 @@ static void add_locals(DebugSectionGen* ctx, TypeGen* types, cviewFunction* fn, 
 				f_array_push(&ctx->debugS_relocs, off_reloc);
 			}
 
-			f_writes(ctx->debugS.w, F_AS_BYTES(sym));
+			f_prints(ctx->debugS.w, F_AS_BYTES(sym));
 		}
 
 		add_locals(ctx, types, fn, block);
@@ -317,8 +317,8 @@ static void add_locals(DebugSectionGen* ctx, TypeGen* types, cviewFunction* fn, 
 		{
 			u16 reclen = 2;
 			u16 rectyp = S_END;
-			f_writes(ctx->debugS.w, F_AS_BYTES(reclen));
-			f_writes(ctx->debugS.w, F_AS_BYTES(rectyp));
+			f_prints(ctx->debugS.w, F_AS_BYTES(reclen));
+			f_prints(ctx->debugS.w, F_AS_BYTES(rectyp));
 		}
 	}
 };
@@ -327,17 +327,17 @@ static void write_variable_length_number(fStringBuilder* buf, u32 number) {
 	// see `PrintNumeric` in microsoft pdb dump.
 	// values >= 2^32 are not supported by codeview.
 	if (number < 0x8000) {
-		f_writes(buf->w, f_slice_before(F_AS_BYTES(number), 2));
+		f_prints(buf->w, f_slice_before(F_AS_BYTES(number), 2));
 	}
 	else if (number < F_U16_MAX) {
 		u16 prefix = LF_USHORT;
-		f_writes(buf->w, F_AS_BYTES(prefix));
-		f_writes(buf->w, f_slice_before(F_AS_BYTES(number), 2));
+		f_prints(buf->w, F_AS_BYTES(prefix));
+		f_prints(buf->w, f_slice_before(F_AS_BYTES(number), 2));
 	}
 	else {
 		u16 prefix = LF_ULONG;
-		f_writes(buf->w, F_AS_BYTES(prefix));
-		f_writes(buf->w, f_slice_before(F_AS_BYTES(number), 4));
+		f_prints(buf->w, F_AS_BYTES(prefix));
+		f_prints(buf->w, f_slice_before(F_AS_BYTES(number), 4));
 	}
 }
 
@@ -359,7 +359,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 		cv_pointer.u.attr.ptrtype = CV_PTR_64;
 		cv_pointer.u.attr.ptrmode = type.Pointer.cpp_style_reference ? CV_PTR_MODE_REF : CV_PTR_MODE_PTR;
 		cv_pointer.u.attr.size = 8;
-		f_writes(ctx->debugT.w, F_AS_BYTES(cv_pointer));
+		f_prints(ctx->debugT.w, F_AS_BYTES(cv_pointer));
 		patch_reclen(&ctx->debugT, reclen_offset);
 
 		t = types->next_cv_type_idx++;
@@ -390,7 +390,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 			_TYPTYPE cv_fieldlist = {};
 			u32 reclen_offset = (u32)ctx->debugT.buffer.len;
 			cv_fieldlist.leaf = LF_FIELDLIST;
-			f_writes(ctx->debugT.w, F_AS_BYTES(cv_fieldlist));
+			f_prints(ctx->debugT.w, F_AS_BYTES(cv_fieldlist));
 
 			for (uint field_i = 0; field_i < type.Enum.fields_count; field_i++) {
 				F_ASSERT(F_HAS_ALIGNMENT_POW2(ctx->debugT.buffer.len, 4));
@@ -399,7 +399,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 				_lfEnumerate cv_field = {};
 				cv_field.leaf = LF_ENUMERATE;
 				cv_field.attr.access = CV_public;
-				f_writes(ctx->debugT.w, F_AS_BYTES(cv_field));
+				f_prints(ctx->debugT.w, F_AS_BYTES(cv_field));
 
 				write_variable_length_number(&ctx->debugT, field.value);
 				append_so_called_length_prefixed_name(&ctx->debugT, field.name);
@@ -422,7 +422,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 				type.size == 2 ? T_UINT2 :
 				type.size == 4 ? T_UINT4 : T_UINT8;
 			cv_enum.field = fieldlist_type_idx;
-			f_writes(ctx->debugT.w, F_AS_BYTES(cv_enum));
+			f_prints(ctx->debugT.w, F_AS_BYTES(cv_enum));
 			
 			append_so_called_length_prefixed_name(&ctx->debugT, type.Enum.name);
 			
@@ -442,7 +442,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 		cv_array.leaf = LF_ARRAY;
 		cv_array.elemtype = elem_type;
 		cv_array.idxtype = T_UQUAD; // 64-bit unsigned
-		f_writes(ctx->debugT.w, F_AS_BYTES(cv_array));
+		f_prints(ctx->debugT.w, F_AS_BYTES(cv_array));
 		
 		write_variable_length_number(&ctx->debugT, type.size);
 		append_so_called_length_prefixed_name(&ctx->debugT, coffString{});
@@ -473,7 +473,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 			_TYPTYPE cv_fieldlist = {};
 			u32 reclen_offset = (u32)ctx->debugT.buffer.len;
 			cv_fieldlist.leaf = LF_FIELDLIST;
-			f_writes(ctx->debugT.w, F_AS_BYTES(cv_fieldlist));
+			f_prints(ctx->debugT.w, F_AS_BYTES(cv_fieldlist));
 
 			for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
 				cviewStructMember& member = type.Record.fields[member_i];
@@ -484,7 +484,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 
 				cv_member.index = types->to_codeview_type_idx[member.type_idx]; // codeview type index
 				F_ASSERT(cv_member.index != 0);
-				f_writes(ctx->debugT.w, F_AS_BYTES(cv_member));
+				f_prints(ctx->debugT.w, F_AS_BYTES(cv_member));
 
 				write_variable_length_number(&ctx->debugT, member.offset_of_member);
 				append_so_called_length_prefixed_name(&ctx->debugT, member.name);
@@ -509,7 +509,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 			cv_structure.field = fieldlist_type_idx;
 			//cv_structure.derived
 			//cv_structure.vshape
-			f_writes(ctx->debugT.w, F_AS_BYTES(cv_structure));
+			f_prints(ctx->debugT.w, F_AS_BYTES(cv_structure));
 
 			write_variable_length_number(&ctx->debugT, type.size);
 			append_so_called_length_prefixed_name(&ctx->debugT, type.Record.name);
@@ -538,7 +538,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 	//fString test_debugT = os_file_read_whole(F_LIT("C:\\dev\\slump\\GMMC\\minimal\\lettuce_debugT.hex"), gen->desc->allocator);
 	//f_array_push_n(&gen->debugT, test_debugT);
 
-	f_writes(gen->debugT.w, F_AS_BYTES(signature));
+	f_prints(gen->debugT.w, F_AS_BYTES(signature));
 
 	TypeGen types = {};
 	// We have two different concepts of a type index. The first is the type index provided by the user of the API, pointing
@@ -559,10 +559,10 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			u32 reclen_offset = (u32)gen->debugT.buffer.len;
 			cv_structure.leaf = LF_STRUCTURE;
 			cv_structure.property.fwdref = true;
-			f_writes(gen->debugT.w, F_AS_BYTES(cv_structure));
+			f_prints(gen->debugT.w, F_AS_BYTES(cv_structure));
 
 			u16 struct_size = 0;
-			f_writes(gen->debugT.w, F_AS_BYTES(struct_size));
+			f_prints(gen->debugT.w, F_AS_BYTES(struct_size));
 			append_so_called_length_prefixed_name(&gen->debugT, type.Record.name);
 
 			patch_reclen(&gen->debugT, reclen_offset);
@@ -579,7 +579,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 	// -- Symbols section --------------------------------------------------------
 
-	f_writes(gen->debugS.w, F_AS_BYTES(signature));
+	f_prints(gen->debugS.w, F_AS_BYTES(signature));
 
 	// *** SYMBOLS
 
@@ -587,7 +587,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 		CV_DebugSSubsectionHeader_t subsection_header;
 		subsection_header.type = DEBUG_S_SYMBOLS;
 		// subsection_header.cbLen
-		f_writes(gen->debugS.w, F_AS_BYTES(subsection_header));
+		f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
 		u32 subsection_base = (u32)gen->debugS.buffer.len;
 
 		{
@@ -598,9 +598,9 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			u32 reclen_offset = (u32)gen->debugS.buffer.len;
 			objname.rectyp = S_OBJNAME;
 
-			f_writes(gen->debugS.w, { (u8*)&objname, sizeof(OBJNAMESYM) - 1 });
-			f_writes(gen->debugS.w, gen->desc->obj_name);
-			f_writeb(gen->debugS.w, '\0');
+			f_prints(gen->debugS.w, { (u8*)&objname, sizeof(OBJNAMESYM) - 1 });
+			f_prints(gen->debugS.w, gen->desc->obj_name);
+			f_printb(gen->debugS.w, '\0');
 
 			patch_reclen(&gen->debugS, reclen_offset);
 		}
@@ -612,9 +612,9 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			compile3.rectyp = S_COMPILE3;
 			compile3.machine = CV_CFL_X64;
 
-			f_writes(gen->debugS.w, { (u8*)&compile3, sizeof(compile3) - 1 });
-			f_writes(gen->debugS.w, name);
-			f_writeb(gen->debugS.w, '\0');
+			f_prints(gen->debugS.w, { (u8*)&compile3, sizeof(compile3) - 1 });
+			f_prints(gen->debugS.w, name);
+			f_printb(gen->debugS.w, '\0');
 
 			patch_reclen(&gen->debugS, reclen_offset);
 		}
@@ -634,7 +634,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 			CV_DebugSSubsectionHeader_t subsection_header;
 			subsection_header.type = DEBUG_S_SYMBOLS;
-			f_writes(gen->debugS.w, F_AS_BYTES(subsection_header));
+			f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
 			u32 subsection_base = (u32)gen->debugS.buffer.len;
 
 			// S_GPROC32_ID
@@ -673,9 +673,9 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				proc_sym.DbgStart = 0; // this seems to always be zero
 				proc_sym.DbgEnd = proc_sym.len - 1; // this seems to usually (not always) be PROCSYM32.len - 1. Not sure what this means.
 
-				f_writes(gen->debugS.w, { (u8*)&proc_sym, sizeof(proc_sym) - 1 });
-				f_writes(gen->debugS.w, fn.name);
-				f_writeb(gen->debugS.w, '\0');
+				f_prints(gen->debugS.w, { (u8*)&proc_sym, sizeof(proc_sym) - 1 });
+				f_prints(gen->debugS.w, fn.name);
+				f_printb(gen->debugS.w, '\0');
 
 				patch_reclen(&gen->debugS, reclen_offset);
 			}
@@ -697,7 +697,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				frameproc.flags.fOptSpeed = 1;
 				frameproc.flags.encodedLocalBasePointer = 1; // 0=none, 1=RSP, 2=RBP, 3=R13  (rgszRegAMD64[rgFramePointerRegX64[encodedLocalBasePointer]])
 				frameproc.flags.encodedParamBasePointer = 1; // same encoding as above
-				f_writes(gen->debugS.w, F_AS_BYTES(frameproc));
+				f_prints(gen->debugS.w, F_AS_BYTES(frameproc));
 			}
 
 			add_locals(gen, &types, &fn, &fn.block);
@@ -708,7 +708,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				u32 reclen_offset = (u32)gen->debugS.buffer.len;
 				sym.rectyp = S_PROC_ID_END;
 
-				f_writes(gen->debugS.w, F_AS_BYTES(sym));
+				f_prints(gen->debugS.w, F_AS_BYTES(sym));
 
 				patch_reclen(&gen->debugS, reclen_offset);
 			}
@@ -732,7 +732,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			CV_DebugSSubsectionHeader_t subsection_header;
 			subsection_header.type = DEBUG_S_LINES;
 			// subsection_header.cbLen
-			f_writes(gen->debugS.w, F_AS_BYTES(subsection_header));
+			f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
 			u32 subsection_base = (u32)gen->debugS.buffer.len;
 
 			{
@@ -758,7 +758,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 				lines_header.flags = 0;
 				lines_header.cbCon = fn.block.end_offset - fn.block.start_offset;
-				f_writes(gen->debugS.w, F_AS_BYTES(lines_header));
+				f_prints(gen->debugS.w, F_AS_BYTES(lines_header));
 
 				struct {
 					u32 fileid;
@@ -769,7 +769,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				file_block_header.fileid = size_of_file_checksum_entry * fn.file_idx; // the 'fileid' seems to encode the offset into the FILECHKSUMS subsection
 				file_block_header.nLines = (u32)fn.lines_count;
 				file_block_header.cbFileBlock = sizeof(file_block_header) + file_block_header.nLines * sizeof(CV_Line_t);
-				f_writes(gen->debugS.w, F_AS_BYTES(file_block_header));
+				f_prints(gen->debugS.w, F_AS_BYTES(file_block_header));
 
 				// add the lines
 
@@ -787,7 +787,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 					l.offset = line.offset - fn.block.start_offset; // This offset is relative to lines_header.offCon (the start offset of the function)
 
 					l.fStatement = 1; // not sure what this field means in practice
-					f_writes(gen->debugS.w, F_AS_BYTES(l));
+					f_prints(gen->debugS.w, F_AS_BYTES(l));
 				}
 			}
 
@@ -839,7 +839,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 		CV_DebugSSubsectionHeader_t subsection_header;
 		subsection_header.type = DEBUG_S_FILECHKSMS;
 		// subsection_header.cbLen
-		f_writes(gen->debugS.w, F_AS_BYTES(subsection_header));
+		f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
 		u32 subsection_base = (u32)gen->debugS.buffer.len;
 
 		for (uint i = 0; i < gen->desc->files_count; i++) {
@@ -857,11 +857,11 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			f_array_push_n(&string_table, file->filepath);
 			f_array_push(&string_table, (u8)0);
 
-			f_writes(gen->debugS.w, F_AS_BYTES(filedata));
+			f_prints(gen->debugS.w, F_AS_BYTES(filedata));
 
 			//F_ASSERT(gen->desc->dbginfo->file_hashes);
 
-			f_writes(gen->debugS.w, F_AS_BYTES(file->hash));
+			f_prints(gen->debugS.w, F_AS_BYTES(file->hash));
 
 			pad_to_4_bytes_zero(&gen->debugS); // Each entry is aligned to 4 byte boundary
 
@@ -880,10 +880,10 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 		CV_DebugSSubsectionHeader_t subsection_header;
 		subsection_header.type = DEBUG_S_STRINGTABLE;
-		f_writes(gen->debugS.w, F_AS_BYTES(subsection_header));
+		f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
 		u32 subsection_base = (u32)gen->debugS.buffer.len;
 
-		f_writes(gen->debugS.w, string_table.slice);
+		f_prints(gen->debugS.w, string_table.slice);
 
 		patch_cbLen(&gen->debugS, subsection_base);
 	}

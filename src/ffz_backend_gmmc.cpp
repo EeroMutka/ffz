@@ -85,7 +85,7 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 
 	if (inst.node) {
 		ffzNodeInst parent = ffz_parent_inst(g->project, inst);
-		f_writes(name.w, ffz_get_parent_decl_name(inst.node));
+		f_prints(name.w, ffz_get_parent_decl_name(inst.node));
 		
 		if (inst.polymorph) {
 			//if (pretty) {
@@ -101,7 +101,9 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			//}
 			//else {
 			//	// hmm.. deterministic index for polymorph, how?
-			f_writef(name.w, "$%llx", inst.polymorph->hash);
+			
+			f_print(name.w, "$~x64", inst.polymorph->hash);
+
 			//}
 			//f_str_printf(&name, "$%xll", inst.polymorph->hash);
 		}
@@ -115,13 +117,13 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			bool is_module_defined_entry = ffz_get_tag(g->project, parent, ffzKeyword_module_defined_entry);
 			if (!is_extern && !is_module_defined_entry)
 			{
-				f_writes(name.w, F_LIT("$$"));
-				f_writes(name.w, g->checker->_dbg_module_import_name);
+				f_prints(name.w, F_LIT("$$"));
+				f_prints(name.w, g->checker->_dbg_module_import_name);
 			}
 		}
 	}
 	else {
-		f_writef(name.w, "_ffz_%llu", g->dummy_name_counter);
+		f_print(name.w, "_ffz_`u64", g->dummy_name_counter);
 		g->dummy_name_counter++;
 	}
 
@@ -1453,17 +1455,17 @@ static bool build_c(Gen* g, fString build_dir) {
 	fStringBuilder clang_linker_args;
 	f_init_string_builder(&clang_linker_args, f_temp_alc());
 
-	f_writef(clang_linker_args.w, "-Wl"); // pass comma-separated argument list to the linker
-	f_writef(clang_linker_args.w, ",/SUBSYSTEM:%s", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
-	f_writef(clang_linker_args.w, ",/ENTRY:ffz_entry,");
-	f_writef(clang_linker_args.w, ",/INCREMENTAL:NO");
-	f_writef(clang_linker_args.w, ",/NODEFAULTLIB"); // disable CRT
+	f_print(clang_linker_args.w, "-Wl"); // pass comma-separated argument list to the linker
+	f_print(clang_linker_args.w, ",/SUBSYSTEM:%s", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
+	f_print(clang_linker_args.w, ",/ENTRY:ffz_entry,");
+	f_print(clang_linker_args.w, ",/INCREMENTAL:NO");
+	f_print(clang_linker_args.w, ",/NODEFAULTLIB"); // disable CRT
 
 	for (uint i = 0; i < g->project->link_libraries.len; i++) {
-		f_writef(clang_linker_args.w, ",%.*s", F_STRF(g->project->link_libraries[i]));
+		f_print(clang_linker_args.w, ",`s", F_STRF(g->project->link_libraries[i]));
 	}
 	for (uint i = 0; i < g->project->link_system_libraries.len; i++) {
-		f_writef(clang_linker_args.w, ",%.*s", F_STRF(g->project->link_system_libraries[i]));
+		f_print(clang_linker_args.w, ",`s", F_STRF(g->project->link_system_libraries[i]));
 	}
 
 	// https://metricpanda.com/rival-fortress-update-45-dealing-with-__chkstk-__chkstk_ms-when-cross-compiling-for-windows/

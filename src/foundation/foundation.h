@@ -7,13 +7,14 @@
 // WARNING: THIS IS ALL CURRENTLY A WORK-IN-PROGRESS CODEBASE!! Some things aren't complete or fully tested,
 // such as UTF8 support and some things might be implemented in a dumb way.
 
-#pragma once
+#ifndef _FOUNDATION_H
+#define _FOUNDATION_H
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
-// the allocated memory will be aligned according to f_get_alignment()
+// the allocated memory must be aligned according to f_get_alignment()
 typedef struct fAllocator {
 	void*(*_proc)(struct fAllocator* allocator, /*opt*/ void* old_ptr, size_t old_size, size_t new_size);
 } fAllocator;
@@ -39,9 +40,14 @@ typedef struct fArrayRaw {
 // If you're writing a library that needs to build some buffer / write some bytes and you use a Writer, the user of the library
 // can intercept that and say "write to a file instead" or "print to stdout instead" or "write to this arena".
 typedef struct fWriter {
-	void(*proc)(struct fWriter* writer, void* data, size_t size);
+	void(*proc)(struct fWriter* writer, const void* data, size_t size);
 	void* userdata;
 } fWriter;
+
+//typedef struct fFormatter {
+//	void(*printer)(fFormatter* formatter, fWriter* w);
+//	void* userdata;
+//} fFormatter;
 
 typedef struct fBufferedWriter {
 	fWriter writer;
@@ -623,20 +629,33 @@ u64 f_hash64_str_ex(fString s, u64 seed);
 
 #define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, allocator), len }
 
-fString f_aprint(fAllocator* a, const char* fmt, ...);
-fString f_tprint(const char* fmt, ...);
 
 // hmm... maybe these sshould be called 'prints' / 'printb', etc.
 // The difference between "printing" and "writing" is that when talking about "printing",
 // it's always text.
-void f_writes(fWriter* writer, fString str); // write string
-void f_writeb(fWriter* writer, uint8_t b); // write byte
+void f_prints(fWriter* w, fString str); // write string
+void f_prints_repeat(fWriter* writer, fString str, uint count);
+void f_printc(fWriter* w, const char* str);
+void f_printb(fWriter* w, uint8_t b); // print ASCII-byte. hmm.. maybe we should just have writer
 // void f_writer(fWriter* writer, rune r); // write rune, TODO
 
-// TODO: custom formatting!
-void f_writef(fWriter* writer, const char* fmt, ...);
+// Formatting rules:
+// ~s     -  fString
+// ~c     -  c-style string
+// ~~     -  escape for ~
+// TODO: ~b     -  boolean
+// TODO: ~r     -  rune
+// ~u8, ~u16, ~u32, ~u64    - unsigned integers
+// ~i8, ~i16, ~i32, ~i64    - signed integers
+// ~x8, ~x16, ~x32, ~x64    - hexadecimal integers
+// ~f32, ~f64
+// TODO: ~f  -  fFormatter
+void f_print(fWriter* w, const char* fmt, ...);
+void f_print_va(fWriter* w, const char* fmt, va_list args);
 
-void f_writes_repeat(fWriter* writer, fString str, uint count);
+fString f_aprint(fAllocator* alc, const char* fmt, ...);
+fString f_tprint(const char* fmt, ...);
+
 
 fString f_str_advance(fString* str, uint len);
 fString f_str_clone(fString str, fAllocator* allocator);
@@ -681,13 +700,20 @@ bool f_str_to_u64(fString s, uint base, u64* out_value);
 // - Works with any base up to 16 (i.e. binary, base-10, hex)
 // - Underscores are allowed and skipped
 bool f_str_to_s64(fString s, uint base, s64* out_value);
-
 bool f_str_to_f64(fString s, f64* out);
 
-fString f_str_from_uint(fString bytes, fAllocator* a);
-fString f_str_from_int(fString bytes, fAllocator* a);
-fString f_str_from_float(f64 value, fAllocator* a);
-fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* a);
+void f_print_uint(fWriter* w, uint64_t value, size_t base);
+fString f_str_from_uint(uint64_t value, size_t base, fAllocator* alc);
+
+void f_print_int(fWriter* w, int64_t value, size_t base);
+fString f_str_from_int(int64_t value, size_t base, fAllocator* alc);
+
+void f_print_float(fWriter* w, double value);
+fString f_str_from_float(double value, fAllocator* alc);
+
+//void f_print_float_ex(fWriter* w, fString bytes);
+//fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* alc);
+
 
 char* f_str_to_cstr(fString s, fAllocator* a);
 inline char* f_str_t_to_cstr(fString s) { return f_str_to_cstr(s, f_temp_alc()); }
@@ -775,9 +801,9 @@ float f_random_float_in_range(float minimum, float maximum);
 
 // -- Writer --------------------------
 
-void f_writer_stdout_proc(fWriter* writer, void* data, size_t size);
-void f_string_builder_writer_proc(fWriter* writer, void* data, size_t size);
-void f_buffered_writer_proc(fWriter* writer, void* data, size_t size);
+void f_writer_stdout_proc(fWriter* writer, const void* data, size_t size);
+void f_string_builder_writer_proc(fWriter* writer, const void* data, size_t size);
+void f_buffered_writer_proc(fWriter* writer, const void* data, size_t size);
 
 void f_flush_buffered_writer(fBufferedWriter* writer);
 
@@ -814,3 +840,5 @@ inline void f_init_string_builder(fStringBuilder* builder, fAllocator* alc) {
 #endif
 
 #endif
+
+#endif // _FOUNDATION_H
