@@ -76,6 +76,7 @@ struct gmmcAsmOp {
 
 struct gmmcAsmProc {
 	gmmcAsmModule* module;
+	fWriter* console;
 
 	gmmcProc* proc;
 	fSlice(s32) local_frame_rel_offset; // per-local
@@ -143,7 +144,7 @@ static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* com
 
 		ZydisDisassembledInstruction instruction;
 		if (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, proc_rel_offset, instr, instr_len, &instruction))) {
-			f_cprint("(%u)  0x%llx:   %s%s\n", p->current_op, proc_rel_offset, instruction.text, comment);
+			f_print(p->console, "(%u)  0x%llx:   %s%s\n", p->current_op, proc_rel_offset, instruction.text, comment);
 		}
 	}
 }
@@ -775,11 +776,11 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 				f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
 				for (uint i = 0; i < lines.len; i++) {
 					fString line = f_str_slice(op->comment, lines[i].lo, lines[i].hi);
-					f_cprint("; ~s\n", line);
+					f_print(p->console, "; ~s\n", line);
 				}
 			}
 			else {
-				f_cprint("\n");
+				f_print(p->console, "\n");
 			}
 		} break;
 
@@ -1076,11 +1077,17 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 }
 
 GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc* proc) {
-	f_cprint("---- generating proc: '~s' ----\n", proc->sym.name);
+	u8 console_buf[4096];
+	fBufferedWriter console_writer;
+	fWriter* w = f_open_buffered_writer(f_get_stdout(), console_buf, F_LEN(console_buf), &console_writer);
+	//w = f_get_stdout();
+	
+	f_print(w, "---- generating proc: '~s' ----\n", proc->sym.name);
 	
 	//gmmc_proc_print_c(stdout, proc);
-	f_cprint("---\n");
+	f_print(w, "---\n");
 	
+	p->console = w;
 	p->module = module_gen;
 	p->proc = proc;
 	
@@ -1184,7 +1191,8 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* p, gmmcProc*
 		p->code_section_end_offset = (u32)code_section->data.len;
 	}
 	
-	f_cprint("---------------------------------\n");
+	f_print(w, "---------------------------------\n");
+	f_flush_buffered_writer(&console_writer);
 }
 
 GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {

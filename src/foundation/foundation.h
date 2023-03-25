@@ -641,14 +641,11 @@ u64 f_hash64_str_ex(fString s, u64 seed);
 void f_print(fWriter* w, const char* fmt, ...);
 void f_print_va(fWriter* w, const char* fmt, va_list args);
 
-// hmm... maybe these sshould be called 'prints' / 'printb', etc.
-// The difference between "printing" and "writing" is that when talking about "printing",
-// it's always text.
 void f_prints(fWriter* w, fString str); // write string
 void f_prints_repeat(fWriter* writer, fString str, uint count);
 void f_printc(fWriter* w, const char* str);
 void f_printb(fWriter* w, uint8_t b); // print ASCII-byte. hmm.. maybe we should just have writer
-// void f_writer(fWriter* writer, rune r); // write rune, TODO
+// void f_printr(fWriter* writer, rune r); // write rune, TODO
 
 fString f_aprint(fAllocator* alc, const char* fmt, ...); // allocate-print
 fString f_tprint(const char* fmt, ...);                  // temporary-print
@@ -804,19 +801,14 @@ void f_buffered_writer_proc(fWriter* writer, const void* data, size_t size);
 
 void f_flush_buffered_writer(fBufferedWriter* writer);
 
-// NOTE: You must remember to call `f_close_buffered_writer`
-inline fBufferedWriter f_open_buffered_writer(fWriter* backing, u8* buffer, uint32_t buffer_size) {
-	fBufferedWriter writer;
-	writer.writer.proc = f_buffered_writer_proc;
-	writer.writer.userdata = backing;
-	writer.buffer = buffer;
-	writer.buffer_size = buffer_size;
-	writer.current_pos = 0;
-	return writer;
-}
-
-inline void f_close_buffered_writer(fBufferedWriter* writer) {
-	f_flush_buffered_writer(writer);
+// IMPORTANT: You must call `f_flush_buffered_writer` after you've finished printing!
+inline fWriter* f_open_buffered_writer(fWriter* backing, u8* buffer, uint32_t buffer_size, fBufferedWriter* out_writer) {
+	out_writer->writer.proc = f_buffered_writer_proc;
+	out_writer->writer.userdata = backing;
+	out_writer->buffer = buffer;
+	out_writer->buffer_size = buffer_size;
+	out_writer->current_pos = 0;
+	return (fWriter*)out_writer;
 }
 
 inline fWriter* f_get_stdout() {

@@ -181,6 +181,14 @@ fString f_tprint(const char* fmt, ...) {
 
 // No error handling is done, it's assumed that the format string is valid
 void f_print_va(fWriter* w, const char* fmt, va_list args) {
+	// When using unbuffered IO, (e.g. printing directly to the console),
+	// then calling the writer proc directly will be slow.
+	// So, let's make our own little buffered writer here!
+
+	fBufferedWriter buffered;
+	u8 buf[256];
+	w = f_open_buffered_writer(w, buf, F_LEN(buf), &buffered);
+
 	for (const char* c = fmt; *c; c++) {
 		if (*c == '~') {
 			c++;
@@ -236,6 +244,8 @@ void f_print_va(fWriter* w, const char* fmt, va_list args) {
 			w->proc(w, c, 1);
 		}
 	}
+
+	f_flush_buffered_writer(&buffered);
 }
 
 void f_print(fWriter* w, const char* fmt, ...) {
@@ -2141,7 +2151,7 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 			
 			if (mode != fFileOpenMode_Read) {
 				out_file->backing_writer = (fWriter){ f_file_unbuffered_writer_proc, out_file };
-				out_file->buffered_writer = f_open_buffered_writer(&out_file->backing_writer, &out_file->buffer[0], F_FILE_WRITER_BUFFER_SIZE);
+				f_open_buffered_writer(&out_file->backing_writer, &out_file->buffer[0], F_FILE_WRITER_BUFFER_SIZE, &out_file->buffered_writer);
 			}
 		}
 

@@ -1536,7 +1536,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 		}
 	}
 
-	bool x64 = false;
+	bool x64 = true;
 	if (x64) {
 		return build_x64(&g, build_dir);
 	}

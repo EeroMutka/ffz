@@ -2238,14 +2238,18 @@ static bool _parse_and_check_directory(ffzProject* project, fString _directory, 
 		if (!ok.ok) return false;
 
 		if (false) {
-			fWriter* w = f_get_stdout();
+			u8 console_buf[4096];
+			fBufferedWriter console_writer;
+			fWriter* w = f_open_buffered_writer(f_get_stdout(), console_buf, F_LEN(console_buf), &console_writer);
+
 			f_print(w, "PRINTING AST: ======================================================\n");
 			for (ffzNode* n = parser->root->first_child; n; n = n->next) {
 				ffz_print_ast(w, n);
 				f_print(w, "\n");
 			}
 			f_print(w, "====================================================================\n\n");
-			int a = 250;
+			
+			f_flush_buffered_writer(&console_writer);
 		}
 		
 		for (uint i = 0; i < parser->module_imports.len; i++) {
