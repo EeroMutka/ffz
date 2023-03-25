@@ -134,21 +134,6 @@ fString f_str_path_dir(fString path) {
 	return path;
 }
 
-// returns a zero-terminated string
-//fString str_format_va_list(fAllocator* alc, const char* fmt, va_list args) {
-//	va_list _args;
-//	va_copy(_args, args);
-//
-//	uint needed_bytes = vsnprintf(0, 0, fmt, args) + 1;
-//	
-//	fString result = f_str_make(needed_bytes, alc);
-//	result.len -= 1;
-//	result.data[result.len] = 0;
-//
-//	vsnprintf((char*)result.data, needed_bytes, fmt, _args);
-//	return result;
-//}
-
 void f_prints(fWriter* w, fString str) {
 	w->proc(w, str.data, str.len);
 }
@@ -156,11 +141,6 @@ void f_prints(fWriter* w, fString str) {
 void f_printb(fWriter* w, uint8_t b) {
 	w->proc(w, &b, 1);
 }
-
-//void f_writer(fWriter* w, rune r) {
-//	F_ASSERT(r < 128); // TODO
-//	w->proc(w, &r, 1);
-//}
 
 void f_prints_repeat(fWriter* w, fString str, uint count) {
 	for (uint i = 0; i < count; i++) f_prints(w, str);

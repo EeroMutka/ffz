@@ -629,6 +629,18 @@ u64 f_hash64_str_ex(fString s, u64 seed);
 
 #define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, allocator), len }
 
+// Formatting rules:
+// ~s                       - fString
+// ~c                       - c-style string
+// ~~                       - escape for ~
+// TODO: ~r                 - rune
+// ~u8, ~u16, ~u32, ~u64    - unsigned integers
+// ~i8, ~i16, ~i32, ~i64    - signed integers
+// ~x8, ~x16, ~x32, ~x64    - hexadecimal integers
+// ~f32, ~f64               - floats
+void f_print(fWriter* w, const char* fmt, ...);
+void f_print_va(fWriter* w, const char* fmt, va_list args);
+
 // hmm... maybe these sshould be called 'prints' / 'printb', etc.
 // The difference between "printing" and "writing" is that when talking about "printing",
 // it's always text.
@@ -637,20 +649,6 @@ void f_prints_repeat(fWriter* writer, fString str, uint count);
 void f_printc(fWriter* w, const char* str);
 void f_printb(fWriter* w, uint8_t b); // print ASCII-byte. hmm.. maybe we should just have writer
 // void f_writer(fWriter* writer, rune r); // write rune, TODO
-
-// Formatting rules:
-// ~s     -  fString
-// ~c     -  c-style string
-// ~~     -  escape for ~
-// TODO: ~b     -  boolean
-// TODO: ~r     -  rune
-// ~u8, ~u16, ~u32, ~u64    - unsigned integers
-// ~i8, ~i16, ~i32, ~i64    - signed integers
-// ~x8, ~x16, ~x32, ~x64    - hexadecimal integers
-// ~f32, ~f64
-// TODO: ~f  -  fFormatter
-void f_print(fWriter* w, const char* fmt, ...);
-void f_print_va(fWriter* w, const char* fmt, va_list args);
 
 fString f_aprint(fAllocator* alc, const char* fmt, ...); // allocate-print
 fString f_tprint(const char* fmt, ...);                  // temporary-print
@@ -713,7 +711,6 @@ fString f_str_from_float(double value, fAllocator* alc);
 
 //void f_print_float_ex(fWriter* w, fString bytes);
 //fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* alc);
-
 
 char* f_str_to_cstr(fString s, fAllocator* a);
 inline char* f_str_t_to_cstr(fString s) { return f_str_to_cstr(s, f_temp_alc()); }
