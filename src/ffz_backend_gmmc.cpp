@@ -47,8 +47,8 @@ struct ProcInfo {
 	ffzNode* node;
 	gmmcOpIdx addr_of_big_return;
 	
-	fArray(DebugInfoLine) dbginfo_lines; // we wouldn't need this if we could compile one procedure at a time with gmmc_asm_x64
-	fArray(DebugInfoLocal) dbginfo_locals; // we wouldn't need this if we could compile one procedure at a time with gmmc_asm_x64
+	fArray(DebugInfoLine) dbginfo_lines;
+	fArray(DebugInfoLocal) dbginfo_locals;
 };
 
 struct Gen {
@@ -63,6 +63,7 @@ struct Gen {
 		gmmcProc* proc;
 
 		gmmcBasicBlock* bb;
+		fOpt(u32*) override_line_num;
 	};
 
 	uint dummy_name_counter;
@@ -76,8 +77,8 @@ struct Gen {
 	fArray(cviewSourceFile) cv_file_from_parser_idx;
 };
 
-static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num = 0);
-static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of = false);
+static void gen_statement(Gen* g, ffzNodeInst inst);
+static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of);
 
 static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 	fStringBuilder name;
@@ -179,8 +180,10 @@ static bool has_big_return(ffzType* proc_type) {
 	return proc_type->Proc.out_param && proc_type->Proc.out_param->type->size > 8; // :BigReturn
 }
 
-static void set_dbginfo_loc(Gen* g, gmmcOpIdx op, u32 line_num) {
+// optionally set debug-info location
+static void set_loc(Gen* g, gmmcOpIdx op, ffzNode* node) {
 	if (!gmmc_is_op_instant(g->proc, op)) {
+		u32 line_num = g->override_line_num ? *g->override_line_num : node->loc.start.line_num;
 		f_array_push(&g->proc_info->dbginfo_lines, DebugInfoLine{ op, line_num });
 	}
 }
@@ -369,8 +372,10 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	}
 	
 	if (!proc_type->Proc.out_param) { // automatically generate a return statement if the proc doesn't return a value
+		g->override_line_num = &inst.node->loc.end.line_num;
 		gmmcOpIdx op = gmmc_op_return(g->bb, GMMC_OP_IDX_INVALID);
-		set_dbginfo_loc(g, op, inst.node->loc.end.line_num);
+		set_loc(g, op, inst.node);
+		g->override_line_num = NULL;
 	}
 
 	g->proc_info = proc_info_before;
@@ -387,7 +392,6 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 
 	return proc;
 }
-
 
 static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 	ffzNodeInst left = CHILD(inst,Op.left);
@@ -411,20 +415,21 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 	u32 i = 0;
 	for FFZ_EACH_CHILD_INST(n, inst) {
 		ffzType* param_type = left_chk.type->Proc.in_params[i].type;
-		gmmcOpIdx arg = gen_expr(g, n);
+		gmmcOpIdx arg = gen_expr(g, n, false);
 		
-
 		if (param_type->size > 8) {
 			// make a copy on the stack for the parameter
 			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
-			gmmc_op_memcpy(g->bb, local_copy_addr, arg, gmmc_op_i32(g->proc, param_type->size));
+			gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg, gmmc_op_i32(g->proc, param_type->size));
+			set_loc(g, copy, inst.node);
 			f_array_push(&args, local_copy_addr);
 		}
 		else {
 			if (!value_is_direct(param_type)) {
 				// we need to do this to make sure we aren't reading out of bounds memory
 				gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, 8, 8);
-				gmmc_op_memcpy(g->bb, local_copy_addr, arg, gmmc_op_i32(g->proc, param_type->size));
+				gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg, gmmc_op_i32(g->proc, param_type->size));
+				set_loc(g, copy, inst.node);
 				f_array_push(&args, gmmc_op_load(g->bb, gmmcType_i64, local_copy_addr));
 			}
 			else {
@@ -439,8 +444,9 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 	gmmcOpIdx target = gen_expr(g, left, false);
 	F_ASSERT(target);
 
-	gmmcOpIdx return_val = gmmc_op_vcall(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
-	if (!big_return) out = return_val;
+	gmmcOpIdx vcall = gmmc_op_vcall(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
+	set_loc(g, vcall, inst.node);
+	if (!big_return) out = vcall;
 
 	return out;
 }
@@ -527,13 +533,15 @@ static void gen_global_constant(Gen* g, gmmcGlobal* global, u8* base, u32 offset
 	}
 }
 
-static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* type) {
+static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* type, ffzNode* node) {
+	gmmcOpIdx result;
 	if (value_is_direct(type)) {
-		return gmmc_op_store(g->bb, addr, value);
+		result = gmmc_op_store(g->bb, addr, value);
+	} else {
+		result = gmmc_op_memcpy(g->bb, addr, value, gmmc_op_i32(g->proc, type->size));
 	}
-	else {
-		return gmmc_op_memcpy(g->bb, addr, value, gmmc_op_i32(g->proc, type->size));
-	}
+	set_loc(g, result, node);
+	return result;
 }
 
 static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
@@ -593,6 +601,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		default: F_BP;
 		}
 
+		set_loc(g, out, inst.node);
 		return out;
 	}
 
@@ -619,8 +628,8 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			// TODO: more operator defines. I guess we should do this together with the fix for vector math
 			F_ASSERT(value_is_direct(input_type));
 			
-			gmmcOpIdx a = gen_expr(g, left);
-			gmmcOpIdx b = gen_expr(g, right);
+			gmmcOpIdx a = gen_expr(g, left, false);
+			gmmcOpIdx b = gen_expr(g, right, false);
 
 			switch (inst.node->kind) {
 			case ffzNodeKind_Add: { out = gmmc_op_add(g->bb, a, b); } break;
@@ -643,14 +652,14 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		case ffzNodeKind_UnaryMinus: {
 			F_ASSERT(!address_of);
 			u64 zero = 0;
-			out = gen_expr(g, right);
+			out = gen_expr(g, right, false);
 			out = gmmc_op_sub(g->bb, gmmc_op_immediate(g->proc, get_gmmc_type(g, checked.type), &zero), out);  // -x = 0 - x
 		} break;
 
 		case ffzNodeKind_LogicalNOT: {
 			F_ASSERT(!address_of);
 			// (!x) is equivalent to (x == false)
-			out = gmmc_op_eq(g->bb, gen_expr(g, right), gmmc_op_bool(g->proc, false));
+			out = gmmc_op_eq(g->bb, gen_expr(g, right, false), gmmc_op_bool(g->proc, false));
 		} break;
 
 		case ffzNodeKind_PostRoundBrackets: {
@@ -661,12 +670,12 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			if (left.node->kind == ffzNodeKind_Keyword && ffz_keyword_is_bitwise_op(left.node->Keyword.keyword)) {
 				ffzKeyword keyword = left.node->Keyword.keyword;
 
-				gmmcOpIdx first = gen_expr(g, ffz_get_child_inst(inst, 0));
+				gmmcOpIdx first = gen_expr(g, ffz_get_child_inst(inst, 0), false);
 				if (keyword == ffzKeyword_bit_not) {
 					out = gmmc_op_not(g->bb, first);
 				}
 				else {
-					gmmcOpIdx second = gen_expr(g, ffz_get_child_inst(inst, 1));
+					gmmcOpIdx second = gen_expr(g, ffz_get_child_inst(inst, 1), false);
 					switch (keyword) {
 					case ffzKeyword_bit_and: { out = gmmc_op_and(g->bb, first, second); } break;
 					case ffzKeyword_bit_or: { out = gmmc_op_or(g->bb, first, second); } break;
@@ -686,7 +695,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					ffzNodeInst arg = ffz_get_child_inst(inst, 0);
 					ffzType* arg_type = ffz_expr_get_type(g->project, arg);
 
-					out = gen_expr(g, arg);
+					out = gen_expr(g, arg, false);
 					if (ffz_type_is_pointer_ish(dst_type->tag)) { // cast to pointer
 						if (ffz_type_is_pointer_ish(arg_type->tag)) {}
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {
@@ -731,7 +740,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 
 		case ffzNodeKind_Dereference: {
-			out = gen_expr(g, left);
+			out = gen_expr(g, left, false);
 			should_dereference = !address_of;
 		} break;
 
@@ -781,9 +790,9 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				for FFZ_EACH_CHILD_INST(n, inst) {
 					ffzTypeRecordField& field = checked.type->record_fields[i];
 
-					gmmcOpIdx src = gen_expr(g, n);
+					gmmcOpIdx src = gen_expr(g, n, false);
 					gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, field.offset);
-					gen_store(g, dst_ptr, src, field.type);
+					gen_store(g, dst_ptr, src, field.type, inst.node);
 					i++;
 				}
 			}
@@ -793,7 +802,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				for FFZ_EACH_CHILD_INST(n, inst) {
 					gmmcOpIdx src = gen_expr(g, n, false);
 					gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
-					gen_store(g, dst_ptr, src, elem_type);
+					gen_store(g, dst_ptr, src, elem_type, inst.node);
 					i++;
 				}
 			}
@@ -822,7 +831,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				ffzNodeInst lo_inst = ffz_get_child_inst(inst, 0);
 				ffzNodeInst hi_inst = ffz_get_child_inst(inst, 1);
 
-				gmmcOpIdx lo = lo_inst.node->kind == ffzNodeKind_Blank ? gmmc_op_i64(g->proc, 0) : gen_expr(g, lo_inst);
+				gmmcOpIdx lo = lo_inst.node->kind == ffzNodeKind_Blank ? gmmc_op_i64(g->proc, 0) : gen_expr(g, lo_inst, false);
 				gmmcOpIdx hi;
 				if (hi_inst.node->kind == ffzNodeKind_Blank) {
 					if (left_type->tag == ffzTypeTag_FixedArray) {
@@ -834,7 +843,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					}
 				}
 				else {
-					hi = gen_expr(g, hi_inst);
+					hi = gen_expr(g, hi_inst, false);
 				}
 
 				out = gmmc_op_local(g->proc, 16, 8);
@@ -849,7 +858,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			else { // taking an index
 				ffzNodeInst index_node = ffz_get_child_inst(inst, 0);
 				
-				gmmcOpIdx index = gen_expr(g, index_node);
+				gmmcOpIdx index = gen_expr(g, index_node, false);
 				index = gmmc_op_int2int(g->bb, index, gmmcType_i64, false);
 				out = gmmc_op_array_access(g->bb, array_data, index, elem_type->size);
 
@@ -859,7 +868,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 		case ffzNodeKind_LogicalOR: // fallthrough
 		case ffzNodeKind_LogicalAND: {
-			gmmcOpIdx left_val = gen_expr(g, left);
+			gmmcOpIdx left_val = gen_expr(g, left, false);
 
 			// implement short-circuiting
 
@@ -877,7 +886,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 
 			g->bb = test_right_bb;
-			gmmc_op_store(g->bb, result, gen_expr(g, right));
+			gmmc_op_store(g->bb, result, gen_expr(g, right, false));
 			gmmc_op_goto(g->bb, after_bb);
 
 			g->bb = after_bb;
@@ -913,12 +922,14 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	}
 
 	F_ASSERT(out);
+	set_loc(g, out, inst.node);
 	
 	if (should_dereference) {
 		F_ASSERT(!should_take_address);
 		if (value_is_direct(checked.type)) {
 			//out = load_small(g, out, checked.type);
 			out = gmmc_op_load(g->bb, get_gmmc_type(g, checked.type), out);
+			set_loc(g, out, inst.node);
 		}
 	}
 	if (should_take_address) {
@@ -927,6 +938,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			gmmcOpIdx tmp = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 			gmmc_op_store(g->bb, tmp, out);
 			out = tmp;
+			set_loc(g, out, inst.node);
 		}
 	}
 
@@ -935,7 +947,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 static bool node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
 
-static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
+static void gen_statement(Gen* g, ffzNodeInst inst) {
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
 		if (inst.node->kind == ffzNodeKind_Scope) {}
@@ -950,7 +962,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 		}
 	}
 	
-	u32 line_num = overwrite_line_num ? overwrite_line_num : inst.node->loc.start.line_num;
+	//u32 _line_num = line_num ? *line_num : inst.node->loc.start.line_num;
+	//line_num = &_line_num;
 
 	switch (inst.node->kind) {
 		
@@ -971,13 +984,12 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 				val.symbol = gmmc_global_as_symbol(global);
 			}
 			else {
-				gmmcOpIdx rhs_value = gen_expr(g, rhs);
-				set_dbginfo_loc(g, rhs_value, line_num);
+				gmmcOpIdx rhs_value = gen_expr(g, rhs, false);
 				val.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 
 				add_dbginfo_local(g, definition.node->Identifier.name, val.local_addr, checked.type);
 
-				set_dbginfo_loc(g, gen_store(g, val.local_addr, rhs_value, checked.type), line_num);
+				gen_store(g, val.local_addr, rhs_value, checked.type, inst.node);
 			}
 			f_map64_insert(&g->value_from_definition, ffz_hash_node_inst(definition), val);
 		}
@@ -997,8 +1009,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 		ffzNodeInst rhs = CHILD(inst,Op.right);
 		gmmcOpIdx lhs_addr = gen_expr(g, lhs, true);
 		
-		gmmcOpIdx rhs_value = gen_expr(g, rhs);
-		set_dbginfo_loc(g, gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs)), line_num);
+		gmmcOpIdx rhs_value = gen_expr(g, rhs, false);
+		gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs), inst.node);
 	} break;
 
 	case ffzNodeKind_Scope: {
@@ -1008,8 +1020,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 	} break;
 
 	case ffzNodeKind_If: {
-		gmmcOpIdx cond = gen_expr(g, CHILD(inst, If.condition));
-		set_dbginfo_loc(g, cond, line_num);
+		gmmcOpIdx cond = gen_expr(g, CHILD(inst, If.condition), false);
 
 		gmmcBasicBlock* true_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* false_bb;
@@ -1018,7 +1029,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 		}
 
 		gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
-		set_dbginfo_loc(g, gmmc_op_if(g->bb, cond, true_bb, inst.node->If.else_scope ? false_bb : after_bb), line_num);
+		set_loc(g, gmmc_op_if(g->bb, cond, true_bb, inst.node->If.else_scope ? false_bb : after_bb), inst.node);
+
 		g->bb = true_bb;
 		gen_statement(g, CHILD(inst,If.true_scope));
 		gmmc_op_goto(g->bb, after_bb);
@@ -1048,14 +1060,16 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 		if (!condition.node) F_BP; // TODO
 		
 		g->bb = cond_bb;
-		gmmcOpIdx cond = gen_expr(g, condition);
+		gmmcOpIdx cond = gen_expr(g, condition, false);
 		gmmc_op_if(g->bb, cond, body_bb, after_bb);
 
 		g->bb = body_bb;
 		gen_statement(g, body);
 			
 		if (post.node) {
-			gen_statement(g, post, body.node->loc.end.line_num); // let's override the loc to be at the end of the body scope
+			g->override_line_num = &body.node->loc.end.line_num;
+			gen_statement(g, post); // let's override the loc to be at the end of the body scope
+			g->override_line_num = NULL;
 			//set_dbginfo_loc(g, 
 		}
 		//inst_loc(g, inst.node, );
@@ -1067,10 +1081,8 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 	} break;
 
 	case ffzNodeKind_Keyword: {
-		//if (inst.node->kind == ffzNodeKind_Keyword) { // debugbreak()
-		//}
-
-		set_dbginfo_loc(g, gmmc_op_debugbreak(g->bb), line_num);
+		F_ASSERT(inst.node->Keyword.keyword == ffzKeyword_dbgbreak);
+		set_loc(g, gmmc_op_debugbreak(g->bb), inst.node);
 	} break;
 
 	case ffzNodeKind_Return: {
@@ -1079,7 +1091,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 
 		if (ret.node->Return.value) {
 			ffzType* ret_type = ffz_expr_get_type(g->project, CHILD(ret,Return.value));
-			gmmcOpIdx return_value = gen_expr(g, CHILD(ret,Return.value));
+			gmmcOpIdx return_value = gen_expr(g, CHILD(ret,Return.value), false);
 			if (ret_type->size > 8) {
 				val = gmmc_op_load(g->bb, gmmcType_ptr, gmmc_op_addr_of_param(g->proc, 0)); // :BigReturn
 				gmmc_op_memcpy(g->bb, val, return_value, gmmc_op_i32(g->proc, ret_type->size));
@@ -1089,11 +1101,11 @@ static void gen_statement(Gen* g, ffzNodeInst inst, u32 overwrite_line_num) {
 			}
 		}
 
-		set_dbginfo_loc(g, gmmc_op_return(g->bb, val), line_num);
+		set_loc(g, gmmc_op_return(g->bb, val), inst.node);
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: {
-		set_dbginfo_loc(g, gen_call(g, inst), line_num);
+		gen_call(g, inst);
 	} break;
 
 	default: F_BP;
@@ -1392,6 +1404,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 	f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
 	f_array_push(&ms_linker_args, F_LIT("/NODEFAULTLIB")); // disable CRT
 	f_array_push(&ms_linker_args, F_LIT("/DEBUG"));
+	f_array_push(&ms_linker_args, F_LIT("/DYNAMICBASE:NO")); // to get deterministic pointers
 
 	for (uint i = 0; i < g->project->link_libraries.len; i++) {
 		f_array_push(&ms_linker_args, g->project->link_libraries[i]);
@@ -1460,6 +1473,7 @@ static bool build_c(Gen* g, fString build_dir) {
 	f_print(clang_linker_args.w, ",/ENTRY:ffz_entry,");
 	f_print(clang_linker_args.w, ",/INCREMENTAL:NO");
 	f_print(clang_linker_args.w, ",/NODEFAULTLIB"); // disable CRT
+	f_print(clang_linker_args.w, "/DYNAMICBASE:NO"); // to get deterministic pointers
 
 	for (uint i = 0; i < g->project->link_libraries.len; i++) {
 		f_print(clang_linker_args.w, ",~s", g->project->link_libraries[i]);

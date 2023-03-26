@@ -11,6 +11,7 @@
 
 int main(int argc, const char* argv[]) {
 	f_init();
+	f_cprint("hello from ffz main!\n");
 
 	//gmmc_test();
 	//return 0;

@@ -1,12 +1,26 @@
-#B: import(":Basic")
+//#B: import(":Basic")
+//
+//#str: import(":String")
 
-#str: import(":String")
+#V3: struct {
+	a: int
+	b: int
+}
 
-
+#thing: proc(x: int) => V3 {
+	result: V3
+	result.a = x
+	result.b = x
+	ret result
+}
 
 // if (bb->proc->ops.len == 7) F_BP;
 
-#entry: proc() {
-	B.print("Heyy!\n")
-	B.print("auuyy\n")
+#ffz_entry: proc() {
+	//B.print("Heyy!\n")
+	//B.print("auuyy\n")
+	
+	ay: thing(100)
+//	yee: thing(1, 30)
+	
 }

@@ -176,6 +176,7 @@ _temp_arena_tls_index: u32
 
 #arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
 	allocation_pos: ^u8(align_up(int(arena.head), align))
+	result: form_slice[u8](allocation_pos, size)
 	
 	arena.head = ^u8(uint(allocation_pos) + size)
 	
@@ -186,11 +187,11 @@ _temp_arena_tls_index: u32
 		arena.committed_end= ^u8(align_up(uint(arena.committed_end), int(arena.system_page_size)))
 	}
 	
-	if ENABLE_DEBUG_CHECKS {
-		_debug_clear_memory(allocation_pos, size)
-	}
+	//if ENABLE_DEBUG_CHECKS {
+	//	_debug_clear_memory(allocation_pos, size)
+	//}
 	
-	ret form_slice[u8](allocation_pos, size)
+	ret result
 }
 
 // returns NULL if invalid

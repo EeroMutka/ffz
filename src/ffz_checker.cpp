@@ -2248,7 +2248,7 @@ static bool _parse_and_check_directory(ffzProject* project, fString _directory, 
 				f_print(w, "\n");
 			}
 			f_print(w, "====================================================================\n\n");
-			
+
 			f_flush_buffered_writer(&console_writer);
 		}
 		

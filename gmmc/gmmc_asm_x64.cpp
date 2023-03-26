@@ -135,7 +135,7 @@ static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* com
 	f_array_push_n(&code_section->data, { instr, instr_len });
 
 	// print disassembly
-	if (false) {
+	if (true) {
 		uint sect_rel_offset = code_section->data.len - instr_len;
 		uint proc_rel_offset = sect_rel_offset - p->code_section_offset;
 
@@ -144,7 +144,7 @@ static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* com
 
 		ZydisDisassembledInstruction instruction;
 		if (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, proc_rel_offset, instr, instr_len, &instruction))) {
-			f_print(p->console, "(%u)  0x%llx:   %s%s\n", p->current_op, proc_rel_offset, instruction.text, comment);
+			f_print(p->console, "(~u32)  0x~x32:   ~c~c\n", p->current_op, proc_rel_offset, instruction.text, comment);
 		}
 	}
 }
@@ -550,11 +550,12 @@ static void gen_comparison(gmmcAsmProc* p, gmmcOpData* op) {
 	
 	if (p->emitting) {
 		{
+			RegSize size = gmmc_type_size(gmmc_get_op_type(p->proc, op->operands[0]));
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 			req.mnemonic = ZYDIS_MNEMONIC_CMP;
 			req.operand_count = 2;
-			req.operands[0] = make_reg_operand(a, 1);
-			req.operands[1] = make_reg_operand(b, 1);
+			req.operands[0] = make_reg_operand(a, size);
+			req.operands[1] = make_reg_operand(b, size);
 			emit(p, req);
 		}
 
@@ -732,7 +733,7 @@ static void gen_vcall(gmmcAsmProc* p, gmmcOpData* op) {
 
 		if (op->type) {
 			emit_mov_reg_to_reg(p, result_reg, GPR_AX, 8);
-			emit(p, req, " ; save return value");
+			//emit(p, req, " ; save return value");
 		}
 	}
 }
