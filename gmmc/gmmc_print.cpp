@@ -17,15 +17,15 @@ static u32 operand_bits(gmmcBasicBlock* bb, gmmcOpData* op) {
 static fString gmmc_type_get_string(gmmcType type) {
 	switch (type) {
 	case gmmcType_None: return F_LIT("void");
-	case gmmcType_bool: return F_LIT("bool");
-	case gmmcType_ptr: return F_LIT("void*");
-	case gmmcType_i8: return F_LIT("i8");
-	case gmmcType_i16: return F_LIT("i16");
-	case gmmcType_i32: return F_LIT("i32");
-	case gmmcType_i64: return F_LIT("i64");
-	case gmmcType_i128: return F_LIT("i128");
-	case gmmcType_f32: return F_LIT("f32");
-	case gmmcType_f64: return F_LIT("f64");
+	case gmmcType_bool: return F_LIT("$bool");
+	case gmmcType_ptr: return F_LIT("$ptr");
+	case gmmcType_i8: return F_LIT("$i8");
+	case gmmcType_i16: return F_LIT("$i16");
+	case gmmcType_i32: return F_LIT("$i32");
+	case gmmcType_i64: return F_LIT("$i64");
+	case gmmcType_i128: return F_LIT("$i128");
+	case gmmcType_f32: return F_LIT("$f32");
+	case gmmcType_f64: return F_LIT("$f64");
 	default: F_BP;
 	}
 	return {};
@@ -33,24 +33,25 @@ static fString gmmc_type_get_string(gmmcType type) {
 
 static char* gmmc_type_get_cstr(gmmcType type) { return (char*)gmmc_type_get_string(type).data; }
 
-static fString operand_to_str(fWriter* f, gmmcBasicBlock* bb, gmmcOpIdx op_idx) {
+static fString operand_to_str(gmmcBasicBlock* bb, gmmcOpIdx op_idx) {
 	gmmcOpData* op = &bb->proc->ops[op_idx];
 	switch (op->kind) {
-		case gmmcOpKind_bool: return f_tprint(op->imm_raw ? "1" : "0");
-		case gmmcOpKind_i8: return f_tprint("~u8", (u8)op->imm_raw);
-		case gmmcOpKind_i16: return f_tprint("~u16", (u16)op->imm_raw);
-		case gmmcOpKind_i32: return f_tprint("~u32", (u32)op->imm_raw);
-		case gmmcOpKind_i64: return f_tprint("~u64", (u64)op->imm_raw);
+		case gmmcOpKind_bool: return f_tprint(op->imm_bits ? "1" : "0");
+		case gmmcOpKind_i8: return f_tprint("~u8", (u8)op->imm_bits);
+		case gmmcOpKind_i16: return f_tprint("~u16", (u16)op->imm_bits);
+		case gmmcOpKind_i32: return f_tprint("~u32", (u32)op->imm_bits);
+		case gmmcOpKind_i64: return f_tprint("~u64", (u64)op->imm_bits);
+		
 		case gmmcOpKind_f32: {
-			F_BP;//f32 value;
-			//memcpy(&value, &op->imm_raw, 4);
-			//f_writef(f, "%ff;\n", (f64)value);
+			f32 value;
+			memcpy(&value, &op->imm_bits, 4);
+			return f_tprint("~f", (f64)value);
 		} break;
 
 		case gmmcOpKind_f64: {
-			F_BP;//f64 value;
-			//memcpy(&value, &op->imm_raw, 8);
-			//f_writef(f, "%f;\n", value);
+			f64 value;
+			memcpy(&value, &op->imm_bits, 8);
+			return f_tprint("~f", value);
 		} break;
 
 		case gmmcOpKind_addr_of_param: {
@@ -64,12 +65,8 @@ static fString operand_to_str(fWriter* f, gmmcBasicBlock* bb, gmmcOpIdx op_idx) 
 				return op->symbol->name;
 			}
 		} break;
-
-		default: {
-			return f_tprint("_$~u32", op_idx);
-		}
 	}
-	return {};
+	return f_tprint("_$~u32", op_idx);
 }
 
 void print_bb(fWriter* f, gmmcBasicBlock* bb) {
@@ -98,8 +95,8 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 			f_print(f, "~s _$~u32 = ", gmmc_type_get_string(type), op_idx);
 		}
 
-#define OTOS(i) operand_to_str(f, bb, op->operands[i])
-#define OTOS_(operand) operand_to_str(f, bb, operand)
+#define OTOS(i) operand_to_str(bb, op->operands[i])
+#define OTOS_(operand) operand_to_str(bb, operand)
 
 		switch (op->kind) {
 		
@@ -110,7 +107,7 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 		} break;
 
 		case gmmcOpKind_trunc: {
-			f_print(f, "(i~u32)~s", result_bits, OTOS(0));
+			f_print(f, "(~s)~s", gmmc_type_get_string(type), OTOS(0));
 		} break;
 
 		case gmmcOpKind_and: { f_print(f, "~s & ~s", OTOS(0), OTOS(1)); } break;
@@ -162,20 +159,20 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 
 		case gmmcOpKind_store: {
 			gmmcType value_type = gmmc_get_op_type(bb->proc, op->operands[1]);
-			f_print(f, "$store(~s, ~s, ~s)", gmmc_type_get_string(value_type), OTOS(0), OTOS(1));
+			f_print(f, "$store(~sua, ~s, ~s)", gmmc_type_get_string(value_type), OTOS(0), OTOS(1));
 		} break;
 
 		case gmmcOpKind_load: {
 			gmmcType value_type = gmmc_get_op_type(bb->proc, op_idx);
-			f_print(f, "$load(~s, ~s)", gmmc_type_get_string(value_type), OTOS(0));
+			f_print(f, "$load(~sua, ~s)", gmmc_type_get_string(value_type), OTOS(0));
 		} break;
 
 		case gmmcOpKind_member_access: {
-			f_print(f, "$member_access(~s, ~u32)", OTOS(0), (u32)op->imm_raw);
+			f_print(f, "$member_access(~s, ~u32)", OTOS(0), (u32)op->imm_bits);
 		} break;
 
 		case gmmcOpKind_array_access: {
-			f_print(f, "$array_access(~s, ~s, ~u32)", OTOS(0), OTOS(1), (u32)op->imm_raw);
+			f_print(f, "$array_access(~s, ~s, ~u32)", OTOS(0), OTOS(1), (u32)op->imm_bits);
 		} break;
 
 		case gmmcOpKind_memcpy: {
@@ -259,16 +256,24 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 	fString name = proc->sym.name;
 	
-	f_print(f, "~s ~s(", (proc->signature->return_type ?
-		gmmc_type_get_string(proc->signature->return_type) : F_LIT("void")), name);
-
-	for (uint i = 0; i < proc->signature->params.len; i++) {
-		if (i > 0) f_print(f, ", ");
-		gmmcType type = proc->signature->params[i];
-		f_print(f, "~s _$~u32", gmmc_type_get_string(type), proc->params[i]);
+	// :MainSpecialHandling
+	// clang is very strict about the definition of main, it will give errors if the types don't match exactly
+	bool is_main = f_str_equals(name, F_LIT("main"));
+	if (is_main) {
+		F_ASSERT(proc->params.len == 2);
+		f_print(f, "int main(int _$~u32, char** _$~u32) {\n", proc->params[0], proc->params[1]);
 	}
-	f_print(f, ") {\n");
+	else {
+		f_print(f, "~s ~s(", (proc->signature->return_type ?
+			gmmc_type_get_string(proc->signature->return_type) : F_LIT("void")), name);
 
+		for (uint i = 0; i < proc->signature->params.len; i++) {
+			if (i > 0) f_print(f, ", ");
+			gmmcType type = proc->signature->params[i];
+			f_print(f, "~s _$~u32", gmmc_type_get_string(type), proc->params[i]);
+		}
+		f_print(f, ") {\n");
+	}
 	
 	// locals / regs!
 	u32 first_nonparam_reg = 1 + (u32)proc->signature->params.len;
@@ -278,7 +283,7 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 		
 		if (op->kind == gmmcOpKind_local) {
 			gmmcLocal local = proc->locals[op->local_idx];
-			f_print(f, "_Alignas(~u32) i8 _$~u32[~u32]; ", local.align, i, local.size);
+			f_print(f, "_Alignas(~u32) $i8 _$~u32[~u32]; ", local.align, i, local.size);
 			
 			//if (counter % 8 == 0) f_writef(f, "\n    ");
 			//counter++;
@@ -294,6 +299,7 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 		print_bb(f, proc->basic_blocks[i]);
 	}
 	//f_writef(f, "char _;\n"); // goto: at the end with nothing after it is illegal, this is just a dumb fix for it
+
 	f_print(f, "}\n");
 }
 
@@ -301,34 +307,55 @@ GMMC_API void gmmc_module_print_c(fWriter* f, gmmcModule* m) {
 	f_printc(f, R"(
 // ------------------ GMMC prelude for C11 ----------------------------------
 
-typedef _Bool             bool;
-typedef void*              ptr;
-typedef unsigned char       i8;
-typedef unsigned short     i16;
-typedef unsigned int       i32;
-typedef unsigned long long i64;
-typedef float              f32;
-typedef double             f64;
-typedef char               $s8;
-typedef short             $s16;
-typedef int               $s32;
-typedef long long         $s64;
+typedef _Bool             $bool;
+typedef void*              $ptr;
+typedef unsigned char       $i8;
+typedef unsigned short     $i16;
+typedef unsigned int       $i32;
+typedef unsigned long long $i64;
+typedef float              $f32;
+typedef double             $f64;
+
+#include <stdint.h> // for uintptr_t
+
+// Unaligned primitive types.
+// This is required to get rid of the UB around unaligned accesses in C.
+#pragma pack(push, 1)
+typedef struct { $bool _value; } $boolua;
+typedef struct { $ptr  _value; }  $ptrua;
+typedef struct { $i8   _value; }   $i8ua;
+typedef struct { $i16  _value; }  $i16ua;
+typedef struct { $i32  _value; }  $i32ua;
+typedef struct { $i64  _value; }  $i64ua;
+typedef struct { $f32  _value; }  $f32ua;
+typedef struct { $f64  _value; }  $f64ua;
+#pragma pack(pop)
 
 // Required CRT magic definitions
 void __chkstk() {}
 int _fltused = 0x9875;
 
 #define $debugbreak() do {__debugbreak();} while(0)
-#define $store(T, ptr, value) *(T*)ptr = value
-#define $load(T, ptr) *(T*)ptr
-#define $array_access(base, index, stride) (i8*)base + index * stride
-#define $member_access(base, offset) (i8*)base + offset
+
+#define $store(T, ptr, value)  ((T*)ptr)->_value = value
+#define $load(T, ptr)          ((T*)ptr)->_value
+
+//#define $array_access(base, index, stride) ($i8*)base + index * stride
+//#define $member_access(base, offset) ($i8*)base + offset
+#define $array_access(base, index, stride) ($ptr)((uintptr_t)base + (uintptr_t)(index * stride))
+#define $member_access(base, offset) ($ptr)((uintptr_t)base + (uintptr_t)offset)
+
+// signed types
+typedef char               $s8;
+typedef short             $s16;
+typedef int               $s32;
+typedef long long         $s64;
 
 #define $op_unsigned(bits, op, a, b) a op b
-#define $op_signed(bits, op, a, b) (i##bits) (($s##bits)a op ($s##bits)b)
+#define $op_signed(bits, op, a, b) ($i##bits) (($s##bits)a op ($s##bits)b)
 
-#define $sxt(from, to, value) (i##to)(($s##to)(($s##from)value))
-#define $zxt(from, to, value) (i##to)value
+#define $sxt(from, to, value) ($i##to)(($s##to)(($s##from)value))
+#define $zxt(from, to, value) ($i##to)value
 
 void* memcpy(void* dst, const void* src, size_t n);
 void* memset(void* str, int c, size_t n);
@@ -337,6 +364,7 @@ void* memset(void* str, int c, size_t n);
 )");
 
 	//f_writef(f, "// -- globals -------------\n\n");
+	
 	f_print(f, "#pragma pack(push, 1)\n"); // TODO: use alignas instead! for relocations
 
 	fAllocator* alc = m->allocator;
@@ -348,6 +376,7 @@ void* memset(void* str, int c, size_t n);
 		// hmm... do we need to declare procs with the right type?
 		gmmcProc* proc = m->procs[i];
 		fString name = m->procs[i]->sym.name;
+		if (f_str_equals(name, F_LIT("main"))) continue; // :MainSpecialHandling
 
 		gmmcType ret_type = proc->signature->return_type;
 		f_print(f, "~s ~s(", ret_type ? gmmc_type_get_string(ret_type) : F_LIT("void"), name);
@@ -376,7 +405,6 @@ void* memset(void* str, int c, size_t n);
 		// sort the relocations
 		qsort(global->relocations.data, global->relocations.len, sizeof(gmmcRelocation), reloc_compare_fn);
 
-		//f_writef(f, "_Alignas(~u32) ", global->align);
 		f_print(f, "struct ~s_T {", name);
 
 		{
@@ -389,13 +417,13 @@ void* memset(void* str, int c, size_t n);
 					global->size;
 
 				if (bytes_end > offset) {
-					f_print(f, "i8 _~u32[~u32]; ", member_i++, bytes_end - offset);
+					f_print(f, "$i8 _~u32[~u32]; ", member_i++, bytes_end - offset);
 					offset = bytes_end;
 				}
 
 				if (next_reloc_idx >= global->relocations.len) break;
 
-				f_print(f, "i64 _~u32; ", member_i++);
+				f_print(f, "$i64 _~u32; ", member_i++);
 				offset += 8;
 				next_reloc_idx++;
 			}
@@ -404,7 +432,7 @@ void* memset(void* str, int c, size_t n);
 		// forward declare
 		//if (global->section == gmmcSection_Threadlocal) f_writef(f, "_Thread_local ");
 		if (global->section == gmmcSection_RData) f_print(f, "const ");
-		f_print(f, "static struct ~s_T ~s;\n", name, name);
+		f_print(f, "_Alignas(~u32) static struct ~s_T ~s;\n", global->align, name, name);
 	}
 
 	f_print(f, "\n");
@@ -415,7 +443,7 @@ void* memset(void* str, int c, size_t n);
 
 		//if (global->section == gmmcSection_Threadlocal) f_writef(f, "_Thread_local ");
 		if (global->section == gmmcSection_RData) f_print(f, "const ");
-		f_print(f, "static struct ~s_T ~s", name, name);
+		f_print(f, "_Alignas(~u32) static struct ~s_T ~s", global->align, name, name);
 		//f_writef(f, "\n%s_data = {", name);
 
 		bool is_all_zeroes = true;
@@ -452,8 +480,8 @@ void* memset(void* str, int c, size_t n);
 				gmmcRelocation reloc = global->relocations[next_reloc_idx];
 				u64 reloc_offset = *(u64*)((u8*)global->data + offset);
 
-				f_print(f, "(i64)(");
-				if (reloc_offset != 0) f_print(f, "(i8*)");
+				f_print(f, "($i64)(");
+				if (reloc_offset != 0) f_print(f, "($i8*)");
 				f_print(f, "&~s", reloc.target->name);
 				if (reloc_offset != 0) f_print(f, " + 0x~x64", reloc_offset);
 				f_print(f, "), ");

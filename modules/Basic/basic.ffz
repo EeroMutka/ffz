@@ -338,7 +338,7 @@ _temp_arena_tls_index: u32
 // thread_init_basic/thread_deinit_basic must be called if the code is using the Basic module. That's it!
 
 @*module_defined_entry
-#ffz_entry: proc(argc: u32, argv: ^^u8) {
+#main: proc(argc: u32, argv: ^^u8) => u32 { // ffz_entry
 	thread_init_basic()
 	
 	args: []string
@@ -347,6 +347,7 @@ _temp_arena_tls_index: u32
 	// thread_deinit_basic()
 	
 	ExitProcess(exit_code) // https://nullprogram.com/blog/2023/02/15/
+	ret 0
 }
 
 // -- OS-specific defines -----------------------------------------------------

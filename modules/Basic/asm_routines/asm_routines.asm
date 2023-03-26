@@ -13,6 +13,8 @@ section .text
 ; rdx: source
 ; r8: size
 memcpy:
+	push rdi
+	push rsi
 	mov rax, rcx ; return the destination
 	
 	mov rdi, rcx
@@ -20,12 +22,16 @@ memcpy:
 	mov rcx, r8 ; repetition count
 	rep movsb
 	
+	pop rsi
+	pop rdi
 	ret
 
 ; rcx: base
 ; rdx: value
 ; r8: size
 memset:
+	push rdi
+	
 	mov r10, rcx ; preserve the base address
 	
 	mov rdi, rcx
@@ -34,12 +40,17 @@ memset:
 	rep stosb
 	
 	mov rax, r10
+	
+	pop rdi
 	ret
 
 ; rcx: destination
 ; rdx: source
 ; r8: size
 memmove:
+	push rdi
+	push rsi
+	
 	mov rax, rcx ; return the destination
 	
 	mov rdi, rcx
@@ -67,9 +78,11 @@ memmove:
 	rep movsb
 	
 	cld ; clear the direction flag
-	ret
+	jmp .done
 .fast:
 	mov rcx, r8 ; repetition count
 	rep movsb
 .done:
+	pop rsi
+	pop rdi
 	ret

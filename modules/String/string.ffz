@@ -48,6 +48,13 @@
 	
 	j: builder.len - 1
 	for , i < j {
+		// hmm... what if j goes to negative?
+		
+		if j >= builder.slice.len {
+			dbgbreak
+			dbgbreak
+		}
+		
 		tmp: builder.slice[j]
 		builder.slice[j] = builder.slice[i]
 		builder.slice[i] = tmp

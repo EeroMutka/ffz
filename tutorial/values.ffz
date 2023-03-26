@@ -1,0 +1,63 @@
+
+
+
+
+#test: proc() {
+	
+	// A struct fields or a procedure parameter can be a constant value, or a type.
+	// When it's a constant value, it means the default value for that field, and the type is inferred from that value.
+	// If it's a type, it means it has that type, but it doesn't have a default value.
+	#NUMBER_OF_THINGS: 50
+	
+	#C: struct {
+		things: NUMBER_OF_THINGS
+		boring: int // no default value
+	}
+	
+	// A local variable must be given a value, the following won't compile:
+	// hello: int
+	
+	// but this will:
+	hello: int(0)
+	
+	// if you want to initialize an array of values, can do:
+	my_array: [10]int(200)
+	// where each element will get the value '200'.
+	
+	// this won't compile, as `boring` doesn't have a value:
+	// car: C{}
+	
+	// but this is fine:
+	car: C{boring = 100}
+	
+	
+	#Vector3: struct {
+		x: int
+		y: int
+		z: int
+	}
+	
+	// Structs can be constructed like so:
+	foo: Vector3{1, 2, 3}
+	
+	// the following will fail to compile - all fields must be initialized.
+	// bar: Vector3{}
+	
+	#BetterVector3: struct {
+		x: int(0)
+		y: int(0)
+		z: int(0)
+	}
+	
+	
+	// this is OK
+	bar: BetterVector3{}
+	
+	// Alternatively you can define:
+	#vec3: [3]int
+	
+	v1: vec3(0)
+	v2: vec3{50, 10, 3}
+}
+
+

@@ -214,7 +214,7 @@ typedef struct gmmcOpData {
 		fString comment;
 		gmmcSymbol* symbol;
 	};
-	u64 imm_raw;
+	u64 imm_bits;
 } gmmcOpData;
 
 typedef struct gmmcBasicBlock {
@@ -370,6 +370,7 @@ GMMC_API gmmcOpIdx gmmc_op_gt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool
 GMMC_API gmmcOpIdx gmmc_op_ge(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
 // TODO: add align? for SIMD types?
+// So currently load and store are unaligned.
 GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr);
 GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value);
 

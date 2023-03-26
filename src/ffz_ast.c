@@ -195,7 +195,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	if (false) {
 		f_print(w, " <");
 		f_prints(w, ffz_node_kind_to_string(node->kind));
-		f_print(w, "|`u32:`u32-`u32:`u32", node->loc.start.line_num, node->loc.start.column_num, node->loc.end.line_num, node->loc.end.column_num);
+		f_print(w, "|~u32:~u32-~u32:~u32", node->loc.start.line_num, node->loc.start.column_num, node->loc.end.line_num, node->loc.end.column_num);
 			//str_from_uint(AS_BYTES(node->start_pos.line_number), temp));
 		//str_print(builder, F_LIT(", line="));
 		//str_print(builder, str_from_uint(AS_BYTES(node->start_pos.line_number), temp));
@@ -371,11 +371,11 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_IntLiteral: {
-		f_print(w, "`u64", node->IntLiteral.value);
+		f_print(w, "~u64", node->IntLiteral.value);
 	} break;
 
 	case ffzNodeKind_FloatLiteral: {
-		f_print(w, "`f64", node->FloatLiteral.value);
+		f_print(w, "~f64", node->FloatLiteral.value);
 	} break;
 
 	case ffzNodeKind_StringLiteral: {

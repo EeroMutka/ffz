@@ -99,7 +99,7 @@ GMMC_API gmmcOpIdx gmmc_op_member_access(gmmcBasicBlock* bb, gmmcOpIdx base, uin
 
 	gmmcOpData op = { gmmcOpKind_member_access };
 	op.operands[0] = base;
-	op.imm_raw = offset;
+	op.imm_bits = offset;
 	op.type = gmmcType_ptr;
 	return gmmc_push_op(bb, &op);
 }
@@ -111,7 +111,7 @@ GMMC_API gmmcOpIdx gmmc_op_array_access(gmmcBasicBlock* bb, gmmcOpIdx base, gmmc
 	gmmcOpData op = { gmmcOpKind_array_access };
 	op.operands[0] = base;
 	op.operands[1] = index_i64;
-	op.imm_raw = stride;
+	op.imm_bits = stride;
 	op.type = gmmcType_ptr;
 	return gmmc_push_op(bb, &op);
 }
@@ -162,7 +162,7 @@ gmmcOpIdx gmmc_op_immediate(gmmcProc* proc, gmmcType type, void* data) {
 	gmmcOpData op = {};
 	op.kind = (gmmcOpKind)(gmmcOpKind_bool + (type - gmmcType_bool));
 	op.bb_idx = GMMC_BB_INDEX_NONE;
-	memcpy(&op.imm_raw, data, gmmc_type_size(type));
+	memcpy(&op.imm_bits, data, gmmc_type_size(type));
 	op.type = type;
 	return (gmmcOpIdx)f_array_push(&proc->ops, op);
 }
@@ -346,7 +346,7 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 		gmmcOpData op = { gmmcOpKind_addr_of_param };
 		op.bb_idx = GMMC_BB_INDEX_NONE;
 		op.type = gmmcType_ptr; //signature->params[i];
-		op.imm_raw = i;
+		op.imm_bits = i;
 		proc->params[i] = (gmmcOpIdx)f_array_push(&proc->ops, op);
 	}
 	

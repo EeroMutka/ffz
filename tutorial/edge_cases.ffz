@@ -1,0 +1,20 @@
+
+// Unaligned memory accesses are undefined in C.
+
+// if you compile to X64, then you should just get regular load-instructions (which work on unaligned too).
+// hmm... but if you compile to 
+
+// say you're writing code for arm32, which doesn't support unaligned loads by default.
+// the code should still generate normal loads most of the times. There should be a special compiler builtin for unaligned loads
+// I think.
+
+// so if you care about being portable, you shouldn't do sloppy unaligned loads, but most of the time you should be able to do them.
+// And we always have UBSAN to check for them so it's no problem.
+
+
+// So how can we make C generate regular load instructions every time, even for unaligned loads?
+
+
+
+
+

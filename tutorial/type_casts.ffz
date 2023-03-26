@@ -23,7 +23,7 @@
 		// size_of returns an 'uint'.
 		a: size_of(bool)
 		
-		b: u8
+		b: u8(0)
 		b = u8(a) // the explicit cast is required here, because 'a' has the type 'uint'
 		
 		// The following is also allowed:

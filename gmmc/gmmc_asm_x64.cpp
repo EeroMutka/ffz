@@ -396,7 +396,7 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 		req.operands[0] = make_reg_operand(result, 8);
 		req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
 		req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
-		req.operands[1].mem.displacement = p->stack_frame_size + 8 + 8 * (u32)op->imm_raw; // + 8 for return address :AddressOfParam
+		req.operands[1].mem.displacement = p->stack_frame_size + 8 + 8 * (u32)op->imm_bits; // + 8 for return address :AddressOfParam
 		req.operands[1].mem.size = 8;
 		emit(p, req, " ; address of param");
 	}
@@ -434,7 +434,7 @@ static GPR op_value_to_reg(gmmcAsmProc* p, gmmcOpIdx op_idx, GPR specify_reg = G
 		req.operand_count = 2;
 		req.operands[0] = make_reg_operand(result, size);
 		req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
-		req.operands[1].imm.u = sign_extend(op->imm_raw, size*8); // zydis requires sign-extended immediates
+		req.operands[1].imm.u = sign_extend(op->imm_bits, size*8); // zydis requires sign-extended immediates
 		emit(p, req, " ; immediate to reg");
 		int aa = 5;
 	}
@@ -497,7 +497,7 @@ GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmm
 		return asm_proc->local_frame_rel_offset[local_idx];
 	}
 	else if (op->kind == gmmcOpKind_addr_of_param) {
-		return 8 + 8*(u32)op->imm_raw; // :AddressOfParam
+		return 8 + 8*(u32)op->imm_bits; // :AddressOfParam
 	}
 	VALIDATE(false); return 0;
 }
@@ -511,7 +511,7 @@ static void gen_array_access(gmmcAsmProc* p, gmmcOpData* op) {
 
 	if (p->emitting) {
 		// memory-based operand `scale` can only encode 1, 2, 4 or 8 in x64.
-		bool can_encode_scale_directly = op->imm_raw == 1 || op->imm_raw == 2 || op->imm_raw == 4 || op->imm_raw == 8;
+		bool can_encode_scale_directly = op->imm_bits == 1 || op->imm_bits == 2 || op->imm_bits == 4 || op->imm_bits == 8;
 		
 		if (!can_encode_scale_directly) {
 			// wait... this isn't legal!!! we can't just overwrite the data in the register, hmm...
@@ -521,7 +521,7 @@ static void gen_array_access(gmmcAsmProc* p, gmmcOpData* op) {
 			req.operands[0] = make_reg_operand(GPR_AX, 8);
 			req.operands[1] = make_reg_operand(index_reg, 8);
 			req.operands[2].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
-			req.operands[2].imm.u = (u32)op->imm_raw;
+			req.operands[2].imm.u = (u32)op->imm_bits;
 			emit(p, req);
 
 			// NOTE: we `use_op_value` returns a read-only handle to a work register, so use RAX as a temporary
@@ -537,7 +537,7 @@ static void gen_array_access(gmmcAsmProc* p, gmmcOpData* op) {
 		req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
 		req.operands[1].mem.base = get_x64_reg(base_reg, 8);
 		req.operands[1].mem.index = get_x64_reg(index_reg, 8);
-		req.operands[1].mem.scale = can_encode_scale_directly ? (u8)op->imm_raw : 1;
+		req.operands[1].mem.scale = can_encode_scale_directly ? (u8)op->imm_bits : 1;
 		req.operands[1].mem.size = 8;
 		emit(p, req, " ; array access");
 	}
@@ -967,7 +967,7 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 				req.operands[0] = make_reg_operand(result_reg, 8);
 				req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
 				req.operands[1].mem.base = get_x64_reg(base_reg, 8);
-				req.operands[1].mem.displacement = op->imm_raw;
+				req.operands[1].mem.displacement = op->imm_bits;
 				req.operands[1].mem.size = 8;
 				emit(p, req, " ; member access");
 			}

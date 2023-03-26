@@ -211,11 +211,16 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 		}
 	} break;
 
+	case ffzTypeTag_Float: {
+		cv_type.tag = cviewTypeTag_Int; // TODO...
+	} break;
+
 	case ffzTypeTag_DefaultSint: // fallthrough
 	case ffzTypeTag_Sint: {
 		cv_type.tag = cviewTypeTag_Int;
 	} break;
 
+	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_DefaultUint: // fallthrough
 	case ffzTypeTag_Uint: {
 		cv_type.tag = cviewTypeTag_UnsignedInt;
@@ -958,7 +963,9 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 			ffzParser* parser = g->project->parsers[inst.node->id.parser_id];
 			u32 start = inst.node->loc.start.offset;
 			u32 end = inst.node->loc.end.offset;
-			gmmc_op_comment(g->bb, fString{ parser->source_code.data + start, end - start });
+			
+			gmmc_op_comment(g->bb, f_tprint("line ~u32:   ~s", inst.node->loc.start.line_num,
+				fString{ parser->source_code.data + start, end - start }));
 		}
 	}
 	
@@ -1433,16 +1440,19 @@ static bool build_x64(Gen* g, fString build_dir) {
 static bool build_c(Gen* g, fString build_dir) {
 	fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
 	
-	fFile c_file;
-	if (!f_files_open(c_file_path, fFileOpenMode_Write, &c_file)) {
-		f_cprint("Failed writing temporary C file to disk!\n");
-		return false;
+	bool write = true;
+	if (write) {
+		fFile c_file;
+		if (!f_files_open(c_file_path, fFileOpenMode_Write, &c_file)) {
+			f_cprint("Failed writing temporary C file to disk!\n");
+			return false;
+		}
+
+		fWriter* c_file_writer = f_files_get_writer(&c_file);
+		gmmc_module_print_c(c_file_writer, g->gmmc);
+
+		f_files_close(&c_file);
 	}
-
-	fWriter* c_file_writer = f_files_get_writer(&c_file);
-	gmmc_module_print_c(c_file_writer, g->gmmc);
-
-	f_files_close(&c_file);
 
 	fArray(fString) clang_args = f_array_make<fString>(f_temp_alc());
 
@@ -1457,6 +1467,9 @@ static bool build_c(Gen* g, fString build_dir) {
 		//f_array_push(&clang_args, F_LIT("-gcodeview"));
 		//f_array_push(&clang_args, F_LIT("--debug"));
 	}
+	
+	// hmm... it seems like we need to use 'main' if we want to use UBSAN
+	//f_array_push(&clang_args, F_LIT("-fsanitize=undefined"));
 
 	// Use the LLD linker
 	//f_array_push(&clang_args, F_LIT("-fuse-ld=lld"));
@@ -1469,11 +1482,12 @@ static bool build_c(Gen* g, fString build_dir) {
 	f_init_string_builder(&clang_linker_args, f_temp_alc());
 
 	f_print(clang_linker_args.w, "-Wl"); // pass comma-separated argument list to the linker
-	f_print(clang_linker_args.w, ",/SUBSYSTEM:~c", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
-	f_print(clang_linker_args.w, ",/ENTRY:ffz_entry,");
+	//f_print(clang_linker_args.w, ",/SUBSYSTEM:~c", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
+	//f_print(clang_linker_args.w, ",/ENTRY:ffz_entry,");
+
 	f_print(clang_linker_args.w, ",/INCREMENTAL:NO");
-	f_print(clang_linker_args.w, ",/NODEFAULTLIB"); // disable CRT
-	f_print(clang_linker_args.w, "/DYNAMICBASE:NO"); // to get deterministic pointers
+	//f_print(clang_linker_args.w, ",/NODEFAULTLIB"); // disable CRT
+	f_print(clang_linker_args.w, ",/DYNAMICBASE:NO"); // to get deterministic pointers
 
 	for (uint i = 0; i < g->project->link_libraries.len; i++) {
 		f_print(clang_linker_args.w, ",~s", g->project->link_libraries[i]);
@@ -1550,7 +1564,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 		}
 	}
 
-	bool x64 = true;
+	bool x64 = false;
 	if (x64) {
 		return build_x64(&g, build_dir);
 	}

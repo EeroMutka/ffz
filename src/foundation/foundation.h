@@ -637,7 +637,7 @@ u64 f_hash64_str_ex(fString s, u64 seed);
 // ~u8, ~u16, ~u32, ~u64    - unsigned integers
 // ~i8, ~i16, ~i32, ~i64    - signed integers
 // ~x8, ~x16, ~x32, ~x64    - hexadecimal integers
-// ~f32, ~f64               - floats
+// ~f                       - double
 void f_print(fWriter* w, const char* fmt, ...);
 void f_print_va(fWriter* w, const char* fmt, va_list args);
 

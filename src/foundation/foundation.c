@@ -196,17 +196,19 @@ void f_print_va(fWriter* w, const char* fmt, va_list args) {
 
 			switch (*c) {
 			case 's': {
-				fString str = va_arg(args, fString);
-				f_prints(w, str);
+				f_prints(w, va_arg(args, fString));
 			} break;
 
 			case 'c': {
-				char* c_str = va_arg(args, char*);
-				f_printc(w, c_str);
+				f_printc(w, va_arg(args, char*));
 			} break;
 
 			case '~': {
 				f_printc(w, "`~");
+			} break;
+
+			case 'f': {
+				f_print_float(w, va_arg(args, f64));
 			} break;
 
 			case 'x': // fallthrough
@@ -238,6 +240,7 @@ void f_print_va(fWriter* w, const char* fmt, va_list args) {
 
 			} break;
 
+			default: F_ASSERT(false);
 			}
 		}
 		else {
