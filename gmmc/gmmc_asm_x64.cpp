@@ -37,8 +37,16 @@ GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection sec
 	*out_relocs = m->sections[section].relocs.slice;
 }
 
+enum RegisterSet {
+	RegisterSet_Normal,
+	RegisterSet_XMM,
+	RegisterSet_COUNT,
+};
+
 enum GPR {
 	GPR_INVALID,
+	
+	// RegisterSet = 0
 	GPR_AX,
 	GPR_CX,
 	GPR_DX,
@@ -55,6 +63,26 @@ enum GPR {
 	GPR_13,
 	GPR_14,
 	GPR_15,
+
+	// floating point registers
+	// RegisterSet = 1
+	GPR_XMM0,
+	GPR_XMM1,
+	GPR_XMM2,
+	GPR_XMM3,
+	GPR_XMM4,
+	GPR_XMM5,
+	GPR_XMM6,
+	GPR_XMM7,
+	GPR_XMM8,
+	GPR_XMM9,
+	GPR_XMM10,
+	GPR_XMM11,
+	GPR_XMM12,
+	GPR_XMM13,
+	GPR_XMM14,
+	GPR_XMM15,
+
 	GPR_COUNT,
 };
 
@@ -74,6 +102,31 @@ struct gmmcAsmOp {
 	u32 instruction_offset;
 };
 
+
+// We do generation in 3 stages:
+// 1st pass:
+//   - fill up the `last_use_time`s
+//   - calculate the maximum stack space needed for any procedure call (largest_call_shadow_space)
+// 2nd pass:
+//    Figure out which registers to allocate for each op, and that way get
+//    information about which work registers are needed for the procedure.
+// 3rd pass:
+//    emit the actual instructions.
+enum gmmcAsmStage {
+	gmmcAsmStage_FindLiveRanges,
+	
+	gmmcAsmStage_SelectRegs,
+	gmmcAsmStage_Emit,
+};
+
+struct gmmcAsmSelectRegs {
+};
+
+struct gmmcAsmEmit {
+	u32 code_section_offset;
+	u32 code_section_end_offset;
+};
+
 struct gmmcAsmProc {
 	gmmcAsmModule* module;
 	fWriter* console;
@@ -83,28 +136,26 @@ struct gmmcAsmProc {
 
 	fSlice(gmmcAsmOp) ops;
 
-	//gmmcBasicBlockIdx current_bb;
-	gmmcOpIdx current_op;
-
-	// We do 2 passes. In the first pass, we
-	//   - fill up the `last_use_time`s
-	//   - calculate the maximum stack space needed for any procedure call (largest_call_shadow_space)
-	// In the second pass, we figure out which registers to allocate on the fly and emit the instructions.
-	bool emitting;
-
 	fSlice(gmmcAsmBB) blocks;
+
+	struct {
+		// used for all 3 stages
+		gmmcAsmStage stage;
+		gmmcOpIdx current_op;
+
+		gmmcAsmSelectRegs rsel; // used for both _SelectRegs and _Emit stages
+
+		gmmcAsmEmit emit; // used only for _Emit stage
+	} gen;
 
 	// --- second pass ---
 
-	u32 largest_call_shadow_space_size;
-	
-	u32 code_section_offset;
-	u32 code_section_end_offset;
+	//u32 largest_call_shadow_space_size;
 
 	u32 stack_frame_size;
 	u8 prolog_size;
 
-	u32 work_registers_used_count;
+	u32 work_registers_used_count[RegisterSet_COUNT];
 
 	gmmcOpIdx work_reg_taken_by_op[GPR_COUNT]; // per-BB
 	
@@ -112,7 +163,8 @@ struct gmmcAsmProc {
 	// at the end of the procedure, restore the register's state.
 	// NOTE: when we begin emitting, we don't know yet how many non-volatile work registers we're going to use.
 	// So for now, we just reserve stack space for each possible work register. This could be solved if we introduced a third pass for the emitting, or if we emitted in a separate buffer and appended it at the end.
-	s32 work_reg_restore_frame_rel_offset[GPR_COUNT];
+	//s32 work_reg_restore_frame_rel_offset[GPR_COUNT];
+	fArray(GPR) restore_push_work_regs
 };
 
 //s32 frame_rel_to_rsp_rel_offset(ProcGen* gen, s32 offset) { return gen->stack_frame_size + offset; }
@@ -151,7 +203,7 @@ static void emit(gmmcAsmProc* p, const ZydisEncoderRequest& req, const char* com
 
 // General-purpose registers. Prefer non-volatile registers for now
 // https://learn.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170
-const static GPR work_registers[] = {
+const static GPR int_work_registers[] = {
 	GPR_12,
 	GPR_13,
 	GPR_14,
@@ -162,37 +214,71 @@ const static GPR work_registers[] = {
 	//GPR_BP,
 };
 
-
-ZydisRegister zydis_reg_table[] = {
-	ZYDIS_REGISTER_AL, ZYDIS_REGISTER_CL, ZYDIS_REGISTER_DL, ZYDIS_REGISTER_BL,
-	ZYDIS_REGISTER_SPL, ZYDIS_REGISTER_BPL, ZYDIS_REGISTER_SIL, ZYDIS_REGISTER_DIL,
-	ZYDIS_REGISTER_R8B, ZYDIS_REGISTER_R9B, ZYDIS_REGISTER_R10B, ZYDIS_REGISTER_R11B,
-	ZYDIS_REGISTER_R12B, ZYDIS_REGISTER_R13B, ZYDIS_REGISTER_R14B, ZYDIS_REGISTER_R15B,
-
-	ZYDIS_REGISTER_AX, ZYDIS_REGISTER_CX, ZYDIS_REGISTER_DX, ZYDIS_REGISTER_BX,
-	ZYDIS_REGISTER_SP, ZYDIS_REGISTER_BP, ZYDIS_REGISTER_SI, ZYDIS_REGISTER_DI,
-	ZYDIS_REGISTER_R8W, ZYDIS_REGISTER_R9W, ZYDIS_REGISTER_R10W, ZYDIS_REGISTER_R11W,
-	ZYDIS_REGISTER_R12W, ZYDIS_REGISTER_R13W, ZYDIS_REGISTER_R14W, ZYDIS_REGISTER_R15W,
-
-	ZYDIS_REGISTER_EAX, ZYDIS_REGISTER_ECX, ZYDIS_REGISTER_EDX, ZYDIS_REGISTER_EBX,
-	ZYDIS_REGISTER_ESP, ZYDIS_REGISTER_EBP, ZYDIS_REGISTER_ESI, ZYDIS_REGISTER_EDI,
-	ZYDIS_REGISTER_R8D, ZYDIS_REGISTER_R9D, ZYDIS_REGISTER_R10D, ZYDIS_REGISTER_R11D,
-	ZYDIS_REGISTER_R12D, ZYDIS_REGISTER_R13D, ZYDIS_REGISTER_R14D, ZYDIS_REGISTER_R15D,
-
-	ZYDIS_REGISTER_RAX, ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_RBX,
-	ZYDIS_REGISTER_RSP, ZYDIS_REGISTER_RBP, ZYDIS_REGISTER_RSI, ZYDIS_REGISTER_RDI,
-	ZYDIS_REGISTER_R8, ZYDIS_REGISTER_R9, ZYDIS_REGISTER_R10, ZYDIS_REGISTER_R11,
-	ZYDIS_REGISTER_R12, ZYDIS_REGISTER_R13, ZYDIS_REGISTER_R14, ZYDIS_REGISTER_R15,
+// These are also non-volatile registers
+const static GPR float_work_registers[] = {
+	GPR_XMM6,
+	GPR_XMM7,
+	GPR_XMM8,
+	GPR_XMM9,
+	//GPR_XMM10,
+	//GPR_XMM11,
+	//GPR_XMM12,
+	//GPR_XMM13,
+	//GPR_XMM14,
+	//GPR_XMM15,
 };
+
+RegisterSet get_register_set_from_type(gmmcType type) {
+	return gmmc_type_is_float(type) ? RegisterSet_XMM : RegisterSet_Normal;
+}
+
+RegisterSet get_register_set(GPR reg) {
+	return reg >= GPR_XMM0 && reg <= GPR_XMM15 ? RegisterSet_XMM : RegisterSet_Normal;
+}
+
+static fSlice(GPR) get_work_registers(RegisterSet reg_set) {
+	switch (reg_set) {
+	case RegisterSet_Normal: return fSlice(GPR) { (GPR*)&float_work_registers, F_LEN(float_work_registers) };
+	case RegisterSet_XMM: return fSlice(GPR) { (GPR*)&int_work_registers, F_LEN(int_work_registers) };
+	}
+	F_BP; return {};
+}
 
 
 ZydisRegister get_x64_reg(GPR reg, RegSize size) {
-	u32 size_class_from_size[] = { 0, 1, 2, 0, 3, 0, 0, 0, 4 };
-	u32 size_class = size_class_from_size[size];
-	F_ASSERT(size_class != 0);
-	
-	u32 reg_index = (u32)(reg - GPR_AX);
-	return zydis_reg_table[reg_index + 16 * (size_class - 1)];
+	if (get_register_set(reg) == RegisterSet_XMM) {
+		return (ZydisRegister)(ZYDIS_REGISTER_XMM0 + (reg - GPR_XMM0));
+	}
+	else {
+		const static ZydisRegister table[] = {
+			ZYDIS_REGISTER_AL, ZYDIS_REGISTER_CL, ZYDIS_REGISTER_DL, ZYDIS_REGISTER_BL,
+			ZYDIS_REGISTER_SPL, ZYDIS_REGISTER_BPL, ZYDIS_REGISTER_SIL, ZYDIS_REGISTER_DIL,
+			ZYDIS_REGISTER_R8B, ZYDIS_REGISTER_R9B, ZYDIS_REGISTER_R10B, ZYDIS_REGISTER_R11B,
+			ZYDIS_REGISTER_R12B, ZYDIS_REGISTER_R13B, ZYDIS_REGISTER_R14B, ZYDIS_REGISTER_R15B,
+
+			ZYDIS_REGISTER_AX, ZYDIS_REGISTER_CX, ZYDIS_REGISTER_DX, ZYDIS_REGISTER_BX,
+			ZYDIS_REGISTER_SP, ZYDIS_REGISTER_BP, ZYDIS_REGISTER_SI, ZYDIS_REGISTER_DI,
+			ZYDIS_REGISTER_R8W, ZYDIS_REGISTER_R9W, ZYDIS_REGISTER_R10W, ZYDIS_REGISTER_R11W,
+			ZYDIS_REGISTER_R12W, ZYDIS_REGISTER_R13W, ZYDIS_REGISTER_R14W, ZYDIS_REGISTER_R15W,
+
+			ZYDIS_REGISTER_EAX, ZYDIS_REGISTER_ECX, ZYDIS_REGISTER_EDX, ZYDIS_REGISTER_EBX,
+			ZYDIS_REGISTER_ESP, ZYDIS_REGISTER_EBP, ZYDIS_REGISTER_ESI, ZYDIS_REGISTER_EDI,
+			ZYDIS_REGISTER_R8D, ZYDIS_REGISTER_R9D, ZYDIS_REGISTER_R10D, ZYDIS_REGISTER_R11D,
+			ZYDIS_REGISTER_R12D, ZYDIS_REGISTER_R13D, ZYDIS_REGISTER_R14D, ZYDIS_REGISTER_R15D,
+
+			ZYDIS_REGISTER_RAX, ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_RBX,
+			ZYDIS_REGISTER_RSP, ZYDIS_REGISTER_RBP, ZYDIS_REGISTER_RSI, ZYDIS_REGISTER_RDI,
+			ZYDIS_REGISTER_R8, ZYDIS_REGISTER_R9, ZYDIS_REGISTER_R10, ZYDIS_REGISTER_R11,
+			ZYDIS_REGISTER_R12, ZYDIS_REGISTER_R13, ZYDIS_REGISTER_R14, ZYDIS_REGISTER_R15,
+		};
+
+		u32 size_class_from_size[] = { 0, 1, 2, 0, 3, 0, 0, 0, 4 };
+		u32 size_class = size_class_from_size[size];
+		F_ASSERT(size_class != 0);
+
+		u32 reg_index = (u32)(reg - GPR_AX);
+		return table[reg_index + 16 * (size_class - 1)];
+	}
 }
 
 ZydisEncoderOperand make_reg_operand(GPR gpr, RegSize size) {
@@ -240,14 +326,28 @@ static void spill(gmmcAsmProc* p, gmmcOpIdx op_idx) {
 	}
 }
 
+
 static GPR allocate_gpr(gmmcAsmProc* p, gmmcOpIdx for_op) {
+
 	GPR gpr = GPR_INVALID;
 	F_ASSERT(p->emitting);
 
 	F_HITS(_c, 0);
 
-	for (u32 i = 0; i < p->work_registers_used_count; i++) {
-		GPR work_reg = work_registers[i];
+	RegisterSet rset = get_register_set_from_type(p->proc->ops[p->current_op].type);
+	fSlice(GPR) work_regs = get_work_registers(rset);
+
+	for (u32 i = 0; i < p->work_registers_used_count[rset]; i++) {
+		GPR work_reg = float_work_registers[i];
+		gmmcOpIdx taken_by_op = p->work_reg_taken_by_op[work_reg];
+		if (p->current_op > p->ops[taken_by_op].last_use_time) { // this op value will never be used later
+			gpr = work_reg;
+			break;
+		}
+	}
+
+	for (u32 i = 0; i < p->work_registers_used_count[rset]; i++) {
+		GPR work_reg = work_regs[i];
 		gmmcOpIdx taken_by_op = p->work_reg_taken_by_op[work_reg];
 		if (p->current_op > p->ops[taken_by_op].last_use_time) { // this op value will never be used later
 			gpr = work_reg;
@@ -258,26 +358,29 @@ static GPR allocate_gpr(gmmcAsmProc* p, gmmcOpIdx for_op) {
 	// Take a new register. If the registers are all in use, then loop through them and steal the one
 	// used by the OP with the greatest `last_use_time`
 	if (!gpr) {
-		if (p->work_registers_used_count < F_LEN(work_registers)) {
-			gpr = work_registers[p->work_registers_used_count++];
+		if (p->work_registers_used_count[rset] < work_regs.len) {
+			gpr = work_regs[p->work_registers_used_count[rset]++];
 
 			// Store the original value of the non-volatile work register, to be restored on return
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-			req.mnemonic = ZYDIS_MNEMONIC_MOV;
+			req.mnemonic = get_register_set(gpr) == RegisterSet_XMM ? ZYDIS_MNEMONIC_MOVSS : ZYDIS_MNEMONIC_MOV;
 			req.operand_count = 2;
 			req.operands[0].type = ZYDIS_OPERAND_TYPE_MEMORY;
 			req.operands[0].mem.base = ZYDIS_REGISTER_RSP;
 			req.operands[0].mem.displacement = p->work_reg_restore_frame_rel_offset[gpr] + p->stack_frame_size;
 			req.operands[0].mem.size = 8;
 			req.operands[1] = make_reg_operand(gpr, 8);
+			
+			// get size of the register hmm...
+			
 			emit(p, req, " ; take a new register, save its foreign value");
 		}
 		else {
 			gmmcOpIdx greatest_last_use_time = 0;
 			gmmcOpIdx victim = 0;
 			
-			for (uint i = 0; i < F_LEN(work_registers); i++) {
-				GPR work_reg = work_registers[i];
+			for (uint i = 0; i < work_regs.len; i++) {
+				GPR work_reg = work_regs[i];
 				gmmcOpIdx potential_victim = p->work_reg_taken_by_op[work_reg];
 				F_ASSERT(p->ops[potential_victim].currently_in_register == work_reg);
 
@@ -650,17 +753,21 @@ static void gen_return(gmmcAsmProc* p, gmmcOpData* op) {
 			op_value_to_reg(p, value_reg.source_op, GPR_AX); // move the return value to RAX
 		}
 
-		for (uint i = 0; i < p->work_registers_used_count; i++) { // restore the state of the non-volatile registers that we used as work registers
-			GPR reg = work_registers[i];
-			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-			req.mnemonic = ZYDIS_MNEMONIC_MOV;
-			req.operand_count = 2;
-			req.operands[0] = make_reg_operand(reg, 8);
-			req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
-			req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
-			req.operands[1].mem.displacement = p->work_reg_restore_frame_rel_offset[reg] + p->stack_frame_size;
-			req.operands[1].mem.size = 8;
-			emit(p, req, " ; restore foreign value of a register");
+		for (uint rset = 0; rset < RegisterSet_COUNT; rset++) {
+			fSlice(GPR) work_regs = get_work_registers((RegisterSet)rset);
+
+			for (uint i = 0; i < p->work_registers_used_count[rset]; i++) { // restore the state of the non-volatile registers that we used as work registers
+				GPR reg = work_regs[i];
+				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+				req.mnemonic = ZYDIS_MNEMONIC_MOV;
+				req.operand_count = 2;
+				req.operands[0] = make_reg_operand(reg, 8);
+				req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
+				req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
+				req.operands[1].mem.displacement = p->work_reg_restore_frame_rel_offset[reg] + p->stack_frame_size;
+				req.operands[1].mem.size = 8;
+				emit(p, req, " ; restore foreign value of a register");
+			}
 		}
 
 		// restore stack-frame
@@ -992,6 +1099,10 @@ static u32 gen_bb(gmmcAsmProc* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_le: { gen_comparison(p, op); } break;
 		case gmmcOpKind_gt: { gen_comparison(p, op); } break;
 		case gmmcOpKind_ge: { gen_comparison(p, op); } break;
+
+		case gmmcOpKind_fadd: {
+			f_cprint("heyyy!\n");
+		} break;
 
 		case gmmcOpKind_add: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_ADD); } break;
 		case gmmcOpKind_sub: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_SUB); } break;

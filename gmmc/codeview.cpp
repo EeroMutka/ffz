@@ -367,6 +367,21 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 	
 	case cviewTypeTag_VoidPointer: { t = T_64PVOID; } break;
 
+	case cviewTypeTag_Bool: {
+		if (type.size == 1) t = T_BOOL08;
+		else if (type.size == 2) t = T_BOOL16;
+		else if (type.size == 4) t = T_BOOL32;
+		else if (type.size == 8) t = T_BOOL64;
+		else VALIDATE(false);
+	} break;
+
+	case cviewTypeTag_Float: {
+		if (type.size == 2) t = T_REAL16;
+		else if (type.size == 4) t = T_REAL32;
+		else if (type.size == 8) t = T_REAL64;
+		else VALIDATE(false);
+	} break;
+
 	case cviewTypeTag_Int: {
 		if (type.size == 1) t = T_INT1;
 		else if (type.size == 2) t = T_INT2;

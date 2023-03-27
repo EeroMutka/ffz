@@ -26,6 +26,7 @@
 
 #ENABLE_DEBUG_CHECKS: true
 
+// globals shouldn't be allowed in modules, but only for the basic module an exception is made
 @*global
 _temp_arena_tls_index: u32
 

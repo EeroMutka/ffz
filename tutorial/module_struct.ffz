@@ -1,0 +1,61 @@
+
+// Sometimes when using a module, you end up having to pass a global "module struct"
+// to most of the module's procedures, typically as the first parameter.
+
+// This makes it very tempting to declare a global variable inside the module
+// to store some state implicitly. But this practice is often frowned upon in
+// programming, and there are some good reasons why.
+
+// The first drawback of using globals is that your code is no longer
+// thread-safe by default. Though, you can use thread local variables which does solve this.
+
+// Another reason is that when you start using globals, it's no longer obvious which
+// procedures are pure vs which have side-effects. If instead you clearly state in
+// your procedure parameters what exactly the procedure can access, then when you call that procedure
+// with peace of mind knowing it won't access or modify any hidden state.
+
+// Lastly, it's no longer possible for the module user to sandbox the module out
+// into a struct that they have full control over.
+
+// FFZ started out as a C-like procedural language with no intention of being
+// object-oriented. However with the addition of module struct, it admittedly
+// is object oriented. An object in our case is a module which can have state attached to it.
+// Of course, you can still have modules that do not use the module struct.
+// That is anagolous to having an object with only static methods.
+
+// OOP languages likely made the same observations and went further with it, thinking
+// "Ooh this problem can be solved better with an object! We should turn EVERYTHING
+//  into objects and EVERYTHING will be solved better!"
+
+// So why is this not true? Why is it supposedly a good fit for modules?
+// Well, a module in FFZ is by definition something isolated.
+// A lot of the time, the best solution for your problem can't be broken down
+// into isolated pieces, and thus should just be in a single module.
+// But if your problem CAN be isolated nicely into a single module, then
+// it's nice to be able to have 
+
+// Just a fun realization that I accidentally made OOP!
+
+// in Array.ffz:
+
+@*module_struct
+#Array: struct[T] {
+	slice: []T
+	len: uint
+}
+
+#push: proc[T](array: ^Array[T], value: T) {
+}
+
+//
+
+#Array: import("Array")
+
+#test: proc() {
+	players: Array|make[int]()
+	players|push(32)
+	players|push(50)
+	players|push(5552)
+}
+
+

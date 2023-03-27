@@ -16,6 +16,8 @@ typedef struct {
 typedef enum cviewTypeTag {
 	cviewTypeTag_Invalid,
 	cviewTypeTag_Int,
+	cviewTypeTag_Float,
+	cviewTypeTag_Bool,
 	cviewTypeTag_UnsignedInt,
 	cviewTypeTag_Record,
 	cviewTypeTag_Pointer,

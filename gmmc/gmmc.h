@@ -413,7 +413,8 @@ GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType
 GMMC_API gmmcOpIdx gmmc_op_int2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool from_signed);
 GMMC_API gmmcOpIdx gmmc_op_float2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type);
 
-// If the value doesn't fit into the integer's value range, it will be clamped.
+// If the value doesn't fit into the integer's value range, it will be clamped. TODO: this is
+// currently only the case for the C-generator, the X64 generator doesn't handle this yet
 GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool to_signed);
 
 // -- Integer operations --------------------------------

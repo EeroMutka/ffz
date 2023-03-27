@@ -194,12 +194,12 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 
 	switch (type->tag) {
 	case ffzTypeTag_Bool: {
-		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
+		cv_type.tag = cviewTypeTag_Bool;
 		cv_type.size = 1;
 	} break;
 
 	case ffzTypeTag_Proc: {
-		cv_type.tag = cviewTypeTag_UnsignedInt; // TODO
+		cv_type.tag = cviewTypeTag_VoidPointer;
 		cv_type.size = 8;
 	} break;
 	case ffzTypeTag_Pointer: {
@@ -212,7 +212,7 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 	} break;
 
 	case ffzTypeTag_Float: {
-		cv_type.tag = cviewTypeTag_Int; // TODO...
+		cv_type.tag = cviewTypeTag_Float;
 	} break;
 
 	case ffzTypeTag_DefaultSint: // fallthrough
@@ -670,9 +670,15 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 		case ffzNodeKind_UnaryMinus: {
 			F_ASSERT(!address_of);
+			gmmcType type = get_gmmc_type(g, checked.type);
+
 			u64 zero = 0;
 			out = gen_expr(g, right, false);
-			out = gmmc_op_sub(g->bb, gmmc_op_immediate(g->proc, get_gmmc_type(g, checked.type), &zero), out);  // -x = 0 - x
+			if (gmmc_type_is_float(type)) {
+				out = gmmc_op_fsub(g->bb, gmmc_op_immediate(g->proc, type, &zero), out);
+			} else {
+				out = gmmc_op_sub(g->bb, gmmc_op_immediate(g->proc, type, &zero), out);
+			}
 		} break;
 
 		case ffzNodeKind_LogicalNOT: {
@@ -711,19 +717,22 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					// type cast, e.g. u32(520.32)
 
 					ffzType* dst_type = left_chk.const_val->type;
-					gmmcType dt = get_gmmc_type(g, dst_type);
 
 					ffzNodeInst arg = ffz_get_child_inst(inst, 0);
 					ffzType* arg_type = ffz_expr_get_type(g->project, arg);
 
 					out = gen_expr(g, arg, false);
-					if (ffz_type_is_pointer_ish(dst_type->tag)) { // cast to pointer
-						if (ffz_type_is_pointer_ish(arg_type->tag)) {}
+					
+					
+					if (ffz_type_is_slice_ish(dst_type->tag) && ffz_type_is_slice_ish(arg_type->tag)) {} // no-op
+					else if (ffz_type_is_pointer_ish(dst_type->tag)) { // cast to pointer
+						if (ffz_type_is_pointer_ish(arg_type->tag)) {} // no-op
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {
 							out = gmmc_op_int2ptr(g->bb, out);
 						}
 					}
 					else if (ffz_type_is_integer_ish(dst_type->tag)) { // cast to integer
+						gmmcType dt = get_gmmc_type(g, dst_type);
 						if (ffz_type_is_pointer_ish(arg_type->tag)) {
 							out = gmmc_op_ptr2int(g->bb, out);
 						}
@@ -735,6 +744,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 						}
 					}
 					else if (ffz_type_is_float(dst_type->tag)) {
+						gmmcType dt = get_gmmc_type(g, dst_type);
 						if (ffz_type_is_float(arg_type->tag)) {
 							out = gmmc_op_float2float(g->bb, out, dt);
 						}
@@ -742,7 +752,6 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 							out = gmmc_op_int2float(g->bb, out, dt, ffz_type_is_signed_integer(arg_type->tag));
 						}
 					}
-					else if (ffz_type_is_slice_ish(dst_type->tag) && ffz_type_is_slice_ish(arg_type->tag)) {} // only a semantic cast
 					else todo;
 				}
 				else {
@@ -1576,7 +1585,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 		}
 	}
 
-	bool x64 = false;
+	bool x64 = true;
 	if (x64) {
 		return build_x64(&g, build_dir);
 	}
