@@ -19,9 +19,10 @@
 // The goal of Give-Me-Machine-Code is to be an easy to use library to generate machine code
 // for you
 // 
+// I saw room for an easy-to-use library to do this task, so I decided to make it.
 // 
-// And because there
-// didn't seem to be other easy-to-use libraries to do this, I decided to do it.
+// Future research:
+// https://pubby.games/codegen.html
 // 
 // 
 // 
@@ -139,6 +140,11 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_mul,
 	gmmcOpKind_div,
 	gmmcOpKind_mod,
+
+	gmmcOpKind_fadd,
+	gmmcOpKind_fsub,
+	gmmcOpKind_fmul,
+	gmmcOpKind_fdiv,
 	
 	gmmcOpKind_and,
 	gmmcOpKind_or,
@@ -152,6 +158,10 @@ typedef enum gmmcOpKind {
 	gmmcOpKind_zxt,
 	gmmcOpKind_sxt,
 	gmmcOpKind_trunc,
+
+	gmmcOpKind_int2float,
+	gmmcOpKind_float2int,
+	gmmcOpKind_float2float,
 
 	gmmcOpKind_addr_of_param,
 	
@@ -360,17 +370,18 @@ GMMC_API gmmcOpIdx gmmc_op_comment(gmmcBasicBlock* bb, fString text);
 // Comparisons always return a boolean
 
 // ==, !=
+// Defined for all types
 GMMC_API gmmcOpIdx gmmc_op_eq(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_ne(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 
 // <, <=, >, >=
+// Defined for integer and float types. `is_signed` is ignored when using floats.
 GMMC_API gmmcOpIdx gmmc_op_lt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 GMMC_API gmmcOpIdx gmmc_op_le(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 GMMC_API gmmcOpIdx gmmc_op_gt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 GMMC_API gmmcOpIdx gmmc_op_ge(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
-// TODO: add align? for SIMD types?
-// So currently load and store are unaligned.
+// There is no alignment requirement for load / store.
 GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr);
 GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value);
 
@@ -390,38 +401,50 @@ GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
 // value should be GMMC_REG_NONE if the procedure returns no value
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value);
 
+// -- Convertions ---------------------------------------
+
+// `value` must be a pointer-sized integer.
 GMMC_API gmmcOpIdx gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcOpIdx value);
+
+// the result will be a pointer-sized integer
 GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value);
 
-GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool sign_extend);
+GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool to_signed);
+GMMC_API gmmcOpIdx gmmc_op_int2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool from_signed);
+GMMC_API gmmcOpIdx gmmc_op_float2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type);
 
+// If the value doesn't fit into the integer's value range, it will be clamped.
+GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool to_signed);
 
-// -- Arithmetic --------------------------------
-// Arithmetic ops work on any integer and float type, where both inputs must have the same type.
+// -- Integer operations --------------------------------
+// These work on any integer type, where `a` and `b` must have the same type.
 
+// +, -, *, /, %
 GMMC_API gmmcOpIdx gmmc_op_add(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_sub(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_mul(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 GMMC_API gmmcOpIdx gmmc_op_div(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
-
-// `mod` doesn't work with float types
 GMMC_API gmmcOpIdx gmmc_op_mod(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
-// -- Bitwise ops -------------------------------
-// Bitwise ops work on any type, where both inputs must have the same type.
-
+// &, |, ^, ~
 GMMC_API gmmcOpIdx gmmc_op_and(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_or(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_xor(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
-GMMC_API gmmcOpIdx gmmc_op_not(gmmcBasicBlock* bb, gmmcOpIdx value);
+GMMC_API gmmcOpIdx gmmc_op_not(gmmcBasicBlock* bb, gmmcOpIdx a);
 
-GMMC_API gmmcOpIdx gmmc_op_shl(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift_u8);
-GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcOpIdx shift_u8);
+// <<, >>
+GMMC_API gmmcOpIdx gmmc_op_shl(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx shift_u8);
+GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx shift_u8);
+
+// -- Floating point operations -------------------------
+// These work on any float type, where `a` and `b` must have the same type.
+
+GMMC_API gmmcOpIdx gmmc_op_fadd(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_fsub(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_fmul(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
+GMMC_API gmmcOpIdx gmmc_op_fdiv(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 
 // ----------------------------------------------
-
-GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb, gmmcType return_type, gmmcSymbol* procedure,
-	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 
 GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
 	gmmcType return_type, gmmcOpIdx proc_address,

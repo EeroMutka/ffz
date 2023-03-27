@@ -138,18 +138,19 @@ typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allo
 #define F_LEN(x) (sizeof(x) / sizeof(x[0]))
 #define F_OFFSET_OF(T, f) ((uint)&((T*)0)->f)
 
-#define F_I8_MIN -128
-#define F_I8_MAX 127
-#define F_U8_MAX 255
-#define F_I16_MIN -32768
-#define F_I16_MAX 32767
-#define F_U16_MAX 0xffff
-#define F_I32_MIN 0x80000000
-#define F_I32_MAX 0x7fffffff
-#define F_U32_MAX 0xffffffffu
-#define F_I64_MIN 0x8000000000000000ll
-#define F_I64_MAX 0x7fffffffffffffffll
-#define F_U64_MAX 0xffffffffffffffffllu
+#define F_I8_MIN   (-127i8 - 1)
+#define F_I16_MIN  (-32767i16 - 1)
+#define F_I32_MIN  (-2147483647i32 - 1)
+#define F_I64_MIN  (-9223372036854775807i64 - 1)
+#define F_I8_MAX   127i8
+#define F_I16_MAX  32767i16
+#define F_I32_MAX  2147483647i32
+#define F_I64_MAX  9223372036854775807i64
+#define F_U8_MAX   0xffui8
+#define F_U16_MAX  0xffffui16
+#define F_U32_MAX  0xffffffffui32
+#define F_U64_MAX  0xffffffffffffffffui64
+
 
 #define F_PAD(x) char _pad_##__COUNTER__[x]
 #define F_STRINGIFY(s) #s

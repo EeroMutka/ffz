@@ -1,11 +1,8 @@
 //#include <stdio.h>
 //int entry();
 
-void hello(int x) {
-	int k = x + 5;
-	__debugbreak();
-	__debugbreak();
-	__debugbreak();
+int test() {
+	return 0;
 	//printf("%llu\n", x);
 }
 

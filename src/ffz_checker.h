@@ -367,11 +367,12 @@ inline bool ffz_type_is_signed_integer(ffzTypeTag tag) { return tag == ffzTypeTa
 inline bool ffz_type_is_unsigned_integer(ffzTypeTag tag) { return tag == ffzTypeTag_Uint || tag == ffzTypeTag_DefaultUint; }
 inline bool ffz_type_is_float(ffzTypeTag tag) { return tag == ffzTypeTag_Float; }
 
+// integer/pointer_ish types mean that the internal representation of the type is as such:
 inline bool ffz_type_is_pointer_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Pointer || tag == ffzTypeTag_Proc; }
+inline bool ffz_type_is_integer_ish(ffzTypeTag tag) { return ffz_type_is_integer(tag) || tag == ffzTypeTag_Enum; }
+
 inline bool ffz_type_is_slice_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Slice || tag == ffzTypeTag_String; }
-inline bool ffz_type_is_integer_ish(ffzTypeTag tag) {
-	return ffz_type_is_integer(tag) || tag == ffzTypeTag_Enum || tag == ffzTypeTag_Bool || tag == ffzTypeTag_Pointer || tag == ffzTypeTag_Proc;
-}
+inline bool ffz_type_is_pointer_sized_integer(ffzProject* p, ffzType* type) { return ffz_type_is_integer(type->tag) && type->size == p->pointer_size; }
 
 u32 ffz_get_encoded_constant_size(ffzType* type);
 ffzConstant ffz_constant_fixed_array_get(ffzType* array_type, ffzConstant* array, u32 index);
@@ -380,7 +381,9 @@ ffzNodeInst ffz_get_child_inst(ffzNodeInst parent, u32 idx);
 
 ffzType* ffz_ground_type(ffzCheckedExpr checked); // TODO: get rid of this?
 bool ffz_type_is_grounded(ffzType* type); // a type is grounded when a runtime variable may have that type.
-bool ffz_type_can_be_checked_for_equality(ffzType* type);
+
+bool ffz_type_is_comparable_for_equality(ffzType* type); // supports ==, !=
+bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.
 
 fString ffz_type_to_string(ffzProject* p, ffzType* type);
 char* ffz_type_to_cstring(ffzProject* p, ffzType* type);

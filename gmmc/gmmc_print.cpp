@@ -98,12 +98,24 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 #define OTOS(i) operand_to_str(bb, op->operands[i])
 #define OTOS_(operand) operand_to_str(bb, operand)
 
+		gmmcType result_type = op->type;
 		switch (op->kind) {
 		
-		case gmmcOpKind_int2ptr: { f_print(f, "(void*)~s", OTOS(0)); } break;
+		case gmmcOpKind_int2float: {
+			if (op->is_signed) {
+				f_print(f, "(~s)($s~u32)~s", gmmc_type_get_string(result_type), operand_bits(bb, op), OTOS(0));
+			} else {
+				f_print(f, "(~s)~s", gmmc_type_get_string(result_type), OTOS(0));
+			}
+		} break;
+
+		case gmmcOpKind_float2int: {
+			f_print(f, "$f2~c~u32(~s)", op->is_signed ? "s" : "u", result_bits, OTOS(0));
+		} break;
+
+		case gmmcOpKind_int2ptr: // fallthrough
 		case gmmcOpKind_ptr2int: {
-			gmmcType value_type = gmmc_get_op_type(bb->proc, op_idx);
-			f_print(f, "(~s)~s", gmmc_type_get_string(value_type), OTOS(0));
+			f_print(f, "(~s)~s", gmmc_type_get_string(result_type), OTOS(0));
 		} break;
 
 		case gmmcOpKind_trunc: {
@@ -144,27 +156,33 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 			f_print(f, "$sxt(~u32, ~u32, ~s)", operand_bits(bb, op), result_bits, OTOS(0));
 		} break;
 
-		// TODO: make signed overflow not UB
+		case gmmcOpKind_fadd: // fallthrough
 		case gmmcOpKind_add: { f_print(f, "~s + ~s", OTOS(0), OTOS(1)); } break;
+
+		case gmmcOpKind_fsub: // fallthrough
 		case gmmcOpKind_sub: { f_print(f, "~s - ~s", OTOS(0), OTOS(1)); } break;
+
+		case gmmcOpKind_fmul: { f_print(f, "~s * ~s", OTOS(0), OTOS(1)); } break;
 		case gmmcOpKind_mul: {
 			f_print(f, "$op_~c(~u32, *, ~s, ~s)", sign_postfix, result_bits, OTOS(0), OTOS(1));
 		} break;
+		
+		case gmmcOpKind_fdiv: { f_print(f, "~s / ~s", OTOS(0), OTOS(1)); } break;
 		case gmmcOpKind_div: {
 			f_print(f, "$op_~c(~u32, /, ~s, ~s)", sign_postfix, result_bits, OTOS(0), OTOS(1));
 		} break;
+		
 		case gmmcOpKind_mod: {
 			f_print(f, "$op_~c(~u32, %, ~s, ~s)", sign_postfix, result_bits, OTOS(0), OTOS(1));
 		} break;
 
 		case gmmcOpKind_store: {
-			gmmcType value_type = gmmc_get_op_type(bb->proc, op->operands[1]);
-			f_print(f, "$store(~sua, ~s, ~s)", gmmc_type_get_string(value_type), OTOS(0), OTOS(1));
+			gmmcType operand_type = gmmc_get_op_type(bb->proc, op->operands[1]);
+			f_print(f, "$store(~sua, ~s, ~s)", gmmc_type_get_string(operand_type), OTOS(0), OTOS(1));
 		} break;
 
 		case gmmcOpKind_load: {
-			gmmcType value_type = gmmc_get_op_type(bb->proc, op_idx);
-			f_print(f, "$load(~sua, ~s)", gmmc_type_get_string(value_type), OTOS(0));
+			f_print(f, "$load(~sua, ~s)", gmmc_type_get_string(result_type), OTOS(0));
 		} break;
 
 		case gmmcOpKind_member_access: {
@@ -316,7 +334,7 @@ typedef unsigned long long $i64;
 typedef float              $f32;
 typedef double             $f64;
 
-#include <stdint.h> // for uintptr_t
+#include <stdint.h> // for uintptr_t and INT*_MAX, INT*_MIN
 
 // Unaligned primitive types.
 // This is required to get rid of the UB around unaligned accesses in C.
@@ -356,6 +374,21 @@ typedef long long         $s64;
 
 #define $sxt(from, to, value) ($i##to)(($s##to)(($s##from)value))
 #define $zxt(from, to, value) ($i##to)value
+
+
+//
+// float -> integer overflow is undefined in C, but we define it to clamp.
+// https://stackoverflow.com/questions/526070/handling-overflow-when-casting-doubles-to-integers-in-c
+//
+#define $f2s8(value) ($i8)(value > INT8_MIN ? (value < INT8_MAX ? ($s8)value : INT8_MAX) : INT8_MIN)
+#define $f2s16(value) ($i16)(value > INT16_MIN ? (value < INT16_MAX ? ($s16)value : INT16_MAX) : INT16_MIN)
+#define $f2s32(value) ($i32)(value > INT32_MIN ? (value < INT32_MAX ? ($s32)value : INT32_MAX) : INT32_MIN)
+#define $f2s64(value) ($i64)(value > INT64_MIN ? (value < INT64_MAX ? ($s64)value : INT64_MAX) : INT64_MIN)
+#define $f2u8(value) (value > 0 ? (value < UINT8_MAX ? ($i8)value : UINT8_MAX) : 0)
+#define $f2u16(value) (value > 0 ? (value < UINT16_MAX ? ($i16)value : UINT16_MAX) : 0)
+#define $f2u32(value) (value > 0 ? (value < UINT32_MAX ? ($i32)value : UINT32_MAX) : 0)
+#define $f2u64(value) (value > 0 ? (value < UINT64_MAX ? ($i64)value : UINT64_MAX) : 0)
+
 
 void* memcpy(void* dst, const void* src, size_t n);
 void* memset(void* str, int c, size_t n);

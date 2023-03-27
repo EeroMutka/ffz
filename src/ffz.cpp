@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 #include <Windows.h>
+#include <math.h>
 
 #include "gmmc/gmmc.h" // for gmmc_test
 

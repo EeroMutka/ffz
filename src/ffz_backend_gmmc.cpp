@@ -636,21 +636,35 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			gmmcOpIdx a = gen_expr(g, left, false);
 			gmmcOpIdx b = gen_expr(g, right, false);
 
-			switch (inst.node->kind) {
-			case ffzNodeKind_Add: { out = gmmc_op_add(g->bb, a, b); } break;
-			case ffzNodeKind_Sub: { out = gmmc_op_sub(g->bb, a, b); } break;
-			case ffzNodeKind_Mul: { out = gmmc_op_mul(g->bb, a, b, is_signed); } break;
-			case ffzNodeKind_Div: { out = gmmc_op_div(g->bb, a, b, is_signed); } break;
-			case ffzNodeKind_Modulo: { out = gmmc_op_mod(g->bb, a, b, is_signed); } break;
-
-			case ffzNodeKind_Equal: { out = gmmc_op_eq(g->bb, a, b); } break;
-			case ffzNodeKind_NotEqual: { out = gmmc_op_ne(g->bb, a, b); } break;
-			case ffzNodeKind_Less: { out = gmmc_op_lt(g->bb, a, b, is_signed); } break;
-			case ffzNodeKind_LessOrEqual: { out = gmmc_op_le(g->bb, a, b, is_signed); } break;
-			case ffzNodeKind_Greater: { out = gmmc_op_gt(g->bb, a, b, is_signed); } break;
-			case ffzNodeKind_GreaterOrEqual: { out = gmmc_op_ge(g->bb, a, b, is_signed); } break;
-
-			default: F_BP;
+			if (ffz_type_is_float(input_type->tag)) {
+				switch (inst.node->kind) {
+				case ffzNodeKind_Add: { out = gmmc_op_fadd(g->bb, a, b); } break;
+				case ffzNodeKind_Sub: { out = gmmc_op_fsub(g->bb, a, b); } break;
+				case ffzNodeKind_Mul: { out = gmmc_op_fmul(g->bb, a, b); } break;
+				case ffzNodeKind_Div: { out = gmmc_op_fdiv(g->bb, a, b); } break;
+				case ffzNodeKind_Equal: { out = gmmc_op_eq(g->bb, a, b); } break;
+				case ffzNodeKind_NotEqual: { out = gmmc_op_ne(g->bb, a, b); } break;
+				case ffzNodeKind_Less: { out = gmmc_op_lt(g->bb, a, b, false); } break;
+				case ffzNodeKind_LessOrEqual: { out = gmmc_op_le(g->bb, a, b, false); } break;
+				case ffzNodeKind_Greater: { out = gmmc_op_gt(g->bb, a, b, false); } break;
+				case ffzNodeKind_GreaterOrEqual: { out = gmmc_op_ge(g->bb, a, b, false); } break;
+				default: F_BP;
+				}
+			} else {
+				switch (inst.node->kind) {
+				case ffzNodeKind_Add: { out = gmmc_op_add(g->bb, a, b); } break;
+				case ffzNodeKind_Sub: { out = gmmc_op_sub(g->bb, a, b); } break;
+				case ffzNodeKind_Mul: { out = gmmc_op_mul(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Div: { out = gmmc_op_div(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Modulo: { out = gmmc_op_mod(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Equal: { out = gmmc_op_eq(g->bb, a, b); } break;
+				case ffzNodeKind_NotEqual: { out = gmmc_op_ne(g->bb, a, b); } break;
+				case ffzNodeKind_Less: { out = gmmc_op_lt(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_LessOrEqual: { out = gmmc_op_le(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Greater: { out = gmmc_op_gt(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_GreaterOrEqual: { out = gmmc_op_ge(g->bb, a, b, is_signed); } break;
+				default: F_BP;
+				}
 			}
 		} break;
 
@@ -694,8 +708,10 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			else {
 				ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
 				if (left_chk.type->tag == ffzTypeTag_Type) {
+					// type cast, e.g. u32(520.32)
+
 					ffzType* dst_type = left_chk.const_val->type;
-					// type cast, e.g. u32(5293900)
+					gmmcType dt = get_gmmc_type(g, dst_type);
 
 					ffzNodeInst arg = ffz_get_child_inst(inst, 0);
 					ffzType* arg_type = ffz_expr_get_type(g->project, arg);
@@ -708,27 +724,23 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 						}
 					}
 					else if (ffz_type_is_integer_ish(dst_type->tag)) { // cast to integer
-						gmmcType dt = get_gmmc_type(g, dst_type);
 						if (ffz_type_is_pointer_ish(arg_type->tag)) {
 							out = gmmc_op_ptr2int(g->bb, out);
 						}
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {
-							// integer -> integer cast
 							out = gmmc_op_int2int(g->bb, out, dt, ffz_type_is_signed_integer(dst_type->tag));
-							//if (dst_type->size > arg_type->size) {
-							//	
-							//	if (ffz_type_is_signed_integer(dst_type->tag)) {
-							//		out = gmmc_op_sxt(g->bb, out, dt);  // sign extend
-							//	}
-							//	else {
-							//		out = gmmc_op_zxt(g->bb, out, dt);  // zero extend
-							//	}
-							//}
-							//else if (dst_type->size < arg_type->size) {
-							//	out = gmmc_op_trunc(g->bb, out, dt);
-							//}
 						}
-						else { todo; }
+						else if (ffz_type_is_float(arg_type->tag)) {
+							out = gmmc_op_float2int(g->bb, out, dt, ffz_type_is_signed_integer(dst_type->tag));
+						}
+					}
+					else if (ffz_type_is_float(dst_type->tag)) {
+						if (ffz_type_is_float(arg_type->tag)) {
+							out = gmmc_op_float2float(g->bb, out, dt);
+						}
+						else if (ffz_type_is_integer_ish(arg_type->tag)) {
+							out = gmmc_op_int2float(g->bb, out, dt, ffz_type_is_signed_integer(arg_type->tag));
+						}
 					}
 					else if (ffz_type_is_slice_ish(dst_type->tag) && ffz_type_is_slice_ish(arg_type->tag)) {} // only a semantic cast
 					else todo;
@@ -1463,9 +1475,9 @@ static bool build_c(Gen* g, fString build_dir) {
 		f_array_push(&clang_args, F_LIT("--debug"));
 	}
 	else {
+		f_array_push(&clang_args, F_LIT("-gcodeview"));
+		f_array_push(&clang_args, F_LIT("--debug"));
 		f_array_push(&clang_args, F_LIT("-O1"));
-		//f_array_push(&clang_args, F_LIT("-gcodeview"));
-		//f_array_push(&clang_args, F_LIT("--debug"));
 	}
 	
 	// hmm... it seems like we need to use 'main' if we want to use UBSAN

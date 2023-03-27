@@ -164,7 +164,8 @@ bool ffz_type_is_grounded(ffzType* type) {
 }
 
 // TODO: store this as a flag in ffzType
-bool ffz_type_can_be_checked_for_equality(ffzType* type) {
+// hmm... shouldn't all types be comparable for equality?
+bool ffz_type_is_comparable_for_equality(ffzType* type) {
 	if (ffz_type_is_integer(type->tag)) return true;
 
 	switch (type->tag) {
@@ -187,6 +188,10 @@ bool ffz_type_can_be_checked_for_equality(ffzType* type) {
 	}
 	}
 	return false;
+}
+
+bool ffz_type_is_comparable(ffzType* type) {
+	return ffz_type_is_integer(type->tag) || type->tag == ffzTypeTag_Enum || ffz_type_is_float(type->tag);
 }
 
 void _write_constant(ffzProject* p, fWriter* w, ffzCheckedExpr constant);
@@ -804,9 +809,17 @@ static ffzNodeOpInst code_stmt_get_parent_proc(ffzProject* p, ffzNodeInst inst, 
 	return {};
 }
 
-static bool type_can_be_casted_to(ffzType* from, ffzType* to) {
-	if (ffz_type_is_integer_ish(from->tag) && ffz_type_is_integer_ish(to->tag)) return true;
-	if (ffz_type_is_slice_ish(from->tag)&& ffz_type_is_slice_ish(to->tag)) return true;
+static bool type_can_be_casted_to(ffzProject* p, ffzType* from, ffzType* to) {
+	// allow pointer-sized-int/ptr <-> pointer-sized-int/ptr
+	if ((ffz_type_is_pointer_sized_integer(p, from) || ffz_type_is_pointer_ish(from->tag)) &&
+		(ffz_type_is_pointer_sized_integer(p, to) || ffz_type_is_pointer_ish(to->tag))) return true;
+
+	if (ffz_type_is_slice_ish(from->tag) && ffz_type_is_slice_ish(to->tag)) return true;
+	
+	// allow int/float <-> int/float
+	if ((ffz_type_is_integer(from->tag) || ffz_type_is_float(from->tag)) &&
+		(ffz_type_is_integer(to->tag) || ffz_type_is_float(to->tag))) return true;
+
 	return false;
 }
 
@@ -890,7 +903,7 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 				result->const_val = chk.const_val;
 			}
 
-			if (!type_can_be_casted_to(chk.type, result->type)) {
+			if (!type_can_be_casted_to(c->project, chk.type, result->type)) {
 				TRY(check_types_match(c, inst.node, chk.type, result->type, "The received type cannot be casted to the expected type:"));
 			}
 		}
@@ -1927,7 +1940,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), &type));
 		
 		bool is_equality_check = inst.node->kind == ffzNodeKind_Equal || inst.node->kind == ffzNodeKind_NotEqual;
-		if ((is_equality_check && ffz_type_can_be_checked_for_equality(type)) || ffz_type_is_integer_ish(type->tag)) {
+		if (ffz_type_is_comparable(type) || (is_equality_check && ffz_type_is_comparable_for_equality(type))) {
 			result.type = ffz_builtin_type(c, ffzKeyword_bool);
 		}
 		else {
@@ -1941,10 +1954,17 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		OPT(ffzType*) type;
 		TRY(check_two_sided(c, CHILD(inst,Op.left), CHILD(inst,Op.right), &type));
 		
-		if (type && !ffz_type_is_integer(type->tag)) {
-			ERR(c, inst.node, "Incorrect arithmetic type; should be an integer.\n    received: ~s",
-				ffz_type_to_string(c->project, type));
+		if (inst.node->kind == ffzNodeKind_Modulo) {
+			if (type && !ffz_type_is_integer(type->tag)) {
+				ERR(c, inst.node, "Incorrect type with modulo operator; expected an integer.\n    received: ~s", ffz_type_to_string(c->project, type));
+			}
 		}
+		else {
+			if (type && !ffz_type_is_integer(type->tag) && !ffz_type_is_float(type->tag)) {
+				ERR(c, inst.node, "Incorrect arithmetic type; expected an integer or a float.\n    received: ~s", ffz_type_to_string(c->project, type));
+			}
+		}
+
 		result.type = type;
 	} break;
 
