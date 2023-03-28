@@ -399,7 +399,8 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 	p->rsel.ops_currently_in_register[for_op] = gpr;
 
 	{
-		// Verify that the register allocation is deterministic across Stage_SelectRegs and Stage_Emit
+		// Verify that the register allocation is deterministic across Stage_SelectRegs and Stage_Emit.
+		// TODO: just use this array as a lookup directly to avoid having to do the same computation in the _Emit stage!!
 		uint i = f_array_push(&p->rsel.debug_allocate_gpr_order, gpr);
 		if (p->stage == Stage_Emit) {
 			F_ASSERT(p->cached_rsel.debug_allocate_gpr_order[i] == gpr);

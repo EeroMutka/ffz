@@ -30,11 +30,6 @@ struct Value {
 	bool local_addr_is_indirect;
 };
 
-struct DebugInfoLine {
-	gmmcOpIdx op;
-	u32 line_number;
-};
-
 struct DebugInfoLocal {
 	coffString name;
 	gmmcOpIdx local_or_param;
@@ -47,7 +42,7 @@ struct ProcInfo {
 	ffzNode* node;
 	gmmcOpIdx addr_of_big_return;
 	
-	fArray(DebugInfoLine) dbginfo_lines;
+	fSlice(gmmcOpIdx) dbginfo_line_ops; // index 0 is the procedure's starting line. A value of GMMC_OP_IDX_INVALID means that the line doesn't have an op.
 	fArray(DebugInfoLocal) dbginfo_locals;
 };
 
@@ -184,7 +179,12 @@ static bool has_big_return(ffzType* proc_type) {
 static void set_loc(Gen* g, gmmcOpIdx op, ffzNode* node) {
 	if (!gmmc_is_op_direct(g->proc, op)) {
 		u32 line_num = g->override_line_num ? *g->override_line_num : node->loc.start.line_num;
-		f_array_push(&g->proc_info->dbginfo_lines, DebugInfoLine{ op, line_num });
+		line_num -= g->proc_info->node->loc.start.line_num;
+		
+		gmmcOpIdx* line_op = &g->proc_info->dbginfo_line_ops[line_num];
+		if (*line_op == GMMC_OP_IDX_INVALID) {
+			*line_op = op;
+		}
 	}
 }
 
@@ -328,7 +328,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	proc_info->node = inst.node;
 	proc_info->type = proc_type;
 	proc_info->dbginfo_locals = f_array_make<DebugInfoLocal>(g->alc);
-	proc_info->dbginfo_lines = f_array_make<DebugInfoLine>(g->alc);
+	proc_info->dbginfo_line_ops = f_make_slice<gmmcOpIdx>(inst.node->loc.end.line_num - inst.node->loc.start.line_num + 1, GMMC_OP_IDX_INVALID, g->alc);
 
 	f_array_push(&g->procs_sorted, proc_info);
 	*insertion._unstable_ptr = proc_info;
@@ -1346,16 +1346,18 @@ static bool build_x64(Gen* g, fString build_dir) {
 			cv_func.block.locals = locals.data;
 			cv_func.block.locals_count = (u32)locals.len;
 
-			fArray(cviewLine) lines = f_array_make_cap<cviewLine>(proc_info->dbginfo_lines.len + 1, g->alc);
-			f_array_push(&lines, cviewLine{ proc_info->node->loc.start.line_num, start_offset });
+			fArray(cviewLine) lines = f_array_make<cviewLine>(g->alc);
+			u32 start_line_num = proc_info->node->loc.start.line_num;
+			f_array_push(&lines, cviewLine{ start_line_num , start_offset });
 
-			for (uint i = 0; i < proc_info->dbginfo_lines.len; i++) {
-				//if (i == 6) F_BP;
-				DebugInfoLine it = proc_info->dbginfo_lines[i];
-				cviewLine line;
-				line.line_num = it.line_number;
-				line.offset = gmmc_asm_instruction_get_offset(asm_module, proc, it.op);
-				f_array_push(&lines, line);
+			for (u32 i = 0; i < proc_info->dbginfo_line_ops.len; i++) {
+				gmmcOpIdx line_op = proc_info->dbginfo_line_ops[i];
+				if (line_op != GMMC_OP_IDX_INVALID) {
+					cviewLine line;
+					line.line_num = start_line_num + i;
+					line.offset = gmmc_asm_instruction_get_offset(asm_module, proc, line_op);
+					f_array_push(&lines, line);
+				}
 			}
 			
 			// we must sort the lines by offset for codeview!!
