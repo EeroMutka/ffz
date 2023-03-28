@@ -1,25 +1,36 @@
 
 @*extern{"c_things.obj"}
-#test: proc() => u32
+#test: proc(a: f32, b: f32, c: f32, d: f32, e: f32) => f32
 
 #main: proc(argc: u32, argv: ^raw) => u32 {
 	
 	// floating point test
 	
-	myint: test()
+	//myint: test()
 	
 	// add
-	a: f32(myint)
-	b: f32(10.5)
-	c: a - b
+	a: f64(6.566)
+	//b: test(0)
+	//c: a / b
+	my_int: s8(a)
+	c: f32(my_int)
+	d: f64(c)
+	e: f64(1.52052190)
+	f: f32(e)
+	
+	foo: test(1.224, 3.420, 5.24, 6.24, 7.205)
 	
 	// float to int
 	
-	d: u32(c)
+	// todo: procedure calls and floats!!!!!
+	
+	// then there's just float2float, float2int, int2float
+	
+	//d: u32(c)
 	//e: s32(d)
 	
 	// int to float
 	//e: f32(d)
 	
-	ret d
+	ret 0
 }
