@@ -398,6 +398,7 @@ GMMC_API gmmcOpIdx gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpI
 
 GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasicBlock* true_bb, gmmcBasicBlock* false_bb);
 GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
+// TODO: gmmc_op_select
 
 // value should be GMMC_REG_NONE if the procedure returns no value
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value);
@@ -487,7 +488,7 @@ GMMC_API gmmcOpIdx gmmc_op_immediate(gmmcProc* proc, gmmcType type, void* data);
 
 // -- Machine code target ----------------------
 
-// IMPORTANT!!!!!!
+// !!!!!!!!
 // All GMMC sections must be 16-byte aligned. This is because globals are aligned to a certain value,
 // and that alignment will be used when adding the global's data into its section.
 // And so, if the section is not aligned to the largest possible alignment (16),

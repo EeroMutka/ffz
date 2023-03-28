@@ -295,7 +295,7 @@ ZydisEncoderOperand make_reg_operand(GPR gpr, RegSize size) {
 	return operand;
 }
 
-// Loose register - stored either in a register or on the stack
+// TODO: get rid of this garbage
 struct LooseReg { gmmcOpIdx source_op; };
 
 static void spill(ProcGen* p, gmmcOpIdx op_idx) {
@@ -629,7 +629,8 @@ GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmm
 }
 
 
-const static GPR ms_x64_param_regs[4] = { GPR_CX, GPR_DX, GPR_8, GPR_9 };
+const static GPR ms_x64_param_normal_regs[4] = { GPR_CX, GPR_DX, GPR_8, GPR_9 };
+const static GPR ms_x64_param_float_regs[4] = { GPR_XMM0, GPR_XMM1, GPR_XMM2, GPR_XMM3 };
 
 static void gen_array_access(ProcGen* p, gmmcOpData* op) {
 	GPR result_reg = allocate_op_result(p);
@@ -774,7 +775,9 @@ static void gen_return(ProcGen* p, gmmcOpData* op) {
 	if (p->stage == Stage_Emit) {
 
 		if (op->operands[0] != GMMC_OP_IDX_INVALID) {
-			op_value_to_reg(p, value_reg.source_op, GPR_AX); // move the return value to RAX
+			// move the return value to RAX (or XMM0 if float)
+			gmmcType type = gmmc_get_op_type(p->proc, value_reg.source_op);
+			op_value_to_reg(p, value_reg.source_op, gmmc_type_is_float(type) ? GPR_XMM0 : GPR_AX);
 		}
 
 		for (uint rset = 0; rset < RegisterSet_COUNT; rset++) {
@@ -810,26 +813,35 @@ static void gen_return(ProcGen* p, gmmcOpData* op) {
 	}
 }
 
+//void testing(int a, int b, int c, int d, float e, float f) {
+//	//int aa = a;
+//	//int bbb = aa + 50;
+//	float y = e;
+//}
+
 static void gen_vcall(ProcGen* p, gmmcOpData* op) {
 	GPR proc_addr_reg = use_op_value(p, op->call.target);
 
-	// https://learn.microsoft.com/en-us/cpp/build/stack-usage?view=msvc-170
-	//u32 shadow_space_base = p->stack_frame_size + 8; // 
+	//testing(5, 6, 7, 8, 10.52f, 5.02f);
 
 	for (u32 i = (u32)op->call.arguments.len - 1; i < op->call.arguments.len; i--) {
-		LooseReg arg = use_op_value_loose(p, op->call.arguments[i]);
+		gmmcOpIdx arg_op_idx = op->call.arguments[i];
+		LooseReg arg = use_op_value_loose(p, arg_op_idx);
+		bool is_float = gmmc_type_is_float(gmmc_get_op_type(p->proc, arg_op_idx));
 
 		if (i < 4) {
-			op_value_to_reg(p, arg.source_op, ms_x64_param_regs[i]);
+			op_value_to_reg(p, arg.source_op, is_float ? ms_x64_param_float_regs[i] : ms_x64_param_normal_regs[i]);
 		}
 		else {
 			GPR arg_reg = op_value_to_reg(p, arg.source_op);
+			
+			// the stack arguments are always 64 bits, this applies to floats/doubles too.
 
 			if (p->stage == Stage_Emit) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-				req.mnemonic = ZYDIS_MNEMONIC_MOV;
+				req.mnemonic = is_float ? ZYDIS_MNEMONIC_MOVSD : ZYDIS_MNEMONIC_MOV;
 				req.operand_count = 2;
-				req.operands[0].type = ZYDIS_OPERAND_TYPE_MEMORY;
+				req.operands[0].type = ZYDIS_OPERAND_TYPE_MEMORY; 
 				req.operands[0].mem.base = ZYDIS_REGISTER_RSP;
 				req.operands[0].mem.displacement = i * 8;
 				req.operands[0].mem.size = 8;
@@ -842,7 +854,6 @@ static void gen_vcall(ProcGen* p, gmmcOpData* op) {
 	if (p->stage == Stage_Initial) {
 		// https://learn.microsoft.com/en-us/cpp/build/stack-usage?view=msvc-170
 
-		// TODO: float arguments
 		u32 shadow_space_size = F_MAX((u32)op->call.arguments.len, 4) * 8;
 		p->largest_call_shadow_space_size = F_MAX(p->largest_call_shadow_space_size, shadow_space_size);
 	}
@@ -863,8 +874,8 @@ static void gen_vcall(ProcGen* p, gmmcOpData* op) {
 		emit(p, req);
 
 		if (op->type) {
-			emit_mov_reg_to_reg(p, result_reg, GPR_AX, op->type);
-			//emit(p, req, " ; save return value");
+			// save the return value
+			emit_mov_reg_to_reg(p, result_reg, gmmc_type_is_float(op->type) ? GPR_XMM0 : GPR_AX, op->type);
 		}
 	}
 }
@@ -917,7 +928,6 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		} break;
 
 		case gmmcOpKind_vcall: { gen_vcall(p, op); } break;
-		//case gmmcOpKind_call: { F_BP; } break;
 		case gmmcOpKind_return: { gen_return(p, op); } break;
 
 		case gmmcOpKind_goto: {
@@ -1414,18 +1424,21 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 			}
 		}
 		
-		// push the register-parameters onto the stack, so that addr_of_param will work on them
+		// immediately spill the register-parameters onto the stack, so that addr_of_param will work on them
 
 		uint register_params_n = F_MIN(4, p->proc->params.len);
 		for (uint i = 0; i < register_params_n; i++) {
+			gmmcType type = gmmc_get_op_type(p->proc, p->proc->params[i]);
+			bool is_float = gmmc_type_is_float(type);
+			
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-			req.mnemonic = ZYDIS_MNEMONIC_MOV;
+			req.mnemonic = is_float ? ZYDIS_MNEMONIC_MOVSD : ZYDIS_MNEMONIC_MOV; // In the case of floating point registers, always push it as a double
 			req.operand_count = 2;
 			req.operands[0].type = ZYDIS_OPERAND_TYPE_MEMORY;
 			req.operands[0].mem.base = ZYDIS_REGISTER_RSP;
 			req.operands[0].mem.displacement = 8 + 8 * i - result->rsp_offset; // :AddressOfParam
 			req.operands[0].mem.size = 8;
-			req.operands[1] = make_reg_operand(ms_x64_param_regs[i], 8);
+			req.operands[1] = make_reg_operand(is_float ? ms_x64_param_float_regs[i] : ms_x64_param_normal_regs[i], 8);
 			emit(p, req);
 		}
 

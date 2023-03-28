@@ -1,8 +1,11 @@
 //#include <stdio.h>
 //int entry();
 
-int test(int x) {
-	return x;
+int _fltused = 0x9875;
+
+float test(float a, float b, float c, float d, float e) {
+	
+	return 9992.52f;
 	//printf("%llu\n", x);
 }
 
