@@ -1,8 +1,8 @@
 // Give-Me-Machine-Code
 // 
-// I'm on my way to make my dream programming language. In excitement, I start reading in
-// the source code files, building some structure out of them, then, ...uhh... how exactly do I
-// make an executable?
+// You're on your way to making your dream programming language. Excitedly, you start parsing in
+// source code files, then building some structure out of them, then, ... uhh... how do you get
+// to an executable?
 // 
 // You could compile to an existing language, and use their compiler for the task. But that begs
 // the question - how does *that* language do it?
@@ -88,6 +88,7 @@ typedef uint32_t gmmcOpIdx; // Each procedure has its own array of ops, where 1 
 typedef uint32_t gmmcProcIdx;
 typedef uint32_t gmmcGlobalIdx; // starts from 1
 typedef uint32_t gmmcExternIdx;
+typedef uint32_t gmmcLocalIdx; // starts from 1
 typedef u32 gmmcBasicBlockIdx;
 typedef struct gmmcModule gmmcModule;
 typedef struct gmmcProc gmmcProc;
@@ -273,7 +274,7 @@ typedef struct gmmcProc {
 	fArray(gmmcOpData) ops; // 0 is invalid!
 
 	fSlice(gmmcOpIdx) params;
-	fArray(gmmcLocal) locals; // 0 is invalid!
+	fArray(gmmcLocal) locals; // gmmcLocalIdx, 0 is invalid!
 } gmmcProc;
 
 typedef struct gmmcRelocation {

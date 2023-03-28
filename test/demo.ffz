@@ -1,6 +1,6 @@
 
-@*extern{"c_things.obj"}
-#test: proc() => u32
+//@*extern{"c_things.obj"}
+//#test: proc() => u32
 
 #ffz_entry: proc(argc: u32, argv: ^raw) => u32 {
 	
@@ -9,8 +9,8 @@
 	//myint: test()
 	
 	// add
-	a: f32(502.123)
-	b: f32(1.52)
+	a: f32(1.52)
+	b: f32(5.10)
 	c: a + b
 	
 	// float to int
