@@ -1,19 +1,26 @@
 
 //@*extern{"c_things.obj"}
-//#test: proc() => u32
+//#test: proc(val: u32) => u32
 
-#ffz_entry: proc(argc: u32, argv: ^raw) => u32 {
+#main: proc(argc: u32, argv: ^raw) => u32 {
 	
 	// floating point test
 	
 	//myint: test()
 	
 	// add
-	a: f32(1.52)
-	b: f32(5.10)
-	c: a + b
+	a: f64(6.566)
+	//b: test(0)
+	//c: a / b
+	my_int: s8(a)
+	c: f32(my_int)
+	d: f64(c)
+	e: f64(1.52052190)
+	f: f32(e)
 	
 	// float to int
+	
+	// then there's just float2float, float2int, int2float
 	
 	//d: u32(c)
 	//e: s32(d)

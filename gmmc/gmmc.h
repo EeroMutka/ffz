@@ -21,10 +21,6 @@
 // 
 // I saw room for an easy-to-use library to do this task, so I decided to make it.
 // 
-// Future research:
-// https://pubby.games/codegen.html
-// 
-// 
 // 
 // There are many layers of software between you writing code, and the code
 // being ran by your computer. This process of compiling code can seem like a mysterious
@@ -69,7 +65,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdio.h> // for FILE*
 
 #ifndef GMMC_API
 #ifdef __cplusplus
@@ -383,6 +378,11 @@ GMMC_API gmmcOpIdx gmmc_op_gt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool
 GMMC_API gmmcOpIdx gmmc_op_ge(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
 // There is no alignment requirement for load / store.
+// C backend note:
+//     If you try to load (dereference) an invalid pointer, that is undefined behaviour in C.
+//     If the C compiler can statically determine that your code dereferences e.g. a NULL pointer,
+//     then it can remove the code or do whatever it wants.
+//     I think our best bet is to enable -fno-delete-null-pointer-checks with clang.
 GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr);
 GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value);
 
@@ -411,12 +411,18 @@ GMMC_API gmmcOpIdx gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcOpIdx value);
 GMMC_API gmmcOpIdx gmmc_op_ptr2int(gmmcBasicBlock* bb, gmmcOpIdx value);
 
 GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool to_signed);
-GMMC_API gmmcOpIdx gmmc_op_int2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool from_signed);
+
 GMMC_API gmmcOpIdx gmmc_op_float2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type);
 
-// If the value doesn't fit into the integer's value range, it will be clamped. TODO: this is
-// currently only the case for the C-generator, the X64 generator doesn't handle this yet
-GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool to_signed);
+// * TODO: document the behaviour of how large unsigned 32-bit and 64-bit are handled.
+//         There's a discrepency between the C and the X64 backend currently.
+GMMC_API gmmcOpIdx gmmc_op_int2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool from_signed);
+
+// * TODO: document the behaviour of overflow.
+// * The value will be rounded towards zero.
+// * Converting from float to an unsigned 64-bit integer is a non-trivial task in X64, so at least for now
+//   we only support converting floats into signed integers. Maybe we should leave it like that.
+GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type/*, bool to_signed*/);
 
 // -- Integer operations --------------------------------
 // These work on any integer type, where `a` and `b` must have the same type.
@@ -425,6 +431,8 @@ GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcTy
 GMMC_API gmmcOpIdx gmmc_op_add(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_sub(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_mul(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
+
+// Division or modulo zero will always trap, even when using the C backend with an optimizing compiler.
 GMMC_API gmmcOpIdx gmmc_op_div(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 GMMC_API gmmcOpIdx gmmc_op_mod(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 
@@ -435,6 +443,7 @@ GMMC_API gmmcOpIdx gmmc_op_xor(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_not(gmmcBasicBlock* bb, gmmcOpIdx a);
 
 // <<, >>
+// TODO: currently it's UB to overflow, fix this!
 GMMC_API gmmcOpIdx gmmc_op_shl(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx shift_u8);
 GMMC_API gmmcOpIdx gmmc_op_shr(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx shift_u8);
 
@@ -452,12 +461,12 @@ GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
 	gmmcType return_type, gmmcOpIdx proc_address,
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 
-// -- Instant values ----------------------------
+// -- Direct values ----------------------------
 //
-// Instant values are values that don't require any computation and such aren't tied to any specific basic block.
+// Direct values are values that don't require any computation and such aren't tied to any specific basic block.
 //
 #define GMMC_BB_INDEX_NONE 0xFFFFFFFF
-inline bool gmmc_is_op_instant(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].bb_idx == GMMC_BB_INDEX_NONE; }
+inline bool gmmc_is_op_direct(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].bb_idx == GMMC_BB_INDEX_NONE; }
 
 GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index);
 

@@ -182,7 +182,7 @@ static bool has_big_return(ffzType* proc_type) {
 
 // optionally set debug-info location
 static void set_loc(Gen* g, gmmcOpIdx op, ffzNode* node) {
-	if (!gmmc_is_op_instant(g->proc, op)) {
+	if (!gmmc_is_op_direct(g->proc, op)) {
 		u32 line_num = g->override_line_num ? *g->override_line_num : node->loc.start.line_num;
 		f_array_push(&g->proc_info->dbginfo_lines, DebugInfoLine{ op, line_num });
 	}
@@ -740,7 +740,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 							out = gmmc_op_int2int(g->bb, out, dt, ffz_type_is_signed_integer(dst_type->tag));
 						}
 						else if (ffz_type_is_float(arg_type->tag)) {
-							out = gmmc_op_float2int(g->bb, out, dt, ffz_type_is_signed_integer(dst_type->tag));
+							out = gmmc_op_float2int(g->bb, out, dt/*, ffz_type_is_signed_integer(dst_type->tag)*/);
 						}
 					}
 					else if (ffz_type_is_float(dst_type->tag)) {
@@ -1428,7 +1428,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), vs_library_path));
 
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
-	f_array_push(&ms_linker_args, F_LIT("/ENTRY:ffz_entry"));
+	f_array_push(&ms_linker_args, F_LIT("/ENTRY:main"));
 	f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
 	f_array_push(&ms_linker_args, F_LIT("/NODEFAULTLIB")); // disable CRT
 	f_array_push(&ms_linker_args, F_LIT("/DEBUG"));
@@ -1479,7 +1479,7 @@ static bool build_c(Gen* g, fString build_dir) {
 
 	f_array_push(&clang_args, F_LIT("clang"));
 
-	if (false) { // with debug info?
+	if (true) { // with debug info?
 		f_array_push(&clang_args, F_LIT("-gcodeview"));
 		f_array_push(&clang_args, F_LIT("--debug"));
 	}

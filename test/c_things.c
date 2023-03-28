@@ -1,8 +1,8 @@
 //#include <stdio.h>
 //int entry();
 
-int test() {
-	return 0;
+int test(int x) {
+	return x;
 	//printf("%llu\n", x);
 }
 

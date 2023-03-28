@@ -310,7 +310,7 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 
 	gmmcOpData* op = &p->proc->ops[op_idx];
 	
-	if (!gmmc_is_op_instant(p->proc, op_idx)) {
+	if (!gmmc_is_op_direct(p->proc, op_idx)) {
 		// if computation is required to find out the value of the op, store it on the stack.
 		// locals, immediates and addr_of_symbol don't need to be stored on the stack.
 
@@ -525,7 +525,7 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 
 			f_array_push(&code_section->relocs, gmmcRelocation{ reloc_offset, op->symbol });
 		}
-		else if (gmmc_is_op_instant(p->proc, op_idx)) {
+		else if (gmmc_is_op_direct(p->proc, op_idx)) {
 
 			u32 size = gmmc_type_size(op->type);
 			if (gmmc_type_is_float(op->type)) {
@@ -1005,10 +1005,59 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			}
 		} break;
 
+		case gmmcOpKind_float2float: {
+			GPR result_reg = allocate_op_result(p);
+			GPR src_reg = use_op_value(p, op->operands[0]);
+
+			if (p->stage == Stage_Emit) {
+				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+				req.mnemonic = op->type == gmmcType_f32 ? ZYDIS_MNEMONIC_CVTSD2SS : ZYDIS_MNEMONIC_CVTSS2SD;
+				req.operand_count = 2;
+				req.operands[0] = make_reg_operand(result_reg, 0);
+				req.operands[1] = make_reg_operand(src_reg, 0);
+				emit(p, req);
+			}
+		} break;
+
+		case gmmcOpKind_int2float: {
+			GPR result_reg = allocate_op_result(p);
+			GPR src_reg = use_op_value(p, op->operands[0]);
+
+			if (p->stage == Stage_Emit) {
+				gmmcType src_type = gmmc_get_op_type(p->proc, op->operands[0]);
+
+				// if the size is 1 or 2, sign/zero extend the input into 64 bits
+				if (gmmc_type_size(src_type) <= 2) {
+					emit_mov_reg_to_reg(p, src_reg, src_reg, src_type, op->is_signed ? ExtendBits_Sign : ExtendBits_Zero);
+				}
+
+				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+				req.mnemonic = op->type == gmmcType_f32 ? ZYDIS_MNEMONIC_CVTSI2SS : ZYDIS_MNEMONIC_CVTSI2SD;
+				req.operand_count = 2;
+				req.operands[0] = make_reg_operand(result_reg, 0);
+				req.operands[1] = make_reg_operand(src_reg, src_type == gmmcType_i64 ? 8 : 4);
+				emit(p, req);
+			}
+		} break;
+
+		case gmmcOpKind_float2int: {
+			GPR result_reg = allocate_op_result(p);
+			GPR src_reg = use_op_value(p, op->operands[0]);
+
+			if (p->stage == Stage_Emit) {
+				gmmcType src_type = gmmc_get_op_type(p->proc, op->operands[0]);
+				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+				req.mnemonic = src_type == gmmcType_f32 ? ZYDIS_MNEMONIC_CVTTSS2SI : ZYDIS_MNEMONIC_CVTTSD2SI; // !!! NOTE !!! it is CVTTS*2SI, not CVTS*2SI
+				req.operand_count = 2;
+				req.operands[0] = make_reg_operand(result_reg, op->type == gmmcType_i64 ? 8 : 4);
+				req.operands[1] = make_reg_operand(src_reg, 4);
+				emit(p, req);
+			}
+		} break;
+
 		case gmmcOpKind_store: {
 			GPR dst_reg = use_op_value(p, op->operands[0]);
 			GPR value_reg = use_op_value(p, op->operands[1]);
-			// hmm... what about immediates?
 				
 			if (p->stage == Stage_Emit) {
 				gmmcType type = gmmc_get_op_type(p->proc, op->operands[1]);
@@ -1118,6 +1167,9 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_ge: { gen_comparison(p, op); } break;
 
 		case gmmcOpKind_fadd: { gen_op_basic_2(p, op, op->type == gmmcType_f32 ? ZYDIS_MNEMONIC_ADDSS : ZYDIS_MNEMONIC_ADDSD); } break;
+		case gmmcOpKind_fsub: { gen_op_basic_2(p, op, op->type == gmmcType_f32 ? ZYDIS_MNEMONIC_SUBSS : ZYDIS_MNEMONIC_SUBSD); } break;
+		case gmmcOpKind_fmul: { gen_op_basic_2(p, op, op->type == gmmcType_f32 ? ZYDIS_MNEMONIC_MULSS : ZYDIS_MNEMONIC_MULSD); } break;
+		case gmmcOpKind_fdiv: { gen_op_basic_2(p, op, op->type == gmmcType_f32 ? ZYDIS_MNEMONIC_DIVSS : ZYDIS_MNEMONIC_DIVSD); } break;
 
 		case gmmcOpKind_add: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_ADD); } break;
 		case gmmcOpKind_sub: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_SUB); } break;

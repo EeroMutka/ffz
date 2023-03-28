@@ -89,7 +89,7 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 		// operand count
 		//operand_to_str(bb, op->operands[0])
 
-		if (gmmc_is_op_instant(bb->proc, op_idx)) continue;
+		if (gmmc_is_op_direct(bb->proc, op_idx)) continue;
 
 		if (type != gmmcType_None) {
 			f_print(f, "~s _$~u32 = ", gmmc_type_get_string(type), op_idx);
@@ -110,7 +110,8 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 		} break;
 
 		case gmmcOpKind_float2int: {
-			f_print(f, "$f2~c~u32(~s)", op->is_signed ? "s" : "u", result_bits, OTOS(0));
+			f_print(f, "$f2~c~u32(~s)", "s", result_bits, OTOS(0));
+			//f_print(f, "$f2~c~u32(~s)", op->is_signed ? "s" : "u", result_bits, OTOS(0));
 		} break;
 
 		case gmmcOpKind_int2ptr: // fallthrough
@@ -169,11 +170,11 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 		
 		case gmmcOpKind_fdiv: { f_print(f, "~s / ~s", OTOS(0), OTOS(1)); } break;
 		case gmmcOpKind_div: {
-			f_print(f, "$op_~c(~u32, /, ~s, ~s)", sign_postfix, result_bits, OTOS(0), OTOS(1));
+			f_print(f, "$div_~c~u32(~s, ~s)", op->is_signed ? "s" : "u", result_bits, OTOS(0), OTOS(1));
 		} break;
 		
 		case gmmcOpKind_mod: {
-			f_print(f, "$op_~c(~u32, %, ~s, ~s)", sign_postfix, result_bits, OTOS(0), OTOS(1));
+			f_print(f, "$mod_~c~u32(~s, ~s)", op->is_signed ? "s" : "u", result_bits, OTOS(0), OTOS(1));
 		} break;
 
 		case gmmcOpKind_store: {
@@ -353,7 +354,12 @@ typedef struct { $f64  _value; }  $f64ua;
 void __chkstk() {}
 int _fltused = 0x9875;
 
-#define $debugbreak() do {__debugbreak();} while(0)
+#define $INLINE __forceinline
+
+$INLINE void $debugbreak() {
+	// https://github.com/scottt/debugbreak/
+	__asm__ volatile("int $0x03");
+}
 
 #define $store(T, ptr, value)  ((T*)ptr)->_value = value
 #define $load(T, ptr)          ((T*)ptr)->_value
@@ -372,22 +378,46 @@ typedef long long         $s64;
 #define $op_unsigned(bits, op, a, b) a op b
 #define $op_signed(bits, op, a, b) ($i##bits) (($s##bits)a op ($s##bits)b)
 
+// We define division and modulo by zero to trap.
+
+$INLINE  $i8 $div_u8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return a / b; }
+$INLINE  $i8 $div_s8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return ($i8)(($s8)a / ($s8)b); }
+$INLINE $i16 $div_u16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }
+$INLINE $i16 $div_s16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return ($i16)(($s16)a / ($s16)b); }
+$INLINE $i32 $div_u32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }
+$INLINE $i32 $div_s32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return ($i32)(($s32)a / ($s32)b); }
+$INLINE $i64 $div_u64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }
+$INLINE $i64 $div_s64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return ($i64)(($s64)a / ($s64)b); }
+
+$INLINE  $i8 $mod_u8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return a % b; }
+$INLINE  $i8 $mod_s8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return ($i8)(($s8)a % ($s8)b); }
+$INLINE $i16 $mod_u16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }
+$INLINE $i16 $mod_s16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return ($i16)(($s16)a % ($s16)b); }
+$INLINE $i32 $mod_u32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }
+$INLINE $i32 $mod_s32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return ($i32)(($s32)a % ($s32)b); }
+$INLINE $i64 $mod_u64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }
+$INLINE $i64 $mod_s64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return ($i64)(($s64)a % ($s64)b); }
+
 #define $sxt(from, to, value) ($i##to)(($s##to)(($s##from)value))
 #define $zxt(from, to, value) ($i##to)value
-
 
 //
 // float -> integer overflow is undefined in C, but we define it to clamp.
 // https://stackoverflow.com/questions/526070/handling-overflow-when-casting-doubles-to-integers-in-c
 //
-#define $f2s8(value) ($i8)(value > INT8_MIN ? (value < INT8_MAX ? ($s8)value : INT8_MAX) : INT8_MIN)
-#define $f2s16(value) ($i16)(value > INT16_MIN ? (value < INT16_MAX ? ($s16)value : INT16_MAX) : INT16_MIN)
-#define $f2s32(value) ($i32)(value > INT32_MIN ? (value < INT32_MAX ? ($s32)value : INT32_MAX) : INT32_MIN)
-#define $f2s64(value) ($i64)(value > INT64_MIN ? (value < INT64_MAX ? ($s64)value : INT64_MAX) : INT64_MIN)
-#define $f2u8(value) (value > 0 ? (value < UINT8_MAX ? ($i8)value : UINT8_MAX) : 0)
-#define $f2u16(value) (value > 0 ? (value < UINT16_MAX ? ($i16)value : UINT16_MAX) : 0)
-#define $f2u32(value) (value > 0 ? (value < UINT32_MAX ? ($i32)value : UINT32_MAX) : 0)
-#define $f2u64(value) (value > 0 ? (value < UINT64_MAX ? ($i64)value : UINT64_MAX) : 0)
+#define $f2s8(value) ($i8)($s8)value
+#define $f2s16(value) ($i16)($s16)value
+#define $f2s32(value) ($i32)($s32)value
+#define $f2s64(value) ($i64)($s64)value
+
+//#define $f2s8(value) ($i8)(value > INT8_MIN ? (value < INT8_MAX ? ($s8)value : INT8_MAX) : INT8_MIN)
+//#define $f2s16(value) ($i16)(value > INT16_MIN ? (value < INT16_MAX ? ($s16)value : INT16_MAX) : INT16_MIN)
+//#define $f2s32(value) ($i32)(value > INT32_MIN ? (value < INT32_MAX ? ($s32)value : INT32_MAX) : INT32_MIN)
+//#define $f2s64(value) ($i64)(value > INT64_MIN ? (value < INT64_MAX ? ($s64)value : INT64_MAX) : INT64_MIN)
+//#define $f2u8(value) (value > 0 ? (value < UINT8_MAX ? ($i8)value : UINT8_MAX) : 0)
+//#define $f2u16(value) (value > 0 ? (value < UINT16_MAX ? ($i16)value : UINT16_MAX) : 0)
+//#define $f2u32(value) (value > 0 ? (value < UINT32_MAX ? ($i32)value : UINT32_MAX) : 0)
+//#define $f2u64(value) (value > 0 ? (value < UINT64_MAX ? ($i64)value : UINT64_MAX) : 0)
 
 
 void* memcpy(void* dst, const void* src, size_t n);

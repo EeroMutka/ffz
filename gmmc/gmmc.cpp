@@ -324,14 +324,14 @@ GMMC_API gmmcOpIdx gmmc_op_int2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcTy
 	return gmmc_push_op(bb, &op);
 }
 
-GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool to_signed) {
+GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type/*, bool to_signed*/) {
 	gmmcType src_type = gmmc_get_op_type(bb->proc, value);
 	validate_operand(bb, value);
 	VALIDATE(gmmc_type_is_float(src_type));
 	VALIDATE(gmmc_type_is_integer(target_type));
 
 	gmmcOpData op = { gmmcOpKind_float2int };
-	op.is_signed = to_signed;
+	//op.is_signed = to_signed;
 	op.operands[0] = value;
 	op.type = target_type;
 	return gmmc_push_op(bb, &op);
@@ -340,6 +340,7 @@ GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcTy
 GMMC_API gmmcOpIdx gmmc_op_float2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type) {
 	gmmcType src_type = gmmc_get_op_type(bb->proc, value);
 	validate_operand(bb, value);
+	VALIDATE(target_type != src_type);
 	VALIDATE(gmmc_type_is_float(src_type));
 	VALIDATE(gmmc_type_is_float(target_type));
 
