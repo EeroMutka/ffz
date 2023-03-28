@@ -404,36 +404,50 @@ enum ExtendBits {
 	ExtendBits_Sign,
 };
 
-static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, RegSize size, ExtendBits extend = ExtendBits_None) {
+static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, gmmcType type, ExtendBits extend = ExtendBits_None) {
 	F_ASSERT(p->stage == Stage_Emit);
-	if (extend == ExtendBits_Zero && size <= 2) {
-		// From section 2.3, AMD64 Architecture Programmer's Manual, Volume 3:
-		// "The high 32 bits of doubleword operands are zero-extended to 64 bits, but the high
-		// bits of word and byte operands are not modified by operations in 64-bit mode".
-		// So if the size is 4, then the MOV will be sign-extended automatically.
+	RegSize size = gmmc_type_size(type);
+	
+	if (gmmc_type_is_float(type)) {
+		F_ASSERT(extend == ExtendBits_None);
 
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-		req.mnemonic = ZYDIS_MNEMONIC_MOVZX;
-		req.operand_count = 2;
-		req.operands[0] = make_reg_operand(to, 8);
-		req.operands[1] = make_reg_operand(from, size);
-		emit(p, req);
-	}
-	else if (extend == ExtendBits_Sign && size <= 4) {
-		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-		req.mnemonic = size == 4 ? ZYDIS_MNEMONIC_MOVSXD : ZYDIS_MNEMONIC_MOVSX;
-		req.operand_count = 2;
-		req.operands[0] = make_reg_operand(to, 8);
-		req.operands[1] = make_reg_operand(from, size);
-		emit(p, req);
-	}
-	else {
-		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-		req.mnemonic = ZYDIS_MNEMONIC_MOV;
+		req.mnemonic = type == gmmcType_f64 ? ZYDIS_MNEMONIC_MOVSD : ZYDIS_MNEMONIC_MOVSS;
 		req.operand_count = 2;
 		req.operands[0] = make_reg_operand(to, size);
 		req.operands[1] = make_reg_operand(from, size);
 		emit(p, req);
+	}
+	else {
+		if (extend == ExtendBits_Zero && size <= 2) {
+			// From section 2.3, AMD64 Architecture Programmer's Manual, Volume 3:
+			// "The high 32 bits of doubleword operands are zero-extended to 64 bits, but the high
+			// bits of word and byte operands are not modified by operations in 64-bit mode".
+			// So if the size is 4, then the MOV will be sign-extended automatically.
+
+			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+			req.mnemonic = ZYDIS_MNEMONIC_MOVZX;
+			req.operand_count = 2;
+			req.operands[0] = make_reg_operand(to, 8);
+			req.operands[1] = make_reg_operand(from, size);
+			emit(p, req);
+		}
+		else if (extend == ExtendBits_Sign && size <= 4) {
+			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+			req.mnemonic = size == 4 ? ZYDIS_MNEMONIC_MOVSXD : ZYDIS_MNEMONIC_MOVSX;
+			req.operand_count = 2;
+			req.operands[0] = make_reg_operand(to, 8);
+			req.operands[1] = make_reg_operand(from, size);
+			emit(p, req);
+		}
+		else {
+			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+			req.mnemonic = ZYDIS_MNEMONIC_MOV;
+			req.operand_count = 2;
+			req.operands[0] = make_reg_operand(to, size);
+			req.operands[1] = make_reg_operand(from, size);
+			emit(p, req);
+		}
 	}
 }
 
@@ -451,7 +465,7 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 	if (result) {
 		if (specify_reg) {
 			if (p->stage == Stage_Emit) {
-				emit_mov_reg_to_reg(p, specify_reg, result, 8);
+				emit_mov_reg_to_reg(p, specify_reg, result, p->proc->ops[op_idx].type);
 			}
 			return specify_reg;
 		}
@@ -729,8 +743,8 @@ static void gen_div_or_mod(ProcGen* p, gmmcOpData* op, GPR take_result_from) {
 		
 		// if the size is 1 or 2, sign/zero extend the dividend and divisor into 64 bits
 		if (size <= 2) {
-			emit_mov_reg_to_reg(p, GPR_AX, GPR_AX, size, op->is_signed ? ExtendBits_Sign : ExtendBits_Zero);
-			emit_mov_reg_to_reg(p, divisor, divisor, size, op->is_signed ? ExtendBits_Sign : ExtendBits_Zero);
+			emit_mov_reg_to_reg(p, GPR_AX, GPR_AX, op->type, op->is_signed ? ExtendBits_Sign : ExtendBits_Zero);
+			emit_mov_reg_to_reg(p, divisor, divisor, op->type, op->is_signed ? ExtendBits_Sign : ExtendBits_Zero);
 		}
 
 		if (op->is_signed) {
@@ -749,7 +763,7 @@ static void gen_div_or_mod(ProcGen* p, gmmcOpData* op, GPR take_result_from) {
 		req.operands[0] = make_reg_operand(divisor, size);
 		emit(p, req);
 
-		emit_mov_reg_to_reg(p, result_value, take_result_from, 8);
+		emit_mov_reg_to_reg(p, result_value, take_result_from, op->type);
 	}
 }
 
@@ -849,7 +863,7 @@ static void gen_vcall(ProcGen* p, gmmcOpData* op) {
 		emit(p, req);
 
 		if (op->type) {
-			emit_mov_reg_to_reg(p, result_reg, GPR_AX, 8);
+			emit_mov_reg_to_reg(p, result_reg, GPR_AX, op->type);
 			//emit(p, req, " ; save return value");
 		}
 	}
@@ -1054,8 +1068,8 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			GPR result_value = allocate_op_result(p);
 			GPR src_reg = use_op_value(p, op->operands[0]);
 			if (p->stage == Stage_Emit) {
-				RegSize src_size = gmmc_type_size(gmmc_get_op_type(p->proc, op->operands[0]));
-				emit_mov_reg_to_reg(p, result_value, src_reg, src_size, gmmcOpKind_sxt ? ExtendBits_Sign : ExtendBits_Zero);
+				gmmcType src_type = gmmc_get_op_type(p->proc, op->operands[0]);
+				emit_mov_reg_to_reg(p, result_value, src_reg, src_type, gmmcOpKind_sxt ? ExtendBits_Sign : ExtendBits_Zero);
 			}
 		} break;
 
@@ -1103,9 +1117,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_gt: { gen_comparison(p, op); } break;
 		case gmmcOpKind_ge: { gen_comparison(p, op); } break;
 
-		case gmmcOpKind_fadd: {
-			f_cprint("heyyy!\n");
-		} break;
+		case gmmcOpKind_fadd: { gen_op_basic_2(p, op, op->type == gmmcType_f32 ? ZYDIS_MNEMONIC_ADDSS : ZYDIS_MNEMONIC_ADDSD); } break;
 
 		case gmmcOpKind_add: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_ADD); } break;
 		case gmmcOpKind_sub: { gen_op_basic_2(p, op, ZYDIS_MNEMONIC_SUB); } break;
