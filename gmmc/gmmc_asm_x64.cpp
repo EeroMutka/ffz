@@ -341,6 +341,8 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 			int a = 50;
 		}
 	}
+	p->rsel.ops_currently_in_register[op_idx] = GPR_INVALID;
+	p->rsel.work_reg_taken_by_op[reg] = GMMC_OP_IDX_INVALID;
 }
 
 static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
@@ -359,7 +361,9 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 	for (u32 i = 0; i < p->rsel.work_registers_used_count[rset]; i++) {
 		GPR work_reg = work_regs[i];
 		gmmcOpIdx taken_by_op = p->rsel.work_reg_taken_by_op[work_reg];
+		
 		if (p->current_op > p->ops_last_use_time[taken_by_op]) { // this op value will never be used later
+			p->rsel.ops_currently_in_register[taken_by_op] = GPR_INVALID;
 			gpr = work_reg;
 			break;
 		}
@@ -380,6 +384,11 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 				GPR work_reg = work_regs[i];
 				gmmcOpIdx potential_victim = p->rsel.work_reg_taken_by_op[work_reg];
 				F_ASSERT(p->rsel.ops_currently_in_register[potential_victim] == work_reg);
+				
+				if (potential_victim == p->current_op) {
+					// The current op has this register locked as its result register, so let's not steal it
+					continue;
+				}
 
 				gmmcOpIdx last_use_time = p->ops_last_use_time[potential_victim];
 				if (last_use_time > greatest_last_use_time) {
@@ -391,7 +400,6 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 			}
 			
 			spill(p, victim); // steal a register, spill the op value
-			p->rsel.ops_currently_in_register[victim] = GPR_INVALID;
 		}
 	}
 
@@ -663,12 +671,12 @@ static void gen_array_access(ProcGen* p, gmmcOpData* op) {
 	GPR base_reg = use_op_value(p, op->operands[0]);
 	GPR index_reg = use_op_value(p, op->operands[1]);
 
+
 	if (p->stage == Stage_Emit) {
 		// memory-based operand `scale` can only encode 1, 2, 4 or 8 in x64.
 		bool can_encode_scale_directly = op->imm_bits == 1 || op->imm_bits == 2 || op->imm_bits == 4 || op->imm_bits == 8;
 		
 		if (!can_encode_scale_directly) {
-			// wait... this isn't legal!!! we can't just overwrite the data in the register, hmm...
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 			req.mnemonic = ZYDIS_MNEMONIC_IMUL;
 			req.operand_count = 3;
@@ -839,16 +847,8 @@ static void gen_return(ProcGen* p, gmmcOpData* op) {
 	}
 }
 
-//void testing(int a, int b, int c, int d, float e, float f) {
-//	//int aa = a;
-//	//int bbb = aa + 50;
-//	float y = e;
-//}
 
 static void gen_call(ProcGen* p, gmmcOpData* op) {
-	GPR proc_addr_reg = use_op_value(p, op->call.target);
-
-	//testing(5, 6, 7, 8, 10.52f, 5.02f);
 
 	for (u32 i = (u32)op->call.arguments.len - 1; i < op->call.arguments.len; i--) {
 		gmmcOpIdx arg_op_idx = op->call.arguments[i];
@@ -890,8 +890,15 @@ static void gen_call(ProcGen* p, gmmcOpData* op) {
 		result_reg = allocate_op_result(p);
 	}
 
+	// NOTE: we do `use_op_value` on the call target last, only after we've pushed the parameters on the stack.
+	// pushing the parameters might require the use of work registers, and they could accidentally take the
+	// work register that is allocated for the proc address. We could do a more sophisticated way to make sure
+	// `use_op_value` locks the register for the duration of the current op, but this should be fine.
+	GPR proc_addr_reg = use_op_value(p, op->call.target);
+
 	if (p->stage == Stage_Emit) {
-		// move arguments to the stack
+		// hmm... the call target will not be in a register anymore
+		F_ASSERT(p->rsel.ops_currently_in_register[op->call.target] == proc_addr_reg);
 
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 		req.mnemonic = ZYDIS_MNEMONIC_CALL;
@@ -913,14 +920,22 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 	if (existing_offset != F_U32_MAX) return existing_offset; // already visited
 
 	if (p->stage > Stage_Initial) {
+		//F_HITS(__c, 2);
+		//F_HITS(__c2, 11);
 		// Clear out the state of work-registers, as this is a fresh basic block
 		for (uint i = 0; i < GPR_COUNT; i++) {
 			gmmcOpIdx taken_by_op = p->rsel.work_reg_taken_by_op[i];
 			if (taken_by_op != GMMC_OP_IDX_INVALID) {
-				p->rsel.ops_currently_in_register[taken_by_op] = GPR_INVALID;
 				p->rsel.work_reg_taken_by_op[i] = GMMC_OP_IDX_INVALID;
+				p->rsel.ops_currently_in_register[taken_by_op] = GPR_INVALID;
 			}
 		}
+
+#ifdef _DEBUG
+		for (uint i = 0; i < p->rsel.ops_currently_in_register.len; i++) {
+			F_ASSERT(p->rsel.ops_currently_in_register[i] == GMMC_OP_IDX_INVALID);
+		}
+#endif
 	}
 
 	u32 bb_offset = p->stage == Stage_Emit ? (u32)p->module->sections[gmmcSection_Code].data.len : 0;
@@ -940,16 +955,18 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		switch (op->kind) {
 		
 		case gmmcOpKind_comment: {
-			if (op->comment.len > 0) {
-				fSlice(fRangeUint) lines;
-				f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
-				for (uint i = 0; i < lines.len; i++) {
-					fString line = f_str_slice(op->comment, lines[i].lo, lines[i].hi);
-					f_print(p->console, "; ~s\n", line);
+			if (p->stage == Stage_Emit) {
+				if (op->comment.len > 0) {
+					fSlice(fRangeUint) lines;
+					f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
+					for (uint i = 0; i < lines.len; i++) {
+						fString line = f_str_slice(op->comment, lines[i].lo, lines[i].hi);
+						f_print(p->console, "; ~s\n", line);
+					}
 				}
-			}
-			else {
-				f_print(p->console, "\n");
+				else {
+					f_print(p->console, "\n");
+				}
 			}
 		} break;
 
@@ -1214,12 +1231,12 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			// NOTE: we can use IMUL always which is a bit more convenient than MUL, because
 			// we're discarding the upper half of the result, and the lower half is identical to what you'd get from MUL.
 			// This is a little bit magical to me.
-
-			GPR result_value = allocate_op_result(p);
+			GPR result_reg = allocate_op_result(p);
 			LooseReg a = use_op_value_loose(p, op->operands[0]);
 			GPR b = use_op_value(p, op->operands[1]);
 
-			op_value_to_reg(p, a.source_op, result_value); // The instruction overwrites the first operand with the result.
+			op_value_to_reg(p, a.source_op, result_reg);
+			if (result_reg == GPR_12 && b == GPR_12) F_BP;
 
 			if (p->stage == Stage_Emit) {
 				RegSize size = gmmc_type_size(op->type);
@@ -1228,7 +1245,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 				req.mnemonic = ZYDIS_MNEMONIC_IMUL;
 				req.operand_count = 2;
-				req.operands[0] = make_reg_operand(result_value, size);
+				req.operands[0] = make_reg_operand(result_reg, size);
 				req.operands[1] = make_reg_operand(b, size);
 				emit(p, req);
 			}
