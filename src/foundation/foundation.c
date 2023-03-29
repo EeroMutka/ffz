@@ -1644,6 +1644,21 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 	#error "Sorry, only windows is supported for now!"
 #endif
 
+bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
+	fFile file;
+	if (!f_files_open(filepath, fFileOpenMode_Read, &file)) return false;
+
+	uint size = f_files_size(&file);
+
+	fString result = f_str_make(size, a);
+
+	bool ok = f_files_read(&file, result.data, size) == size;
+
+	f_files_close(&file);
+	*out_str = result;
+	return ok;
+}
+
 #ifdef OS_WINDOWS
 	#define NOMINMAX
 	#include <Windows.h>
@@ -2113,21 +2128,6 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		return false;
 	}
 
-	bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
-		fFile file;
-		if (!f_files_open(filepath, fFileOpenMode_Read, &file)) return false;
-
-		uint size = f_files_size(&file);
-		
-		fString result = f_str_make(size, a);
-
-		F_ASSERT(f_files_read(&file, result.data, size) == size);
-
-		f_files_close(&file);
-		*out_str = result;
-		return true;
-	}
-
 	static void f_file_unbuffered_writer_proc(fWriter* writer, const void* data, uint size) {
 		bool ok = f_files_write_unbuffered((fFile*)writer->userdata, (fString){ (void*)data, size });
 		F_ASSERT(ok);
@@ -2164,7 +2164,7 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 
 	uint f_files_read(fFile* file, void* dst, uint size) {
 		if (dst == NULL) return 0;
-		if (size <= 0) return 0;
+		if (size == 0) return 0;
 
 		for (uint read_so_far = 0; read_so_far < size;) {
 			uint remaining = size - read_so_far;
@@ -2194,13 +2194,13 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 		return WriteFile(file->os_handle, data.data, (DWORD)data.len, &bytes_written, NULL) == TRUE && bytes_written == data.len;
 	}
 
-	uint f_files_get_position(fFile* file) {
+	uint f_files_get_cursor(fFile* file) {
 		LARGE_INTEGER offset;
 		if (SetFilePointerEx(file->os_handle, (LARGE_INTEGER){0}, &offset, FILE_CURRENT) != TRUE) return -1;
 		return offset.QuadPart;
 	}
 
-	bool f_files_set_position(fFile* file, uint position) {
+	bool f_files_set_cursor(fFile* file, uint position) {
 		LARGE_INTEGER offset;
 		offset.QuadPart = position;
 		return SetFilePointerEx(file->os_handle, offset, NULL, FILE_BEGIN) == TRUE;

@@ -1,0 +1,62 @@
+#Basic: import(":Basic")
+
+#OpenMode: struct {
+	Read,
+	Write,
+	Append,
+}
+
+#File: struct {
+	os_handle: ^raw
+}
+
+#MaybeData: struct {
+	ok: bool
+	data: []u8
+}
+
+#read_entire_file: proc(filepath: string, alc: ^Basic.Allocator) => MaybeData {
+	file: File
+	if !open(&file, filepath, OpenMode.Read) {
+		ret MaybeData{false, []u8{}}
+	}
+	
+	size: get_size(&file)
+	data: Basic.make_slice[u8](size, alc)
+	ok: read(&file, data) == size
+	
+	close(&file)
+	
+	ret MaybeData{true, data}
+}
+
+// #write_entire_file: proc(filepath: string, data: []u8) => bool
+
+/*
+#get_file_size: proc(filepath: string, out_size: ^uint) => bool {
+	file: File
+	if !open(&file, filepath, OpenMode.Read) { ret false }
+	
+	out_size^ = get_size(&file)
+	close(&file)
+	ret true
+}
+*/
+
+// 
+
+// OS-specific API:
+
+// #open: proc(file: ^File, filepath: string, mode: OpenMode) => bool
+// #close: proc(file: ^File)
+
+// #get_size: proc(file: ^File) => uint
+
+// #read: proc(file: ^File, dest: []u8) => uint
+
+// hmm... can these ever fail?
+// #write_unbuffered: proc(file: ^File, data: []u8)
+// #write_buffered: proc(file: ^File, data: []u8)
+
+// #get_cursor: proc(file: ^File) => uint
+// #set_cursor: proc(file: ^File, cursor: uint)

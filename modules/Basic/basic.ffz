@@ -264,19 +264,18 @@ _temp_arena_tls_index: u32
 }
 
 // Note: the returned memory will be uninitialized
-// TODO: rename to make_slice
-#slice_make: proc[T](len: uint, a: ^Allocator) => []T {
+#make_slice: proc[T](len: uint, alc: ^Allocator) => []T {
 	out: []T
-	out.ptr= ^T(a._proc(a, ^raw(0), 0, len * size_of(T), align_of(T)))
+	out.ptr= ^T(alc._proc(a, ^raw(0), 0, len * size_of(T), align_of(T)))
 	out.len= len
 	ret out
 }
 
-#slice_resize: proc[T](slice: ^[]T, len: uint, a: ^Allocator) {
+#resize_slice: proc[T](slice: ^[]T, len: uint, alc: ^Allocator) {
 }
 
-#slice_free: proc[T](slice: []T, a: ^Allocator) {
-	a._proc(a, (^raw)(slice.ptr), slice.len, 0, 0)
+#free_slice: proc[T](slice: []T, alc: ^Allocator) {
+	alc._proc(alc, (^raw)(slice.ptr), slice.len, 0, 0)
 }
 
 #assert: proc(x: bool) {

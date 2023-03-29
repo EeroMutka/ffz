@@ -971,15 +971,13 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	return out;
 }
 
-static bool node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
-
 static void gen_statement(Gen* g, ffzNodeInst inst) {
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
 		if (inst.node->kind == ffzNodeKind_Scope) {}
 		else if (inst.node->kind == ffzNodeKind_If) {}
 		else if (inst.node->kind == ffzNodeKind_For) {}
-		else if (node_is_keyword(inst.node, ffzKeyword_dbgbreak)) {}
+		else if (ffz_node_is_keyword(inst.node, ffzKeyword_dbgbreak)) {}
 		else {
 			ffzParser* parser = g->project->parsers[inst.node->id.parser_id];
 			u32 start = inst.node->loc.start.offset;
@@ -1035,10 +1033,13 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 	case ffzNodeKind_Assign: {
 		ffzNodeInst lhs = CHILD(inst,Op.left);
 		ffzNodeInst rhs = CHILD(inst,Op.right);
-		gmmcOpIdx lhs_addr = gen_expr(g, lhs, true);
-		
+
 		gmmcOpIdx rhs_value = gen_expr(g, rhs, false);
-		gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs), inst.node);
+
+		if (!ffz_node_is_keyword(lhs.node, ffzKeyword_Underscore)) {
+			gmmcOpIdx lhs_addr = gen_expr(g, lhs, true);
+			gen_store(g, lhs_addr, rhs_value, ffz_expr_get_type(g->project, rhs), inst.node);
+		}
 	} break;
 
 	case ffzNodeKind_Scope: {
@@ -1587,7 +1588,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 		}
 	}
 
-	bool x64 = true;
+	bool x64 = false;
 	if (x64) {
 		return build_x64(&g, build_dir);
 	}

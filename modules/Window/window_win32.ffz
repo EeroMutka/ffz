@@ -4,11 +4,6 @@
 #WindowHandle: import("WindowHandle")
 #Window: WindowHandle.Window
 
-// API:
-// create: proc(width: uint, height: uint, name: string) => Window
-// show: proc(wnd: Window)
-// poll_events: proc(window: Window) => WindowEvents
-
 #str_to_utf16_temp: proc(str: string) => []u16 {
 	out: []u16
 	if str.len == 0 { ret out }
@@ -26,6 +21,7 @@
 }
 
 #WNDPROC: proc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: s64) => s64
+
 #window_proc: WNDPROC {
 	out: ^WindowEvents(GetWindowLongPtrW(in.hWnd, GWLP_USERDATA))
 	
@@ -42,6 +38,24 @@
 	}
 	else if in.uMsg == WM_CLOSE || in.uMsg == WM_QUIT {
 		out.quit = true
+	}
+	else if in.uMsg == WM_SYSKEYDOWN || in.uMsg == WM_KEYDOWN {
+		//repeat := ((cast (s32) lParam) & 0x40000000) != 0;
+		//maybe_send_vkey_event(wParam, true, repeat);
+		Basic.print("key down\n")
+	}
+	else if in.uMsg == WM_SYSKEYUP || in.uMsg == WM_KEYUP {
+		//maybe_send_vkey_event(wParam, false);
+		Basic.print("key up\n")
+	}
+	else if in.uMsg == WM_LBUTTONDOWN || in.uMsg == WM_LBUTTONDOWN {
+		Basic.print("left mouse button event\n")
+	}
+	else if in.uMsg == WM_RBUTTONDOWN || in.uMsg == WM_RBUTTONUP {
+		Basic.print("right mouse button event\n")
+	}
+	else if in.uMsg == WM_MBUTTONDOWN || in.uMsg == WM_MBUTTONUP {
+		Basic.print("middle mouse button event\n")
 	}
 	
 	ret DefWindowProcW(in.hWnd, in.uMsg, in.wParam, in.lParam)
@@ -122,8 +136,6 @@
 	quit: bool
 }
 
-// How to do smooth resizing:
-// https://twitter.com/ocornut/status/951167609562640384
 
 #poll_events: proc(window: Window, resize_cb: ResizeCallback, resize_cb_user_ptr: ^raw) => WindowEvents {
 	out: WindowEvents

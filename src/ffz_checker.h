@@ -309,12 +309,16 @@ struct ffzChecker {
 	fMap64Raw checked_identifiers; // key: ffz_hash_poly_inst. This is to detect cycles. We could reduce the memory footprint here by removing things as we go...
 
 	// "declaration" is when it has a `:` token, e.g.  foo: 20  is a declaration.
-	// "definition" is also a declaration, but it's not parsed into the AST as that form. e.g. in  struct[T]{...}  the polymorphic argument T is a definition.
+	// "definition" is also a declaration, but it's not parsed into the AST as that form.
+	// e.g. in  struct[T]{...}  the polymorphic argument T is a definition.
 	
 	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
-	//fMap64(ffzNodeIdentifierInst) definition_map; // key: 
 
-	fMap64(ffzCheckedExpr) cache; // key: ffz_hash_node_inst. Statements have NULL entries.
+	// * key: ffz_hash_node_inst
+	// * Statements have NULL entries, except declarations, which cache the type
+	//   (and maybe constant value) of the declaration.
+	fMap64(ffzCheckedExpr) cache;
+
 	fMap64(ffzPolymorph*) poly_instantiation_sites; // key: ffz_hash_node_inst
 	
 	fMap64(ffzType*) type_from_hash; // key: TypeHash
@@ -361,6 +365,12 @@ void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc
 bool ffz_parse_and_check_directory(ffzProject* p, fString directory);
 
 bool ffz_build_directory(fString directory, fString compiler_install_dir);
+
+
+inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
+
+inline bool ffz_node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
+
 
 inline bool ffz_type_is_integer(ffzTypeTag tag) { return tag >= ffzTypeTag_Sint && tag <= ffzTypeTag_DefaultUint; }
 inline bool ffz_type_is_signed_integer(ffzTypeTag tag) { return tag == ffzTypeTag_Sint || tag == ffzTypeTag_DefaultSint; }
@@ -410,6 +420,7 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator);
 // -- Accessing cached data -----------------------------------------------------------
 
 inline ffzChecker* ffz_checker_from_node(ffzProject* p, ffzNode* node) {
+	// ok... I think we should just store a pointer to the parser in the node.
 	return p->parsers[node->id.parser_id]->checker;
 }
 inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) {
@@ -432,6 +443,8 @@ inline ffzConstant* ffz_expr_get_evaluated_constant(ffzProject* p, ffzNodeInst n
 ffzCheckedExpr ffz_decl_get_checked(ffzProject* p, ffzNodeOpDeclareInst decl);
 inline ffzType* ffz_decl_get_type(ffzProject* p, ffzNodeOpDeclareInst node) { return ffz_decl_get_checked(p, node).type; }
 inline ffzConstant* ffz_decl_get_evaluated_constant(ffzProject* p, ffzNodeOpDeclareInst node) { return ffz_decl_get_checked(p, node).const_val; }
+
+
 
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in  foo: int  the "foo" identifier would be a definition.

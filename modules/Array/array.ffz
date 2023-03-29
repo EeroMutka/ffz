@@ -39,20 +39,18 @@
 	insert_n_raw(^Array[raw](a), at, elems.ptr, elems.len, size_of(T), align_of(T))
 }
 
-// reverse?
-
 // --
 // Raw array utilities - these are useful if you don't know the element type statically.
 // --
 
-#push_n_raw: proc(a: ^Array[raw], elems: ^raw, n: uint, elem_size: uint, elem_align: uint) => uint {
+#push_n_raw: proc(a: ^Array[raw], elems: ^raw, n: uint, elem_size: uint, elem_align: uint) {
 	reserve_raw(a, a.len + n, elem_size, elem_align)
 	
 	Basic.memcpy(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
 	
-	result: a.len
+	//result: a.len
 	a.len= .+n
-	ret result
+	//ret result
 }
 
 #reserve_raw: proc(a: ^Array[raw], capacity: uint, elem_size: uint, elem_align: uint) {

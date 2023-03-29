@@ -1,10 +1,10 @@
 
 
 - break, continue
-- make .slice[] not necessary for Arrays
-- bring back TB
-- anonymous struct and array literals?
 - automatic slicing for array types? i.e. make this possible: []string({"hi", "bye"})
+- initializers
+- make .slice[] not necessary for Arrays
+- anonymous struct and array literals?
 
 - OpenGL + Win32
 - keyboard / mouse input
@@ -21,3 +21,7 @@
 - Game of life
 - Chess game, maybe even 3d? That would be pretty cool!
 - tetris? breakout? pong? snake?
+
+Future:
+- caching modules into object files / only rebuilding when the files have changed. For detecting if files have changed,
+  we should use the file modtime.

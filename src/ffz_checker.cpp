@@ -456,15 +456,22 @@ typedef u32 InferFlags;
 enum InferFlag {
 	InferFlag_RequireConstant = 1 << 0, // we MUST receive an evaluated constant value.
 	
-	// If the checker finds no type, it's okay with this flag. This could be that we're checking a statement
-	// (which COULD still get a type, i.e. a procedure call), or that we're just peeking which type
+	// When statement, the node must get no type.
+	InferFlag_Statement = 1 << 1,
+				// If the checker finds no type, it's okay with this flag. This could be that we're checking a statement
+				// (which COULD still get a type, i.e. a procedure call), or that we're just peeking which type
+				// an expression WOULD get given an infer target, if at all.
+
+
+	// If the checker finds no type, it's okay with this flag. This can be useful to just peek which type
 	// an expression WOULD get given an infer target, if at all.
-	InferFlag_TypeIsNotRequired = 1 << 1,
+	InferFlag_TypeIsNotRequired_ = 1 << 2,
 	
-	InferFlag_CacheOnlyIfGotType = 1 << 2,
+	InferFlag_CacheOnlyIfGotType = 1 << 3,
 	
-	InferFlag_NoTypesMatchCheck = 1 << 3,
+	InferFlag_NoTypesMatchCheck = 1 << 4,
 	
+	// TODO: get rid of this
 	InferFlag_TypeMeansDefaultValue = 1 << 4, // `int` will mean "the default value of int" instead of "the type int"
 };
 
@@ -495,7 +502,7 @@ static ffzOk error_not_an_expression(ffzChecker* c, ffzNode* node) {
 	ERR(c, node, "Expected an expression, but got a statement or a procedure call with no return value.");
 }
 
-static ffzOk check_procedure_call(ffzChecker* c, ffzNodeOpInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzType*)* out_type) {	
+static ffzOk check_procedure_call(ffzChecker* c, ffzNodeOpInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzType*)* out_type) {
 	ffzNodeInst left = CHILD(inst, Op.left);
 	ffzCheckedExpr left_chk;
 	TRY(check_node(c, left, NULL, 0, &left_chk));
@@ -508,7 +515,7 @@ static ffzOk check_procedure_call(ffzChecker* c, ffzNodeOpInst inst, OPT(ffzType
 	*out_type = type->Proc.out_param ? type->Proc.out_param->type : NULL;
 
 	if (ffz_get_child_count(inst.node) != type->Proc.in_params.len) {
-		ERR(c, inst.node, "Incorrect number of procedure arguments. (expected %u, got %u)",
+		ERR(c, inst.node, "Incorrect number of procedure arguments. (expected ~u32, got ~u32)",
 			type->Proc.in_params.len, ffz_get_child_count(inst.node));
 	}
 
@@ -533,7 +540,7 @@ static ffzOk check_two_sided(ffzChecker* c, ffzNodeInst left, ffzNodeInst right,
 
 	// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
 	
-	InferFlags child_flags = InferFlag_TypeIsNotRequired | InferFlag_CacheOnlyIfGotType;
+	InferFlags child_flags = InferFlag_TypeIsNotRequired_ | InferFlag_CacheOnlyIfGotType;
 
 	for (int i = 0; i < 2; i++) {
 		TRY(check_node(c, left, NULL, child_flags, &left_chk));
@@ -1229,7 +1236,7 @@ ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 		ffzNodeIdentifier* name = node->Op.left;
 		ffzNodeInst inst = ffz_get_toplevel_inst(c, node);
 		
-		TRY(check_node(c, inst, NULL, 0, NULL));
+		TRY(check_node(c, inst, NULL, InferFlag_Statement, NULL));
 		
 		// first check the tags...
 		bool is_global = ffz_get_tag(c->project, inst, ffzKeyword_global) != NULL;
@@ -1237,7 +1244,7 @@ ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 			ERR(c, name, "Top-level declaration must be constant, or @|global, but got a non-constant.");
 		}
 	} break;
-	default: ERR(c, node, "Top-level node must be a declaration; got: ~s", ffz_node_kind_to_string(node->kind));
+	default: ERR(c, node, "Top-level node must be a declaration, but got: ~s", ffz_node_kind_to_string(node->kind));
 	}
 	return { true };
 }
@@ -1518,7 +1525,7 @@ static ffzOk check_proc_type(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* re
 		for FFZ_EACH_CHILD_INST(param, inst) {
 			if (param.node->kind != ffzNodeKind_Declare) ERR(c, param.node, "Expected a declaration.");
 			ffzCheckedExpr param_chk;
-			TRY(check_node(c, param, NULL, 0, &param_chk));
+			TRY(check_node(c, param, NULL, InferFlag_Statement, &param_chk));
 	
 			f_array_push(&in_parameters, ffzTypeProcParameter{ param.node->Op.left, param_chk.type });
 		}
@@ -1624,7 +1631,7 @@ static ffzOk check_return(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* resul
 	if (return_val.node && !out_param) ERR(c, return_val.node, "Expected no return value, but one was given.");
 	
 	if (return_val.node) {
-		TRY(check_node(c, return_val, out_param->type, 0, result));
+		TRY(check_node(c, return_val, out_param->type, 0, NULL));
 	}
 	return FFZ_OK;
 }
@@ -1635,12 +1642,12 @@ static ffzOk check_assign(ffzChecker* c, ffzNodeInst inst, ffzCheckedExpr* resul
 	ffzCheckedExpr lhs_chk, rhs_chk;
 	
 	TRY(check_node(c, lhs, NULL, 0, &lhs_chk));
-	F_ASSERT(ffz_type_is_grounded(lhs_chk.type));
 	
+	bool is_void_assignment = ffz_node_is_keyword(lhs.node, ffzKeyword_Underscore);
+	if (!is_void_assignment) F_ASSERT(ffz_type_is_grounded(lhs_chk.type));
+
 	TRY(check_node(c, rhs, lhs_chk.type, 0, &rhs_chk));
 	
-	// hmm.. should we allow  `foo= u32`  ?
-	//if (!ffz_type_is_grounded(rhs_chk.type)) ERR(c, rhs.node, "Expected a value, but got a type.");
 	TRY(check_types_match(c, rhs.node, rhs_chk.type, lhs_chk.type, "Incorrect type with assignment:"));
 	
 	bool is_code_scope = inst.node->parent->kind == ffzNodeKind_Scope || inst.node->parent->kind == ffzNodeKind_ProcType;
@@ -1664,7 +1671,7 @@ static ffzOk check_pre_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzCheck
 		if (child->kind == ffzNodeKind_IntLiteral) {
 			length = (s32)child->IntLiteral.value;
 		}
-		else if (child->kind == ffzNodeKind_Keyword && child->Keyword.keyword == ffzKeyword_QuestionMark) {}
+		else if (ffz_node_is_keyword(child, ffzKeyword_QuestionMark)) {}
 		else ERR(c, inst.node, "Unexpected value inside the brackets of an array type; expected an integer literal or `?`");
 	
 		ffzType* array_type = ffz_make_type_fixed_array(c, right_chk.const_val->type, length);
@@ -1698,7 +1705,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 	}
 	check_tags(c, inst);
 
-	//F_HITS(_c, 10);
+	F_HITS(_c, 0);
 
 	ffzCheckedExpr result = {};
 	
@@ -1738,12 +1745,14 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 
 	case ffzNodeKind_Scope: {
 		for FFZ_EACH_CHILD_INST(stmt, inst) {
-			TRY(check_node(c, stmt, NULL, InferFlag_TypeIsNotRequired, NULL));
+			TRY(check_node(c, stmt, NULL, InferFlag_Statement, NULL));
 		}
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: {
 		TRY(check_post_round_brackets(c, inst, require_type, flags, &result));
+		// hmm...
+		
 		//OPT(ffzType*) return_type = NULL;
 		//TRY(check_procedure_call(c, infer, inst, &return_type));
 		////if (return_type) ERR(c, inst.node,
@@ -1755,9 +1764,9 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 
 	case ffzNodeKind_If: {
 		TRY(check_node(c, CHILD(inst, If.condition), ffz_builtin_type(c, ffzKeyword_bool), 0, NULL));
-		TRY(check_node(c, CHILD(inst, If.true_scope), NULL, InferFlag_TypeIsNotRequired, NULL));
+		TRY(check_node(c, CHILD(inst, If.true_scope), NULL, InferFlag_Statement, NULL));
 		if (inst.node->If.else_scope) {
-			TRY(check_node(c, CHILD(inst, If.else_scope), NULL, InferFlag_TypeIsNotRequired, NULL));
+			TRY(check_node(c, CHILD(inst, If.else_scope), NULL, InferFlag_Statement, NULL));
 		}
 	} break;
 
@@ -1768,12 +1777,12 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 					TRY(check_node(c, CHILD(inst, For.header_stmts[i]), ffz_builtin_type(c, ffzKeyword_bool), 0, NULL));
 				}
 				else {
-					TRY(check_node(c, CHILD(inst, For.header_stmts[i]), NULL, InferFlag_TypeIsNotRequired, NULL));
+					TRY(check_node(c, CHILD(inst, For.header_stmts[i]), NULL, InferFlag_Statement, NULL));
 				}
 			}
 		}
 		
-		TRY(check_node(c, CHILD(inst, For.scope), NULL, InferFlag_TypeIsNotRequired, NULL));
+		TRY(check_node(c, CHILD(inst, For.scope), NULL, InferFlag_Statement, NULL));
 	} break;
 
 	case ffzNodeKind_Keyword: {
@@ -1796,10 +1805,11 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 				result.const_val = (ffzConstant*)&_true;
 			} break;
 			case ffzKeyword_string: { result.type = ffz_builtin_type(c, ffzKeyword_string); } break;
-
+			
 			case ffzKeyword_Underscore: {
-				F_BP;// result.expr_type = make_type(c, _type_void);
+				result.type = ffz_builtin_type(c, ffzKeyword_raw); // the type of an underscore is 'raw'
 			} break;
+
 			case ffzKeyword_raw: {
 				result = make_type_constant(c, ffz_builtin_type(c, ffzKeyword_raw));
 			} break;
@@ -1860,7 +1870,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		//	result.const_val = make_constant_int(c, inst.node->IntLiteral.value);
 		//	// TODO: range check
 		//}
-		if (!(flags & InferFlag_TypeIsNotRequired)) {
+		if (!(flags & InferFlag_TypeIsNotRequired_)) {
 			result.type = ffz_builtin_type(c, ffzKeyword_uint);
 			result.const_val = make_constant_int(c, inst.node->IntLiteral.value);
 		}
@@ -1975,9 +1985,19 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		ERR(c, inst.node, "Expression is not constant, but constant was expected.");
 	}
 
-	if (!(flags & InferFlag_TypeIsNotRequired)) { // type is required
-		if (!result.type) {
-			ERR(c, inst.node, "Expression has no return type, or it cannot be inferred.");
+	if (flags & InferFlag_Statement) {
+		// NOTE: we cache the types of declarations even though they are statements.
+		if (inst.node->kind != ffzNodeKind_Declare && result.type) {
+			ERR(c, inst.node, "Expected a statement or a declaration, but got an expression.\n  HINT: An expression can be turned into a statement, i.e. `_ = foo()`");
+		}
+	}
+	else {
+		if (inst.node->kind == ffzNodeKind_Declare) ERR(c, inst.node, "Expected an expression, but got a declaration.");
+
+		if (!(flags & InferFlag_TypeIsNotRequired_)) { // type is required
+			if (!result.type) {
+				ERR(c, inst.node, "Expression has no type, or it cannot be inferred.");
+			}
 		}
 	}
 
@@ -2045,7 +2065,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 			// only check the procedure body when we have a physical procedure instance (not polymorphic)
 			// and after the proc type has been cached.
 			for FFZ_EACH_CHILD_INST(n, inst) {
-				TRY(check_node(c, n, NULL, InferFlag_TypeIsNotRequired, NULL));
+				TRY(check_node(c, n, NULL, InferFlag_Statement, NULL));
 			}
 		}
 		else if (delayed_check_record) {

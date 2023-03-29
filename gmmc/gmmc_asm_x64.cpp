@@ -118,7 +118,7 @@ struct ProcGenSelectRegs {
 
 struct ProcGen {
 	gmmcAsmModule* module;
-	fWriter* console;
+	fOpt(fWriter*) console;
 	gmmcProc* proc;
 	gmmcAsmProc* result;
 
@@ -196,7 +196,7 @@ static void emit(ProcGen* p, const ZydisEncoderRequest& req, const char* comment
 	f_array_push_n(&code_section->data, { instr, instr_len });
 
 	// print disassembly
-	if (true) {
+	if (p->console) {
 		uint sect_rel_offset = code_section->data.len - instr_len;
 		uint proc_rel_offset = sect_rel_offset - p->result->code_section_start_offset;
 
@@ -890,10 +890,8 @@ static void gen_call(ProcGen* p, gmmcOpData* op) {
 		result_reg = allocate_op_result(p);
 	}
 
-	// NOTE: we do `use_op_value` on the call target last, only after we've pushed the parameters on the stack.
-	// pushing the parameters might require the use of work registers, and they could accidentally take the
-	// work register that is allocated for the proc address. We could do a more sophisticated way to make sure
-	// `use_op_value` locks the register for the duration of the current op, but this should be fine.
+	// NOTE: we must do `use_op_value` on the call target AFTER we've pushed the parameters on the stack,
+	// because pushing the parameters might require the use of work registers that could invalidate this
 	GPR proc_addr_reg = use_op_value(p, op->call.target);
 
 	if (p->stage == Stage_Emit) {
@@ -955,7 +953,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		switch (op->kind) {
 		
 		case gmmcOpKind_comment: {
-			if (p->stage == Stage_Emit) {
+			if (p->console && p->stage == Stage_Emit) {
 				if (op->comment.len > 0) {
 					fSlice(fRangeUint) lines;
 					f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
@@ -1318,12 +1316,11 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 	if (buffered) w = f_open_buffered_writer(w, console_buf, F_LEN(console_buf), &console_writer);
 	
 	f_print(w, "---- generating proc: '~s' ----\n", proc->sym.name);
-	
 	//gmmc_proc_print_c(stdout, proc);
 	f_print(w, "---\n");
 	
 	ProcGen _p = {}; ProcGen* p = &_p;
-	p->console = w;
+	//p->console = w;
 	p->module = module_gen;
 	p->proc = proc;
 	p->result = result;

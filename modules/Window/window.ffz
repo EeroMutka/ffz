@@ -1,0 +1,13 @@
+
+// API:
+// create: proc(width: uint, height: uint, name: string) => Window
+// show: proc(wnd: Window)
+// poll_events: proc(window: Window) => WindowEvents
+
+/*
+#Key: enum {
+	
+	
+	
+}
+*/

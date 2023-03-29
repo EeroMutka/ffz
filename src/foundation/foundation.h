@@ -769,8 +769,8 @@ bool f_files_close(fFile* file);
 uint f_files_size(fFile* file);
 uint f_files_read(fFile* file, void* dst, uint size);
 bool f_files_write_unbuffered(fFile* file, fString data);
-uint f_files_get_position(fFile* file);
-bool f_files_set_position(fFile* file, uint position);
+uint f_files_get_cursor(fFile* file);
+bool f_files_set_cursor(fFile* file, uint position);
 
 void f_files_flush(fFile* file);
 inline fWriter* f_files_get_writer(fFile* file) { return (fWriter*)&file->buffered_writer; }

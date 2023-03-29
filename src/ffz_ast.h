@@ -291,7 +291,11 @@ inline ffzLocRange ffz_loc_range_union(ffzLocRange a, ffzLocRange b) {
 	return FFZ_STRUCT_INIT(ffzLocRange) { ffz_loc_min(a.start, b.start), ffz_loc_max(a.end, b.end) };
 }
 
-inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
+
+// 0 is returned if not a bracket operator
+u8 ffz_get_bracket_op_open_char(ffzNodeKind kind);
+u8 ffz_get_bracket_op_close_char(ffzNodeKind kind);
+
 inline bool ffz_keyword_is_extended(ffzKeyword keyword) { return keyword >= ffzKeyword_FIRST_EXTENDED; }
 
 inline bool ffz_node_is_operator(ffzNodeKind kind) { return kind >= ffzNodeKind_Declare && kind <= ffzNodeKind_Dereference; }
@@ -301,23 +305,7 @@ inline bool ffz_op_is_postfix(ffzNodeKind kind) { return kind >= ffzNodeKind_Pos
 inline bool ffz_op_is_comparison(ffzNodeKind kind) { return kind >= ffzNodeKind_Equal && kind <= ffzNodeKind_GreaterOrEqual; }
 //inline bool ffz_operator_is_arithmetic(ffzNodeKind kind) { return kind >= ffzNodeKind_Add && kind <= ffzNodeKind_Modulo; }
 
-// 0 is returned if not a bracket operator
-u8 ffz_get_bracket_op_open_char(ffzNodeKind kind);
-u8 ffz_get_bracket_op_close_char(ffzNodeKind kind);
-
-//fOpt(ffzNode*) ffz_get_compiler_tag_by_name(ffzNode* node, fString tag);
-//fOpt(ffzNode*) ffz_get_tag_by_name(ffzNode* node, fString tag);
-
-//u32 ffz_poly_parameter_get_index(ffzNode* node);
-//u32 ffz_parameter_get_index(ffzNode* node);
-//u32 ffz_operator_child_get_index(ffzNode* node);
-//u32 ffz_enum_child_get_index(ffzNode* node);
-//u32 ffz_scope_child_get_index(ffzNode* node);
-
-// should we flatten it so we can talk about ffzNodeDeclarations?
-
 fString ffz_get_parent_decl_name(fOpt(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
-
 
 u32 ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
 ffzNode* ffz_get_child(ffzNode* parent, u32 idx);
@@ -334,7 +322,6 @@ fString ffz_node_kind_to_string(ffzNodeKind kind);
 
 fString ffz_node_kind_to_op_string(ffzNodeKind kind);
 //char* ffz_node_kind_to_op_cstring(ffzNodeKind kind);
-
 
 ffzOk ffz_parse(ffzParser* p);
 
