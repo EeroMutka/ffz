@@ -1173,15 +1173,28 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			}
 		} break;
 
+		case gmmcOpKind_memset: {
+			use_op_value(p, op->operands[0], GPR_DI);
+			use_op_value(p, op->operands[1], GPR_AX);
+			use_op_value(p, op->operands[2], GPR_CX);
+
+			if (p->stage == Stage_Emit) {
+				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
+				req.mnemonic = ZYDIS_MNEMONIC_STOSB;
+				req.prefixes = ZYDIS_ATTRIB_HAS_REP;
+				emit(p, req, " ; memset");
+			}
+		} break;
+
 		case gmmcOpKind_memcpy: {
-			// NOTE: the direction flag should be always cleared to 0, as specified in the calling convention:
+			// NOTE: the direction flag is always cleared to 0, as specified in the calling convention:
 			// "On function exit and on function entry to C Runtime Library calls and Windows system calls,
 			// the direction flag in the CPU flags register is expected to be cleared."
 			// https://learn.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170
 
-			GPR src_reg = use_op_value(p, op->operands[0], GPR_DI);
-			GPR dst_reg = use_op_value(p, op->operands[1], GPR_SI);
-			GPR size_reg = use_op_value(p, op->operands[2], GPR_CX);
+			use_op_value(p, op->operands[0], GPR_DI);
+			use_op_value(p, op->operands[1], GPR_SI);
+			use_op_value(p, op->operands[2], GPR_CX);
 			
 			if (p->stage == Stage_Emit) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };

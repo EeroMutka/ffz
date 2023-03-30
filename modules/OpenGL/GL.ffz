@@ -1,3 +1,5 @@
+#Basic: import(":Basic")
+
 // For an example on how to use this module, see examples/gl_triangle
 
 // Useful internal resources:
@@ -438,7 +440,7 @@
 
 #load_api_procs: proc(api: ^API, version: Version) {
 	lib: LoadLibraryA("opengl32.dll".ptr)
-	if lib == HMODULE(0) {dbgbreak}
+	if lib == HMODULE(0) { dbgbreak }
 	
 	if version >= Version._1_0 {
 		api.CullFace = PFNGLCULLFACEPROC(get_proc(lib, "glCullFace".ptr))
@@ -853,5 +855,5 @@
 		api.SecondaryColorP3uiv = PFNGLSECONDARYCOLORP3UIVPROC(get_proc(lib, "glSecondaryColorP3uiv".ptr))
 	}
 	
-	FreeLibrary(lib)
+	_= FreeLibrary(lib)
 }

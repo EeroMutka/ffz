@@ -23,12 +23,12 @@
 	a.allocator._proc(a.allocator, a.ptr, a.capacity*size_of(T), 0, 0)
 }
 
-#push: proc[T](a: ^Array[T], elem: T) => uint {
-	ret push_n_raw(^Array[raw](a), &elem, 1, size_of(T), align_of(T))
+#push: proc[T](a: ^Array[T], elem: T) {
+	push_n_raw(^Array[raw](a), &elem, 1, size_of(T), align_of(T))
 }
 
-#push_n: proc[T](a: ^Array[T], elems: []T) => uint {
-	ret push_n_raw(^Array[raw](a), elems.ptr, elems.len, size_of(T), align_of(T))
+#push_n: proc[T](a: ^Array[T], elems: []T) {
+	push_n_raw(^Array[raw](a), elems.ptr, elems.len, size_of(T), align_of(T))
 }
 
 #insert: proc[T](a: ^Array[T], at: uint, elem: T) {
@@ -48,9 +48,7 @@
 	
 	Basic.memcpy(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
 	
-	//result: a.len
 	a.len= .+n
-	//ret result
 }
 
 #reserve_raw: proc(a: ^Array[raw], capacity: uint, elem_size: uint, elem_align: uint) {

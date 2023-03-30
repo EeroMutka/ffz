@@ -344,7 +344,7 @@ inline gmmcSymbol* gmmc_extern_as_symbol(gmmcExtern* extern_sym) { return (gmmcS
 
 GMMC_API gmmcExtern* gmmc_make_extern(gmmcModule* m, gmmcString name);
 
-// TODO: is there a way to mark the memory as executable?
+// The returned data is initially zeroed out.
 GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_data);
 
 GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc);

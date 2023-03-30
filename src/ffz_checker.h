@@ -59,9 +59,9 @@ typedef struct ffzConstant ffzConstant;
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
 typedef struct ffzPolymorph ffzPolymorph;
 
-typedef struct ffzCheckedExpr {
-	ffzType* /*opt*/ type;
-	ffzConstant* /*opt*/ const_val;
+typedef struct ffzCheckedInst {
+	fOpt(ffzType*) type;
+	fOpt(ffzConstant*) const_val;
 } ffzCheckedExpr;
 
 // About hashing:
@@ -142,7 +142,7 @@ typedef struct ffzPolymorph {
 	ffzChecker* checker;
 
 	ffzNodeInst node;
-	fSlice(ffzCheckedExpr) parameters;
+	fSlice(ffzCheckedInst) parameters;
 } ffzPolymorph;
 
 struct ffzType;
@@ -163,12 +163,50 @@ typedef struct ffzCheckerScope {
 	ffzCheckerScope* parent;
 } ffzCheckerScope;
 
-typedef struct ffzTypeRecordField {
+typedef struct ffzConstant {
+	union {
+		s8 s8_;
+		s16 s16_;
+		s32 s32_;
+		s64 s64_;
+		u8 u8_;
+		u16 u16_;
+		u32 u32_;
+		u64 u64_;
+		u16 f16_;
+		f32 f32_;
+		f64 f64_;
+		bool bool_;
+		ffzConstant* /*opt*/ ptr;
+
+		ffzType* type;
+		ffzChecker* module;
+		fString string_zero_terminated; // length doesn't contain the zero termination.
+
+		// tightly-packed array of ffzConstant. i.e. if this is an array of u8,
+		// the n-th element would be ((ffzConstant*)((u8*)array_elems + n))->_u8.
+		// You can use ffz_constant_fixed_array_get() to get an element from it.
+		void* fixed_array_elems; // or NULL for zero-initialized
+
+		// ProcType if extern proc, otherwise Operator.
+		// Currently, procedure definitions are actually categorized as "operators" in the AST,
+		// because they have the form of `procedure_type{}`, which might seem a bit strange.
+		ffzNodeInst proc_node;
+
+		fSlice(ffzConstant) record_fields; // or empty for zero-initialized
+	};
+} ffzConstant;
+
+typedef struct ffzField {
 	fString name;
-	ffzType* type;
-	u32 offset;
 	ffzNodeOpDeclareInst decl; // not always used, i.e. for slice type fields
-} ffzTypeRecordField;
+	
+	ffzConstant default_value;
+	bool has_default_value;
+
+	u32 offset; // ignored for procedure parameters
+	ffzType* type;
+} ffzNamedField;
 
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
 struct ffzTypeRecordFieldUse {
@@ -176,10 +214,10 @@ struct ffzTypeRecordFieldUse {
 	u32 offset;
 };
 
-typedef struct ffzTypeProcParameter {
-	ffzNodeIdentifier* name;
-	ffzType* type;
-} ffzTypeProcParameter;
+//typedef struct ffzTypeProcParameter {
+//	ffzNodeIdentifier* name;
+//	ffzType* type;
+//} ffzTypeProcParameter;
 
 typedef struct ffzTypeEnumField {
 	fString name;
@@ -195,13 +233,12 @@ typedef struct ffzType {
 	ffzCheckerID checker_id;
 	ffzNodeInst unique_node; // available for struct, union, enum, and proc types.
 
-	fSlice(ffzTypeRecordField) record_fields; // available for struct, union, slice types and the string type.
+	fSlice(ffzField) record_fields; // available for struct, union, slice types and the string type.
 
 	union {
 		struct {
-			//ffzNodeProcTypeInst type_node;
-			fSlice(ffzTypeProcParameter) in_params;
-			ffzTypeProcParameter* /*opt*/ out_param;
+			fSlice(ffzField) in_params;
+			fOpt(ffzType*) return_type;
 		} Proc, PolyProc;
 
 		struct {
@@ -253,40 +290,6 @@ typedef struct ffzProject {
 	KeywordFromStringMap keyword_from_string;
 } ffzProject;
 
-typedef struct ffzConstant {
-	union {
-		s8 s8_;
-		s16 s16_;
-		s32 s32_;
-		s64 s64_;
-		u8 u8_;
-		u16 u16_;
-		u32 u32_;
-		u64 u64_;
-		u16 f16_;
-		f32 f32_;
-		f64 f64_;
-		bool bool_;
-		ffzConstant* /*opt*/ ptr;
-
-		ffzType* type;
-		ffzChecker* module;
-		fString string_zero_terminated; // length doesn't contain the zero termination.
-
-		// tightly-packed array of ffzConstant. i.e. if this is an array of u8,
-		// the n-th element would be ((ffzConstant*)((u8*)array_elems + n))->_u8.
-		// You can use ffz_constant_fixed_array_get() to get an element from it.
-		void* fixed_array_elems; // or NULL for zero-initialized
-		
-		// ProcType if @extern proc, otherwise Operator.
-		// Currently, procedure definitions are actually categorized as "operators" in the AST,
-		// because they have the form of `procedure_type{}`, which might seem a bit strange at first.
-		ffzNodeInst proc_node;
-		
-		fSlice(ffzConstant) record_fields; // or empty for zero-initialized
-	};
-} ffzConstant;
-
 typedef u64 ffzFieldHash;
 typedef u64 ffzEnumValueHash;
 
@@ -317,7 +320,7 @@ struct ffzChecker {
 	// * key: ffz_hash_node_inst
 	// * Statements have NULL entries, except declarations, which cache the type
 	//   (and maybe constant value) of the declaration.
-	fMap64(ffzCheckedExpr) cache;
+	fMap64(ffzCheckedInst) cache;
 
 	fMap64(ffzPolymorph*) poly_instantiation_sites; // key: ffz_hash_node_inst
 	
@@ -389,8 +392,7 @@ ffzConstant ffz_constant_fixed_array_get(ffzType* array_type, ffzConstant* array
 
 ffzNodeInst ffz_get_child_inst(ffzNodeInst parent, u32 idx);
 
-ffzType* ffz_ground_type(ffzCheckedExpr checked); // TODO: get rid of this?
-bool ffz_type_is_grounded(ffzType* type); // a type is grounded when a runtime variable may have that type.
+bool ffz_type_is_concrete(ffzType* type); // a type is grounded when a runtime variable may have that type.
 
 bool ffz_type_is_comparable_for_equality(ffzType* type); // supports ==, !=
 bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.
@@ -398,14 +400,14 @@ bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.
 fString ffz_type_to_string(ffzProject* p, ffzType* type);
 char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
 
-fString ffz_constant_to_string(ffzProject* p, ffzCheckedExpr constant);
-char* ffz_constant_to_cstring(ffzProject* p, ffzCheckedExpr constant);
+fString ffz_constant_to_string(ffzProject* p, ffzCheckedInst constant);
+char* ffz_constant_to_cstring(ffzProject* p, ffzCheckedInst constant);
 
 //ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
 ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst);
 //u64 ffz_hash_declaration_path(ffzDefinitionPath path);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
-ffzConstantHash ffz_hash_constant(ffzCheckedExpr constant);
+ffzConstantHash ffz_hash_constant(ffzCheckedInst constant);
 
 inline ffzNodeInst ffz_get_toplevel_inst(ffzChecker* c, ffzNode* node) { return ffzNodeInst{node, NULL}; }
 //ffzPolyInstHash ffz_hash_poly_inst(ffzPolyInst inst);
@@ -431,27 +433,21 @@ bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeOpDeclar
 
 ffzNodeInst ffz_parent_inst(ffzProject* p, ffzNodeInst node);
 
-//ffzNodeInst ffz_get_instantiated_expression(ffzProject* p, ffzNodeInst node); // do we need this?
-
 bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
-//fSlice(ffzTypeRecordField) ffz_type_get_record_fields(ffzChecker* c, ffzType* type);
 
-ffzCheckedExpr ffz_expr_get_checked(ffzProject* p, ffzNodeInst node);
-inline ffzType* ffz_expr_get_type(ffzProject* p, ffzNodeInst node) { return ffz_expr_get_checked(p, node).type; }
-inline ffzConstant* ffz_expr_get_evaluated_constant(ffzProject* p, ffzNodeInst node) { return ffz_expr_get_checked(p, node).const_val; }
-
-ffzCheckedExpr ffz_decl_get_checked(ffzProject* p, ffzNodeOpDeclareInst decl);
-inline ffzType* ffz_decl_get_type(ffzProject* p, ffzNodeOpDeclareInst node) { return ffz_decl_get_checked(p, node).type; }
-inline ffzConstant* ffz_decl_get_evaluated_constant(ffzProject* p, ffzNodeOpDeclareInst node) { return ffz_decl_get_checked(p, node).const_val; }
-
-
+ffzCheckedInst ffz_get_checked(ffzProject* p, ffzNodeInst node);
+inline ffzType* ffz_get_type(ffzProject* p, ffzNodeInst node) { return ffz_get_checked(p, node).type; }
+inline ffzConstant* ffz_get_evaluated_constant(ffzProject* p, ffzNodeInst node) { return ffz_get_checked(p, node).const_val; }
 
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in  foo: int  the "foo" identifier would be a definition.
 ffzNodeIdentifierInst ffz_get_definition(ffzProject* p, ffzNodeIdentifierInst ident);
 
-//bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl); // hmm... this is a bit weird.
-//bool ffz_definition_is_constant(ffzNodeIdentifier* definition);
+bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, u32* out_index);
+
+bool ffz_constant_is_zero(ffzConstant constant);
+
+inline fString ffz_decl_get_name(ffzNodeOpDeclare* decl) { return decl->Op.left->Identifier.name; }
 
 //ffzDeclKind ffz_decl_get_kind(ffzNodeOpDeclare* decl);
 bool ffz_decl_is_runtime_variable(ffzNodeOpDeclare* decl);

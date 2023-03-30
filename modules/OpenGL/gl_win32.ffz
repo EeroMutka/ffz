@@ -19,7 +19,7 @@
 	pixel_format: ChoosePixelFormat(hdc, &pfd)
 	if pixel_format == 0 {dbgbreak}
 	
-	SetPixelFormat(hdc, pixel_format, &pfd)
+	Basic.assert(SetPixelFormat(hdc, pixel_format, &pfd) == 1)
 	
 	dummy_wgl_context: wglCreateContext(hdc) // NOTE: must be called after SetPixelFormat
 	if dummy_wgl_context == HGLRC(0) {dbgbreak}
@@ -40,13 +40,14 @@
 	}
 	
 	wgl_context: wglCreateContextAttribsARB(hdc, HGLRC(0), &attribs_list[0])
-	if wgl_context == HGLRC(0) {dbgbreak}
+	Basic.assert(wgl_context != HGLRC(0))
 	
 	// Now that we have created the new context (using the dummy context), we can delete the dummy context
 	
-	if wglMakeCurrent(hdc, HGLRC(0)) == 0 {dbgbreak}
-	//wglDeleteContext(dummy_wgl_context)
-	if wglMakeCurrent(hdc, wgl_context) == 0 {dbgbreak}
+	Basic.assert(wglMakeCurrent(hdc, HGLRC(0)) == 1)
+	Basic.assert(wglDeleteContext(dummy_wgl_context) == 1)
+	
+	Basic.assert(wglMakeCurrent(hdc, wgl_context) == 1)
 	
 	load_api_procs(api, version)
 }

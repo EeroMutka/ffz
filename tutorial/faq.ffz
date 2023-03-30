@@ -1,0 +1,37 @@
+/*
+Q: Why doesn't ffz have named return values?
+A: It causes too many problems and clashes with the rest of the language design.
+	
+	If we added named returns, they'd really look like variables, kind of like the input parameters.
+	So should they be variables?
+	
+		VARIABLES:
+			
+			With the rest of the rules of FFZ, it means that
+			you must also give it an initial value. But what if you define the procedure type somewhere else? Now the
+			procedure type is responsible for defining something that the procedure body should be defining.
+			We could make a special exception for procedure types that are defined alongside their bodies, but
+			a big goal of FFZ is to say no to exceptions like that.
+		
+		NOT VARIABLES, PURELY DOCUMENTATIONAL WITH NO SEMANTICS:
+			
+			ok, but... why? You can always return a custom named type.
+			And most of the time, the procedure name indicates what it will return
+			anyway.
+			
+			The code would look pretty dumb:
+				#run_command: proc => ok: bool {
+					ok: true
+					ret ok
+				}
+				
+			What I'd do instead if I wanted to name the return value:
+				#OK: bool
+				
+				#run_command: proc => OK {
+					ok: true
+					ret ok
+				}
+				
+*/
+

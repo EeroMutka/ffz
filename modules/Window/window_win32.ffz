@@ -1,6 +1,8 @@
 #Basic: import(":Basic")
 #str: import(":String")
 
+#assert: Basic.assert
+
 #WindowHandle: import("WindowHandle")
 #Window: WindowHandle.Window
 
@@ -9,9 +11,9 @@
 	if str.len == 0 { ret out }
 	
 	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
-	Basic.assert(len != 0)
+	assert(len != 0)
 	
-	out = Basic.slice_make[u16](uint(len) + 1, Basic.temp_alc())
+	out = Basic.make_slice[u16](uint(len) + 1, Basic.temp_alc())
 	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
 	
 	// null terminator
@@ -87,12 +89,12 @@
 	wnd_class.lpszClassName  = str_to_utf16_temp(WINDOW_CLASS_NAME).ptr
 	
 	atom: RegisterClassExW(&wnd_class)
-	Basic.assert(atom != 0)
+	assert(atom != 0)
 }
 
 #show: proc(window: Window) {
-	UpdateWindow(window.hwnd)
-	ShowWindow(window.hwnd, SW_SHOW)
+	assert(UpdateWindow(window.hwnd) != 0)
+	_= ShowWindow(window.hwnd, SW_SHOW)
 }
 
 
@@ -136,7 +138,6 @@
 	quit: bool
 }
 
-
 #poll_events: proc(window: Window, resize_cb: ResizeCallback, resize_cb_user_ptr: ^raw) => WindowEvents {
 	out: WindowEvents
 	out.resize_cb = resize_cb
@@ -148,11 +149,11 @@
 		msg: MSG
 		result: PeekMessageW(&msg, window.hwnd, 0, 0, PM_REMOVE)
 		if result != 0 {
-			TranslateMessage(&msg)
+			_= TranslateMessage(&msg)
 			
 			// https://stackoverflow.com/questions/117792/best-method-for-storing-this-pointer-for-use-in-wndproc
-			SetWindowLongPtrW(window.hwnd, GWLP_USERDATA, s64(&out))
-			DispatchMessageW(&msg)
+			_= SetWindowLongPtrW(window.hwnd, GWLP_USERDATA, s64(&out))
+			_= DispatchMessageW(&msg)
 		}
 		else {
 			loop = false // TODO: continue / break
