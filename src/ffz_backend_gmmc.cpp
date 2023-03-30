@@ -24,6 +24,8 @@
 
 #define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
 
+struct OpIdxOrUndef { gmmcOpIdx op; };
+
 struct Value {
 	gmmcSymbol* symbol;
 	gmmcOpIdx local_addr; // local_addr is used if symbol is NULL
@@ -616,6 +618,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	F_ASSERT(ffz_type_is_concrete(checked.type));
 
 	F_ASSERT(inst.node->kind != ffzNodeKind_Declare);
+
 	if (checked.const_val) {
 		out = gen_constant(g, checked.type, checked.const_val, address_of);
 
@@ -1065,7 +1068,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 
 		gmmcOpIdx rhs_value = gen_expr(g, rhs, false);
 
-		if (!ffz_node_is_keyword(lhs.node, ffzKeyword_Underscore)) {
+		if (!ffz_node_is_keyword(lhs.node, ffzKeyword_Eater)) {
 			gmmcOpIdx lhs_addr = gen_expr(g, lhs, true);
 			gen_store(g, lhs_addr, rhs_value, ffz_get_type(g->project, rhs), inst.node);
 		}

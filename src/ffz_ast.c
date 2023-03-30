@@ -89,6 +89,7 @@ const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
 	{0},
 	F_LIT_COMP("_"),
 	F_LIT_COMP("?"),
+	F_LIT_COMP("~~"),
 	F_LIT_COMP("dbgbreak"),
 	F_LIT_COMP("size_of"),
 	F_LIT_COMP("align_of"),
@@ -536,6 +537,7 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 			else if (prev_r == '=' && (r == '=' || r == '>')) join_symbol = true; // =>, ==
 			else if (prev_r == '<') join_symbol = true; // <<, <=
 			else if (prev_r == '>') join_symbol = true; // >>, >=
+			else if (prev_r == '~' && r == '~') join_symbol = true; // ~~
 			else if (prev_r == '!' && r == '=') join_symbol = true; // != should join, but e.g. !! and !~ shouldn't join
 			else if (prev_r == '*' && r == '/') join_symbol = true; // join comment block enders
 			
@@ -1027,6 +1029,10 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 					op_kind = ffzNodeKind_MemberAccess;
 				}
 			} break;
+			case '~~': {
+				node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
+				node->Keyword.keyword = ffzKeyword_Undefined;
+			} break;
 			case '&&': { op_kind = ffzNodeKind_LogicalAND; } break; // :NoteAboutSeqLiterals
 			case '||': { op_kind = ffzNodeKind_LogicalOR; } break; // :NoteAboutSeqLiterals
 			case '*': { op_kind = ffzNodeKind_Mul; } break;
@@ -1203,7 +1209,6 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				if (!f_str_to_u64(tok.str, base, &value)) {
 					ERR(p, tok.range, "Invalid ~s literal.", base_name);
 				}
-				//f_str_to_f64
 
 				node = new_node(p, parent, tok.range, ffzNodeKind_IntLiteral);
 				node->IntLiteral.value = value;

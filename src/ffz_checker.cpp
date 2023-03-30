@@ -376,8 +376,8 @@ bool ffz_constant_is_zero(ffzConstant constant) {
 	return memcmp(&constant, zeroes, sizeof(ffzConstant)) == 0;
 }
 
-ffzConstant* ffz_get_default_value_for_type(ffzChecker* c, ffzType* t) {
-	F_BP;
+// hmm. TODO
+ffzConstant* ffz_zero_value_constant(ffzChecker* c, ffzType* t) {
 	const static ffzConstant empty = {};
 	return (ffzConstant*)&empty;
 }
@@ -758,6 +758,12 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 	ffzTypeHash h = f_hash64(type->tag);
 	switch (type->tag) {
 	case ffzTypeTag_Raw: break;
+	case ffzTypeTag_Eater: break;
+	case ffzTypeTag_Undefined: break;
+	case ffzTypeTag_Module: break;
+	case ffzTypeTag_Type: break;
+	case ffzTypeTag_String: break;
+
 	case ffzTypeTag_Pointer: { f_hash64_push(&h, ffz_hash_type(type->Pointer.pointer_to)); } break;
 
 	case ffzTypeTag_PolyProc: // fallthrough
@@ -773,9 +779,6 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 		f_hash64_push(&h, type->FixedArray.length);
 	} break;
 
-	case ffzTypeTag_Module: // fallthrough
-	case ffzTypeTag_Type: // fallthrough
-	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
 	case ffzTypeTag_Sint: // fallthrough
 	case ffzTypeTag_Uint: // fallthrough
@@ -996,16 +999,18 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 			TRY(check_node(c, arg, result->type, InferFlag_NoTypesMatchCheck, &chk));
 			F_ASSERT(chk.type); //if (chk.type == NULL) ERR(c, inst.node, "Invalid cast.");
 
-			//ffzTypeTag dst_tag = result->type->tag, src_tag = chk.type->tag;
-			if (!ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(chk.type->tag)) {
+			bool is_undefined = chk.type->tag == ffzTypeTag_Type && chk.const_val->type->tag == ffzTypeTag_Undefined;
+			
+			if (!is_undefined && !ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(chk.type->tag)) {
 				// the following shouldn't be allowed:
 				// #foo: false
-				// #bar: u32(&foo)
+				// #bar: uint(&foo)
 				// This is because given a constant integer, we want to be able to trivially ask what its value is.
 				result->const_val = chk.const_val;
 			}
 
-			if (!type_can_be_casted_to(c->project, chk.type, result->type)) {
+			
+			if (!is_undefined && !type_can_be_casted_to(c->project, chk.type, result->type)) {
 				TRY(check_types_match(c, inst.node, chk.type, result->type, "The received type cannot be casted to the expected type:"));
 			}
 		}
@@ -1420,6 +1425,8 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 		c->builtin_types[ffzKeyword_uint] = ffz_make_type(c, { ffzTypeTag_DefaultUint, p->pointer_size });
 		c->builtin_types[ffzKeyword_int] = ffz_make_type(c, { ffzTypeTag_DefaultSint, p->pointer_size });
 		c->builtin_types[ffzKeyword_raw] = ffz_make_type(c, { ffzTypeTag_Raw });
+		c->builtin_types[ffzKeyword_Undefined] = ffz_make_type(c, { ffzTypeTag_Undefined });
+		c->builtin_types[ffzKeyword_Eater] = ffz_make_type(c, { ffzTypeTag_Eater });
 		c->builtin_types[ffzKeyword_bool] = ffz_make_type(c, { ffzTypeTag_Bool, 1 });
 
 		c->module_type = ffz_make_type(c, { ffzTypeTag_Module });
@@ -1663,7 +1670,7 @@ static ffzOk check_assign(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* resul
 	
 	TRY(check_node(c, lhs, NULL, 0, &lhs_chk));
 	
-	bool is_void_assignment = ffz_node_is_keyword(lhs.node, ffzKeyword_Underscore);
+	bool is_void_assignment = ffz_node_is_keyword(lhs.node, ffzKeyword_Eater);
 	if (!is_void_assignment) F_ASSERT(ffz_type_is_concrete(lhs_chk.type));
 
 	TRY(check_node(c, rhs, lhs_chk.type, 0, &rhs_chk));
@@ -1834,9 +1841,8 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 			} break;
 			case ffzKeyword_string: { result.type = ffz_builtin_type(c, ffzKeyword_string); } break;
 			
-			case ffzKeyword_Underscore: {
-				result.type = ffz_builtin_type(c, ffzKeyword_raw); // the type of an underscore is 'raw'
-			} break;
+			case ffzKeyword_Undefined: { result.type = ffz_builtin_type(c, ffzKeyword_Undefined); } break;
+			case ffzKeyword_Eater: { result.type = ffz_builtin_type(c, ffzKeyword_Eater); } break;
 
 			case ffzKeyword_raw: {
 				result = make_type_constant(c, ffz_builtin_type(c, ffzKeyword_raw));
@@ -2067,7 +2073,7 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 
 	if (result.type && result.type->tag == ffzTypeTag_Type && (flags & InferFlag_TypeMeansDefaultValue)) {
 		result.type = _ffz_ground_type(result);
-		result.const_val = ffz_get_default_value_for_type(c, result.type);
+		result.const_val = ffz_zero_value_constant(c, result.type);
 	}
 
 	// Say you have `#X: struct { a: ^X }`

@@ -28,7 +28,7 @@
 
 // globals shouldn't be allowed in modules, but only for the basic module an exception is made
 @*global
-_temp_arena_tls_index: u32
+_temp_arena_tls_index: u32(0)
 
 #ArenaMark: struct {head: ^u8}
 
@@ -96,18 +96,19 @@ _temp_arena_tls_index: u32
 
 // `reserve_base` can be NULL for automatically determined address
 #arena_make_virtual_reserve_fixed: proc(reserve_size: uint, reserve_base: ^u8) => ^Arena {
-	dummy: Arena
-	dummy.allocator._proc = arena_allocator_proc
-	
-	dummy.reserve_base = virtual_reserve(reserve_size, reserve_base)
-	if dummy.reserve_base == ^u8(0) { dbgbreak }
-	
-	dummy.head = dummy.reserve_base
-	dummy.committed_end = dummy.head
-	
-	sys_info: SYSTEM_INFO
+	sys_info: SYSTEM_INFO(---)
 	GetSystemInfo(&sys_info)
-	dummy.system_page_size = sys_info.dwPageSize
+	
+	base: virtual_reserve(reserve_size, reserve_base)
+	if base == ^u8(0) { dbgbreak }
+	
+	dummy: Arena{
+		allocator: Allocator{arena_allocator_proc}
+		system_page_size: sys_info.dwPageSize
+		reserve_base: base
+		head: base
+		committed_end: base
+	}
 	
 	arena: ^Arena(arena_push(&dummy, size_of(Arena), align_of(Arena)).ptr)
 	arena^ = dummy
@@ -177,7 +178,6 @@ _temp_arena_tls_index: u32
 
 #arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
 	allocation_pos: ^u8(align_up(int(arena.head), align))
-	result: form_slice[u8](allocation_pos, size)
 	
 	arena.head = ^u8(uint(allocation_pos) + size)
 	
@@ -192,7 +192,7 @@ _temp_arena_tls_index: u32
 	//	_debug_clear_memory(allocation_pos, size)
 	//}
 	
-	ret result
+	ret []u8{allocation_pos, size}
 }
 
 // returns NULL if invalid
@@ -238,40 +238,21 @@ _temp_arena_tls_index: u32
 }
 
 #as_bytes: proc[T](value: ^T) => []u8 {
-	out: []u8
-	out.ptr= ^u8(value)
-	out.len= size_of(T)
-	ret out
-}
-
-/*#as_bytes_raw: proc(value: ^raw, size: uint) => ([]u8) {
-	out: []u8
-	out.ptr= (^u8)(value)
-	out.len= size
-	ret out
-}*/
-
-// hmm... should form_slice be possible by just  []uint{&some_ptr, 50}  ?
-#form_slice: proc[T](ptr: ^T, len: uint) => []T {
-	out: []T
-	out.ptr= ptr
-	out.len= len
-	ret out
+	ret []u8{^u8(value), size_of(T)}
 }
 
 #Allocator: struct {
 	_proc: AllocatorProc
 }
 
-// Note: the returned memory will be uninitialized
-#make_slice: proc[T](len: uint, alc: ^Allocator) => []T {
-	out: []T
-	out.ptr= ^T(alc._proc(alc, ^raw(0), 0, len * size_of(T), align_of(T)))
-	out.len= len
-	ret out
+#make_slice_undef: proc[T](len: uint, alc: ^Allocator) => []T {
+	ret []T{
+		^T(alc._proc(alc, ^raw(0), 0, len * size_of(T), align_of(T)))
+		len
+	}
 }
 
-#resize_slice: proc[T](slice: ^[]T, len: uint, alc: ^Allocator) {
+#resize_slice_undef: proc[T](slice: ^[]T, len: uint, alc: ^Allocator) {
 }
 
 #free_slice: proc[T](slice: []T, alc: ^Allocator) {

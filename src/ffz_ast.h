@@ -29,7 +29,7 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	ffzNodeKind_Identifier,
 	ffzNodeKind_PolyParamList,
 	ffzNodeKind_Keyword,
-	ffzNodeKind_ThisValueDot,
+	ffzNodeKind_ThisValueDot,  // .
 	ffzNodeKind_ProcType,
 	ffzNodeKind_Record,
 	ffzNodeKind_Enum,
@@ -92,8 +92,9 @@ enum {
 typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_INVALID,
 	
-	ffzKeyword_Underscore,
-	ffzKeyword_QuestionMark,
+	ffzKeyword_Eater,        // _
+	ffzKeyword_QuestionMark, // ?
+	ffzKeyword_Undefined,    // ~~
 	ffzKeyword_dbgbreak,
 	ffzKeyword_size_of,
 	ffzKeyword_align_of,
