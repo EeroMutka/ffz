@@ -62,7 +62,7 @@ typedef struct ffzPolymorph ffzPolymorph;
 typedef struct ffzCheckedInst {
 	fOpt(ffzType*) type;
 	fOpt(ffzConstant*) const_val;
-} ffzCheckedExpr;
+} ffzCheckedInst;
 
 // About hashing:
 // Hashes should be fully deterministic across compilations.
@@ -459,8 +459,14 @@ bool ffz_constant_is_zero(ffzConstant constant);
 
 inline fString ffz_decl_get_name(ffzNodeOpDeclare* decl) { return decl->Op.left->Identifier.name; }
 
-//ffzDeclKind ffz_decl_get_kind(ffzNodeOpDeclare* decl);
-bool ffz_decl_is_runtime_variable(ffzNodeOpDeclare* decl);
+//bool ffz_decl_is_runtime_variable(ffzNodeOpDeclare* decl);
+bool ffz_decl_is_local_variable(ffzNodeOpDeclare* decl);
+bool ffz_decl_is_global_variable(ffzNodeOpDeclare* decl);
+inline bool ffz_decl_is_parameter(ffzNodeOpDeclare* decl) { return decl->parent->kind == ffzNodeKind_ProcType; }
+
+inline bool ffz_decl_is_variable(ffzNodeOpDeclare* decl) {
+	return ffz_decl_is_local_variable(decl) || ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl);
+}
 
 bool ffz_dot_get_assignee(ffzNodeDotInst dot, ffzNodeInst* out_assignee);
 

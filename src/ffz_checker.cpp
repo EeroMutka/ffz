@@ -336,12 +336,20 @@ char* ffz_type_to_cstring(ffzProject* p, ffzType* type) {
 //	return out_decl->node->Op.left == node.node;
 //}
 
-bool ffz_decl_is_runtime_variable(ffzNodeOpDeclare* decl) {
+bool ffz_decl_is_local_variable(ffzNodeOpDeclare* decl) {
 	if (decl->parent->kind == ffzNodeKind_Record) return false;
 	if (decl->parent->kind == ffzNodeKind_Enum) return false;
 	if (decl->parent->kind == ffzNodeKind_PolyParamList) return false;
+	if (ffz_decl_is_global_variable(decl)) return false;
+	if (decl->parent == NULL) return false;
+	if (decl->parent->kind == ffzNodeKind_ProcType) return false;
 	if (decl->Op.left->Identifier.is_constant) return false;
 	return true;
+}
+
+bool ffz_decl_is_global_variable(ffzNodeOpDeclare* decl) {
+	if (decl->Op.left->Identifier.is_constant) return false;
+	return decl->parent->parent == NULL;
 }
 
 ffzNodeIdentifierInst ffz_get_definition(ffzProject* project, ffzNodeIdentifierInst ident) {
@@ -455,9 +463,12 @@ enum InferFlag {
 	InferFlag_CacheOnlyIfGotType = 1 << 3,
 	
 	InferFlag_NoTypesMatchCheck = 1 << 4,
-	
+
 	// TODO: get rid of this
 	InferFlag_TypeMeansDefaultValue = 1 << 5, // `int` will mean "the default value of int" instead of "the type int"
+	
+	// We only allow undefined values in local variable (not parameter) declarations.
+	InferFlag_AllowUndefinedValues = 1 << 6,
 };
 
 static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzCheckedInst*) out);
@@ -1000,6 +1011,9 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 			F_ASSERT(chk.type); //if (chk.type == NULL) ERR(c, inst.node, "Invalid cast.");
 
 			bool is_undefined = chk.type->tag == ffzTypeTag_Type && chk.const_val->type->tag == ffzTypeTag_Undefined;
+			if (!(flags & InferFlag_AllowUndefinedValues) && is_undefined) {
+				ERR(c, inst.node, "Invalid place for an undefined value. Undefined values are only allowed in local variable declarations.");
+			}
 			
 			if (!is_undefined && !ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(chk.type->tag)) {
 				// the following shouldn't be allowed:
@@ -1636,7 +1650,7 @@ static ffzOk check_identifier(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* r
 		TRY(check_node(c, decl_inst, NULL, InferFlag_Statement, result));
 
 		if (def.node != inst.node &&
-			ffz_decl_is_runtime_variable(decl_inst.node) &&
+			ffz_decl_is_variable(decl_inst.node) &&
 			decl_inst.node->id.local_id > inst.node->id.local_id)
 		{
 			ERR(c, inst.node, "Variable is being used before it is declared.");
@@ -1745,24 +1759,26 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 		//ffzNodeIdentifierInst name = CHILD(inst, Op.left);
 		ffzNodeInst rhs = CHILD(inst, Op.right);
 
+		bool is_local_variable = ffz_decl_is_local_variable(inst.node);
+		bool is_parameter = inst.node->parent->kind == ffzNodeKind_ProcType;
+
 		InferFlags rhs_flags = 0;
-		bool is_runtime_value = ffz_decl_is_runtime_variable(inst.node);
-		if (!is_runtime_value) rhs_flags |= InferFlag_RequireConstant;
+		if (is_local_variable) rhs_flags |= InferFlag_AllowUndefinedValues;
+		else                   rhs_flags |= InferFlag_RequireConstant;
 		
 		ffzCheckedInst rhs_chk;
 		// sometimes we want to pass `require_type` down to the rhs, namely with enum field declarations
 		TRY(check_node(c, rhs, require_type, rhs_flags, &rhs_chk));
 
 		result = rhs_chk; // Declarations cache the value of the right-hand-side
-		if (is_runtime_value) {
-
-			bool is_parameter = inst.node->parent->kind == ffzNodeKind_ProcType;
+		
+		if (is_local_variable || is_parameter) {
 			if (is_parameter) {
 				// if the parameter is a type expression, then this declaration has that type
 				result.type = _ffz_ground_type(result);
 			}
 
-			result.const_val = NULL; // runtime declarations shouldn't store the constant value that the rhs expression might have
+			result.const_val = NULL; // runtime variables shouldn't store the constant value that the rhs expression might have
 
 			if (!ffz_type_is_concrete(result.type)) {
 				ERR(c, inst.node, "Variable has a non-concrete type, the type being ~s.", ffz_type_to_string(c->project, result.type));

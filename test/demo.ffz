@@ -7,14 +7,14 @@
 
 */
 
-//#adder: proc(a: int, b: int, extras: Extras{}) {
-//	dbgbreak
-//}
+#adder: proc(a: int(50)) {
+	dbgbreak
+}
 
 #main: proc() {
 	//adder(5, 2, Extras{highlight: true})
 	
-	foo: int(~~)
+	adder()
 	
 	//foo: adder(10, testing: 20 + 5, offset: 20)
 	//

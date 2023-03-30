@@ -24,8 +24,6 @@
 
 #define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
 
-struct OpIdxOrUndef { gmmcOpIdx op; };
-
 struct Value {
 	gmmcSymbol* symbol;
 	gmmcOpIdx local_addr; // local_addr is used if symbol is NULL
@@ -610,7 +608,13 @@ static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* typ
 	return result;
 }
 
-
+#define UNDEFINED_VALUE GMMC_OP_IDX_INVALID
+//
+// NOTE: this will return UNDEFINED_VALUE in case of an undefined value.
+// In FFZ, undefined values are only allowed in variable declarations.
+//
+// i.e.   foo: int(~~)
+//
 static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	gmmcOpIdx out = {};
 
@@ -735,7 +739,12 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					ffzType* dst_type = left_chk.const_val->type;
 
 					ffzNodeInst arg = ffz_get_child_inst(inst, 0);
-					ffzType* arg_type = ffz_get_type(g->project, arg);
+					ffzCheckedInst arg_chk = ffz_get_checked(g->project, arg);
+					ffzType* arg_type = arg_chk.type;
+
+					if (arg_type->tag == ffzTypeTag_Type && arg_chk.const_val->type->tag == ffzTypeTag_Undefined) {
+						return UNDEFINED_VALUE;
+					}
 
 					out = gen_expr(g, arg, false);
 					
@@ -1029,7 +1038,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 		ffzNodeIdentifierInst definition = CHILD(inst,Op.left);
 		ffzCheckedInst checked = ffz_get_checked(g->project, inst);
 
-		if (ffz_decl_is_runtime_variable(inst.node)) {
+		if (ffz_decl_is_variable(inst.node)) {
 			ffzNodeInst rhs = CHILD(inst, Op.right);
 			Value val = {};
 			if (ffz_get_tag(g->project, inst, ffzKeyword_global)) {
@@ -1037,17 +1046,18 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 				
 				void* global_data;
 				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs_checked.type->size, rhs_checked.type->align, gmmcSection_Data, &global_data);
-
+		
 				fill_global_constant_data(g, global, (u8*)global_data, 0, rhs_checked.type, rhs_checked.const_val);
 				val.symbol = gmmc_global_as_symbol(global);
 			}
 			else {
 				gmmcOpIdx rhs_value = gen_expr(g, rhs, false);
 				val.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
-
 				add_dbginfo_local(g, definition.node->Identifier.name, val.local_addr, checked.type);
-
-				gen_store(g, val.local_addr, rhs_value, checked.type, inst.node);
+		
+				if (rhs_value != UNDEFINED_VALUE) {
+					gen_store(g, val.local_addr, rhs_value, checked.type, inst.node);
+				}
 			}
 			f_map64_insert(&g->value_from_definition, ffz_hash_node_inst(definition), val);
 		}
