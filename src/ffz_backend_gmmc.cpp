@@ -582,6 +582,7 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstant* constant, bool
 		out = gmmc_op_addr_of_symbol(g->proc, get_proc_symbol(g, constant->proc_node));
 	} break;
 
+	case ffzTypeTag_Pointer: // fallthrough
 	case ffzTypeTag_Slice: // fallthrough
 	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_FixedArray: // fallthrough
@@ -814,7 +815,17 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			
 			out = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 
-			if (checked.type->tag == ffzTypeTag_Record) {
+			if (checked.type->tag == ffzTypeTag_FixedArray) {
+				u32 i = 0;
+				ffzType* elem_type = checked.type->FixedArray.elem_type;
+				for FFZ_EACH_CHILD_INST(n, inst) {
+					gmmcOpIdx src = gen_expr(g, n, false);
+					gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
+					gen_store(g, dst_ptr, src, elem_type, inst.node);
+					i++;
+				}
+			}
+			else {
 				// see :check_argument_list in the checker
 
 				fSlice(ffzField) fields = checked.type->record_fields;
@@ -829,6 +840,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 						ffz_find_field_by_name(fields, name, &i);
 					}
 					given_values[i] = arg_value;
+					i++;
 				}
 
 				// First memset to zero, then fill out the fields that are non-zero
@@ -857,18 +869,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					gen_store(g, field_addr, src, field.type, inst.node);
 				}
 			}
-			else if (checked.type->tag == ffzTypeTag_FixedArray) {
-				u32 i = 0;
-				ffzType* elem_type = checked.type->FixedArray.elem_type;
-				for FFZ_EACH_CHILD_INST(n, inst) {
-					gmmcOpIdx src = gen_expr(g, n, false);
-					gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
-					gen_store(g, dst_ptr, src, elem_type, inst.node);
-					i++;
-				}
-			}
-			else F_BP;
-
+			
 			should_dereference = !address_of;
 			//if (!address_of && checked.type->size <= 8) {
 			//	out = load_small(g, out, checked.type->size);

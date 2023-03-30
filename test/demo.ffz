@@ -10,18 +10,16 @@
 // I need to implement struct default values
 // and also slice default values, slice is basically just a struct.
 
-
+/*
 #Vector3: struct {
-	x: int
-	y: int(1002)
+	x: int(0)
+	y: int(0)
 	z: int
-}
+}*/
 
 #main: proc() {
 	
-	a: int(1)
-	c: int(3)
-	foo: Vector3{x: a, z: c}
+	foo: []u32{}
 	
 	//foo: adder(10, testing: 20 + 5, offset: 20)
 	//

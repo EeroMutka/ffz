@@ -120,6 +120,7 @@ static ffzOk _add_unique_definition(ffzChecker* c, ffzNodeIdentifier* def) {
 static ffzConstant* make_constant(ffzChecker* c) {
 	// TODO: we should deduplicate constants
 	ffzConstant* constant = f_mem_clone(ffzConstant{}, c->alc);
+	//if (constant == (void*)0x0000020000003a90) F_BP;
 	return constant;
 }
 
@@ -817,9 +818,11 @@ static ffzRecordBuilder ffz_record_builder_init(ffzChecker* c, ffzType* record, 
 static void ffz_record_builder_add_field(ffzRecordBuilder* b, fString name, ffzType* field_type,
 	fOpt(ffzConstant*) default_value, fOpt(ffzNodeOpDeclareInst) decl)
 {
+	bool is_union = b->record->tag == ffzTypeTag_Record && b->record->Record.is_union;
+
 	ffzField field;
 	field.name = name;
-	field.offset = b->record->Record.is_union ? 0 : F_ALIGN_UP_POW2(b->record->size, field_type->align);
+	field.offset = is_union ? 0 : F_ALIGN_UP_POW2(b->record->size, field_type->align);
 	field.type = field_type;
 	field.decl = decl;
 	field.has_default_value = default_value != NULL;
@@ -839,13 +842,13 @@ static ffzOk ffz_record_builder_finish(ffzRecordBuilder* b) {
 }
 
 ffzType* ffz_make_type_slice(ffzChecker* c, ffzType* elem_type) {
-	ffzType type = { ffzTypeTag_Slice, 2 * c->project->pointer_size };
+	ffzType type = { ffzTypeTag_Slice };
 	type.Slice.elem_type = elem_type;
 	ffzType* out = ffz_make_type(c, type);
 
 	if (out->record_fields.len == 0) { // this type hasn't been made before
 		ffzConstant zero = {};
-		ffzRecordBuilder b = ffz_record_builder_init(c, &type, 2);
+		ffzRecordBuilder b = ffz_record_builder_init(c, out, 2);
 		ffz_record_builder_add_field(&b, F_LIT("ptr"), ffz_make_type_ptr(c, elem_type), &zero, {});
 		ffz_record_builder_add_field(&b, F_LIT("len"), ffz_builtin_type(c, ffzKeyword_uint), &zero, {});
 		ffz_record_builder_finish(&b);
@@ -1039,14 +1042,13 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 			*delayed_check_proc = true;
 		}
 	}
-	else if (result->type->tag == ffzTypeTag_Slice || result->type->tag == ffzTypeTag_FixedArray) {
+	else if (/*result->type->tag == ffzTypeTag_Slice || */result->type->tag == ffzTypeTag_FixedArray) {
 		// Array initialization
 		ffzType* elem_type = result->type->tag == ffzTypeTag_Slice ? result->type->Slice.elem_type : result->type->FixedArray.elem_type;
 
 		fArray(ffzCheckedInst) elems_chk = f_array_make<ffzCheckedInst>(f_temp_alc());
 		bool all_elems_are_constant = true;
 
-		//CheckInfer elem_infer = infer_target_type(infer, elem_type);
 		for FFZ_EACH_CHILD_INST(n, inst) {
 			ffzCheckedInst chk;
 			TRY(check_node(c, n, elem_type, 0, &chk));
@@ -1074,10 +1076,12 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 			}
 		}
 	}
-	else if (result->type->tag == ffzTypeTag_Record) {
+	else if (result->type->tag == ffzTypeTag_Record || ffz_type_is_slice_ish(result->type->tag)) {
 		ffzType* type = result->type;
-		if (type->Record.is_union) ERR(c, inst.node, "Union initialization with {} is not currently supported.");
-
+		if (result->type->tag == ffzTypeTag_Record && type->Record.is_union) {
+			ERR(c, inst.node, "Union initialization with {} is not currently supported.");
+		}
+		
 		// TODO: see what happens if you try to declare normally `123: 5215`
 		TRY(check_argument_list(c, inst, type->record_fields, result));
 	}
