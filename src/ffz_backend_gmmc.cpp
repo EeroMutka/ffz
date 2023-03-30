@@ -398,72 +398,6 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	return proc;
 }
 
-static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
-	ffzNodeInst left = CHILD(inst,Op.left);
-	ffzCheckedInst left_chk = ffz_get_checked(g->project, left);
-	F_ASSERT(left_chk.type->tag == ffzTypeTag_Proc);
-
-	fOpt(ffzType*) ret_type = left_chk.type->Proc.return_type;
-	bool big_return = has_big_return(left_chk.type); // :BigReturn
-	
-	gmmcType ret_type_gmmc = big_return ? gmmcType_ptr :
-		ret_type ? get_gmmc_type(g, ret_type) : gmmcType_None;
-
-	fArray(gmmcOpIdx) args = f_array_make<gmmcOpIdx>(g->alc);
-
-	gmmcOpIdx out = {};
-	if (big_return) {
-		out = gmmc_op_local(g->proc, ret_type->size, ret_type->align);
-		f_array_push(&args, out);
-	}
-
-	u32 i = 0;
-	for FFZ_EACH_CHILD_INST(n, inst) {
-		ffzType* param_type = left_chk.type->Proc.in_params[i].type;
-		gmmcOpIdx arg = gen_expr(g, n, false);
-		
-		if (param_type->size > 8) {
-			// make a copy on the stack for the parameter
-			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
-			gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg, gmmc_op_i32(g->proc, param_type->size));
-			set_loc(g, copy, inst.node);
-			f_array_push(&args, local_copy_addr);
-		}
-		else {
-			if (!value_is_primitive(param_type)) {
-				// we need to do this to make sure we aren't reading out of bounds memory
-				gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, 8, 8);
-				gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg, gmmc_op_i32(g->proc, param_type->size));
-				set_loc(g, copy, inst.node);
-				f_array_push(&args, gmmc_op_load(g->bb, gmmcType_i64, local_copy_addr));
-			}
-			else {
-				f_array_push(&args, arg);
-			}
-		}
-		i++;
-	}
-
-	// TODO: non-vcall for constant procedures
-
-	gmmcOpIdx target = gen_expr(g, left, false);
-	F_ASSERT(target);
-
-	gmmcOpIdx vcall = gmmc_op_vcall(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
-	set_loc(g, vcall, inst.node);
-	if (!big_return) out = vcall;
-
-	return out;
-}
-
-//static gmmcOpIdx load_small(Gen* g, gmmcOpIdx ptr, ffzType* type) {
-//	if (type->size == 1 || type->size == 2 || type->size == 4 || type->size == 8) {
-//		return gmmc_op_load(g->bb, get_gmmc_type(g, type), ptr);
-//	}
-//	else F_BP; // TODO!! i.e. a type could be of size 3, when [3]u8
-//	return 0;
-//}
-
 static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
 	if (proc_node.node->kind == ffzNodeKind_ProcType) { // @extern proc
 		fString name = make_name(g, proc_node);
@@ -500,7 +434,7 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 
 	case ffzTypeTag_String: {
 		fString s = constant->string_zero_terminated;
-		
+
 		void* str_data;
 		gmmcGlobal* str_data_global = gmmc_make_global(g->gmmc, (u32)s.len + 1, 1, gmmcSection_RData, &str_data);
 		memcpy(str_data, s.data, s.len);
@@ -536,17 +470,6 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 	} break;
 	default: F_BP;
 	}
-}
-
-static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* type, ffzNode* node) {
-	gmmcOpIdx result;
-	if (value_is_primitive(type)) {
-		result = gmmc_op_store(g->bb, addr, value);
-	} else {
-		result = gmmc_op_memcpy(g->bb, addr, value, gmmc_op_i32(g->proc, type->size));
-	}
-	set_loc(g, result, node);
-	return result;
 }
 
 static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstant* constant, bool address_of) {
@@ -603,6 +526,88 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstant* constant, bool
 	}
 	return out;
 }
+
+
+static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
+	ffzNodeInst left = CHILD(inst,Op.left);
+	ffzCheckedInst left_chk = ffz_get_checked(g->project, left);
+	ffzType* proc_type = left_chk.type;
+	F_ASSERT(proc_type->tag == ffzTypeTag_Proc);
+
+	fOpt(ffzType*) ret_type = proc_type->Proc.return_type;
+	bool big_return = has_big_return(proc_type); // :BigReturn
+	
+	gmmcType ret_type_gmmc = big_return ? gmmcType_ptr :
+		ret_type ? get_gmmc_type(g, ret_type) : gmmcType_None;
+
+	fArray(gmmcOpIdx) args = f_array_make<gmmcOpIdx>(g->alc);
+
+	gmmcOpIdx out = {};
+	if (big_return) {
+		out = gmmc_op_local(g->proc, ret_type->size, ret_type->align);
+		f_array_push(&args, out);
+	}
+
+	fSlice(ffzNodeInst) arg_insts;
+	ffz_get_arguments_flat(inst, proc_type->Proc.in_params, &arg_insts, f_temp_alc());
+
+	for (u32 i = 0; i< arg_insts.len; i++) {
+		ffzField* field = &proc_type->Proc.in_params[i];
+		ffzNodeInst arg_inst = arg_insts[i];
+		ffzType* param_type = field->type;
+
+		gmmcOpIdx arg_value;
+		if (arg_inst.node == NULL) {
+			// use the default value
+			arg_value = gen_constant(g, param_type, &field->default_value, false);
+		} else {
+			arg_value = gen_expr(g, arg_inst, false);
+		}
+
+		if (param_type->size > 8) {
+			// make a copy on the stack for the parameter
+
+			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
+			gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
+			set_loc(g, copy, inst.node);
+			f_array_push(&args, local_copy_addr);
+		}
+		else {
+			if (!value_is_primitive(param_type)) {
+				// we need to do this to make sure we aren't reading out of bounds memory
+
+				gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, 8, 8);
+				gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
+				set_loc(g, copy, inst.node);
+				arg_value = gmmc_op_load(g->bb, gmmcType_i64, local_copy_addr);
+			}
+		}
+
+		f_array_push(&args, arg_value);
+	}
+
+	gmmcOpIdx target = gen_expr(g, left, false);
+	F_ASSERT(target);
+
+	gmmcOpIdx call = gmmc_op_call(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
+	set_loc(g, call, inst.node);
+	if (!big_return) out = call;
+
+	return out;
+}
+
+
+static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* type, ffzNode* node) {
+	gmmcOpIdx result;
+	if (value_is_primitive(type)) {
+		result = gmmc_op_store(g->bb, addr, value);
+	} else {
+		result = gmmc_op_memcpy(g->bb, addr, value, gmmc_op_i32(g->proc, type->size));
+	}
+	set_loc(g, result, node);
+	return result;
+}
+
 
 static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	gmmcOpIdx out = {};
@@ -826,32 +831,24 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				}
 			}
 			else {
-				// see :check_argument_list in the checker
-
 				fSlice(ffzField) fields = checked.type->record_fields;
-				fSlice(ffzNodeInst) given_values = f_make_slice<ffzNodeInst>(fields.len, {}, f_temp_alc());
-
-				u32 i = 0;
-				for FFZ_EACH_CHILD_INST(arg, inst) {
-					ffzNodeInst arg_value = arg;
-					if (arg.node->kind == ffzNodeKind_Declare) {
-						arg_value = CHILD(arg, Op.right);
-						fString name = ffz_decl_get_name(arg.node);
-						ffz_find_field_by_name(fields, name, &i);
-					}
-					given_values[i] = arg_value;
-					i++;
-				}
+				
+				fSlice(ffzNodeInst) arguments;
+				ffz_get_arguments_flat(inst, fields, &arguments, f_temp_alc());
 
 				// First memset to zero, then fill out the fields that are non-zero
 				gmmc_op_memset(g->bb, out, gmmc_op_i8(g->proc, 0), gmmc_op_i32(g->proc, checked.type->size));
 
 				for (uint i = 0; i < fields.len; i++) {
 					ffzField& field = fields[i];
-					ffzNodeInst arg = given_values[i];
+					ffzNodeInst arg = arguments[i];
 
 					gmmcOpIdx src;
-					if (arg.node) {
+					if (arg.node == NULL) { // use default value
+						if (ffz_constant_is_zero(field.default_value)) continue;
+						src = gen_constant(g, field.type, &field.default_value, false);
+					}
+					else {
 						ffzCheckedInst checked = ffz_get_checked(g->project, arg);
 						if (checked.const_val) {
 							if (ffz_constant_is_zero(*checked.const_val)) continue;
@@ -859,10 +856,6 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 						} else {
 							src = gen_expr(g, arg, false);
 						}
-					}
-					else {
-						if (ffz_constant_is_zero(field.default_value)) continue;
-						src = gen_constant(g, field.type, &field.default_value, false);
 					}
 
 					gmmcOpIdx field_addr = gmmc_op_member_access(g->bb, out, field.offset);

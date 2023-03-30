@@ -458,7 +458,7 @@ GMMC_API gmmcOpIdx gmmc_op_fdiv(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 
 // ----------------------------------------------
 
-GMMC_API gmmcOpIdx gmmc_op_vcall(gmmcBasicBlock* bb,
+GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb,
 	gmmcType return_type, gmmcOpIdx proc_address,
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 

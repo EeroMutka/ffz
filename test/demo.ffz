@@ -7,9 +7,6 @@
 
 */
 
-// I need to implement struct default values
-// and also slice default values, slice is basically just a struct.
-
 /*
 #Vector3: struct {
 	x: int(0)
@@ -17,9 +14,13 @@
 	z: int
 }*/
 
+#adder: proc(a: int(1), b: int, c: int(100)) {
+	dbgbreak
+}
+
 #main: proc() {
 	
-	foo: []u32{}
+	adder(b: 5001)
 	
 	//foo: adder(10, testing: 20 + 5, offset: 20)
 	//

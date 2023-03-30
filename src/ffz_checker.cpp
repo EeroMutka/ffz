@@ -502,6 +502,24 @@ bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, u32* out_inde
 	return false;
 }
 
+void ffz_get_arguments_flat(ffzNodeInst arg_list, fSlice(ffzField) fields, fSlice(ffzNodeInst)* out_arguments, fAllocator* alc) {
+	*out_arguments = f_make_slice<ffzNodeInst>(fields.len, {}, alc);
+
+	u32 i = 0;
+	for FFZ_EACH_CHILD_INST(arg, arg_list) {
+		ffzNodeInst arg_value = arg;
+		
+		if (arg.node->kind == ffzNodeKind_Declare) {
+			arg_value = CHILD(arg, Op.right);
+			fString name = ffz_decl_get_name(arg.node);
+			ffz_find_field_by_name(fields, name, &i);
+		}
+
+		(*out_arguments)[i] = arg_value;
+		i++;
+	}
+}
+
 static ffzOk check_argument_list(ffzChecker* c, ffzNodeInst inst, fSlice(ffzField) fields, fOpt(ffzCheckedInst*) record_literal) {
 	bool all_fields_are_constant = true;
 	fSlice(ffzConstant) field_constants;

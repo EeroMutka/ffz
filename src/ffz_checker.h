@@ -445,6 +445,14 @@ ffzNodeIdentifierInst ffz_get_definition(ffzProject* p, ffzNodeIdentifierInst id
 
 bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, u32* out_index);
 
+// 
+// Given an argument list (either a post-curly-brackets initializer or a procedure call) that might contain
+// both unnamed as well as named arguments, this procedure will give the arguments
+// in a flat list in the same order as the `fields` array. Note that some arguments might not exist,
+// so those will have just have the default value of ffzNodeInst{}
+// 
+void ffz_get_arguments_flat(ffzNodeInst arg_list, fSlice(ffzField) fields, fSlice(ffzNodeInst)* out_arguments, fAllocator* alc);
+
 bool ffz_constant_is_zero(ffzConstant constant);
 
 inline fString ffz_decl_get_name(ffzNodeOpDeclare* decl) { return decl->Op.left->Identifier.name; }
