@@ -96,7 +96,7 @@ _temp_arena_tls_index: u32(0)
 
 // `reserve_base` can be NULL for automatically determined address
 #arena_make_virtual_reserve_fixed: proc(reserve_size: uint, reserve_base: ^u8) => ^Arena {
-	sys_info: SYSTEM_INFO(---)
+	sys_info: SYSTEM_INFO(~~)
 	GetSystemInfo(&sys_info)
 	
 	base: virtual_reserve(reserve_size, reserve_base)
@@ -265,7 +265,7 @@ _temp_arena_tls_index: u32(0)
 
 // TODO: unicode support (and printing > 4GB strings?)
 #print: proc(str: string) {
-	num_chars_written: u32
+	num_chars_written: u32(~~)
 	assert(WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), str.ptr, u32(str.len), &num_chars_written, ^raw(0)) != 0)
 }
 
@@ -323,7 +323,7 @@ _temp_arena_tls_index: u32(0)
 #main: proc(argc: u32, argv: ^^u8) => u32 { // ffz_entry
 	thread_init_basic()
 	
-	args: []string
+	args: []string{}
 	exit_code: entry(args)
 	
 	// thread_deinit_basic()

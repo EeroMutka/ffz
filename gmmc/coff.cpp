@@ -9,7 +9,7 @@
 #include <stdio.h> // for printf
 
 // If VALIDATE fails, it means that the user of the library has provided invalid inputs. (assuming there's no bug within the library itself)
-#define VALIDATE(x) F_ASSERT(x)
+#define VALIDATE(x) f_assert(x)
 
 COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_result_userptr, coffDesc* desc) {
 	fArray(u8) string_table = f_array_make_cap<u8>(512, f_temp_alc());
@@ -32,7 +32,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 	else if (desc->type == GMMC_CoffType_Exe) {
 		header->Characteristics = IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE;
 	}
-	else F_ASSERT(false);
+	else f_assert(false);
 	if (desc->type == GMMC_CoffType_Exe) {
 		IMAGE_OPTIONAL_HEADER64* optional_header = (IMAGE_OPTIONAL_HEADER64*)f_arena_push(arena, sizeof(IMAGE_OPTIONAL_HEADER64)).data;
 		optional_header->Magic = 0x20b; // Set the magic number to 0x20b (PE32+)
@@ -78,12 +78,12 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 	for (u32 i = 0; i < desc->sections_count; i++) {
 		coffSection& section = desc->sections[i];
 
-		//if (section.name == F_LIT(".drectve")) F_BP;
+		//if (section.name == F_LIT(".drectve")) f_trap();
 
 		IMAGE_SECTION_HEADER* s_header = (IMAGE_SECTION_HEADER*)f_arena_push(arena, sizeof(IMAGE_SECTION_HEADER), 1).data;
 		memset(s_header, 0, sizeof(IMAGE_SECTION_HEADER));
 
-		F_ASSERT(section.name.len <= 8);
+		f_assert(section.name.len <= 8);
 		memcpy(s_header->Name, section.name.data, section.name.len);
 
 		s_header->Misc.PhysicalAddress = 0;
@@ -164,7 +164,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 			symbol_index_to_real_index[i] = real_symbol_index;
 
 
-			//if (symbol.name == F_LIT(".debug$S")) F_BP;
+			//if (symbol.name == F_LIT(".debug$S")) f_trap();
 
 			IMAGE_SYMBOL* s = (IMAGE_SYMBOL*)f_arena_push(arena, sizeof(IMAGE_SYMBOL), 1).data;
 			memset(s, 0, sizeof(IMAGE_SYMBOL));
@@ -221,7 +221,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 		// note: auxilary symbol structures are counted into NumberOfSymbols.
 		// NumberOfSymbols seems to be mainly used for calculating the offset
 		// of the string table.
-		F_ASSERT((f_arena_get_contiguous_cursor(arena) - header->PointerToSymbolTable) % sizeof(IMAGE_SYMBOL) == 0);
+		f_assert((f_arena_get_contiguous_cursor(arena) - header->PointerToSymbolTable) % sizeof(IMAGE_SYMBOL) == 0);
 		header->NumberOfSymbols = ((u32)f_arena_get_contiguous_cursor(arena) - header->PointerToSymbolTable) / sizeof(IMAGE_SYMBOL);
 	}
 
@@ -256,7 +256,7 @@ void GMMC_CreateHardcodedMinimalCoff(GMMC_CoffType type) {
 		fString dos_stub = f_arena_push(&arena, 0xC8);
 		memset(dos_stub.data, 0, dos_stub.len);
 		memcpy(dos_stub.data, GMMC_default_MS_dos_stub, 128);
-		F_ASSERT(*(u32*)(dos_stub.data + 0x3C) == 0xC8); // pointer to the PE signature
+		f_assert(*(u32*)(dos_stub.data + 0x3C) == 0xC8); // pointer to the PE signature
 
 		// the signature will be placed at 0xC8
 		fString pe_signature = f_arena_push(&arena, sizeof(u32));
@@ -344,7 +344,7 @@ void GMMC_CreateHardcodedMinimalCoff(GMMC_CoffType type) {
 			f_arena_push_str(&arena, C_ARRAY_SLICE(section_2_data));
 		}
 	}
-	//F_ASSERT(arena.pos == 280);
+	//f_assert(arena.pos == 280);
 
 // symbol table
 	{
@@ -416,7 +416,7 @@ void GMMC_CreateHardcodedMinimalCoff(GMMC_CoffType type) {
 
 		// note: auxilary symbol structures are counted into NumberOfSymbols. NumberOfSymbols seems to just be used for calculating the offset
 		// of the string table.
-		F_ASSERT((arena.pos - header->PointerToSymbolTable) % sizeof(IMAGE_SYMBOL) == 0);
+		f_assert((arena.pos - header->PointerToSymbolTable) % sizeof(IMAGE_SYMBOL) == 0);
 		header->NumberOfSymbols = ((u32)arena.pos - header->PointerToSymbolTable) / sizeof(IMAGE_SYMBOL);
 	}
 
@@ -427,8 +427,8 @@ void GMMC_CreateHardcodedMinimalCoff(GMMC_CoffType type) {
 		f_arena_push_str(&arena, F_AS_BYTES(s));
 	}
 
-	F_ASSERT(os_write_entire_file(F_LIT("minimal/gen_cool_function.obj"), { arena.mem, (uint)arena.pos }));
-	//F_BP;
+	f_assert(os_write_entire_file(F_LIT("minimal/gen_cool_function.obj"), { arena.mem, (uint)arena.pos }));
+	//f_trap();
 }
 
 #endif

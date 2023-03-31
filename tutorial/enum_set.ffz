@@ -1,0 +1,61 @@
+// We 100% want enum sets, because they eliminate error prone >= && <= enum range
+// checking. They also seem just so convenient. I love enum sets.
+
+#ItemKind: enum {
+	
+	// see KitchenItems
+	Fork
+	Knife
+	Spoon
+	
+	// see OutdoorItems
+	Bucket
+	Shovel
+	BearTrap
+	Pickaxe
+	
+	Hanger
+}
+
+// hmm... enum_set seems like a better idea than hierarchical enums.
+// it makes it possible to have multiple overlapping sets.
+
+// Internally, when the members are contiguous,
+// the ?? operator maps to `x >= first && x <= last`  (and !? does the reverse),
+// and when not contiguous, it does the same thing as a switch statement / enum array of booleans.
+
+#KitchenItems: enum_set(ItemKind){Fork, Knife, Spoon}
+
+#OutdoorItems: enum_set(ItemKind){Bucket, Shovel, BearTrap, Pickaxe}
+
+#foo: proc() {
+	thing: ItemKind.red
+	
+	if thing ?? OutdoorItems {
+		
+	}
+	
+	if thing !? KitchenItems {
+	}
+	
+	// enum sets work in switch statements
+	
+	switch foo {
+		Fork: {}
+		Knife: {}
+		Spoon: {}
+		OutdoorItems: {
+			trap()
+		}
+		else: trap()
+	}
+	
+	// An enum set is actually a specialized slice.
+	for item in OutdoorItems {
+		
+	}
+}
+
+
+
+

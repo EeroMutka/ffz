@@ -79,7 +79,7 @@ typedef enum ffzTypeTag {
 
 	ffzTypeTag_Raw,       // `raw`
 	ffzTypeTag_Undefined, // the type of the expression `~~`
-	ffzTypeTag_Eater, // the type of the expression `_`
+	//ffzTypeTag_Eater, // the type of the expression `_`
 	ffzTypeTag_Type,
 	ffzTypeTag_PolyProc, // this is the type of an entire polymorphic procedure including a body
 	ffzTypeTag_PolyRecord, // nothing should ever actually have the type of this - but a polymorphic struct type definition will type type to this

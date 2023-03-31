@@ -165,7 +165,7 @@ u32 ffz_operator_get_precedence(ffzNodeKind kind) {
 	case ffzNodeKind_LogicalOR: return 1;
 	case ffzNodeKind_Declare: // fallthrough
 	case ffzNodeKind_Assign: return 0;
-	default: F_ASSERT(false);
+	default: f_assert(false);
 	}
 	return 0;
 }
@@ -394,7 +394,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 		f_print(w, "if ");
 		print_ast(w, node->If.condition, tab_level);
 		f_print(w, " ");
-		F_ASSERT(node->If.true_scope);
+		f_assert(node->If.true_scope);
 		print_ast(w, node->If.true_scope, tab_level);
 
 		if (node->If.else_scope) {
@@ -406,7 +406,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_For: {
-		//if (node->loc.start.line_num == 54) F_BP;
+		//if (node->loc.start.line_num == 54) f_trap();
 		f_print(w, "for ");
 		for (int i = 0; i < 3; i++) {
 			if (node->For.header_stmts[i]) {
@@ -444,7 +444,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 			print_ast(w, node->Op.right, tab_level);
 			if (print_parentheses) f_print(w, ")");
 		}
-		else F_BP;
+		else f_trap();
 	} break;
 
 	}
@@ -681,7 +681,7 @@ static ffzOk parse_children(ffzParser* p, ffzLoc* loc, ffzNode* parent, u8 brack
 }
 
 static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
-	F_ASSERT(chain.len > 0);
+	f_assert(chain.len > 0);
 
 	// Find the operator with the lowest precedence (pick the right-most
 	// one if there are multiple operators with the same precedence)
@@ -709,7 +709,7 @@ static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	uint lowest_prec_i = 0;
 	uint lowest_prec = F_U64_MAX;
 	for (uint i = chain.len - 1; i < chain.len; i--) {
-		F_ASSERT(ffz_node_is_operator(data[i]->kind));
+		f_assert(ffz_node_is_operator(data[i]->kind));
 		uint prec = ffz_operator_get_precedence(data[i]->kind);
 		if (prec < lowest_prec) {
 			lowest_prec = prec;
@@ -853,7 +853,7 @@ static ffzOk parse_string_literal(ffzParser* p, ffzLoc* loc, fString* out) {
 			else if (r == '0')  f_printb(builder.w, 0); // parsing octal characters is not supported like in C, with the exception of \0
 			else if (r == 'x') {
 				//if (p->pos.remaining.len < 2) PARSER_ERROR(p, p->pos, F_LIT("File ended unexpectedly when parsing a string literal."));
-				F_ASSERT(loc->offset + 2 <= p->source_code.len);
+				f_assert(loc->offset + 2 <= p->source_code.len);
 
 				fString byte = f_str_slice(p->source_code, loc->offset, loc->offset + 2);
 				loc->offset += 2;
@@ -916,7 +916,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 	fArray(ffzNodeOp*) operator_chain = f_array_make_raw(p->alc);
 	//F_HITS(_c, 4);
 	
-	//if (loc->line_num == 333) F_BP;
+	//if (loc->line_num == 333) f_trap();
 
 	// We want to first parse the tags for the entire node.
 	// i.e. in `@using a: int`, the tag should be attached to the entire node, not to the left-hand-side.
@@ -1071,7 +1071,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			break;
 		}
 		
-		//if (f_str_equals(tok.str, F_LIT(".55202"))) F_BP;
+		//if (f_str_equals(tok.str, F_LIT(".55202"))) f_trap();
 
 		if (!node) {
 			if (f_str_equals(tok.str, F_LIT("if"))) {
@@ -1222,7 +1222,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 
 		if (!check_infix_or_postfix) {
 			if (prev) {
-				F_ASSERT(ffz_node_is_operator(prev->kind));
+				f_assert(ffz_node_is_operator(prev->kind));
 				node->parent = prev;
 				prev->Op.right = node;
 				prev->loc.end = node->loc.end;
@@ -1280,7 +1280,7 @@ ffzNode* ffz_get_child(ffzNode* parent, u32 idx) {
 		if (i == idx) return n;
 		i++;
 	}
-	F_ASSERT(false);
+	f_assert(false);
 	return NULL;
 }
 
@@ -1297,7 +1297,7 @@ u32 ffz_get_child_index(ffzNode* child) {
 		if (n == child) return idx;
 		idx++;
 	}
-	F_ASSERT(false);
+	f_assert(false);
 	return F_U32_MAX;
 }
 

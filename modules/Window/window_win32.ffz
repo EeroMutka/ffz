@@ -7,13 +7,13 @@
 #Window: WindowHandle.Window
 
 #str_to_utf16_temp: proc(str: string) => []u16 {
-	out: []u16
-	if str.len == 0 { ret out }
+	if str.len == 0 { ret []u16{} }
 	
 	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
 	assert(len != 0)
 	
-	out = Basic.make_slice[u16](uint(len) + 1, Basic.temp_alc())
+	out: Basic.make_slice_undef[u16](uint(len) + 1, Basic.temp_alc())
+	
 	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
 	
 	// null terminator
@@ -69,24 +69,29 @@
 	// Windows requires us to first register a "window class" with a given name,
 	// which will be used in subsequent calls to CreateWindowExW()
 	
-	hInstance: GetModuleHandleW(^u16(0))
+	hInst: GetModuleHandleW(^u16(0))
 	
 	//#COLOR_BACKGROUND: 1
 	//bg_brush: HBRUSH(COLOR_BACKGROUND)
 	
-	wnd_class: WNDCLASSEXW
-	wnd_class.cbSize         = u32(size_of(WNDCLASSEXW)) // TODO: fix size_of
-	wnd_class.style          = bit_or(CS_HREDRAW, bit_or(CS_VREDRAW, CS_OWNDC)) // CS_OWNDC is required for OpenGL
-	wnd_class.lpfnWndProc    = window_proc
-	wnd_class.hInstance      = hInstance
-	//wnd_class.hIcon
-	wnd_class.hCursor        = LoadCursorW(HINSTANCE(0), ^u16(IDC_ARROW))
-	
 	// leave the background brush to NULL
 	// https://stackoverflow.com/questions/6593014/how-to-draw-opengl-content-while-resizing-win32-window
-	//wnd_class.hbrBackground  = bg_brush
+	//wnd_class.hbrBackground
 	
-	wnd_class.lpszClassName  = str_to_utf16_temp(WINDOW_CLASS_NAME).ptr
+	wnd_class: WNDCLASSEXW{
+		cbSize:          size_of(WNDCLASSEXW)
+		style:           bit_or(CS_HREDRAW, bit_or(CS_VREDRAW, CS_OWNDC)) // CS_OWNDC is required for OpenGL
+		lpfnWndProc:     window_proc
+		cbClsExtra:      0
+		cbWndExtra:      0
+		hInstance:       hInst
+		hIcon:           ^raw(0)
+		hCursor:         LoadCursorW(HINSTANCE(0), ^u16(IDC_ARROW))
+		hbrBackground:   ^raw(0)
+		lpszMenuName:    ^u16(0)
+		lpszClassName:   str_to_utf16_temp(WINDOW_CLASS_NAME).ptr
+		hIconSm:         ^raw(0)
+	}
 	
 	atom: RegisterClassExW(&wnd_class)
 	assert(atom != 0)
@@ -139,14 +144,12 @@
 }
 
 #poll_events: proc(window: Window, resize_cb: ResizeCallback, resize_cb_user_ptr: ^raw) => WindowEvents {
-	out: WindowEvents
-	out.resize_cb = resize_cb
-	out.resize_cb_user_ptr = resize_cb_user_ptr
+	out: WindowEvents{resize_cb, resize_cb_user_ptr, false}
 	
 	// hmm... if its an infinite loop then we might never draw a frame!
 	// what if we just process a single event?
 	for loop: true, loop, {
-		msg: MSG
+		msg: MSG(~~)
 		result: PeekMessageW(&msg, window.hwnd, 0, 0, PM_REMOVE)
 		if result != 0 {
 			_= TranslateMessage(&msg)

@@ -6,72 +6,68 @@
 // TODO: @alias_module_name
 
 #Array: struct[T] {
-	@*using slice: []T
-	capacity: uint
+	@*using slice: []T{}
+	capacity: uint(0)
 	allocator: ^Basic.Allocator
 }
 
-#make: proc[T](allocator: ^Basic.Allocator) => Array[T] {
-	a: Array[T]
-	a.allocator= allocator
-	
-	ret a
+#make: proc[T](alc: ^Basic.Allocator) => Array[T] {
+	ret Array[T]{allocator: alc}
 }
 
-#free: proc[T](a: ^Array[T]) {
-	foo: []raw
-	a.allocator._proc(a.allocator, a.ptr, a.capacity*size_of(T), 0, 0)
+#free: proc[T](array: ^Array[T]) {
+	array.allocator._proc(array.allocator, array.ptr, array.capacity*size_of(T), 0, 0)
 }
 
-#push: proc[T](a: ^Array[T], elem: T) {
-	push_n_raw(^Array[raw](a), &elem, 1, size_of(T), align_of(T))
+#push: proc[T](array: ^Array[T], elem: T) {
+	push_n_raw(^Array[raw](array), &elem, 1, size_of(T), align_of(T))
 }
 
-#push_n: proc[T](a: ^Array[T], elems: []T) {
-	push_n_raw(^Array[raw](a), elems.ptr, elems.len, size_of(T), align_of(T))
+#push_n: proc[T](array: ^Array[T], elems: []T) {
+	push_n_raw(^Array[raw](array), elems.ptr, elems.len, size_of(T), align_of(T))
 }
 
-#insert: proc[T](a: ^Array[T], at: uint, elem: T) {
-	insert_n_raw(^Array[raw](a), at, &elem, 1, size_of(T), align_of(T))
+#insert: proc[T](array: ^Array[T], at: uint, elem: T) {
+	insert_n_raw(^Array[raw](array), at, &elem, 1, size_of(T), align_of(T))
 }
 
-#insert_n: proc[T](a: ^Array[T], at: uint, elems: []T) {
-	insert_n_raw(^Array[raw](a), at, elems.ptr, elems.len, size_of(T), align_of(T))
+#insert_n: proc[T](array: ^Array[T], at: uint, elems: []T) {
+	insert_n_raw(^Array[raw](array), at, elems.ptr, elems.len, size_of(T), align_of(T))
 }
 
 // --
 // Raw array utilities - these are useful if you don't know the element type statically.
 // --
 
-#push_n_raw: proc(a: ^Array[raw], elems: ^raw, n: uint, elem_size: uint, elem_align: uint) {
-	reserve_raw(a, a.len + n, elem_size, elem_align)
+#push_n_raw: proc(array: ^Array[raw], elems: ^raw, n: uint, elem_size: uint, elem_align: uint) {
+	reserve_raw(array, array.len + n, elem_size, elem_align)
 	
-	Basic.memcpy(^raw(uint(a.ptr) + elem_size * a.len), elems, elem_size * n)
+	Basic.memcpy(^raw(uint(array.ptr) + elem_size * array.len), elems, elem_size * n)
 	
-	a.len= .+n
+	array.len = .+n
 }
 
-#reserve_raw: proc(a: ^Array[raw], capacity: uint, elem_size: uint, elem_align: uint) {
-	if (capacity > a.capacity) {
+#reserve_raw: proc(array: ^Array[raw], capacity: uint, elem_size: uint, elem_align: uint) {
+	if (capacity > array.capacity) {
 		// the + 7 is to make us start off with 8 elements the first time we're appending to an array
 		new_capacity: Basic.round_up_to_power_of_2(capacity + 7)
 		
-		if (a.allocator == ^Basic.Allocator(0)) {
+		if (array.allocator == ^Basic.Allocator(0)) {
 			dbgbreak // did you forget to call Array.make?
 		}
 		
-		a.ptr= a.allocator._proc(a.allocator, a.ptr, a.capacity*elem_size, new_capacity*elem_size, elem_align)
-		a.capacity= new_capacity
+		array.ptr = array.allocator._proc(array.allocator, array.ptr, array.capacity*elem_size, new_capacity*elem_size, elem_align)
+		array.capacity = new_capacity
 	}
 }
 
-#insert_n_raw: proc(a: ^Array[raw], at: uint, elem: ^raw, n: uint, elem_size: uint, elem_align: uint) {
-	reserve_raw(a, a.len + n, elem_size, elem_align)
+#insert_n_raw: proc(array: ^Array[raw], at: uint, elem: ^raw, n: uint, elem_size: uint, elem_align: uint) {
+	reserve_raw(array, array.len + n, elem_size, elem_align)
 	
 	// Move existing elements forward
-	offset: uint(a.ptr) + at * elem_size
-	Basic.memmove(^raw(offset + n * elem_size), ^raw(offset), (a.len - at) * elem_size)
+	offset: uint(array.ptr) + at * elem_size
+	Basic.memmove(^raw(offset + n * elem_size), ^raw(offset), (array.len - at) * elem_size)
 	
 	Basic.memcpy(^raw(offset), elem, n * elem_size)
-	a.len = .+n
+	array.len = .+n
 }

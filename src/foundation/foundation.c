@@ -87,17 +87,17 @@ bool f_str_equals_nocase(fString a, fString b) {
 }
 
 fString f_str_slice(fString str, uint lo, uint hi) {
-	F_ASSERT(hi >= lo && hi <= str.len);
+	f_assert(hi >= lo && hi <= str.len);
 	return (fString){str.data + lo, hi - lo};
 }
 
 fString f_str_slice_after(fString str, uint mid) {
-	F_ASSERT(mid <= str.len);
+	f_assert(mid <= str.len);
 	return (fString){str.data + mid, str.len - mid};
 }
 
 fString f_str_slice_before(fString str, uint mid) {
-	F_ASSERT(mid <= str.len);
+	f_assert(mid <= str.len);
 	return (fString){str.data, mid};
 }
 
@@ -224,7 +224,7 @@ void f_print_va(fWriter* w, const char* fmt, va_list args) {
 				case '1': { value = va_arg(args, uint16_t); } break; // u16
 				case '3': { value = va_arg(args, uint32_t); } break; // u32
 				case '6': { value = va_arg(args, uint64_t); } break; // u64
-				default: F_ASSERT(false);
+				default: f_assert(false);
 				}
 				
 				if (*c != '8') { // u8 is the only one with only 1 character
@@ -240,7 +240,7 @@ void f_print_va(fWriter* w, const char* fmt, va_list args) {
 
 			} break;
 
-			default: F_ASSERT(false);
+			default: f_assert(false);
 			}
 		}
 		else {
@@ -518,7 +518,7 @@ void tracker_resize(fAllocator* a, fSlice(u8)* allocation, i64 new_size, i64 ali
 
 void f_leak_tracker_init() {
 	//ZoneScoped;
-	F_ASSERT(!_f_leak_tracker.active);
+	f_assert(!_f_leak_tracker.active);
 	
 	_f_leak_tracker.internal_arena = f_arena_make_virtual_reserve_fixed(F_GIB(1), NULL);
 	_f_leak_tracker.active_allocations = f_map64_make_raw(sizeof(fLeakTracker_Entry), &_f_leak_tracker.internal_arena->alc);
@@ -527,7 +527,7 @@ void f_leak_tracker_init() {
 }
 
 void f_leak_tracker_deinit() {
-	F_ASSERT(_f_leak_tracker.active);
+	f_assert(_f_leak_tracker.active);
 	_f_leak_tracker.active = false;
 	
 	fLeakTracker_Entry* entry;
@@ -586,7 +586,7 @@ void f_leak_tracker_begin_entry(void* address, uint skip_stackframes_count) {
 	entry.callstack = f_array_make_cap_raw(sizeof(fLeakTracker_Entry), 8, &_f_leak_tracker.internal_arena->alc);
 	
 	// We could even store the function name and use the file_names_cache. Maybe rename it to just "string_table"
-	F_BP;//f_get_stack_trace(leak_tracker_begin_entry_stacktrace_visitor, &(LeakTrackerBeginEntryPass) { &entry, skip_stackframes_count, 0});
+	f_trap();//f_get_stack_trace(leak_tracker_begin_entry_stacktrace_visitor, &(LeakTrackerBeginEntryPass) { &entry, skip_stackframes_count, 0});
 	
 	f_map64_insert_raw(&_f_leak_tracker.active_allocations, (u64)address, &entry, fMapInsert_AssertUnique);
 	_f_leak_tracker.active = true;
@@ -622,7 +622,7 @@ fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a) {
 
 void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size) {
 	if (capacity > array->capacity) {
-		F_ASSERT(array->alc); // Did you call f_array_make?
+		f_assert(array->alc); // Did you call f_array_make?
 		array->data = f_mem_resize_n(u8, array->data, array->capacity * elem_size, capacity * elem_size, array->alc);
 		array->capacity = capacity;
 	}
@@ -668,7 +668,7 @@ uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size) {
 }
 
 void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size) {
-	F_ASSERT(array->len >= 1);
+	f_assert(array->len >= 1);
 	array->len--;
 	if (out_elem) {
 		memcpy(out_elem, (u8*)array->data + array->len * elem_size, elem_size);
@@ -677,14 +677,14 @@ void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size) {
 
 void f_leak_tracker_assert_is_alive(void* address) {
 	if (!_f_leak_tracker.active) return;
-	F_ASSERT(f_map64_get_raw(&_f_leak_tracker.active_allocations, (u64)address));
+	f_assert(f_map64_get_raw(&_f_leak_tracker.active_allocations, (u64)address));
 }
 
 void f_leak_tracker_end_entry(void* address) {
 	if (!_f_leak_tracker.active) return;
 	_f_leak_tracker.active = false; // disable leak tracker for the duration of this function
 	bool ok = f_map64_remove_raw(&_f_leak_tracker.active_allocations, (u64)address);
-	F_ASSERT(ok);
+	f_assert(ok);
 
 	_f_leak_tracker.active = true;
 }
@@ -694,14 +694,14 @@ u32 f_random_u32() {
 	//       https://nullprogram.com/blog/2017/09/21/
 	
 	//ZoneScoped;
-	F_BP;
+	f_trap();
 	//ASSERT(false);
 	//return rand();
 	return 0;
 }
 
 void f_print_uint(fWriter* w, uint64_t value, size_t base) {
-	F_ASSERT(base == 10 || base == 16); // TODO
+	f_assert(base == 10 || base == 16); // TODO
 	char buffer[32];
 	size_t buffer_size;
 	if (base == 16) {
@@ -713,7 +713,7 @@ void f_print_uint(fWriter* w, uint64_t value, size_t base) {
 }
 
 void f_print_int(fWriter* w, int64_t value, size_t base) {
-	F_ASSERT(base == 10 || base == 16); // TODO
+	f_assert(base == 10 || base == 16); // TODO
 	char buffer[32];
 	size_t buffer_size;
 	if (base == 16) {
@@ -801,7 +801,7 @@ fString f_str_from_float(double value, fAllocator* alc) {
 //}
 
 void f_str_copy(fString dst, fString src) {
-	F_ASSERT(dst.len >= src.len);
+	f_assert(dst.len >= src.len);
 	memcpy(dst.data, src.data, src.len);
 }
 
@@ -817,7 +817,7 @@ static void error_out_of_memory() {
 }
 
 fString f_arena_push(fArena* arena, uint size, uint align) {
-	F_ASSERT(F_IS_POWER_OF_2(align));
+	f_assert(F_IS_POWER_OF_2(align));
 	//ZoneScoped;
 	u8* allocation_pos = NULL;
 
@@ -849,7 +849,7 @@ fString f_arena_push(fArena* arena, uint size, uint align) {
 		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, align);
 		arena->pos.head = allocation_pos + size;
 
-		F_ASSERT(arena->internal_base);
+		f_assert(arena->internal_base);
 		if ((uint)arena->pos.head > (uint)arena->internal_base + arena->desc.UsingBufferFixed.size) {
 			error_out_of_memory();
 		}
@@ -887,7 +887,7 @@ fString f_arena_push(fArena* arena, uint size, uint align) {
 			}
 			else {
 				// allocate a new block
-				//F_ASSERT(align <= 16); // Let's align each block to 16 bytes.
+				//f_assert(align <= 16); // Let's align each block to 16 bytes.
 				// NOTE: new_block will be aligned to 16 bytes, because block_size is large
 				fArenaBlock* new_block = f_mem_alloc(block_size, arena->desc.UsingAllocatorGrowing.a);
 				new_block->size_including_header = block_size;
@@ -905,10 +905,10 @@ fString f_arena_push(fArena* arena, uint size, uint align) {
 		}
 
 		arena->pos.head = allocation_pos + size;
-		F_ASSERT((uint)arena->pos.head <= (uint)arena->pos.current_block + arena->pos.current_block->size_including_header);
+		f_assert((uint)arena->pos.head <= (uint)arena->pos.current_block + arena->pos.current_block->size_including_header);
 	} break;
 	
-	default: F_BP;
+	default: f_trap();
 	}
 
 	return (fString){ allocation_pos, size };
@@ -925,7 +925,7 @@ static u32 hashmap64_get_slot_index(u64 key, u32 slot_count_log2) {
 }
 
 fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key) {
-	F_ASSERT(key <= F_MAP64_LAST_VALID_KEY);
+	f_assert(key <= F_MAP64_LAST_VALID_KEY);
 	if (!map->slots) return NULL;
 
 	//HITS(_c, 628);
@@ -935,7 +935,7 @@ fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key) {
 
 	u32 wrapping_mask = (1u << map->slot_count_log2) - 1;
 	for (;;) {
-		F_ASSERT(slot_index < (1u << map->slot_count_log2));
+		f_assert(slot_index < (1u << map->slot_count_log2));
 		u64* key_ptr = (u64*)(slots + slot_index * slot_size);
 		if (*key_ptr == key) {
 			return key_ptr + 1;
@@ -998,7 +998,7 @@ uint_pow2 f_round_up_power_of_2(uint v) {
 }
 
 uint log2(uint_pow2 value) {
-	F_ASSERT(F_IS_POWER_OF_2(value));
+	f_assert(F_IS_POWER_OF_2(value));
 	uint result = 0;
 	for (; value > 1;) {
 		value >>= 1;
@@ -1037,7 +1037,7 @@ fMap64Raw f_make_map64_cap_raw(u32 value_size, uint_pow2 capacity, fAllocator* a
 }
 
 fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) value, fMapInsert mode) {
-	F_ASSERT(key <= F_MAP64_LAST_VALID_KEY);
+	f_assert(key <= F_MAP64_LAST_VALID_KEY);
 	F_HITS(_c, 0);
 
 	//     filled / allocated >= 70/100
@@ -1076,7 +1076,7 @@ fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) v
 				return (fMapInsertResult) { value_ptr, .added = false };
 			}
 			else { // Element already exists, and the behaviour of the map is set to AssertUnique!
-				F_ASSERT(false);
+				f_assert(false);
 			}
 		}
 		slot_index = (slot_index + 1) & wrapping_mask;
@@ -1218,11 +1218,11 @@ u64 slot_arena_get_index_raw(const RawSlotArena* arena, void* ptr) {
 */
 
 u8* f_arena_get_contiguous_base(fArena* arena) {
-	F_ASSERT(arena->desc.mode == fArenaMode_UsingBufferFixed || arena->desc.mode == fArenaMode_VirtualReserveFixed);
+	f_assert(arena->desc.mode == fArenaMode_UsingBufferFixed || arena->desc.mode == fArenaMode_VirtualReserveFixed);
 	return arena->internal_base + sizeof(fArena); }
 
 uint f_arena_get_contiguous_cursor(fArena* arena) {
-	F_ASSERT(arena->desc.mode == fArenaMode_UsingBufferFixed || arena->desc.mode == fArenaMode_VirtualReserveFixed);
+	f_assert(arena->desc.mode == fArenaMode_UsingBufferFixed || arena->desc.mode == fArenaMode_VirtualReserveFixed);
 	return arena->pos.head - (arena->internal_base + sizeof(fArena));
 }
 
@@ -1233,11 +1233,11 @@ void f_arena_set_mark(fArena* arena, fArenaMark mark) {
 		for (fArenaBlock* block = mark.current_block->next; block && block != last->next; block = block->next) {
 			f_debug_fill_garbage(block + 1, block->size_including_header - sizeof(fArenaBlock));
 		}
-		F_ASSERT(mark.head >= (u8*)(mark.current_block + 1));
+		f_assert(mark.head >= (u8*)(mark.current_block + 1));
 		f_debug_fill_garbage(mark.head, ((u8*)mark.current_block + mark.current_block->size_including_header) - mark.head);
 	}
 	else {
-		F_ASSERT(mark.head <= arena->pos.head);
+		f_assert(mark.head <= arena->pos.head);
 		f_debug_fill_garbage(mark.head, arena->pos.head - mark.head); // debug; trigger data-breakpoints and garbage-fill the memory
 	}
 #endif
@@ -1318,7 +1318,7 @@ void* heap_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_size, uint 
 	//
 	//uint arena_index = log2(round_up_pow_of_2(new_size)); // there's probably a better way to calculate this
 	// the last arena is for 4k blocks
-	F_BP;
+	f_trap();
 	return NULL;
 }
 
@@ -1369,7 +1369,7 @@ fArena* f_arena_make_ex(fArenaDesc desc) {
 		_arena.pos.head = _arena.internal_base;
 	} break;
 	case fArenaMode_UsingAllocatorGrowing: {} break;
-	default: F_BP;
+	default: f_trap();
 	}
 
 	fArena* arena = (fArena*)f_arena_push(&_arena, sizeof(fArena), 1).data;
@@ -1422,7 +1422,7 @@ void f_arena_free(fArena* arena) {
 			block = next;
 		}
 	}
-	else F_BP;
+	else f_trap();
 }
 
 s64 f_round_to_s64(float x) {
@@ -1432,7 +1432,7 @@ s64 f_round_to_s64(float x) {
 
 s64 f_floor_to_s64(float x) {
 	//ZoneScoped;
-	F_ASSERT(x > (float)F_I64_MIN && x < (float)F_I64_MAX);
+	f_assert(x > (float)F_I64_MIN && x < (float)F_I64_MAX);
 
 	s64 x_i64 = (s64)x;
 	if (x < 0) {
@@ -1475,7 +1475,7 @@ uint f_str_encode_rune(u8* output, rune r) {
 		*output++ = (ch & 0x3F) | 0x80;
 		return 4;
 	}
-	F_ASSERT(false);
+	f_assert(false);
 	return 0;
 }
 
@@ -1488,7 +1488,7 @@ rune f_str_decode_rune(fString str) {
 rune f_str_next_rune(fString str, uint* byteoffset) {
 	//ZoneScoped;
 	if (*byteoffset >= str.len) return 0;
-	F_ASSERT(*byteoffset >= 0);
+	f_assert(*byteoffset >= 0);
 
 	u32 ch = 0;
 	int sz = 0;
@@ -1524,7 +1524,7 @@ uint f_str_rune_count(fString str) {
 
 
 bool f_str_to_u64(fString s, uint base, u64* out_value) {
-	F_ASSERT(2 <= base && base <= 16);
+	f_assert(2 <= base && base <= 16);
 
 	uint value = 0;
 	for (uint i = 0; i < s.len; i++) {
@@ -1554,7 +1554,7 @@ bool f_str_to_u64(fString s, uint base, u64* out_value) {
 }
 
 bool f_str_to_s64(fString s, uint base, s64* out_value) {
-	F_ASSERT(2 <= base && base <= 16);
+	f_assert(2 <= base && base <= 16);
 
 	s64 sign = 1;
 	if (s.len > 0) {
@@ -1610,7 +1610,7 @@ fString f_str_replace(fString str, fString search_for, fString replace_with, fAl
 }
 
 fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fString) replace_with, fAllocator* a) {
-	F_ASSERT(search_for.len == replace_with.len);
+	f_assert(search_for.len == replace_with.len);
 	uint n = search_for.len;
 
 	Array(u8) result = f_array_make_cap_raw(1, str.len * 2, a);
@@ -1671,7 +1671,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 
 		uint str_utf16_len;
 		wchar_t* str_utf16 = f_str_to_utf16(str, 1, f_temp_alc(), &str_utf16_len);
-		F_ASSERT((u32)str_utf16_len == str_utf16_len);
+		f_assert((u32)str_utf16_len == str_utf16_len);
 
 		DWORD num_chars_written;
 		BOOL ok = WriteConsoleW(_f_stdout_handle, str_utf16, (u32)str_utf16_len, &num_chars_written, NULL);
@@ -1710,14 +1710,14 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	u64 f_read_cycle_counter() {
 		u64 counter = 0;
 		BOOL res = QueryPerformanceCounter((LARGE_INTEGER*)&counter);
-		F_ASSERT(res == TRUE);
+		f_assert(res == TRUE);
 		return counter;
 	}
 
 	u64 f_files_get_modtime(fString filepath) {
 		fArenaMark mark = f_temp_get_mark();
 
-		F_BP;
+		f_trap();
 		HANDLE h = CreateFileA(f_str_t_to_cstr(filepath), 0, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY | FILE_FLAG_BACKUP_SEMANTICS, NULL);
 		if (h == INVALID_HANDLE_VALUE) return 0;
 
@@ -1732,7 +1732,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	bool f_files_clone(fString src_filepath, fString dst_filepath) {
 		fArenaMark mark = f_temp_get_mark();
 
-		F_BP; // unicode
+		f_trap(); // unicode
 		BOOL ok = CopyFileA(f_str_t_to_cstr(src_filepath), f_str_t_to_cstr(dst_filepath), 0) == TRUE;
 		f_temp_set_mark(mark);
 		return ok;
@@ -1741,7 +1741,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	bool f_files_delete(fString filepath) {
 		fArenaMark mark = f_temp_get_mark();
 		
-		F_BP; // unicode
+		f_trap(); // unicode
 		bool ok = DeleteFileA(f_str_t_to_cstr(filepath)) == TRUE;
 		f_temp_set_mark(mark);
 		return ok;
@@ -1749,14 +1749,14 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 
 	void f_sleep_milliseconds(s64 ms) {
 		//ZoneScoped;
-		F_ASSERT(ms < F_U32_MAX);
+		f_assert(ms < F_U32_MAX);
 		Sleep((DWORD)ms);
 	}
 
 	fDynamicLibrary f_dynamic_library_load(fString filepath) {
 		fArenaMark mark = f_temp_get_mark();
 		
-		F_BP; // unicode
+		f_trap(); // unicode
 		HANDLE handle = LoadLibraryA(f_str_t_to_cstr(filepath));
 		f_leak_tracker_begin_entry(handle, 1);
 		
@@ -1856,7 +1856,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 			*out_len = 0;
 			return NULL;
 		}
-		F_ASSERT(str.len < F_I32_MAX);
+		f_assert(str.len < F_I32_MAX);
 		
 		wchar_t* w_text = NULL;
 		
@@ -1865,7 +1865,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		
 		int w_len1 = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, (const char*)str.data, (int)str.len, (wchar_t*)w_text, w_len);
 		
-		F_ASSERT(w_len != 0 && w_len1 == w_len);
+		f_assert(w_len != 0 && w_len1 == w_len);
 		
 		memset(&w_text[w_len], 0, num_null_terminations * sizeof(wchar_t));
 
@@ -1966,7 +1966,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 				text = f_str_make((uint)length, a);
 				WideCharToMultiByte(CP_UTF8, 0, (wchar_t*)hData, -1, (char*)text.data, length, NULL, NULL);
 				text.len -= 1;
-				F_ASSERT(text.data[text.len] == 0);
+				f_assert(text.data[text.len] == 0);
 			}
 
 			GlobalUnlock(hData);
@@ -2130,7 +2130,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 
 	static void f_file_unbuffered_writer_proc(fWriter* writer, const void* data, uint size) {
 		bool ok = f_files_write_unbuffered((fFile*)writer->userdata, (fString){ (void*)data, size });
-		F_ASSERT(ok);
+		f_assert(ok);
 	}
 
 	bool f_files_open(fString filepath, fFileOpenMode mode, fFile* out_file) {
@@ -2207,7 +2207,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 
 	void f_files_flush(fFile* file) {
-		F_ASSERT(file->mode != fFileOpenMode_Read);
+		f_assert(file->mode != fFileOpenMode_Read);
 		f_flush_buffered_writer(&file->buffered_writer);
 	}
 
@@ -2221,7 +2221,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		return ok;
 	}
 
-	void f_get_stack_trace(void(*visitor)(fString function, fString file, u32 line, void* user_ptr), void* user_ptr) {
+	/*void f_get_stack_trace(void(*visitor)(fString function, fString file, u32 line, void* user_ptr), void* user_ptr) {
 		HANDLE process = GetCurrentProcess();
 		
 		// This is a bit sloppy and technically incorrect...
@@ -2274,7 +2274,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 			if (f_str_equals(function_name, F_LIT("main"))) break; // Don't care about anything beyond main
 		}
 	}
-
+	*/
 	bool f_os_run_command(fSliceRaw args, fString working_dir, u32* out_exit_code) {
 		bool ok = false;
 
@@ -2421,13 +2421,13 @@ bool f_files_write_whole(fString filepath, fString data) {
 }
 
 void f_init() {
-	F_ASSERT(_f_temp_arena == NULL);
+	f_assert(_f_temp_arena == NULL);
 	_f_temp_arena = f_arena_make_virtual_reserve_fixed(F_GIB(1), (void*)F_TIB(2));
 	_f_stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
 }
 
 void f_deinit() {
-	F_ASSERT(_f_temp_arena);
+	f_assert(_f_temp_arena);
 	f_arena_free(_f_temp_arena);
 	_f_temp_arena = NULL;
 }
@@ -2483,4 +2483,18 @@ void f_buffered_writer_proc(fWriter* writer, void* data, size_t size) {
 			src += buf_remaining;
 		}
 	}
+}
+
+
+void f_trap() {
+#ifdef OS_WINDOWS
+	if (IsDebuggerPresent()) {
+		__debugbreak();
+	}
+	else {
+		f_os_error_popup(F_LIT("Error!"), F_LIT("Program ran into an internal debug trap."));
+	}
+#else
+#error
+#endif
 }

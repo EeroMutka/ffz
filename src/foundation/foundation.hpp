@@ -105,13 +105,13 @@ inline fSlice(T) f_clone_slice(fSlice(T) x, fAllocator* allocator) {
 
 template<typename T>
 inline fSlice(T) f_slice(fArray(T) other, uint lo, uint hi) {
-	F_ASSERT(hi >= lo);
+	f_assert(hi >= lo);
 	return fSlice(T){ other.data + lo, hi - lo };
 }
 
 template<typename T>
 inline fSlice(T) f_slice(fSlice(T) other, uint lo, uint hi) {
-	F_ASSERT(hi >= lo);
+	f_assert(hi >= lo);
 	return fSlice(T){ other.data + lo, hi - lo };
 }
 
@@ -127,13 +127,13 @@ inline fSlice(T) f_slice_before(fSlice(T) other, uint mid) {
 
 template<typename T>
 inline fSlice(T) f_slice_after(fArray(T) other, uint mid) {
-	F_ASSERT(other.len >= mid);
+	f_assert(other.len >= mid);
 	return fSlice(T){ other.data + mid, other.len - mid};
 }
 
 template<typename T>
 inline fSlice(T) f_slice_after(fSlice(T) other, uint mid) {
-	F_ASSERT(other.len >= mid);
+	f_assert(other.len >= mid);
 	return fSlice(T){ other.data + mid, other.len - mid};
 }
 
@@ -147,7 +147,7 @@ inline void f_slice_set(fSlice(T) dst, T value) {
 
 template<typename T>
 inline void f_slice_copy(fSlice(T) dst, fSlice(T) src) {
-	F_ASSERT(src.len <= dst.len);
+	f_assert(src.len <= dst.len);
 	f_mem_copy(dst.data, src.data, src.len * sizeof(T));
 }
 
@@ -223,7 +223,7 @@ inline T f_array_pop(fArray(T)* array) {
 
 template<typename T>
 inline T& f_array_peek(fArray(T)* array) {
-	F_ASSERT(array->len > 0);
+	f_assert(array->len > 0);
 	return array->data[array->len - 1];
 }
 

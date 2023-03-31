@@ -5,7 +5,7 @@
 
 //#include <Zydis/Zydis.h>
 
-#define VALIDATE(x) F_ASSERT(x)
+#define VALIDATE(x) f_assert(x)
 
 GMMC_API gmmcProcSignature* gmmc_make_proc_signature(gmmcModule* m, gmmcType return_type,
 	gmmcType* params, uint32_t params_count)
@@ -52,7 +52,7 @@ static void validate_operand(gmmcBasicBlock* bb, gmmcOpIdx operand, gmmcType req
 }
 
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value) {
-	//if (bb->proc == (void*)0x00000200001811c0 && bb->proc->ops.len == 7) F_BP;
+	//if (bb->proc == (void*)0x00000200001811c0 && bb->proc->ops.len == 7) f_trap();
 	if (bb->proc->signature->return_type) {
 		validate_operand(bb, value, bb->proc->signature->return_type);
 	} else {
@@ -226,7 +226,7 @@ GMMC_API u32 gmmc_type_size(gmmcType type) {
 	case gmmcType_i128: return 16;
 	case gmmcType_f32: return 4;
 	case gmmcType_f64: return 8;
-	default: F_BP;
+	default: f_trap();
 	}
 	return 0;
 }
@@ -442,7 +442,7 @@ GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
 GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_data) {
 	void* data = f_mem_alloc(size, m->allocator);
 	memset(data, 0, size);
-	F_ASSERT(section != gmmcSection_Code); // hmm... todo? this should be fine on the assembly target, but what about C?
+	f_assert(section != gmmcSection_Code); // hmm... todo? this should be fine on the assembly target, but what about C?
 
 	gmmcGlobal* global = f_mem_clone(gmmcGlobal{}, m->allocator);
 	global->self_idx = (gmmcGlobalIdx)f_array_push(&m->globals, global);
@@ -516,6 +516,6 @@ GMMC_API void gmmc_test() {
 	//gmmc_proc_compile(test_proc);
 	
 	//gmmc_create_coff(m, F_LIT("test.obj"));
-	F_BP;
+	f_trap();
 }
 #endif

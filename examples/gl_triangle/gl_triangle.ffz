@@ -41,10 +41,10 @@ void main() {
 	gl.ShaderSource(shader, 1, &src, ^GL.GLint(0))
 	gl.CompileShader(shader)
 	
-	success: GL.GLint
+	success: GL.GLint(0)
 	gl.GetShaderiv(shader, GL.COMPILE_STATUS, &success)
 	if success == 0 {
-		vs_log: [512]GL.GLchar
+		vs_log: [512]GL.GLchar(~~)
 		gl.GetShaderInfoLog(shader, 512, ^GL.GLsizei(0), &vs_log[0])
 		dbgbreak
 	}
@@ -52,13 +52,13 @@ void main() {
 }
 
 @*global
-globals: struct{
+globals: struct {
 	window: Window.Window
 	gl: GL.API
 	test: bool
-}
+}(~~)
 
-#draw: proc() {
+#draw: proc {
 	globals.gl.ClearColor(.3, .2, .4, 1.)
 	globals.gl.Clear(GL.COLOR_BUFFER_BIT)
 	
@@ -78,7 +78,7 @@ globals: struct{
 	draw()
 }
 
-#entry: proc() {
+#entry: proc {
 	Basic.print("hello!\n")
 	globals.window = Window.create(512, 512, "My window")
 	
@@ -99,7 +99,7 @@ globals: struct{
 	link_success: GL.GLint(0)
 	gl.GetProgramiv(shader_program, GL.LINK_STATUS, &link_success)
 	if link_success == 0 {
-		log: [512]u8
+		log: [512]u8(~~)
 		gl.GetProgramInfoLog(shader_program, 512, ^GL.GLsizei(0), &log[0])
 		dbgbreak
 	}
@@ -115,12 +115,12 @@ globals: struct{
 	}
 	
 	// Create the vertex array object
-	vao: GL.GLuint
+	vao: GL.GLuint(0)
 	gl.GenVertexArrays(1, &vao)
 	gl.BindVertexArray(vao)
 	
 	// Create the vertex buffer object
-	vbo: GL.GLuint
+	vbo: GL.GLuint(0)
 	gl.GenBuffers(1, &vbo)
 	gl.BindBuffer(GL.ARRAY_BUFFER, vbo)
 	gl.BufferData(GL.ARRAY_BUFFER, size_of(vertices), &vertices, GL.STATIC_DRAW)

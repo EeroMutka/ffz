@@ -4,7 +4,7 @@
 #include "coff.h"
 #include "codeview.h"
 
-#define VALIDATE(x) F_ASSERT(x)
+#define VALIDATE(x) f_assert(x)
 
 #define _VC_VER_INC
 #include "cvinfo.h"
@@ -121,7 +121,7 @@ static void pad_to_4_bytes_LF_pad(fStringBuilder* buf) {
 	if (pad >= 3) f_printb(buf->w, (u8)LF_PAD3);
 	if (pad >= 2) f_printb(buf->w, (u8)LF_PAD2);
 	if (pad >= 1) f_printb(buf->w, (u8)LF_PAD1);
-	F_ASSERT(F_HAS_ALIGNMENT_POW2(buf->buffer.len, 4));
+	f_assert(F_HAS_ALIGNMENT_POW2(buf->buffer.len, 4));
 };
 
 static void append_so_called_length_prefixed_name(fStringBuilder* buf, coffString name) {
@@ -145,9 +145,9 @@ static void patch_reclen(fStringBuilder* buf, u32 reclen_offset) {
 }
 
 static void generate_xdata_and_pdata(fArray(u8)* pdata_builder, fArray(coffRelocation)* pdata_relocs, fArray(u8)* xdata_builder, cviewGenerateDebugInfoDesc* desc) {
-	F_ASSERT(xdata_builder->len == 0);
-	F_ASSERT(pdata_builder->len == 0);
-	F_ASSERT(pdata_relocs->len == 0);
+	f_assert(xdata_builder->len == 0);
+	f_assert(pdata_builder->len == 0);
+	f_assert(pdata_relocs->len == 0);
 
 	s32 prev_sym_index = -1;
 	s32 prev_fn_offset = -1;
@@ -187,7 +187,7 @@ static void generate_xdata_and_pdata(fArray(u8)* pdata_builder, fArray(coffReloc
 				f_array_push_n(pdata_builder, F_AS_BYTES(fn.block.end_offset)); // Function end address
 			}
 			{
-				F_ASSERT(desc->xdata_section_sym_index != 0);
+				f_assert(desc->xdata_section_sym_index != 0);
 				coffRelocation reloc = {};
 				reloc.offset = (u32)pdata_builder->len;
 				reloc.type = IMAGE_REL_AMD64_ADDR32NB; // relative virtual address
@@ -200,7 +200,7 @@ static void generate_xdata_and_pdata(fArray(u8)* pdata_builder, fArray(coffReloc
 
 		// xdata
 		{
-			F_ASSERT(fn.size_of_initial_sub_rsp_instruction > 0);
+			f_assert(fn.size_of_initial_sub_rsp_instruction > 0);
 
 			bool is_large = fn.stack_frame_size >= 128;
 			xdata_UnwindInfoHeader header = {};
@@ -224,13 +224,13 @@ static void generate_xdata_and_pdata(fArray(u8)* pdata_builder, fArray(coffReloc
 
 				// "If the operation info equals 0, then the size of the allocation divided by 8 is recorded in the next slot, allowing an allocation up to 512K - 8"
 				u16 size = fn.stack_frame_size >> 3;
-				F_ASSERT(size * 8 == fn.stack_frame_size);
+				f_assert(size * 8 == fn.stack_frame_size);
 				f_array_push_n(xdata_builder, F_AS_BYTES(size));
 			}
 			else {
 				// op_info * 8 + 8 == fn.stack_frame_size
 				u8 op_info = (fn.stack_frame_size - 8) >> 3;
-				F_ASSERT(op_info * 8 + 8 == fn.stack_frame_size);
+				f_assert(op_info * 8 + 8 == fn.stack_frame_size);
 
 				xdata_UnwindCode unwind_code = {}; // "Save a nonvolatile integer register on the stack using a MOV instead of a PUSH"
 				unwind_code.CodeOffset = fn.size_of_initial_sub_rsp_instruction; // offset of the end of the instruction
@@ -294,7 +294,7 @@ static void add_locals(DebugSectionGen* ctx, TypeGen* types, cviewFunction* fn, 
 				coffRelocation seg_reloc = {};
 				seg_reloc.offset = (u32)ctx->debugS.buffer.len + F_OFFSET_OF(BLOCKSYM32, seg);
 				seg_reloc.sym_idx = fn->sym_index;
-				if (seg_reloc.sym_idx == 9) F_BP;
+				if (seg_reloc.sym_idx == 9) f_trap();
 				seg_reloc.type = IMAGE_REL_AMD64_SECTION; // IMAGE_REL_X_SECTION sets the relocated value to be the section number of the target symbol
 				f_array_push(&ctx->debugS_relocs, seg_reloc);
 			}
@@ -304,7 +304,7 @@ static void add_locals(DebugSectionGen* ctx, TypeGen* types, cviewFunction* fn, 
 				coffRelocation off_reloc = {};
 				off_reloc.offset = (u32)ctx->debugS.buffer.len + F_OFFSET_OF(BLOCKSYM32, off);
 				off_reloc.sym_idx = fn->sym_index;
-				if (off_reloc.sym_idx == 9) F_BP;
+				if (off_reloc.sym_idx == 9) f_trap();
 				off_reloc.type = IMAGE_REL_AMD64_SECREL; // IMAGE_REL_X_SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
 				f_array_push(&ctx->debugS_relocs, off_reloc);
 			}
@@ -408,7 +408,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 			f_prints(ctx->debugT.w, F_AS_BYTES(cv_fieldlist));
 
 			for (uint field_i = 0; field_i < type.Enum.fields_count; field_i++) {
-				F_ASSERT(F_HAS_ALIGNMENT_POW2(ctx->debugT.buffer.len, 4));
+				f_assert(F_HAS_ALIGNMENT_POW2(ctx->debugT.buffer.len, 4));
 				cviewEnumField& field = type.Enum.fields[field_i];
 
 				_lfEnumerate cv_field = {};
@@ -498,7 +498,7 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 				cv_member.attr.access = CV_public;
 
 				cv_member.index = types->to_codeview_type_idx[member.type_idx]; // codeview type index
-				F_ASSERT(cv_member.index != 0);
+				f_assert(cv_member.index != 0);
 				f_prints(ctx->debugT.w, F_AS_BYTES(cv_member));
 
 				write_variable_length_number(&ctx->debugT, member.offset_of_member);
@@ -535,10 +535,10 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 		t = types->next_cv_type_idx++;
 	} break;
 
-	default: F_BP;
+	default: f_trap();
 	}
 
-	F_ASSERT(t != 0);
+	f_assert(t != 0);
 	types->to_codeview_type_idx[index] = t;
 	return t;
 }
@@ -656,7 +656,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			{
 				//fString name = transmute(fString)fn->fn->dbginfo_name;
 				//CodeView_Function& fn = gen->desc->functions[0];
-				F_ASSERT(fn.name.len > 0);
+				f_assert(fn.name.len > 0);
 
 				PROCSYM32 proc_sym = {};
 				u32 reclen_offset = (u32)gen->debugS.buffer.len;
@@ -683,7 +683,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				// in cvdump, this is the "Cb" field. This marks the size of the function in the .text section, in bytes.
 				proc_sym.len = fn.block.end_offset - fn.block.start_offset;
 
-				//F_BP;
+				//f_trap();
 				proc_sym.typind = 0; // this is an index of the symbol's type
 				proc_sym.DbgStart = 0; // this seems to always be zero
 				proc_sym.DbgEnd = proc_sym.len - 1; // this seems to usually (not always) be PROCSYM32.len - 1. Not sure what this means.
@@ -730,7 +730,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 
 			// locals
-			//F_BP;
+			//f_trap();
 			// block = &fn.root_block;
 			//for (;;) {
 			//}
@@ -809,7 +809,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			patch_cbLen(&gen->debugS, subsection_base);
 
 			// Each of the above structures are 4-byte aligned
-			F_ASSERT(gen->debugS.buffer.len % 4 == 0); // Subsections must be aligned to 4 byte boundaries
+			f_assert(gen->debugS.buffer.len % 4 == 0); // Subsections must be aligned to 4 byte boundaries
 		}
 	}
 
@@ -827,7 +827,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			UDTSYM sym = {};
 			sym.rectyp = S_UDT;
 			sym.typind = 0x1001;
-			F_BP;
+			f_trap();
 
 			u32 reclen_offset = (u32)gen->debugS->len;
 			f_array_push_n(&gen->debugS, { (u8*)&sym, F_OFFSET_OF(UDTSYM, name) });
@@ -874,13 +874,13 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 			f_prints(gen->debugS.w, F_AS_BYTES(filedata));
 
-			//F_ASSERT(gen->desc->dbginfo->file_hashes);
+			//f_assert(gen->desc->dbginfo->file_hashes);
 
 			f_prints(gen->debugS.w, F_AS_BYTES(file->hash));
 
 			pad_to_4_bytes_zero(&gen->debugS); // Each entry is aligned to 4 byte boundary
 
-			F_ASSERT(gen->debugS.buffer.len - len_before == size_of_file_checksum_entry);
+			f_assert(gen->debugS.buffer.len - len_before == size_of_file_checksum_entry);
 		}
 
 		patch_cbLen(&gen->debugS, subsection_base);

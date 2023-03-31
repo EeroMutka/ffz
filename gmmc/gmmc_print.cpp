@@ -26,7 +26,7 @@ static fString gmmc_type_get_string(gmmcType type) {
 	case gmmcType_i128: return F_LIT("$i128");
 	case gmmcType_f32: return F_LIT("$f32");
 	case gmmcType_f64: return F_LIT("$f64");
-	default: F_BP;
+	default: f_trap();
 	}
 	return {};
 }
@@ -260,7 +260,7 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 			else f_print(f, "return");
 		} break;
 
-		default: F_BP;
+		default: f_trap();
 		}
 
 		if (op->kind == gmmcOpKind_comment) {}
@@ -279,7 +279,7 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 	// clang is very strict about the definition of main, it will give errors if the types don't match exactly
 	bool is_main = f_str_equals(name, F_LIT("main"));
 	if (is_main) {
-		F_ASSERT(proc->params.len == 2);
+		f_assert(proc->params.len == 2);
 		f_print(f, "int main(int _$~u32, char** _$~u32) {\n", proc->params[0], proc->params[1]);
 	}
 	else {

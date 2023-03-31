@@ -7,7 +7,7 @@
 
 //#include <stdio.h> // for fopen
 
-#define VALIDATE(x) F_ASSERT(x)
+#define VALIDATE(x) f_assert(x)
 
 typedef u16 RegSize;
 
@@ -185,7 +185,7 @@ static uint get_zydis_instruction_len(const ZydisEncoderRequest& req) {
 }
 
 static void emit(ProcGen* p, const ZydisEncoderRequest& req, const char* comment = "") {
-	F_ASSERT(p->stage == Stage_Emit);
+	f_assert(p->stage == Stage_Emit);
 	
 	u8 instr[ZYDIS_MAX_INSTRUCTION_LENGTH];
 	uint instr_len = sizeof(instr);
@@ -201,7 +201,7 @@ static void emit(ProcGen* p, const ZydisEncoderRequest& req, const char* comment
 		uint proc_rel_offset = sect_rel_offset - p->result->code_section_start_offset;
 
 		u8* data = code_section->data.data + proc_rel_offset;
-	//	if (proc_rel_offset == 0x3c) F_BP;
+	//	if (proc_rel_offset == 0x3c) f_trap();
 
 		ZydisDisassembledInstruction instruction;
 		if (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, proc_rel_offset, instr, instr_len, &instruction))) {
@@ -256,7 +256,7 @@ static fSlice(GPR) get_work_registers(RegisterSet reg_set) {
 	case RegisterSet_Normal: return fSlice(GPR) { (GPR*)&int_work_registers, F_LEN(int_work_registers) };
 	case RegisterSet_XMM: return fSlice(GPR) { (GPR*)&float_work_registers, F_LEN(float_work_registers) };
 	}
-	F_BP; return {};
+	f_trap(); return {};
 }
 
 // `size` is ignored for XMM registers
@@ -289,7 +289,7 @@ ZydisRegister get_x64_reg(GPR reg, RegSize size) {
 
 		u32 size_class_from_size[] = { 0, 1, 2, 0, 3, 0, 0, 0, 4 };
 		u32 size_class = size_class_from_size[size];
-		F_ASSERT(size_class != 0);
+		f_assert(size_class != 0);
 
 		u32 reg_index = (u32)(reg - GPR_AX);
 		return table[reg_index + 16 * (size_class - 1)];
@@ -308,12 +308,12 @@ struct LooseReg { gmmcOpIdx source_op; };
 
 static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 	GPR reg = p->rsel.ops_currently_in_register[op_idx];
-	F_ASSERT(p->rsel.work_reg_taken_by_op[reg] == op_idx);
+	f_assert(p->rsel.work_reg_taken_by_op[reg] == op_idx);
 
 	gmmcOpData* op = &p->proc->ops[op_idx];
 	u32 size = gmmc_type_size(op->type);
 	
-	//if (op_idx == 22) F_BP;
+	//if (op_idx == 22) f_trap();
 	if (!gmmc_is_op_direct(p->proc, op_idx)) {
 		// if computation is required to find out the value of the op, store it on the stack.
 		// locals, immediates and addr_of_symbol don't need to be stored on the stack.
@@ -324,7 +324,7 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 		}
 
 		if (p->stage == Stage_Emit) {
-			F_ASSERT(p->ops_spill_offset_frame_rel[op_idx] != 0);
+			f_assert(p->ops_spill_offset_frame_rel[op_idx] != 0);
 
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 			req.mnemonic =	op->type == gmmcType_f64 ? ZYDIS_MNEMONIC_MOVSD :
@@ -334,7 +334,7 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 			req.operands[0].type = ZYDIS_OPERAND_TYPE_MEMORY;
 			req.operands[0].mem.base = ZYDIS_REGISTER_RSP;
 			req.operands[0].mem.displacement = p->ops_spill_offset_frame_rel[op_idx] - p->result->rsp_offset;
-			//if (reg == GPR_14 && req.operands[0].mem.displacement == 104) F_BP;
+			//if (reg == GPR_14 && req.operands[0].mem.displacement == 104) f_trap();
 			req.operands[0].mem.size = size;
 			req.operands[1] = make_reg_operand(reg, size);
 			emit(p, req, " ; spill the op value");
@@ -346,11 +346,11 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 }
 
 static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
-	//if (for_op == 26) F_BP;
-	//if (p->rsel.debug_allocate_gpr_order.len == 4) F_BP;
+	//if (for_op == 26) f_trap();
+	//if (p->rsel.debug_allocate_gpr_order.len == 4) f_trap();
 	
 	GPR gpr = GPR_INVALID;
-	F_ASSERT(p->stage > Stage_Initial);
+	f_assert(p->stage > Stage_Initial);
 
 	F_HITS(_c, 0);
 
@@ -383,7 +383,7 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 			for (uint i = 0; i < work_regs.len; i++) {
 				GPR work_reg = work_regs[i];
 				gmmcOpIdx potential_victim = p->rsel.work_reg_taken_by_op[work_reg];
-				F_ASSERT(p->rsel.ops_currently_in_register[potential_victim] == work_reg);
+				f_assert(p->rsel.ops_currently_in_register[potential_victim] == work_reg);
 				
 				if (potential_victim == p->current_op) {
 					// The current op has this register locked as its result register, so let's not steal it
@@ -411,7 +411,7 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 		// TODO: just use this array as a lookup directly to avoid having to do the same computation in the _Emit stage!!
 		uint i = f_array_push(&p->rsel.debug_allocate_gpr_order, gpr);
 		if (p->stage == Stage_Emit) {
-			F_ASSERT(p->cached_rsel.debug_allocate_gpr_order[i] == gpr);
+			f_assert(p->cached_rsel.debug_allocate_gpr_order[i] == gpr);
 		}
 	}
 
@@ -439,11 +439,11 @@ enum ExtendBits {
 };
 
 static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, gmmcType type, ExtendBits extend = ExtendBits_None) {
-	F_ASSERT(p->stage == Stage_Emit);
+	f_assert(p->stage == Stage_Emit);
 	RegSize size = gmmc_type_size(type);
 	
 	if (gmmc_type_is_float(type)) {
-		F_ASSERT(extend == ExtendBits_None);
+		f_assert(extend == ExtendBits_None);
 
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 		req.mnemonic = type == gmmcType_f64 ? ZYDIS_MNEMONIC_MOVSD : ZYDIS_MNEMONIC_MOVSS;
@@ -596,7 +596,7 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 			}
 		}
 		else {
-			//F_ASSERT(p->ops[op_idx].currently_in_register == GPR_INVALID);
+			//f_assert(p->ops[op_idx].currently_in_register == GPR_INVALID);
 
 			gmmcType type = op->type;
 			RegSize size = gmmc_type_size(type);
@@ -896,7 +896,7 @@ static void gen_call(ProcGen* p, gmmcOpData* op) {
 
 	if (p->stage == Stage_Emit) {
 		// hmm... the call target will not be in a register anymore
-		F_ASSERT(p->rsel.ops_currently_in_register[op->call.target] == proc_addr_reg);
+		f_assert(p->rsel.ops_currently_in_register[op->call.target] == proc_addr_reg);
 
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 		req.mnemonic = ZYDIS_MNEMONIC_CALL;
@@ -931,7 +931,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 
 #ifdef _DEBUG
 		for (uint i = 0; i < p->rsel.ops_currently_in_register.len; i++) {
-			F_ASSERT(p->rsel.ops_currently_in_register[i] == GMMC_OP_IDX_INVALID);
+			f_assert(p->rsel.ops_currently_in_register[i] == GMMC_OP_IDX_INVALID);
 		}
 #endif
 	}
@@ -972,7 +972,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_return: { gen_return(p, op); } break;
 
 		case gmmcOpKind_goto: {
-			F_ASSERT(i == bb->ops.len - 1); // must be the last op
+			f_assert(i == bb->ops.len - 1); // must be the last op
 
 			// if the destination block hasn't been generated yet, we can generate it directly after this op
 			// and we don't even need a jump instruction.
@@ -1003,7 +1003,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		} break;
 
 		case gmmcOpKind_if: {
-			F_ASSERT(i == bb->ops.len - 1); // must be the last op
+			f_assert(i == bb->ops.len - 1); // must be the last op
 			GPR condition_reg = use_op_value(p, op->if_.condition);
 			
 			// branches are expected to be 'false'
@@ -1247,7 +1247,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			GPR b = use_op_value(p, op->operands[1]);
 
 			op_value_to_reg(p, a.source_op, result_reg);
-			if (result_reg == GPR_12 && b == GPR_12) F_BP;
+			if (result_reg == GPR_12 && b == GPR_12) f_trap();
 
 			if (p->stage == Stage_Emit) {
 				RegSize size = gmmc_type_size(op->type);
@@ -1310,7 +1310,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			}
 		} break;
 
-		default: F_BP;
+		default: f_trap();
 		}
 	}
 
@@ -1352,7 +1352,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 	result->rsp_offset = 0;
 	for (uint i = 1; i < proc->locals.len; i++) {
 		gmmcLocal local = proc->locals[i];
-		F_ASSERT(local.size > 0);
+		f_assert(local.size > 0);
 
 		reserve_stack_space(&result->rsp_offset, local.size, local.align);
 		result->local_frame_rel_offset[i] = result->rsp_offset;
@@ -1371,7 +1371,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		
 		offset -= size;
 
-		F_ASSERT(size <= 8);
+		f_assert(size <= 8);
 		offset = F_ALIGN_DOWN_POW2(offset, size);
 
 		p->ops[i].spill_offset_frame_rel = offset;

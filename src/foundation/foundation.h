@@ -119,6 +119,10 @@ typedef intptr_t  sint;
 typedef s32       rune;
 typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allowed)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Used to mark nullable pointers
 #define fOpt(ptr) ptr
 
@@ -174,24 +178,18 @@ typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allo
 // Useful for surpressing compiler warnings
 #define F_UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
 
-#ifdef _DEBUG
-#define F_ASSERT(x) { if (!(x)) __debugbreak(); }
-#else
-#define F_ASSERT(x) { if (x) {} }
-#endif
+void f_trap();
+inline void f_assert(bool x) { if (!x) f_trap(); }
 
-inline static void _cast_check_fail() { F_ASSERT(false); }
 // Cast with range checking
-#define F_CAST(T, x) ((T)(x) == (x) ? (T)(x) : (_cast_check_fail(), (T)0))
-
-#define F_BP __debugbreak();
+#define F_CAST(T, x) ((T)(x) == (x) ? (T)(x) : (f_trap(), (T)0))
 
 // Debugging helper that counts the number of hits and allows for breaking at a certain index
 #define F_HITS(name, break_if_equals) \
 static uint F_CONCAT(name, _c) = 1; \
 F_CONCAT(name, _c)++; \
 uint name = F_CONCAT(name, _c); \
-if (name == (break_if_equals)) { F_BP; }
+if (name == (break_if_equals)) { __debugbreak(); }
 
 // https://stackoverflow.com/questions/6235847/how-to-generate-nan-infinity-and-infinity-in-ansi-c
 inline f32 _get_f32_pos_infinity() { u32 x = 0x7F800000; return *(f32*)&x; }
@@ -492,10 +490,6 @@ typedef enum fVisitDirectoryResult {
 typedef fVisitDirectoryResult(*fVisitDirectoryVisitor)(const fVisitDirectoryInfo* info, void* userptr);
 
 typedef struct fRangeUint { uint lo, hi; } fRangeUint;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 F_THREAD_LOCAL extern fArena* _f_temp_arena;
 F_THREAD_LOCAL extern fLeakTracker _f_leak_tracker;

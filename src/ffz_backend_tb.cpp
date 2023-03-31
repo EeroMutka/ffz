@@ -20,7 +20,7 @@ extern "C" void cuikperf_region_end(void) {}
 
 //static fAllocator* tb_allocator = NULL;
 //static Arena* tb_arena = {};
-#define todo F_BP
+#define todo f_trap()
 
 const bool VOLATILE_OPS = false;
 /*extern "C" {
@@ -110,7 +110,7 @@ static const char* make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) 
 			}
 			//else {
 			//	// hmm.. deterministic index for polymorph, how?
-			//	//F_BP; // f_str_printf(&name, "$%u", inst.poly_idx.idx);
+			//	//f_trap(); // f_str_printf(&name, "$%u", inst.poly_idx.idx);
 			//}
 			//f_str_printf(&name, "$%xll", inst.polymorph->hash);
 		}
@@ -156,7 +156,7 @@ TB_DataType get_tb_basic_type(Gen* g, ffzType* type) {
 		else if (type->size == 2) return TB_TYPE_I16;
 		else if (type->size == 4) return TB_TYPE_I32;
 		else if (type->size == 8) return TB_TYPE_I64;
-		else F_BP;
+		else f_trap();
 	} break;
 
 	case ffzTypeTag_Uint: // fallthrough
@@ -165,17 +165,17 @@ TB_DataType get_tb_basic_type(Gen* g, ffzType* type) {
 		else if (type->size == 2) return TB_TYPE_I16;
 		else if (type->size == 4) return TB_TYPE_I32;
 		else if (type->size == 8) return TB_TYPE_I64;
-		else F_BP;
+		else f_trap();
 	} break;
 
 	case ffzTypeTag_Record: {
-		F_ASSERT(type->size <= 8);
+		f_assert(type->size <= 8);
 		return TB_TYPE_I64; // maybe we should get the smallest type that the struct fits in instead
 	} break;
 		//case ffzTypeTag_Enum: {} break;
 		//case ffzTypeTag_FixedArray: {} break;
 	}
-	F_BP;
+	f_trap();
 	return {};
 }
 
@@ -203,7 +203,7 @@ TB_DebugType* get_tb_debug_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_Slice: // fallthrough
 	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Record: {
-		if (type->tag == ffzTypeTag_Record && type->Record.is_union) F_BP;
+		if (type->tag == ffzTypeTag_Record && type->Record.is_union) f_trap();
 
 		fArray(TB_DebugType*) tb_fields = f_array_make<TB_DebugType*>(g->alc);
 
@@ -240,7 +240,7 @@ TB_DebugType* get_tb_debug_type(Gen* g, ffzType* type) {
 		return out;
 	} break;
 
-	default: F_BP;
+	default: f_trap();
 	}
 	return NULL;
 }
@@ -264,7 +264,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	if (!insertion.added) return *insertion._unstable_ptr;
 
 	ffzType* proc_type = ffz_expr_get_type(g->project, inst);
-	F_ASSERT(proc_type->tag == ffzTypeTag_Proc);
+	f_assert(proc_type->tag == ffzTypeTag_Proc);
 
 	ffzType* ret_type = proc_type->Proc.out_param ? proc_type->Proc.out_param->type : NULL;
 	
@@ -305,7 +305,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	ffzNodeInst left = CHILD(inst,Op.left);
 	if (left.node->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name) {
 		// Default initialize the output value
-		F_BP;//gen_statement(g, CHILD(IAS(left, ProcType), out_parameter));
+		f_trap();//gen_statement(g, CHILD(IAS(left, ProcType), out_parameter));
 	}
 
 	TB_Function* func_before = g->fn;
@@ -331,7 +331,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	for FFZ_EACH_CHILD_INST(n, proc_type->unique_node) {
 		ffzTypeProcParameter* param = &proc_type->Proc.in_params[i];
 
-		F_ASSERT(n.node->kind == ffzNodeKind_Declare);
+		f_assert(n.node->kind == ffzNodeKind_Declare);
 		ffzNodeIdentifierInst param_definition = CHILD(n, Op.left);
 		param_definition.polymorph = inst.polymorph; // hmmm...
 		ffzNodeInstHash hash = ffz_hash_node_inst(param_definition);
@@ -366,7 +366,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	printf("\n");
 
 	bool ok = tb_module_compile_function(g->tb, func, TB_ISEL_FAST);
-	F_ASSERT(ok);
+	f_assert(ok);
 
 	return func;
 }
@@ -374,7 +374,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 static SmallOrPtr gen_call(Gen* g, ffzNodeOpInst inst) {
 	ffzNodeInst left = CHILD(inst,Op.left);
 	ffzCheckedExpr left_chk = ffz_expr_get_checked(g->project, left);
-	F_ASSERT(left_chk.type->tag == ffzTypeTag_Proc);
+	f_assert(left_chk.type->tag == ffzTypeTag_Proc);
 
 	ffzType* ret_type = left_chk.type->Proc.out_param ? left_chk.type->Proc.out_param->type : NULL;
 	bool big_return = ret_type && ret_type->size > 8; // :BigReturn
@@ -403,14 +403,14 @@ static SmallOrPtr gen_call(Gen* g, ffzNodeOpInst inst) {
 			f_array_push(&args, local_copy_addr);
 		}
 		else {
-			F_ASSERT(arg.small != TB_NULL_REG);
+			f_assert(arg.small != TB_NULL_REG);
 			f_array_push(&args, arg.small);
 		}
 		i++;
 	}
 
 	TB_Node* target = gen_expr(g, left, false).small;
-	F_ASSERT(target != TB_NULL_REG);
+	f_assert(target != TB_NULL_REG);
 
 	TB_Node* return_val = tb_inst_call(g->fn, ret_type_tb, target, args.len, args.data);
 	if (!big_return) out.small = return_val;
@@ -508,7 +508,7 @@ static void gen_global_constant(Gen* g, TB_Global* global, u8* base, u32 offset,
 			gen_global_constant(g, global, base, offset + i * elem_size, type->FixedArray.elem_type, &c);
 		}
 	} break;
-	default: F_BP;
+	default: f_trap();
 	}
 }
 
@@ -532,7 +532,7 @@ static TB_Node* load_small(Gen* g, TB_Node* ptr, uint size) {
 	else if (size == 2) return tb_inst_load(g->fn, TB_TYPE_I16, ptr, 2, VOLATILE_OPS);
 	else if (size == 4) return tb_inst_load(g->fn, TB_TYPE_I32, ptr, 4, VOLATILE_OPS);
 	else if (size == 8) return tb_inst_load(g->fn, TB_TYPE_I64, ptr, 8, VOLATILE_OPS);
-	else F_BP; // TODO!! i.e. a type could be of size 3, when [3]u8
+	else f_trap(); // TODO!! i.e. a type could be of size 3, when [3]u8
 	return 0;
 }
 
@@ -540,12 +540,12 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	SmallOrPtr out = {};
 
 	ffzCheckedExpr checked = ffz_expr_get_checked(g->project, inst);
-	F_ASSERT(ffz_type_is_grounded(checked.type));
+	f_assert(ffz_type_is_grounded(checked.type));
 
 	if (checked.const_val) {
 		switch (checked.type->tag) {
 		case ffzTypeTag_Bool: {
-			F_ASSERT(!address_of);
+			f_assert(!address_of);
 #if 0
 			// TODO: message NeGate about this:
 			// e.g.   foo: false   won't work
@@ -557,26 +557,26 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 		case ffzTypeTag_Sint: // fallthrough
 		case ffzTypeTag_DefaultSint: {
-			F_ASSERT(!address_of);
+			f_assert(!address_of);
 			if (checked.type->size == 1)      out.small = tb_inst_sint(g->fn, TB_TYPE_I8,  checked.const_val->u8_);
 			else if (checked.type->size == 2) out.small = tb_inst_sint(g->fn, TB_TYPE_I16, checked.const_val->u16_);
 			else if (checked.type->size == 4) out.small = tb_inst_sint(g->fn, TB_TYPE_I32, checked.const_val->u32_);
 			else if (checked.type->size == 8) out.small = tb_inst_sint(g->fn, TB_TYPE_I64, checked.const_val->u64_);
-			else F_BP;
+			else f_trap();
 		} break;
 
 		case ffzTypeTag_Uint: // fallthrough
 		case ffzTypeTag_DefaultUint: {
-			F_ASSERT(!address_of);
+			f_assert(!address_of);
 			if (checked.type->size == 1)      out.small = tb_inst_uint(g->fn, TB_TYPE_I8,  checked.const_val->u8_);
 			else if (checked.type->size == 2) out.small = tb_inst_uint(g->fn, TB_TYPE_I16, checked.const_val->u16_);
 			else if (checked.type->size == 4) out.small = tb_inst_uint(g->fn, TB_TYPE_I32, checked.const_val->u32_);
 			else if (checked.type->size == 8) out.small = tb_inst_uint(g->fn, TB_TYPE_I64, checked.const_val->u64_);
-			else F_BP;
+			else f_trap();
 		} break;
 		//case ffzTypeTag_Int: { BP; } break;
 		case ffzTypeTag_Proc: {
-			F_ASSERT(!address_of);
+			f_assert(!address_of);
 			
 			TB_Symbol* proc_sym = get_proc_symbol(g, checked.const_val->proc_node);
 			out.small = tb_inst_get_symbol_address(g->fn, proc_sym);
@@ -600,7 +600,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 		} break;
 
-		default: F_BP;
+		default: f_trap();
 		}
 
 		return out;
@@ -625,9 +625,9 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			bool is_signed = ffz_type_is_signed_integer(input_type->tag);
 
 			// TODO: more operator defines. I guess we should do this together with the fix for vector math
-			F_ASSERT(input_type->size <= 8);
+			f_assert(input_type->size <= 8);
 
-			F_ASSERT(!address_of);
+			f_assert(!address_of);
 			TB_Node* a = gen_expr(g, left).small;
 			TB_Node* b = gen_expr(g, right).small;
 
@@ -645,17 +645,17 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			case ffzNodeKind_Greater: { out.small = tb_inst_cmp_igt(g->fn, a, b, is_signed); } break;
 			case ffzNodeKind_GreaterOrEqual: { out.small = tb_inst_cmp_ige(g->fn, a, b, is_signed); } break;
 
-			default: F_BP;
+			default: f_trap();
 			}
 		} break;
 
 		case ffzNodeKind_UnaryMinus: {
-			F_ASSERT(!address_of);
+			f_assert(!address_of);
 			out.small = tb_inst_neg(g->fn, gen_expr(g, right).small);
 		} break;
 
 		case ffzNodeKind_LogicalNOT: {
-			F_ASSERT(!address_of);
+			f_assert(!address_of);
 			// (!x) is equivalent to (x == false)
 			out.small = tb_inst_cmp_eq(g->fn, gen_expr(g, right).small, tb_inst_bool(g->fn, false));
 		} break;
@@ -680,7 +680,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					case ffzKeyword_bit_xor: { out.small = tb_inst_xor(g->fn, first, second); } break;
 					case ffzKeyword_bit_shl: { out.small = tb_inst_shl(g->fn, first, second, (TB_ArithmaticBehavior)0); } break;
 					case ffzKeyword_bit_shr: { out.small = tb_inst_shr(g->fn, first, second); } break;
-					default: F_BP;
+					default: f_trap();
 					}
 				}
 			}
@@ -731,7 +731,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 
 		case ffzNodeKind_AddressOf: {
-			F_ASSERT(!address_of);
+			f_assert(!address_of);
 			out = gen_expr(g, right, true);
 		} break;
 
@@ -744,12 +744,12 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			fString member_name = right.node->Identifier.name;
 
 			if (left.node->kind == ffzNodeKind_Identifier && left.node->Identifier.name == F_LIT("in")) {
-				F_ASSERT(!address_of); // TODO
+				f_assert(!address_of); // TODO
 				for (int i = 0; i < g->proc_type->Proc.in_params.len; i++) {
 					ffzTypeProcParameter& param = g->proc_type->Proc.in_params[i];
 					if (param.name->Identifier.name == member_name) {
 						out.small = tb_inst_param(g->fn, i);
-						F_ASSERT(param.type->size <= 8);
+						f_assert(param.type->size <= 8);
 					}
 				}
 			}
@@ -758,10 +758,10 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				ffzType* struct_type = left_chk.type->tag == ffzTypeTag_Pointer ? left_chk.type->Pointer.pointer_to : left_chk.type;
 
 				ffzTypeRecordFieldUse field;
-				F_ASSERT(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
+				f_assert(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
 
 				TB_Node* addr_of_struct = gen_expr(g, left, left_chk.type->tag != ffzTypeTag_Pointer).small;
-				F_ASSERT(addr_of_struct != TB_NULL_REG);
+				f_assert(addr_of_struct != TB_NULL_REG);
 
 				out.small = tb_inst_member_access(g->fn, addr_of_struct, field.offset);
 				should_dereference = !address_of;
@@ -772,7 +772,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			// dynamic initializer
 			out.ptr = tb_inst_local(g->fn, checked.type->size, checked.type->align);
 			out.ptr_can_be_stolen = true;
-			F_ASSERT(checked.type->size > 8);
+			f_assert(checked.type->size > 8);
 
 			if (checked.type->tag == ffzTypeTag_Record) {
 				u32 i = 0;
@@ -795,12 +795,12 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					i++;
 				}
 			}
-			else F_BP;
+			else f_trap();
 		} break;
 
 		case ffzNodeKind_PostSquareBrackets: {
 			ffzType* left_type = ffz_expr_get_type(g->project, left);
-			F_ASSERT(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
+			f_assert(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
 
 			ffzType* elem_type = left_type->tag == ffzTypeTag_Slice ? left_type->Slice.elem_type : left_type->FixedArray.elem_type;
 
@@ -808,7 +808,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			TB_Node* array_data = left_value;
 
 			if (left_type->tag == ffzTypeTag_Slice) {
-				F_BP;// array_data = c0_push_load(g->c0_proc, c0_agg_type_basic(g->c0, C0Basic_ptr), array_data);
+				f_trap();// array_data = c0_push_load(g->c0_proc, c0_agg_type_basic(g->c0, C0Basic_ptr), array_data);
 			}
 
 			if (ffz_get_child_count(inst.node) == 2) { // slicing
@@ -906,37 +906,37 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			out.small = tb_inst_phi2(g->fn, left_false, left_false_val, left_true, left_true_val);*/
 		} break;
 
-		default: F_BP;
+		default: f_trap();
 		}
 	}
 	else {
 		switch (inst.node->kind) {
 		case ffzNodeKind_Identifier: {
 			ffzNodeIdentifierInst def = ffz_get_definition(g->project, inst);
-			if (def.node->Identifier.is_constant) F_BP;
+			if (def.node->Identifier.is_constant) f_trap();
 
 			Value* val = f_map64_get(&g->value_from_definition, ffz_hash_node_inst(def));
-			F_ASSERT(val);
+			f_assert(val);
 			out.small = val->symbol ? tb_inst_get_symbol_address(g->fn, val->symbol) : val->local_addr;
 			
 			should_dereference = !address_of;
 		} break;
 		case ffzNodeKind_ThisValueDot: {
 			ffzNodeInst assignee;
-			F_ASSERT(ffz_dot_get_assignee(inst, &assignee));
+			f_assert(ffz_dot_get_assignee(inst, &assignee));
 			out = gen_expr(g, assignee, address_of);
 		} break;
 
-		default: F_BP;
+		default: f_trap();
 		}
 	}
 
 	if (should_dereference) {
-		F_ASSERT(!should_take_address);
+		f_assert(!should_take_address);
 		if (checked.type->size > 8) {
 			out.ptr = out.small;
 			out.small = {};
-			F_ASSERT(!out.ptr_can_be_stolen); //out.ptr_can_be_stolen = false;
+			f_assert(!out.ptr_can_be_stolen); //out.ptr_can_be_stolen = false;
 		}
 		else {
 			// TODO: load small
@@ -945,7 +945,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 	}
 	
 	if (should_take_address) {
-		F_ASSERT(!should_dereference);
+		f_assert(!should_dereference);
 		if (checked.type->size > 8) {
 			out.small = out.ptr;
 			out.ptr = {};
@@ -957,8 +957,8 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		}
 	}
 	
-	F_ASSERT(out.small || out.ptr);
-	F_ASSERT((out.small == NULL) ^ (out.ptr == NULL));
+	f_assert(out.small || out.ptr);
+	f_assert((out.small == NULL) ^ (out.ptr == NULL));
 	// a ^^ b
 	return out;
 }
@@ -1034,7 +1034,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 	case ffzNodeKind_If: {
 		TB_Node* cond = gen_expr(g, CHILD(inst, If.condition)).small;
 		
-		//if (inst.node->loc.start.line_num == 108) F_BP;
+		//if (inst.node->loc.start.line_num == 108) f_trap();
 
 		TB_Label true_bb = tb_basic_block_create(g->fn);
 		TB_Label else_bb;
@@ -1081,7 +1081,7 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		TB_Label after_bb = tb_basic_block_create(g->fn);
 		tb_inst_goto(g->fn, cond_bb);
 
-		if (!condition.node) F_BP; // TODO
+		if (!condition.node) f_trap(); // TODO
 		
 		{
 			tb_inst_set_label(g->fn, cond_bb);
@@ -1134,14 +1134,14 @@ static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {
 		gen_call(g, inst);
 	} break;
 
-	default: F_BP;
+	default: f_trap();
 	}
 }
 
 bool ffz_backend_gen_executable_tb(ffzProject* project) {
 	//ASSERT(!tb_arena);
 	//tb_arena = arena_make_virtual_reserve_fixed(GiB(1), NULL);
-	//F_ASSERT(!tb_allocator);
+	//f_assert(!tb_allocator);
 	//tb_allocator = f_temp_alc();
 
 	TB_FeatureSet features = { 0 };
@@ -1171,7 +1171,7 @@ bool ffz_backend_gen_executable_tb(ffzProject* project) {
 		}
 	}
 
-	F_BP; // TODO: f_files_make_directory on build dir
+	f_trap(); // TODO: f_files_make_directory on build dir
 	fString obj_path = F_STR_T_JOIN(project->directory, F_LIT("\\.build\\"), project->name, F_LIT(".obj"));
 	fString exe_path = F_STR_T_JOIN(project->directory, F_LIT("\\.build\\"), project->name, F_LIT(".exe"));
 

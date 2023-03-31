@@ -6,18 +6,19 @@
 	
 	hdc: GetDC(window.hwnd)
 	
-	pfd: PIXELFORMATDESCRIPTOR
-	pfd.nSize = u16(size_of(PIXELFORMATDESCRIPTOR))
-	pfd.nVersion = 1
-	pfd.dwFlags = bit_or(PFD_DRAW_TO_WINDOW, bit_or(PFD_SUPPORT_OPENGL, PFD_DOUBLEBUFFER))
-	pfd.iPixelType = PFD_TYPE_RGBA
-	pfd.cColorBits = 32
-	pfd.cDepthBits = 24 // Number of bits for the depthbuffer
-	pfd.cStencilBits = 8 // Number of bits for the stencilbuffer
-	pfd.iLayerType = PFD_MAIN_PLANE
+	pfd: PIXELFORMATDESCRIPTOR{
+		nSize: size_of(PIXELFORMATDESCRIPTOR)
+		nVersion: 1
+		dwFlags: bit_or(PFD_DRAW_TO_WINDOW, bit_or(PFD_SUPPORT_OPENGL, PFD_DOUBLEBUFFER))
+		iPixelType: PFD_TYPE_RGBA
+		cColorBits: 32
+		cDepthBits: 24 // Number of bits for the depthbuffer
+		cStencilBits: 8 // Number of bits for the stencilbuffer
+		iLayerType: PFD_MAIN_PLANE
+	}
 	
 	pixel_format: ChoosePixelFormat(hdc, &pfd)
-	if pixel_format == 0 {dbgbreak}
+	Basic.assert(pixel_format != 0)
 	
 	Basic.assert(SetPixelFormat(hdc, pixel_format, &pfd) == 1)
 	
@@ -64,32 +65,32 @@
 #PFD_DOUBLEBUFFER: u32(0x00000001)
 
 #PIXELFORMATDESCRIPTOR: struct {
-	nSize: u16
-	nVersion: u16
-	dwFlags: u32
-	iPixelType: u8
-	cColorBits: u8
-	cRedBits: u8
-	cRedShift: u8
-	cGreenBits: u8
-	cGreenShift: u8
-	cBlueBits: u8
-	cBlueShift: u8
-	cAlphaBits: u8
-	cAlphaShift: u8
-	cAccumBits: u8
-	cAccumRedBits: u8
-	cAccumGreenBits: u8
-	cAccumBlueBits: u8
-	cAccumAlphaBits: u8
-	cDepthBits: u8
-	cStencilBits: u8
-	cAuxBuffers: u8
-	iLayerType: u8
-	bReserved: u8
-	dwLayerMask: u32
-	dwVisibleMask: u32
-	dwDamageMask: u32
+	nSize: u16(0)
+	nVersion: u16(0)
+	dwFlags: u32(0)
+	iPixelType: u8(0)
+	cColorBits: u8(0)
+	cRedBits: u8(0)
+	cRedShift: u8(0)
+	cGreenBits: u8(0)
+	cGreenShift: u8(0)
+	cBlueBits: u8(0)
+	cBlueShift: u8(0)
+	cAlphaBits: u8(0)
+	cAlphaShift: u8(0)
+	cAccumBits: u8(0)
+	cAccumRedBits: u8(0)
+	cAccumGreenBits: u8(0)
+	cAccumBlueBits: u8(0)
+	cAccumAlphaBits: u8(0)
+	cDepthBits: u8(0)
+	cStencilBits: u8(0)
+	cAuxBuffers: u8(0)
+	iLayerType: u8(0)
+	bReserved: u8(0)
+	dwLayerMask: u32(0)
+	dwVisibleMask: u32(0)
+	dwDamageMask: u32(0)
 }
 
 #HDC: ^raw
