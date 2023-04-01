@@ -7,11 +7,6 @@
 
 #include "ffz_ast.h"
 #include "ffz_checker.h"
-#include <string.h> // for memcpy
-#include <stdio.h>
-
-bool ffz_backend_gen_executable_gmmc(ffzProject* project);
-bool ffz_backend_gen_executable_tb(ffzProject* project);
 
 #define TRY(x) { if ((x).ok == false) return ffzOk{false}; }
 
@@ -32,12 +27,6 @@ inline ffzNodeInst _get_child_dbg(ffzNodeInst inst, ffzNode* parent) {
 #define CHILD(parent, child_access) _get_child_dbg(ffzNodeInst{ (parent).node->child_access, (parent).polymorph }, (parent).node)
 //#define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
 #define VALIDATE(x) f_assert(x)
-
-//#define AS(node,kind) FFZ_AS(node, kind)
-//#define (ffzNode*)node FFZ_(ffzNode*)node
-//#define node FFZ_INST_AS(node, kind)
-//#define node FFZ_INST_(ffzNode*)node 
-//#define ICHILD(parent, child_access) { (parent).node->child_access, (parent).polymorph }
 
 ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value) {
 	return f_hash64_ex(enum_type->hash, value);
@@ -99,7 +88,7 @@ u64 ffz_hash_declaration_path(ffzDefinitionPath path) {
 	return hash;
 }
 
-static ffzOk _add_unique_definition(ffzChecker* c, ffzNodeIdentifier* def) {
+static ffzOk _add_unique_definition(ffzModule* c, ffzNodeIdentifier* def) {
 	fString name = def->Identifier.name;
 	
 	for (ffzCheckerScope* scope = c->current_scope; scope; scope = scope->parent) {
@@ -117,20 +106,20 @@ static ffzOk _add_unique_definition(ffzChecker* c, ffzNodeIdentifier* def) {
 
 
 
-static ffzConstant* make_constant(ffzChecker* c) {
+static ffzConstant* make_constant(ffzModule* c) {
 	// TODO: we should deduplicate constants
 	ffzConstant* constant = f_mem_clone(ffzConstant{}, c->alc);
 	//if (constant == (void*)0x0000020000003a90) f_trap();
 	return constant;
 }
 
-static ffzConstant* make_constant_int(ffzChecker* c, u64 u64_) {
+static ffzConstant* make_constant_int(ffzModule* c, u64 u64_) {
 	ffzConstant* constant = make_constant(c);
 	constant->u64_ = u64_;
 	return constant;
 }
 
-ffzCheckedInst make_type_constant(ffzChecker* c, ffzType* type) {
+ffzCheckedInst make_type_constant(ffzModule* c, ffzType* type) {
 	ffzCheckedInst out;
 	out.type = c->type_type;
 	out.const_val = make_constant(c);
@@ -301,10 +290,9 @@ void _write_constant(ffzProject* p, fWriter* w, ffzCheckedInst constant) {
 	}
 }
 
-// Temp allocates the result
 fString ffz_constant_to_string(ffzProject* p, ffzCheckedInst constant) {
 	fStringBuilder builder;
-	f_init_string_builder(&builder, f_temp_alc());
+	f_init_string_builder(&builder, p->persistent_allocator);
 	_write_constant(p, builder.w, constant);
 	return builder.buffer.slice;
 }
@@ -314,27 +302,18 @@ char* ffz_constant_to_cstring(ffzProject* p, ffzCheckedInst constant) {
 	return NULL;
 }
 
-// Temp allocates the result
 fString ffz_type_to_string(ffzProject* p, ffzType* type) {
-	fStringBuilder builder; f_init_string_builder(&builder, f_temp_alc());
+	fStringBuilder builder; f_init_string_builder(&builder, p->persistent_allocator);
 	_write_type(p, builder.w, type);
 	return builder.buffer.slice;
 }
 
-// Temp allocates the result
 char* ffz_type_to_cstring(ffzProject* p, ffzType* type) {
-	fStringBuilder builder; f_init_string_builder(&builder, f_temp_alc());
+	fStringBuilder builder; f_init_string_builder(&builder, p->persistent_allocator);
 	_write_type(p, builder.w, type);
 	f_printb(builder.w, 0);
 	return (char*)builder.buffer.data;
 }
-
-//bool ffz_get_decl_if_definition(ffzNodeIdentifierInst node, ffzNodeOpDeclareInst* out_decl) {
-//	if (node.node->parent->kind != ffzNodeKind_Declare) return false;
-//	
-//	*out_decl = { node.node->parent, node.polymorph };
-//	return out_decl->node->Op.left == node.node;
-//}
 
 bool ffz_decl_is_local_variable(ffzNodeOpDeclare* decl) {
 	// TODO: wtf even is this?????????
@@ -354,7 +333,7 @@ bool ffz_decl_is_global_variable(ffzNodeOpDeclare* decl) {
 }
 
 ffzNodeIdentifierInst ffz_get_definition(ffzProject* project, ffzNodeIdentifierInst ident) {
-	ffzChecker* base_module = ffz_checker_from_node(project, (ffzNode*)ident.node);
+	ffzModule* base_module = ffz_checker_from_node(project, (ffzNode*)ident.node);
 	
 	for (ffzNodeInst n = ident; n.node; n = ffz_parent_inst(project, n)) {
 		ffzDefinitionPath decl_path = { n.node->parent, ident.node->Identifier.name };
@@ -386,18 +365,18 @@ bool ffz_constant_is_zero(ffzConstant constant) {
 }
 
 // hmm. TODO
-ffzConstant* ffz_zero_value_constant(ffzChecker* c, ffzType* t) {
+ffzConstant* ffz_zero_value_constant(ffzModule* c, ffzType* t) {
 	const static ffzConstant empty = {};
 	return (ffzConstant*)&empty;
 }
 
 ffzCheckedInst ffz_get_checked(ffzProject* p, ffzNodeInst node) {
-	ffzChecker* c = ffz_checker_from_inst(p, node);
+	ffzModule* c = ffz_checker_from_inst(p, node);
 	ffzCheckedInst* out = f_map64_get(&c->cache, ffz_hash_node_inst(node));
 	return out ? *out : ffzCheckedInst{};
 }
 
-bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeOpDeclareInst* out_decl) {
+bool ffz_find_top_level_declaration(ffzModule* c, fString name, ffzNodeOpDeclareInst* out_decl) {
 	ffzNodeIdentifier** def = f_map64_get(&c->definition_map, ffz_hash_declaration_path({ {}, name }));
 	if (def) {
 		*out_decl = { (*def)->parent, NULL };
@@ -416,7 +395,7 @@ ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst) {
 	return hash;
 }
 
-static ffzOk add_fields_to_field_from_name_map(ffzChecker* c, ffzType* root_type, ffzType* parent_type, u32 offset_from_root = 0) {
+static ffzOk add_fields_to_field_from_name_map(ffzModule* c, ffzType* root_type, ffzType* parent_type, u32 offset_from_root = 0) {
 	for (u32 i = 0; i < parent_type->record_fields.len; i++) {
 		ffzField* field = &parent_type->record_fields[i];
 		ffzTypeRecordFieldUse* field_use = f_mem_clone(ffzTypeRecordFieldUse{ field->type, offset_from_root + field->offset }, c->alc);
@@ -437,7 +416,7 @@ static ffzOk add_fields_to_field_from_name_map(ffzChecker* c, ffzType* root_type
 }
 
 bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out) {
-	ffzChecker* c = p->checkers[type->checker_id];
+	ffzModule* c = p->checkers[type->checker_id];
 	if (ffzTypeRecordFieldUse** result = f_map64_get(&c->field_from_name_map, ffz_hash_field(type, name))) {
 		*out = **result;
 		return true;
@@ -472,9 +451,9 @@ enum InferFlag {
 	InferFlag_AllowUndefinedValues = 1 << 6,
 };
 
-static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzCheckedInst*) out);
+static ffzOk check_node(ffzModule* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzCheckedInst*) out);
 
-static ffzOk verify_is_type_expression(ffzChecker* c, ffzNode* node, ffzCheckedInst chk) {
+static ffzOk verify_is_type_expression(ffzModule* c, ffzNode* node, ffzCheckedInst chk) {
 	if (chk.type->tag != ffzTypeTag_Type) ERR(c, node, "Expected a type, but got a value.");
 	return FFZ_OK;
 }
@@ -492,7 +471,7 @@ static bool type_is_a_bit_by_bit(ffzProject* p, ffzType* src, ffzType* target) {
 	return src->hash == target->hash;
 }
 
-static ffzOk check_types_match(ffzChecker* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
+static ffzOk check_types_match(ffzModule* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
 	if (!type_is_a_bit_by_bit(c->project, received, expected)) {
 		ERR(c, node, "~c\n    received: ~s\n    expected: ~s",
 			message, ffz_type_to_string(c->project, received), ffz_type_to_string(c->project, expected));
@@ -500,7 +479,7 @@ static ffzOk check_types_match(ffzChecker* c, ffzNode* node, ffzType* received, 
 	return { true };
 }
 
-static ffzOk error_not_an_expression(ffzChecker* c, ffzNode* node) {
+static ffzOk error_not_an_expression(ffzModule* c, ffzNode* node) {
 	ERR(c, node, "Expected an expression, but got a statement or a procedure call with no return value.");
 }
 
@@ -532,7 +511,7 @@ void ffz_get_arguments_flat(ffzNodeInst arg_list, fSlice(ffzField) fields, fSlic
 	}
 }
 
-static ffzOk check_argument_list(ffzChecker* c, ffzNodeInst inst, fSlice(ffzField) fields, fOpt(ffzCheckedInst*) record_literal) {
+static ffzOk check_argument_list(ffzModule* c, ffzNodeInst inst, fSlice(ffzField) fields, fOpt(ffzCheckedInst*) record_literal) {
 	bool all_fields_are_constant = true;
 	fSlice(ffzConstant) field_constants;
 	if (record_literal) field_constants = f_make_slice_garbage<ffzConstant>(fields.len, c->alc);
@@ -588,7 +567,7 @@ static ffzOk check_argument_list(ffzChecker* c, ffzNodeInst inst, fSlice(ffzFiel
 	return FFZ_OK;
 }
 
-static ffzOk check_procedure_call(ffzChecker* c, ffzNodeOpInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzType*)* out_type) {
+static ffzOk check_procedure_call(ffzModule* c, ffzNodeOpInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzType*)* out_type) {
 	ffzNodeInst left = CHILD(inst, Op.left);
 	ffzCheckedInst left_chk;
 	TRY(check_node(c, left, NULL, 0, &left_chk));
@@ -608,7 +587,7 @@ static bool uint_is_subtype_of(ffzType* type, ffzType* subtype_of) {
 	return false;
 }
 
-static ffzOk check_two_sided(ffzChecker* c, ffzNodeInst left, ffzNodeInst right, OPT(ffzType*)* out_type) {
+static ffzOk check_two_sided(ffzModule* c, ffzNodeInst left, ffzNodeInst right, OPT(ffzType*)* out_type) {
 	ffzCheckedInst left_chk, right_chk;
 
 	// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
@@ -679,7 +658,7 @@ ffzConstant ffz_constant_fixed_array_get(ffzType* array_type, ffzConstant* array
 	return result;
 }
 
-ffzOk _ffz_add_possible_definition(ffzChecker* c, ffzNode* n) {
+ffzOk _ffz_add_possible_definition(ffzModule* c, ffzNode* n) {
 	if (n->parent->kind == ffzNodeKind_PolyParamList) {
 		TRY(_add_unique_definition(c, n));
 	}
@@ -689,12 +668,12 @@ ffzOk _ffz_add_possible_definition(ffzChecker* c, ffzNode* n) {
 	return { true };
 }
 
-ffzOk _ffz_add_possible_definitions(ffzChecker* c, OPT(ffzNode*) parent) {
+ffzOk _ffz_add_possible_definitions(ffzModule* c, OPT(ffzNode*) parent) {
 	for FFZ_EACH_CHILD(n, parent) { TRY(_ffz_add_possible_definition(c, n)); }
 	return { true };
 }
 
-ffzOk ffz_instanceless_check_ex(ffzChecker* c, ffzNode* node, bool recursive, bool new_scope) {
+ffzOk ffz_instanceless_check_ex(ffzModule* c, ffzNode* node, bool recursive, bool new_scope) {
 	ffzCheckerScope scope;
 
 	if (new_scope) {
@@ -741,7 +720,7 @@ ffzOk ffz_instanceless_check_ex(ffzChecker* c, ffzNode* node, bool recursive, bo
 	return { true };
 }
 
-ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive) { return ffz_instanceless_check_ex(c, node, recursive, true); }
+ffzOk ffz_instanceless_check(ffzModule* c, ffzNode* node, bool recursive) { return ffz_instanceless_check_ex(c, node, recursive, true); }
 
 
 /*
@@ -805,7 +784,7 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 	return h;
 }
 
-ffzType* ffz_make_type(ffzChecker* c, ffzType type_desc) {
+ffzType* ffz_make_type(ffzModule* c, ffzType type_desc) {
 	//F_HITS(_c, 35);
 	//F_HITS(_c1, 416);
 	type_desc.checker_id = c->id;
@@ -823,13 +802,13 @@ ffzType* ffz_make_type(ffzChecker* c, ffzType type_desc) {
 	return *entry._unstable_ptr;
 }
 
-ffzType* ffz_make_type_ptr(ffzChecker* c, ffzType* pointer_to) {
+ffzType* ffz_make_type_ptr(ffzModule* c, ffzType* pointer_to) {
 	ffzType type = { ffzTypeTag_Pointer, c->project->pointer_size };
 	type.Pointer.pointer_to = pointer_to;
 	return ffz_make_type(c, type);
 }
 
-OPT(ffzType*) ffz_builtin_type(ffzChecker* c, ffzKeyword keyword) {
+OPT(ffzType*) ffz_builtin_type(ffzModule* c, ffzKeyword keyword) {
 	return c->builtin_types[keyword];
 	//if (keyword >= ffzKeyword_FIRST_TYPE && keyword <= ffzKeyword_LAST_TYPE) {
 	//}
@@ -837,12 +816,12 @@ OPT(ffzType*) ffz_builtin_type(ffzChecker* c, ffzKeyword keyword) {
 }
 
 struct ffzRecordBuilder {
-	ffzChecker* checker;
+	ffzModule* checker;
 	ffzType* record;
 	fArray(ffzField) fields;
 };
 
-static ffzRecordBuilder ffz_record_builder_init(ffzChecker* c, ffzType* record, uint fields_cap) {
+static ffzRecordBuilder ffz_record_builder_init(ffzModule* c, ffzType* record, uint fields_cap) {
 	f_assert(record->size == 0);
 	return { c, record, f_array_make_cap<ffzField>(fields_cap, c->alc) };
 }
@@ -873,7 +852,7 @@ static ffzOk ffz_record_builder_finish(ffzRecordBuilder* b) {
 	return FFZ_OK;
 }
 
-ffzType* ffz_make_type_slice(ffzChecker* c, ffzType* elem_type) {
+ffzType* ffz_make_type_slice(ffzModule* c, ffzType* elem_type) {
 	ffzType type = { ffzTypeTag_Slice };
 	type.Slice.elem_type = elem_type;
 	ffzType* out = ffz_make_type(c, type);
@@ -888,7 +867,7 @@ ffzType* ffz_make_type_slice(ffzChecker* c, ffzType* elem_type) {
 	return out;
 }
 
-ffzType* ffz_make_type_fixed_array(ffzChecker* c, ffzType* elem_type, s32 length) {
+ffzType* ffz_make_type_fixed_array(ffzModule* c, ffzType* elem_type, s32 length) {
 	ffzType array_type = { ffzTypeTag_FixedArray };
 	if (length >= 0) array_type.size = (u32)length * elem_type->size;
 
@@ -943,7 +922,7 @@ static bool type_can_be_casted_to(ffzProject* p, ffzType* from, ffzType* to) {
 	return false;
 }
 
-static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType* require_type, InferFlags flags, ffzCheckedInst* result) {
+static ffzOk check_post_round_brackets(ffzModule* c, ffzNodeInst inst, ffzType* require_type, InferFlags flags, ffzCheckedInst* result) {
 	ffzNodeInst left = CHILD(inst, Op.left);
 	bool fall = true;
 	if (left.node->kind == ffzNodeKind_Keyword) {
@@ -988,7 +967,7 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 			result->type = c->module_type;
 			result->const_val = make_constant(c);
 
-			ffzChecker* node_module = ffz_checker_from_inst(c->project, inst);
+			ffzModule* node_module = ffz_checker_from_inst(c->project, inst);
 			result->const_val->module = *f_map64_get(&node_module->imported_modules, inst.node->id.global_id);
 			fall = false;
 		}
@@ -1035,7 +1014,7 @@ static ffzOk check_post_round_brackets(ffzChecker* c, ffzNodeInst inst, ffzType*
 	return FFZ_OK;
 }
 
-static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, bool* delayed_check_proc, ffzCheckedInst* result) {
+static ffzOk check_post_curly_brackets(ffzModule* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, bool* delayed_check_proc, ffzCheckedInst* result) {
 	ffzNodeInst left = CHILD(inst, Op.left);
 
 	ffzCheckedInst left_chk;
@@ -1128,7 +1107,7 @@ static ffzOk check_post_curly_brackets(ffzChecker* c, ffzNodeInst inst, OPT(ffzT
 	return FFZ_OK;
 }
 
-static ffzOk check_post_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result) {
+static ffzOk check_post_square_brackets(ffzModule* c, ffzNodeInst inst, ffzCheckedInst* result) {
 	ffzCheckedInst left_chk;
 	TRY(check_node(c, CHILD(inst, Op.left), NULL, 0, &left_chk));
 
@@ -1231,7 +1210,7 @@ static ffzOk check_post_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzChec
 	return FFZ_OK;
 }
 
-static ffzOk check_member_access(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result) {
+static ffzOk check_member_access(ffzModule* c, ffzNodeInst inst, ffzCheckedInst* result) {
 	ffzNodeInst left = CHILD(inst, Op.left);
 	ffzNodeInst right = CHILD(inst, Op.right);
 	if (right.node->kind != ffzNodeKind_Identifier) {
@@ -1269,8 +1248,8 @@ static ffzOk check_member_access(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst
 		TRY(check_node(c, left, NULL, 0, &left_chk));
 
 		if (left_chk.type->tag == ffzTypeTag_Module) {
-			ffzChecker* left_module = left_chk.const_val->module;
-			lhs_name = left_module->_dbg_module_import_name; // TODO: we should get an actual name for the module
+			ffzModule* left_module = left_chk.const_val->module;
+			f_trap();//lhs_name = left_module->_dbg_module_import_name; // TODO: we should get an actual name for the module
 
 			ffzNodeOpDeclareInst decl;
 			if (ffz_find_top_level_declaration(left_module, member_name, &decl)) {
@@ -1282,7 +1261,7 @@ static ffzOk check_member_access(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst
 			ffzType* enum_type = left_chk.const_val->type;
 			lhs_name = ffz_type_to_string(c->project, enum_type);
 
-			ffzChecker* enum_type_module = ffz_checker_from_inst(c->project, enum_type->unique_node);
+			ffzModule* enum_type_module = ffz_checker_from_inst(c->project, enum_type->unique_node);
 			ffzFieldHash member_key = ffz_hash_field(left_chk.const_val->type, member_name);
 
 			if (u64* val = f_map64_get(&enum_type_module->enum_value_from_name, member_key)) {
@@ -1308,7 +1287,7 @@ static ffzOk check_member_access(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst
 	return FFZ_OK;
 }
 
-static bool is_lvalue(ffzChecker* c, ffzNode* node) {
+static bool is_lvalue(ffzModule* c, ffzNode* node) {
 	// TODO
 	return true; 
 	//switch (node->kind) {
@@ -1327,7 +1306,7 @@ static bool is_lvalue(ffzChecker* c, ffzNode* node) {
 	//return false;
 }
 
-ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
+ffzOk ffz_check_toplevel_statement(ffzModule* c, ffzNode* node) {
 	switch (node->kind) {
 	case ffzNodeKind_Declare: {
 		ffzNodeIdentifier* name = node->Op.left;
@@ -1346,7 +1325,7 @@ ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node) {
 	return { true };
 }
 
-static ffzOk check_tag(ffzChecker* c, ffzNodeInst tag) {
+static ffzOk check_tag(ffzModule* c, ffzNodeInst tag) {
 	ffzCheckedInst chk;
 	TRY(check_node(c, tag, NULL, InferFlag_RequireConstant | InferFlag_TypeMeansDefaultValue, &chk));
 	if (chk.type->tag != ffzTypeTag_Record) {
@@ -1356,8 +1335,6 @@ static ffzOk check_tag(ffzChecker* c, ffzNodeInst tag) {
 	if (chk.type == ffz_builtin_type(c, ffzKeyword_extern)) {
 		fString library = chk.const_val->record_fields[0].string_zero_terminated;
 		f_array_push(&c->extern_libraries, library);
-		// hmm... if we have a lot of these calls, that might be a bit slow, since we're calling the OS functions
-		//if (!f_files_path_to_canonical(c->directory, library,
 	}
 	//else if (chk.type == ffz_builtin_type(c, ffzKeyword_extern_sys)) {
 	//	fString library = chk.const_val->record_fields[0].string_zero_terminated;
@@ -1370,7 +1347,7 @@ static ffzOk check_tag(ffzChecker* c, ffzNodeInst tag) {
 	return FFZ_OK;
 }
 
-static ffzOk check_tags(ffzChecker* c, ffzNodeInst inst) {
+static ffzOk check_tags(ffzModule* c, ffzNodeInst inst) {
 	for (ffzNode* tag_n = inst.node->first_tag; tag_n; tag_n = tag_n->next) {
 		ffzNodeInst tag = { tag_n, inst.polymorph };
 		TRY(check_tag(c, tag));
@@ -1395,20 +1372,20 @@ ffzNodeInst ffz_parent_inst(ffzProject* p, ffzNodeInst inst) {
 //	return node;
 //}
 
-static ffzNodeInst ffz_make_pseudo_node(ffzChecker* c) {
+static ffzNodeInst ffz_make_pseudo_node(ffzModule* c) {
 	ffzNode* n = f_mem_clone(ffzNode{}, c->alc);
 	n->id.global_id = --c->next_pseudo_node_idx; // this is supposed to underflow and to not collide with real nodes
 	return { n, NULL };
 }
 
-static ffzType* ffz_make_pseudo_record_type(ffzChecker* c) {
+static ffzType* ffz_make_pseudo_record_type(ffzModule* c) {
 	ffzType t = { ffzTypeTag_Record }; // hmm... maybe PseudoRecordType should be its own type tag / call it BuiltinRecord
 	t.unique_node = ffz_make_pseudo_node(c); // NOTE: ffz_hash_node_inst looks at the id of the unique node for record types
 	return ffz_make_type(c, t);
 }
 
-ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
-	ffzChecker* c = f_mem_clone(ffzChecker{}, allocator);	
+ffzModule* ffz_project_add_new_module(ffzProject* p, fAllocator* allocator) {
+	ffzModule* c = f_mem_clone(ffzModule{}, allocator);	
 	c->project = p;
 	c->id = (ffzCheckerID)f_array_push(&p->checkers, c);
 	c->alc = allocator;
@@ -1419,12 +1396,11 @@ ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator) {
 	c->field_from_name_map = f_map64_make<ffzTypeRecordFieldUse*>(c->alc);
 	c->enum_value_from_name = f_map64_make<u64>(c->alc);
 	c->enum_value_is_taken = f_map64_make<ffzNode*>(c->alc);
-	c->imported_modules = f_map64_make<ffzChecker*>(c->alc);
+	c->imported_modules = f_map64_make<ffzModule*>(c->alc);
 	c->type_from_hash = f_map64_make<ffzType*>(c->alc);
 	c->all_tags_of_type = f_map64_make<fArray(ffzNodeInst)>(c->alc);
 	c->poly_from_hash = f_map64_make<ffzPolymorph*>(c->alc);
 	c->extern_libraries = f_array_make<fString>(c->alc);
-	//c->extern_sys_libraries = f_array_make<fString>(c->alc);
 
 	{
 		c->builtin_types[ffzKeyword_u8] = ffz_make_type(c, { ffzTypeTag_Uint, 1 });
@@ -1498,7 +1474,7 @@ ffzConstant* ffz_get_tag_of_type(ffzProject* p, ffzNodeInst node, ffzType* tag_t
 	return NULL;
 }
 
-static ffzOk check_enum(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result) {
+static ffzOk check_enum(ffzModule* c, ffzNodeInst inst, ffzCheckedInst* result) {
 	ffzCheckedInst type_chk;
 	TRY(check_node(c, CHILD(inst, Enum.internal_type), NULL, 0, &type_chk));
 
@@ -1545,7 +1521,7 @@ static ffzOk check_enum(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result)
 	return FFZ_OK;
 }
 
-static ffzOk check_proc_type(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result) {
+static ffzOk check_proc_type(ffzModule* c, ffzNodeInst inst, ffzCheckedInst* result) {
 	ffzType proc_type = { ffzTypeTag_Proc };
 	proc_type.unique_node = inst;
 	ffzNodeInst out_param = CHILD(inst,ProcType.out_parameter);
@@ -1613,7 +1589,7 @@ static ffzOk check_proc_type(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* re
 	return FFZ_OK;
 }
 
-static ffzOk check_identifier(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result) {
+static ffzOk check_identifier(ffzModule* c, ffzNodeInst inst, ffzCheckedInst* result) {
 	fString name = inst.node->Identifier.name;
 
 	ffzNodeIdentifierInst def = ffz_get_definition(c->project, inst);
@@ -1665,7 +1641,7 @@ static ffzOk check_identifier(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* r
 	return FFZ_OK;
 }
 
-static ffzOk check_return(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result) {
+static ffzOk check_return(ffzModule* c, ffzNodeInst inst, ffzCheckedInst* result) {
 	ffzNodeInst return_val = CHILD(inst, Return.value);
 	ffzType* proc_type;
 	ffzNodeOpInst proc_node = code_stmt_get_parent_proc(c->project, inst, &proc_type);
@@ -1680,7 +1656,7 @@ static ffzOk check_return(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* resul
 	return FFZ_OK;
 }
 
-static ffzOk check_assign(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result) {
+static ffzOk check_assign(ffzModule* c, ffzNodeInst inst, ffzCheckedInst* result) {
 	ffzNodeInst lhs = CHILD(inst, Op.left);
 	ffzNodeInst rhs = CHILD(inst, Op.right);
 	ffzCheckedInst lhs_chk, rhs_chk;
@@ -1701,7 +1677,7 @@ static ffzOk check_assign(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* resul
 	return FFZ_OK;
 }
 
-static ffzOk check_pre_square_brackets(ffzChecker* c, ffzNodeInst inst, ffzCheckedInst* result) {
+static ffzOk check_pre_square_brackets(ffzModule* c, ffzNodeInst inst, ffzCheckedInst* result) {
 	ffzCheckedInst right_chk;
 	TRY(check_node(c, CHILD(inst, Op.right), NULL, 0, &right_chk));
 	TRY(verify_is_type_expression(c, inst.node, right_chk));
@@ -1736,7 +1712,7 @@ static bool integer_is_negative(void* bits, u32 size) {
 	return false;
 }
 
-static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzCheckedInst*) out) {
+static ffzOk check_node(ffzModule* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzCheckedInst*) out) {
 	ffzNodeInstHash inst_hash = ffz_hash_node_inst(inst);
 	//if (inst_hash == 5952824672257) f_trap();
 	if (ffzCheckedInst* existing = f_map64_get(&c->cache, inst_hash)) {
@@ -2151,299 +2127,24 @@ static ffzOk check_node(ffzChecker* c, ffzNodeInst inst, OPT(ffzType*) require_t
 }
 
 
-void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline = false) {
-	f_os_print_color(error_kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
-	f_os_print(F_LIT("("));
+ffzProject* ffz_init_project(fArena* arena, fString modules_directory) {
+	ffzProject* p = f_mem_clone(ffzProject{}, &arena->alc);
+	p->persistent_allocator = &arena->alc;
 
-	f_os_print_color(parser->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
-
-	fString line_num_str = f_str_from_uint(loc.start.line_num, 10, f_temp_alc());
-
-	f_os_print(F_LIT(":"));
-	f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
-	f_os_print(F_LIT(":"));
-	f_os_print_color(f_str_from_uint(loc.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
-	f_os_print(F_LIT(")\n  "));
-	f_os_print(error);
-	f_os_print(F_LIT("\n"));
-	if (extra_newline) f_os_print(F_LIT("\n"));
-
-	//String src_file = parser->src_file_contents[start.file_index];
-
-	// Scan left until the start of the line
-	uint line_start_offset = loc.start.offset;
-	for (;;) {
-		uint prev = line_start_offset;
-		u8 r = (u8)f_str_prev_rune(parser->source_code, &prev);
-		if (r == 0 || r == '\n') break;
-		line_start_offset = prev;
-	}
-
-	u16 code_color = fConsoleAttribute_Green | fConsoleAttribute_Red;
-
-	fString src_line_separator = F_LIT(":    ");
-	f_os_print_color(line_num_str, fConsoleAttribute_Intensify);
-	f_os_print_color(src_line_separator, fConsoleAttribute_Intensify);
-	fString start_str = f_str_replace(f_slice(parser->source_code, line_start_offset, loc.start.offset), F_LIT("\t"), F_LIT("    "), f_temp_alc());
-	f_os_print_color(start_str, code_color);
-
-	{
-		uint offset = loc.start.offset;
-		for (uint i = 0;; i++) {
-			rune r = (u8)f_str_next_rune(parser->source_code, &offset);
-			if (r == 0 || r == '\n') break;
-
-			u8 r_utf8[4];
-			fString r_str = { r_utf8, f_str_encode_rune(r_utf8, r) };
-			f_os_print_color(r_str, offset <= loc.end.offset ? (fConsoleAttribute_Red | fConsoleAttribute_Intensify) : code_color);
-		}
-		f_os_print(F_LIT("\n"));
-	}
-
-	{
-		// write the ^^^ characters
-
-		//for (i64 i=0; i<
-		uint num_spaces = line_num_str.len + src_line_separator.len + f_str_rune_count(start_str);
-		for (uint i = 0; i < num_spaces; i++) f_os_print(F_LIT(" "));
-
-		uint offset = loc.start.offset;
-		for (uint i = 0; offset < loc.end.offset; i++) {
-			rune r = (u8)f_str_next_rune(parser->source_code, &offset);
-			if (r == 0 || r == '\n') break;
-
-			f_os_print_color(F_LIT("^"), fConsoleAttribute_Red);
-		}
-	}
-}
-
-static bool _parse_and_check_directory(ffzProject* project, fString _directory, ffzChecker** out_checker, fString _dbg_module_import_name) {
-	fString directory;
-	if (!f_files_path_to_canonical({}, _directory, f_temp_alc(), &directory)) {
-		__debugbreak();//printf("Invalid directory: \"~s\"\n", directory);
-		return false;
-	}
+	p->modules_directory = modules_directory;
+	//if (modules_directory.len > 0) {
+	//	fString modules_dir_canonical;
+	//	if (f_files_path_to_canonical(fString{}, modules_directory, p->persistent_allocator, &modules_dir_canonical)) {
+	//		p->modules_directory = modules_dir_canonical;
+	//	}
+	//}
 	
-	auto checker_insertion = f_map64_insert(&project->checked_module_from_directory, f_hash64_str_ex(directory, 0),
-		(ffzChecker*)0, fMapInsert_DoNotOverride);
-	if (!checker_insertion.added) {
-		*out_checker = *checker_insertion._unstable_ptr;
-		return true;
-	}
-
-	ffzChecker* checker = ffz_checker_init(project, f_temp_alc());
-	*checker_insertion._unstable_ptr = checker;
-	checker->directory = directory;
-
-	checker->report_error = [](ffzChecker* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
-		ffzParser* parser = checker->project->parsers[at->id.parser_id];
-
-		ffz_log_pretty_error(parser, F_LIT("Semantic error "), at->loc, error, true);
-		for (uint i = poly_path.len - 1; i < poly_path.len; i++) {
-			ffz_log_pretty_error(parser, F_LIT("\n  ...inside instantiation "), poly_path[i]->loc, F_LIT(""), false);
-		}
-		
-		int a = 50;
-	};
-
-	*out_checker = checker;
-
-#ifdef _DEBUG
-	checker->_dbg_module_import_name = _dbg_module_import_name;
-#endif
-
-	struct FileVisitData {
-		fArray(fString) files;
-		fString directory;
-	} visit;
-	visit.files = f_array_make<fString>(f_temp_alc());
-	visit.directory = directory;
-
-	if (!f_files_visit_directory(directory,
-		[](const fVisitDirectoryInfo* info, void* userptr) -> fVisitDirectoryResult {
-			FileVisitData* visit = (FileVisitData*)userptr;
-
-			if (!info->is_directory && f_str_path_extension(info->name) == F_LIT("ffz") && info->name.data[0] != '!') {
-				fString filepath = f_str_join_il(visit->files.alc, { visit->directory, F_LIT("\\"), info->name });
-				f_array_push(&visit->files, filepath);
-			}
-
-			return fVisitDirectoryResult_Continue;
-		}, &visit))
-	{
-		__debugbreak(); //printf("Directory `~s` does not exist!\n", directory);
-		return false;
-	}
-
-	checker->parsers = f_make_slice_garbage<ffzParser*>(visit.files.len, checker->alc);
-	for (uint i = 0; i < visit.files.len; i++) {
-		ffzParser* parser = f_mem_clone(ffzParser{}, f_temp_alc());
-		checker->parsers[i] = parser;
-
-		fString file_contents;
-		f_assert(f_files_read_whole(visit.files[i], f_temp_alc(), &file_contents));
-
-		parser->project = project;
-		parser->alc = f_temp_alc();
-		parser->id = (ffzParserID)f_array_push(&project->parsers, parser);
-		parser->checker = checker;
-		parser->source_code = file_contents;
-		parser->source_code_filepath = visit.files[i];
-		parser->keyword_from_string = &project->keyword_from_string;
-		parser->report_error = [](ffzParser* parser, ffzLocRange at, fString error) {
-			ffz_log_pretty_error(parser, F_LIT("Syntax error "), at, error, true);
-			f_trap();
-		};
-			
-		parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
-		//parser->tag_decl_lists = f_map64_make<ffzNodeTagDecl*>(parser->alc);
-
-		ffzOk ok = ffz_parse(parser);
-		if (!ok.ok) return false;
-
-		if (false) {
-			u8 console_buf[4096];
-			fBufferedWriter console_writer;
-			fWriter* w = f_open_buffered_writer(f_get_stdout(), console_buf, F_LEN(console_buf), &console_writer);
-
-			f_print(w, "PRINTING AST: ======================================================\n");
-			for (ffzNode* n = parser->root->first_child; n; n = n->next) {
-				ffz_print_ast(w, n);
-				f_print(w, "\n");
-			}
-			f_print(w, "====================================================================\n\n");
-
-			f_flush_buffered_writer(&console_writer);
-		}
-		
-		for (uint i = 0; i < parser->module_imports.len; i++) {
-			ffzNodeKeyword* import_keyword = parser->module_imports[i];
-				
-			ffzNodeOp* import_op = import_keyword->parent;
-			f_assert(import_op && import_op->kind == ffzNodeKind_PostRoundBrackets && ffz_get_child_count(import_op) == 1);
-
-			ffzNode* import_name_node = ffz_get_child(import_op, 0);
-			f_assert(import_name_node->kind == ffzNodeKind_StringLiteral);
-			fString import_path = import_name_node->StringLiteral.zero_terminated_string;
-			
-			// : means that the path is relative to the modules directory shipped with the compiler
-			if (f_str_starts_with(import_path, F_LIT(":"))) {
-				import_path = F_STR_T_JOIN(project->compiler_install_dir, F_LIT("/modules/"), f_str_slice_after(import_path, 1));
-			}
-			else {
-				// let's make the import path absolute, relative to the checker's directory
-				if (!f_files_path_to_canonical(checker->directory, import_path, f_temp_alc(), &import_path)) {
-					f_trap();
-				}	
-			}
-
-			// Compile the imported module.
-
-			ffzChecker* child_checker = NULL;
-			bool ok = _parse_and_check_directory(project, import_path, &child_checker, f_str_path_tail(import_path));
-			if (!ok) return false;
-
-			f_map64_insert(&checker->imported_modules, import_op->id.global_id, child_checker);
-		}
-
-		// now that imported modules have been checked, we can add our module to the dependency-sorted array
-		f_array_push(&project->checkers_dependency_sorted, checker);
-	}
-
-	// checker stage
-	{
-		//ffzCheckerStackFrame root_frame = {};
-		//ffzCheckerScope root_scope = {};
-		//checker->current_scope = &root_scope;
-		//array_push(&checker->stack, &root_frame);
-
-		// We need to first add top-level declarations from all files before proceeding  :EarlyTopLevelDeclarations
-		for (uint i = 0; i < checker->parsers.len; i++) {
-			ffzParser* parser = checker->parsers[i];
-			//root_scope.parser = parser;
-			//checker->report_error_userptr = parser;
-
-			//ffzNodeInst root = ffz_get_toplevel_inst(checker, );
-			if (!ffz_instanceless_check(checker, parser->root, false).ok) {
-				return false;
-			}
-		}
-
-		for (uint i = 0; i < checker->parsers.len; i++) {
-			ffzParser* parser = checker->parsers[i];
-			//root_scope.parser = parser;
-			//checker->report_error_userptr = parser;
-
-			// Note that the root node of a parser should not introduce a new scope. Instead, the root-scope should be the module scope.
-			//for FFZ_EACH_CHILD(n, parser->root) {
-
-			for (ffzNode* n = parser->root->first_child; n; n = n->next) {
-				ffzNodeInst inst = ffz_get_toplevel_inst(checker, n);
-
-				// Standalone tags are skipped by FFZ_EACH_CHILD so treat them specially here.
-				// This is a bit dumb way to do this, but right now standalone tags are only checked at top-level. We should probably check them
-				// recursively in instanceless_check() or something. :StandaloneTagTopLevel
-				if (n->flags & ffzNodeFlag_IsStandaloneTag) {
-					if (!check_tag(checker, inst).ok) {
-						return false;
-					}
-					continue;
-				}
-				
-				if (!ffz_check_toplevel_statement(checker, n).ok) {
-					f_trap();
-					return false;
-				}
-			}
-		}
-
-		for (uint i = 0; i < checker->extern_libraries.len; i++) {
-			fString input = checker->extern_libraries[i];
-			if (input == F_LIT("?")) continue;
-			
-			if (f_str_cut_start(&input, F_LIT(":"))) {
-				// system library
-				f_array_push(&project->link_system_libraries, input);
-			}
-			else {
-				f_assert(f_files_path_to_canonical(directory, input, f_temp_alc(), &input));
-				f_array_push(&project->link_libraries, input);
-			}
-		}
-	}
-
-	return true;
-}
-
-bool ffz_parse_and_check_directory(ffzProject* p, fString directory) {
-	ffzChecker* checker;
-	return _parse_and_check_directory(p, directory, &checker, {});
-}
-
-bool ffz_build_directory(fString directory, fString compiler_install_dir) {
-	if (!f_files_path_to_canonical(fString{}, directory, f_temp_alc(), &directory)) {
-		f_trap();
-		return false;
-	}
-	if (!f_files_path_to_canonical(fString{}, compiler_install_dir, f_temp_alc(), &compiler_install_dir)) {
-		// TODO: have a global error reporting procedure
-		f_trap();
-		return false;
-	}
-
-	// TODO: we really should cleanup the f_temp_alc() calls everywhere
-
-	ffzProject* p = f_mem_clone(ffzProject{}, f_temp_alc());
-	p->persistent_allocator = f_temp_alc();
-	p->directory = directory;
-	p->name = f_str_path_tail(directory);
-	p->compiler_install_dir = compiler_install_dir;
-	p->checked_module_from_directory = f_map64_make<ffzChecker*>(f_temp_alc());
-	p->parsers = f_array_make<ffzParser*>(f_temp_alc());
-	p->checkers = f_array_make<ffzChecker*>(f_temp_alc());
-	p->checkers_dependency_sorted = f_array_make<ffzChecker*>(f_temp_alc());
-	p->link_libraries = f_array_make<fString>(f_temp_alc());
-	p->link_system_libraries = f_array_make<fString>(f_temp_alc());
+	p->checked_module_from_directory = f_map64_make<ffzModule*>(p->persistent_allocator);
+	p->parsers = f_array_make<ffzParser*>(p->persistent_allocator);
+	p->checkers = f_array_make<ffzModule*>(p->persistent_allocator);
+	p->checkers_dependency_sorted = f_array_make<ffzModule*>(p->persistent_allocator);
+	p->link_libraries = f_array_make<fString>(p->persistent_allocator);
+	p->link_system_libraries = f_array_make<fString>(p->persistent_allocator);
 	p->pointer_size = 8;
 
 	{
@@ -2455,112 +2156,5 @@ bool ffz_build_directory(fString directory, fString compiler_install_dir) {
 				f_hash64_str(ffz_keyword_to_string((ffzKeyword)i)), (ffzKeyword)i, fMapInsert_DoNotOverride);
 		}
 	}
-
-	//os_delete_directory(ffz_build_dir); // deleting a directory causes problems when visual studio is attached to the thing. Even if this is allowed to fail, it will still take a long time.
-
-	if (!ffz_parse_and_check_directory(p, directory)) return false;
-
-	//fString ffz_build_dir = f_files_path_to_absolute(directory, F_LIT(".ffz"), temp);
-	//fString exe_filepath = F_STR_T_JOIN(directory, F_LIT("\\build\\"), p->module_name, F_LIT(".exe"));
-	
-#if defined(FFZ_BUILD_INCLUDE_TB)
-	if (!ffz_backend_gen_executable_tb(p)) {
-		return 1;
-	}
-#elif defined(FFZ_BUILD_INCLUDE_GMMC)
-	if (!ffz_backend_gen_executable_gmmc(p)) {
-		return 1;
-	}
-#else
-	f_trap();
-#endif
-	
-#if 0
-	fString objname = F_STR_JOIN(temp, ffz_build_dir, F_LIT("\\"), p->module_name, F_LIT(".obj"));
-
-	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
-	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, temp); // contains cl.exe, link.exe
-	fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, temp); // contains <string.h>, etc
-	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, temp); // contains kernel32.lib, etc
-	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, temp); // contains libucrt.lib, etc
-	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, temp); // contains MSVCRT.lib etc
-	fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, temp); // contains vcruntime.h
-#endif
-
-#if 0
-	{
-		Array<String> msvc_args = make_array<String>(temp);
-		array_push(&msvc_args, STR_JOIN(temp, msvc_directory, F_LIT("\\cl.exe")));
-		array_push(&msvc_args, F_LIT("/Zi"));
-		array_push(&msvc_args, F_LIT("/std:c11"));
-		array_push(&msvc_args, F_LIT("/Ob1")); // enable inlining
-		array_push(&msvc_args, F_LIT("/MDd")); // raylib uses this setting
-		array_push(&msvc_args, F_LIT("generated.c"));
-		array_push(&msvc_args, STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\shared")));
-		array_push(&msvc_args, STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\ucrt")));
-		array_push(&msvc_args, STR_JOIN(temp, F_LIT("/I"), windows_sdk_include_base_path, F_LIT("\\um")));
-		array_push(&msvc_args, STR_JOIN(temp, F_LIT("/I"), vs_include_path));
-
-		array_push(&msvc_args, F_LIT("/link"));
-		array_push(&msvc_args, F_LIT("/INCREMENTAL:NO"));
-		array_push(&msvc_args, F_LIT("/MACHINE:X64"));
-		array_push(&msvc_args, STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-		array_push(&msvc_args, STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-		array_push(&msvc_args, STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
-
-		for (uint i = 0; i < project.linker_inputs.len; i++) {
-			array_push(&msvc_args, project.linker_inputs[i]);
-		}
-
-		printf("Running cl.exe: \n");
-		u32 exit_code;
-		if (!os_run_command(msvc_args.slice, ffz_build_dir, &exit_code)) return false;
-		if (exit_code != 0) return false;
-	}
-#endif
-
-#if 0
-	{
-		fArray(fString) linker_args = f_array_make<fString>(temp);
-		f_array_push(&linker_args, F_STR_JOIN(temp, msvc_directory, F_LIT("\\link.exe")));
-
-		// Note that we should not put quotation marks around the path. It's because of some weird rules with how command line arguments are combined into one string on windows.
-		f_array_push(&linker_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-		f_array_push(&linker_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-		f_array_push(&linker_args, F_STR_JOIN(temp, F_LIT("/LIBPATH:"), vs_library_path));
-		f_array_push(&linker_args, F_LIT("/INCREMENTAL:NO"));     // incremental linking would break things with the way we're generating OBJ files
-		f_array_push(&linker_args, F_LIT("/DEBUG"));
-
-		// f_array_push(&linker_args, F_LIT("/NODEFAULTLIB")); // disable linking to CRT
-
-		bool console_app = true;
-		f_array_push(&linker_args, console_app ? F_LIT("/SUBSYSTEM:CONSOLE") : F_LIT("/SUBSYSTEM:WINDOWS"));
-		//if (!console_app) f_array_push(&linker_args, F_LIT("/ENTRY:ffz_entry"));
-
-		f_array_push(&linker_args, F_LIT("/OUT:.ffz/.exe"));
-		f_array_push(&linker_args, objname);
-
-		for (uint i = 0; i < p->linker_inputs.len; i++) {
-			f_array_push(&linker_args, p->linker_inputs[i]);
-		}
-
-		printf("Running linker: \n");
-		for (uint i = 0; i < linker_args.len; i++) {
-			printf("\"%s\" ", f_str_to_cstr(linker_args[i], temp));
-		}
-		printf("\n\n");
-
-		u32 exit_code;
-		if (!f_os_run_command(linker_args.slice, directory, &exit_code)) return false; // @leak: WinSDK_free_resources
-		if (exit_code != 0) return false; // @leak: WinSDK_free_resources
-	}
-#endif
-
-	//WinSDK_free_resources(&windows_sdk);
-
-	// deinit_leak_tracker();
-	// GMMC_Deinit(gen.gmmc);
-
-	f_os_print_color(F_LIT("Compile succeeded!\n"), fConsoleAttribute_Green | fConsoleAttribute_Intensify);
-	return true;
+	return p;
 }

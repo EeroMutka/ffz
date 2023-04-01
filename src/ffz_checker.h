@@ -52,7 +52,7 @@
 //#define FFZ_NO_POLYMORPH_IDX 0
 //typedef struct { u32 idx; } ffzPolymorphIdx;
 
-typedef struct ffzChecker ffzChecker;
+typedef struct ffzModule ffzModule;
 typedef struct ffzParser ffzParser;
 typedef struct ffzType ffzType;
 typedef struct ffzConstant ffzConstant;
@@ -103,14 +103,6 @@ typedef enum ffzTypeTag {
 	ffzTypeTag_FixedArray,
 } ffzTypeTag;
 
-//ffzToken token_from_node(ffzProject* project, ffzNode* node);
-
-
-
-// Hmm. We could store a compressed version of NodeInst in our data structures (down to 8 bytes from 16)
-// but then we'd have to build atomic arrays
-// typedef struct ffzNodeInstSlim { ffzNodeIdx node; ffzPolyInstIdx poly_inst; } ffzNodeInstSlim;
-
 typedef struct ffzNodeInst {
 	ffzNode* node;
 	ffzPolymorph* polymorph;
@@ -141,7 +133,7 @@ struct ffzDefinitionPath {
 
 typedef struct ffzPolymorph {
 	ffzPolymorphHash hash;
-	ffzChecker* checker;
+	ffzModule* checker;
 
 	ffzNodeInst node;
 	fSlice(ffzCheckedInst) parameters;
@@ -182,7 +174,7 @@ typedef struct ffzConstant {
 		ffzConstant* /*opt*/ ptr;
 
 		ffzType* type;
-		ffzChecker* module;
+		ffzModule* module;
 		fString string_zero_terminated; // length doesn't contain the zero termination.
 
 		// tightly-packed array of ffzConstant. i.e. if this is an array of u8,
@@ -267,26 +259,24 @@ typedef struct ffzType {
 	};
 } ffzType;
 
+
 typedef struct ffzProject {
 	fAllocator* persistent_allocator;
 	
-	fString compiler_install_dir;
-	fString directory;
-	fString name;
+	// `modules_directory` can be an empty string, in which case
+	// importing modules using the `:` prefix is not allowed.
+	fString modules_directory;
 
-	fMap64(ffzChecker*) checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
+	fMap64(ffzModule*) checked_module_from_directory; // key: str_hash_meow64(absolute_path_of_directory)
 
 	fArray(fString) link_libraries;
 	fArray(fString) link_system_libraries;
 
-	fArray(ffzChecker*) checkers; // key: ffzCheckerID
+	fArray(ffzModule*) checkers; // key: ffzCheckerID
 	fArray(ffzParser*) parsers; // key: ffzParserID
 	
-	fArray(ffzChecker*) checkers_dependency_sorted; // dependency sorted from leaf modules towards higher-level modules
-	// should we also have checkers_dependency_sorted?
-	// maybe a checker should store an array of parsers?
-	//fArray(ffzParserID) parsers_dependency_sorted; // key: ffzParserIndex // dependency sorted from leaf modules towards higher-level modules
-
+	fArray(ffzModule*) checkers_dependency_sorted; // topologically sorted from leaf modules towards higher-level modules
+	
 	u32 pointer_size;
 
 	KeywordFromStringMap keyword_from_string;
@@ -295,21 +285,17 @@ typedef struct ffzProject {
 typedef u64 ffzFieldHash;
 typedef u64 ffzEnumValueHash;
 
-// Checker is responsible for checking some chunk of code (currently must be a single module) and caching information about it.
-struct ffzChecker {
-	ffzProject* project; // should we make this void*?
+struct ffzModule {
+	ffzProject* project;
+	
 	fAllocator* alc;
 	ffzCheckerID id;
-	fString directory;
+
+	fString directory; // imports in this module will be relative to this directory
+
 	fSlice(ffzParser*) parsers;
 
-#ifdef _DEBUG
-	fString _dbg_module_import_name;
-#endif
-
 	// implicit state for the current checker invocation
-	//OPT(ffzNodeInst) parent_proc;
-	//OPT(ffzType*) parent_proc_type;
 	ffzCheckerScope* current_scope;
 	fMap64Raw checked_identifiers; // key: ffz_hash_poly_inst. This is to detect cycles. We could reduce the memory footprint here by removing things as we go...
 
@@ -339,20 +325,16 @@ struct ffzChecker {
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
 	fArray(fString) extern_libraries; // TODO: deduplicate
-	//fArray(fString) extern_sys_libraries;
 
-	fMap64(ffzChecker*) imported_modules; // key: AstNode.id.global_id
+	fMap64(ffzModule*) imported_modules; // key: AstNode.id.global_id
 
-	void(*report_error)(ffzChecker* c, fSlice(ffzNode*) poly_path, ffzNode* at, fString error);
+	void(*report_error)(ffzModule* c, fSlice(ffzNode*) poly_path, ffzNode* at, fString error);
 	
 	ffzType* type_type;
 	ffzType* module_type;
 	u64 next_pseudo_node_idx;
 	ffzType* builtin_types[ffzKeyword_COUNT];
 };
-
-//#define FFZ_INST_AS(node,kind) (*(ffzNode##kind##Inst*)&(node))
-//#define FFZ_INST_(ffzNode*)node (*(ffzNodeInst*)&(node))
 
 #define FFZ_EACH_CHILD_INST(n, parent) (\
 	ffzNodeInst n = {(parent.node) ? (parent).node->first_child : NULL, (parent).polymorph};\
@@ -361,16 +343,11 @@ struct ffzChecker {
 
 #define FFZ_INST_CHILD(T, parent, child_access) T { (parent).node->child_access, (parent).poly_inst }
 
-//#define FFZ_NODE_INST(p, n) ffzNodeInst{ (n), (p).poly_inst }
+ffzType* /*opt*/ ffz_builtin_type(ffzModule* c, ffzKeyword keyword);
 
-ffzType* /*opt*/ ffz_builtin_type(ffzChecker* c, ffzKeyword keyword);
-
-void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline);
+//void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline);
 
 bool ffz_parse_and_check_directory(ffzProject* p, fString directory);
-
-bool ffz_build_directory(fString directory, fString compiler_install_dir);
-
 
 inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
 
@@ -411,27 +388,67 @@ ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
 ffzConstantHash ffz_hash_constant(ffzCheckedInst constant);
 
-inline ffzNodeInst ffz_get_toplevel_inst(ffzChecker* c, ffzNode* node) { return ffzNodeInst{node, NULL}; }
-//ffzPolyInstHash ffz_hash_poly_inst(ffzPolyInst inst);
+inline ffzNodeInst ffz_get_toplevel_inst(ffzModule* c, ffzNode* node) { return ffzNodeInst{node, NULL}; }
 
-// -- Checker operations --------------------------------------------------------------
+// -- High level compiler API --------------------------------------------------------------
 
-ffzOk ffz_check_toplevel_statement(ffzChecker* c, ffzNode* node);
-ffzOk ffz_instanceless_check(ffzChecker* c, ffzNode* node, bool recursive);
+ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
 
-ffzChecker* ffz_checker_init(ffzProject* p, fAllocator* allocator);
+// So metaprogramming - I'd like to
+// 
+// A. tester metaprogram.
+// 
+// 
+// B. Get all procedures that have a @MyProfiler.Profile tag, and insert calls to 'str.printf' at the entry
+// and exist points of the procedure. This should work even if the 'str' module isn't explicitly imported by the source code.
+// 
+// C. Compile a program that contains `#return_error: proc(err: string) { trap() }`, then replace all calls
+// to that procedure with a return statement that returns the first argument
+// 
+// Now something that requires some polymorphism!
+// D. find all casts that cast from u16 -> u8 and insert a runtime if-check that traps if the
+//    value doesn't fit.
+// 
+//
+
+ffzModule* ffz_project_add_new_module(ffzProject* p, fAllocator* allocator);
+
+
+void ffz_module_add_code_string(ffzModule* m, fString code);
+
+// The node must be a top-level node and have it's parent field set to NULL.
+void ffz_module_add_code_node(ffzModule* m, ffzNode* node);
+
+
+//void ffz_module_resolve_imports(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata);
+
+void ffz_module_get_imports(ffzModule* m, fSlice(ffzModule*)* out_imports);
+
+// When you call ffz_module_check_single, all imported modules must have already been checked.
+ffzOk ffz_module_check_single(ffzModule* m);
+
+
+
+// we could give you a flat array of all the types in your program
+// - and procedures
+// - and standalone tags
+
+
+// TODO: CLEANUP
+ffzOk ffz_check_toplevel_statement(ffzModule* c, ffzNode* node);
+ffzOk ffz_instanceless_check(ffzModule* c, ffzNode* node, bool recursive);
 
 // -- Accessing cached data -----------------------------------------------------------
 
-inline ffzChecker* ffz_checker_from_node(ffzProject* p, ffzNode* node) {
+inline ffzModule* ffz_checker_from_node(ffzProject* p, ffzNode* node) {
 	// ok... I think we should just store a pointer to the parser in the node.
-	return p->parsers[node->id.parser_id]->checker;
+	return p->parsers[node->id.parser_id]->module;
 }
-inline ffzChecker* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) {
+inline ffzModule* ffz_checker_from_inst(ffzProject* p, ffzNodeInst inst) {
 	return inst.polymorph ? inst.polymorph->checker : ffz_checker_from_node(p, inst.node);
 }
 
-bool ffz_find_top_level_declaration(ffzChecker* c, fString name, ffzNodeOpDeclare* out_decl);
+bool ffz_find_top_level_declaration(ffzModule* c, fString name, ffzNodeOpDeclare* out_decl);
 
 ffzNodeInst ffz_parent_inst(ffzProject* p, ffzNodeInst node);
 

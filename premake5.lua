@@ -1,5 +1,5 @@
 
-function apply_defaults()
+function import_ffz()
 	cdialect "C11"
 	
 	debugdir "%{cfg.linktarget.directory}"
@@ -18,27 +18,6 @@ function apply_defaults()
 		linkoptions { "/DYNAMICBASE:NO" }
 	
 	filter {}
-end
-
-workspace "ffz"
-	configurations { "Debug", "Profile", "Release" }
-	architecture "x64"
-	exceptionhandling "Off"
-	rtti "Off"
-	
-	location "build"
-	targetdir "bin"
-
-project "ffz"
-	kind "ConsoleApp"
-	language "C++"
-	
-	apply_defaults()
-	
-	files {
-		"src/*",
-		"src/foundation/*",
-	}
 	
 	-- include tb backend?
 	if false then
@@ -92,3 +71,41 @@ project "ffz"
 			"gmmc/zydis/zycore/src/**",
 		}
 	end
+end
+
+
+workspace "ffz"
+	configurations { "Debug", "Profile", "Release" }
+	architecture "x64"
+	exceptionhandling "Off"
+	rtti "Off"
+	
+	location "build"
+	targetdir "bin"
+
+
+project "ffz"
+	kind "ConsoleApp"
+	language "C++"
+	
+	import_ffz()
+	
+	files {
+		"src/*",
+		"src/foundation/*",
+		"src/ffz_console_tools/ffz.cpp",
+	}
+
+
+project "ffz_test_runner"
+	kind "ConsoleApp"
+	language "C++"
+	
+	import_ffz()
+	
+	files {
+		"src/*",
+		"src/foundation/*",
+		"src/ffz_console_tools/ffz_test_runner.cpp",
+	}
+

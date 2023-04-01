@@ -171,10 +171,8 @@ typedef ffzNode ffzNodeScope;
 typedef ffzNode ffzNodeReturn;
 typedef ffzNode ffzNodeIntLiteral;
 typedef ffzNode ffzNodeStringLiteral;
-typedef ffzNode ffzNodeScope;
 typedef ffzNode ffzNodeThisValueDot;
 typedef ffzNode ffzNodeBlank;
-typedef ffzNode ffzNodeIntLiteral;
 typedef ffzNode ffzNodePolyParamList;
 
 struct ffzNode {
@@ -182,6 +180,7 @@ struct ffzNode {
 	ffzNodeFlags flags;
 	ffzParserRelID id;
 	ffzLocRange loc;
+	
 	ffzNode* first_tag;
 	ffzNode* parent;
 	ffzNode* next;
@@ -208,7 +207,7 @@ struct ffzNode {
 
 		struct {
 			ffzNode* header_stmts[3];
-			ffzNode* scope; // hmm... maybe we don't even need a separate scope node?
+			ffzNode* scope;
 		} For;
 
 		struct {
@@ -247,13 +246,13 @@ struct ffzNode {
 typedef fMap64(ffzKeyword) KeywordFromStringMap; // key: f_hash64_str(str);
 
 typedef struct ffzProject ffzProject;
-typedef struct ffzChecker ffzChecker;
+typedef struct ffzModule ffzModule;
 
 // Parser is responsible for parsing a single file / string of source code
 typedef struct ffzParser ffzParser;
 struct ffzParser {
 	ffzProject* project;     // unused in the parser stage
-	ffzChecker* checker;     // unused in the parser stage
+	ffzModule* module;       // unused in the parser stage
 	ffzParserID id;          // this index will be saved into the generated AstNode structures
 	
 	KeywordFromStringMap* keyword_from_string;

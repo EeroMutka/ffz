@@ -578,30 +578,6 @@ void f_array_resize_raw(fArrayRaw* array, uint len, fOpt(const void*) value, u32
 //void delete_slot_arena_raw(SlotArenaRaw* arena);
 //uint slot_arena_get_index_raw(const SlotArenaRaw* arena, void* ptr);
 
-u64 f_read_cycle_counter();
-void f_sleep_milliseconds(s64 ms);
-
-void f_os_print(fString str);
-void f_os_print_color(fString str, fConsoleAttributeFlags attributes_mask);
-
-// If `working_dir` is an empty string, the current working directory will be used.
-// `args[0]` should be the path of the executable, where `\' and `/` are both accepted path separators.
-// TODO: options to capture stdout and stderr
-bool f_os_run_command(fSlice(fString) args, fString working_dir, u32* out_exit_code);
-//bool os_run_command_no_wait(Slice(fString) args, fString working_dir);
-
-bool f_os_set_working_dir(fString dir);
-fString f_os_get_working_dir(fAllocator* allocator);
-inline fString f_os_t_get_working_dir() { return f_os_get_working_dir(f_temp_alc()); }
-
-fString f_os_get_executable_path(fAllocator* allocator);
-inline fString f_os_t_get_executable_path() { return f_os_get_executable_path(f_temp_alc()); }
-
-// these strings do not currently convert slashes - they will be windows specific `\`
-//fSlice(fString) os_file_picker_multi(); // allocated with temp_allocator
-
-void f_os_error_popup(fString title, fString message);
-
 fOpt(u8*) f_mem_reserve(u64 size, fOpt(void*) address);
 void f_mem_commit(u8* ptr, u64 size);
 void f_mem_decommit(u8* ptr, u64 size);
@@ -728,6 +704,37 @@ rune f_str_prev_rune(fString str, uint* byteoffset);
 
 uint f_str_rune_count(fString str);
 
+#ifdef F_INCLUDE_OS
+// -- OS general ---------------------------------------------------------------
+
+u64 f_read_cycle_counter();
+void f_sleep_milliseconds(s64 ms);
+
+void f_os_print(fString str);
+void f_os_print_color(fString str, fConsoleAttributeFlags attributes_mask);
+
+// If `working_dir` is an empty string, the current working directory will be used.
+// `args[0]` should be the path of the executable, where `\' and `/` are both accepted path separators.
+// TODO: options to capture stdout and stderr
+bool f_os_run_command(fSlice(fString) args, fString working_dir, u32* out_exit_code);
+//bool os_run_command_no_wait(Slice(fString) args, fString working_dir);
+
+// Find the path of an executable given its name, or return an empty string if it's not found.
+// NOTE: `name` must include the file extension!
+fString f_os_find_executable(fString name, fAllocator* alc);
+
+bool f_os_set_working_dir(fString dir);
+fString f_os_get_working_dir(fAllocator* allocator);
+inline fString f_os_t_get_working_dir() { return f_os_get_working_dir(f_temp_alc()); }
+
+fString f_os_get_executable_path(fAllocator* allocator);
+//inline fString f_os_t_get_executable_path() { return f_os_get_executable_path(f_temp_alc()); }
+
+// these strings do not currently convert slashes - they will be windows specific `\`
+//fSlice(fString) os_file_picker_multi(); // allocated with temp_allocator
+
+void f_os_error_popup(fString title, fString message);
+
 // -- Clipboard ----------------------------------------------------------------
 
 fString f_os_clipboard_get_text(fAllocator* allocator);
@@ -740,6 +747,7 @@ bool f_dynamic_library_unload(fDynamicLibrary dll);
 void* f_dynamic_library_sym_address(fDynamicLibrary dll, fString symbol);
 
 // -- Files --------------------------------------------------------------------
+
 
 // The path separator in the returned string will depend on the OS. On windows, it will be a backslash.
 // If the provided path is invalid, an empty string will be returned.
@@ -775,7 +783,6 @@ bool f_files_delete(fString filepath);
 
 fString f_files_pick_file_dialog(fAllocator* allocator);
 
-
 // TODO: writer. Should be buffered by default
 //inline fBufferedWriter f_files_writer(fFile* file) {
 //
@@ -784,6 +791,8 @@ fString f_files_pick_file_dialog(fAllocator* allocator);
 // -- Time --------------------------------------------------------------------
 
 //fTick f_get_tick();
+
+#endif
 
 // -- Random ------------------------------------------------------------------
 

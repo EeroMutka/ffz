@@ -66,7 +66,7 @@ globals: struct {
 	
 	if !GL.swap_buffers(globals.window) {dbgbreak}
 }
-	
+
 #resize_cb: Window.ResizeCallback {
 	Basic.print("resizing. width: ")
 	Basic.print(str.tfrom_uint(in.width))
@@ -77,6 +77,9 @@ globals: struct {
 	globals.gl.Viewport(0, 0, s32(in.width), s32(in.height))
 	draw()
 }
+
+// hmm, would it be a good time to run a little profiler on the compiler?
+// maybe just sampling profiler with tracy, maybe look into how to do it with clang.
 
 #entry: proc {
 	Basic.print("hello!\n")

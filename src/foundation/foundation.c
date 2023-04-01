@@ -2275,6 +2275,21 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		}
 	}
 	*/
+
+	fString f_os_find_executable(fString name, fAllocator* alc) {
+		uint name_utf16_len;
+		wchar_t* name_utf16 = f_str_to_utf16(name, 1, f_temp_alc(), &name_utf16_len);
+
+		wchar_t path[MAX_PATH] = { 0 };
+
+		DWORD dwRet = SearchPathW(NULL, name_utf16, NULL, MAX_PATH, path, NULL);
+		if (dwRet == 0 || dwRet >= MAX_PATH) {
+			return (fString) { 0 };
+		}
+
+		return f_str_from_utf16(path, alc);
+	}
+
 	bool f_os_run_command(fSliceRaw args, fString working_dir, u32* out_exit_code) {
 		bool ok = false;
 

@@ -1,5 +1,6 @@
 #ifdef FFZ_BUILD_INCLUDE_GMMC
 
+#define F_INCLUDE_OS
 #include "foundation/foundation.hpp"
 
 #include "ffz_ast.h"
@@ -49,7 +50,7 @@ struct ProcInfo {
 struct Gen {
 	ffzProject* project;
 	fAllocator* alc;
-	ffzChecker* checker;
+	ffzModule* checker;
 
 	gmmcModule* gmmc;
 
@@ -104,19 +105,19 @@ static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
 			//f_str_printf(&name, "$%xll", inst.polymorph->hash);
 		}
 		
-		if (g->checker->_dbg_module_import_name.len > 0) {
-			// We don't want to export symbols from imported modules.
-			// Currently, we're giving these symbols unique ids and exporting them anyway, because
-			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
-			
-			bool is_extern = ffz_get_tag(g->project, parent, ffzKeyword_extern);
-			bool is_module_defined_entry = ffz_get_tag(g->project, parent, ffzKeyword_module_defined_entry);
-			if (!is_extern && !is_module_defined_entry)
-			{
-				f_prints(name.w, F_LIT("$$"));
-				f_prints(name.w, g->checker->_dbg_module_import_name);
-			}
-		}
+		f_trap();//if (g->checker->_dbg_module_import_name.len > 0) {
+		//	// We don't want to export symbols from imported modules.
+		//	// Currently, we're giving these symbols unique ids and exporting them anyway, because
+		//	// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
+		//	
+		//	bool is_extern = ffz_get_tag(g->project, parent, ffzKeyword_extern);
+		//	bool is_module_defined_entry = ffz_get_tag(g->project, parent, ffzKeyword_module_defined_entry);
+		//	if (!is_extern && !is_module_defined_entry)
+		//	{
+		//		f_prints(name.w, F_LIT("$$"));
+		//		f_prints(name.w, g->checker->_dbg_module_import_name);
+		//	}
+		//}
 	}
 	else {
 		f_print(name.w, "_ffz_`u64", g->dummy_name_counter);
@@ -1587,11 +1588,7 @@ static bool build_c(Gen* g, fString build_dir) {
 	return exit_code == 0;
 }
 
-bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
-	fString build_dir = F_STR_T_JOIN(project->directory, F_LIT("\\.build"));
-	f_assert(f_files_make_directory(build_dir));
-
-	fString exe_path = F_STR_T_JOIN(build_dir, F_LIT("\\"), project->name, F_LIT(".exe"));
+bool ffz_backend_gen_executable_gmmc(ffzProject* project, fString build_dir, fString name) {
 
 	fArenaMark temp_base = f_temp_get_mark();
 	gmmcModule* gmmc = gmmc_init(f_temp_alc());
@@ -1622,7 +1619,7 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project) {
 	}
 
 	for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
-		ffzChecker* checker = project->checkers_dependency_sorted[i];
+		ffzModule* checker = project->checkers_dependency_sorted[i];
 		g.checker = checker;
 		
 		for (uint j = 0; j < checker->parsers.len; j++) {

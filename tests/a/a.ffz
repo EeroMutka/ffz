@@ -7,6 +7,8 @@
 // The test-runner should totally use FFZ as a library!
 // Maybe we could even create a custom definition for `ground_truth` from the test runner like:
 
+#ground_truth: struct{text: string}
+
 $ground_truth{"
 asdf
 901 25
