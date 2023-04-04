@@ -24,7 +24,7 @@
 static C0Instr* gen_expr(ffzGenC0* g, ffzNodeInst inst, bool address_of = false);
 static void gen_statement(ffzGenC0* g, ffzNodeInst inst);
 static C0Global* gen_global(ffzGenC0* g, ffzCheckedExpr expr);
-static C0Constant gen_constant(ffzGenC0* g, ffzType* type, ffzConstant* const_val);
+static C0Constant gen_constant(ffzGenC0* g, ffzType* type, ffzConstantData* const_val);
 
 /*
 static C0Proc* test_factorial(C0Gen* g) {
@@ -760,7 +760,7 @@ static C0Instr* gen_operator(ffzGenC0* g, ffzType* type, ffzNodeOpInst inst, boo
 	return out;
 }
 
-static C0Constant gen_constant(ffzGenC0* g, ffzType* type, ffzConstant* const_val) {
+static C0Constant gen_constant(ffzGenC0* g, ffzType* type, ffzConstantData* const_val) {
 	ffzConstantHash hash = ffz_hash_constant({ type, const_val });
 	if (C0Constant* existing = map64_get(&g->c0_constant_from_constant, hash)) {
 		return *existing;
@@ -809,7 +809,7 @@ static C0Constant gen_constant(ffzGenC0* g, ffzType* type, ffzConstant* const_va
 		c.array_elems = mem_alloc(type->FixedArray.length * c0_elem_size, 8, g->alc);
 
 		for (uint i = 0; i < type->FixedArray.length; i++) {
-			ffzConstant elem_ffz = {};
+			ffzConstantData elem_ffz = {};
 			memcpy(&elem_ffz, (u8*)const_val->fixed_array_elems + ffz_elem_size * i, ffz_elem_size);
 
 			C0Constant elem_c0 = gen_constant(g, type->FixedArray.elem_type, &elem_ffz);
@@ -825,7 +825,7 @@ static C0Constant gen_constant(ffzGenC0* g, ffzType* type, ffzConstant* const_va
 
 	case ffzTypeTag_Record: {
 		ASSERT(const_val->record_fields.len == 0 || const_val->record_fields.len == type->Record.fields.len);
-		ffzConstant empty_constant = {};
+		ffzConstantData empty_constant = {};
 
 		c.record_fields = make_slice<C0Constant>(type->Record.fields.len, C0Constant{}, g->alc).data;
 		for (uint i = 0; i < type->Record.fields.len; i++) {

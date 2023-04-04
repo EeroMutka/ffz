@@ -3,6 +3,7 @@
 #pragma comment(lib, "Dbghelp.lib") // os_get_stack_trace
 //
 
+#define F_INCLUDE_OS
 #include "foundation.h"
 
 #define Array(T) fArrayRaw
@@ -2501,15 +2502,15 @@ void f_buffered_writer_proc(fWriter* writer, void* data, size_t size) {
 }
 
 
-void f_trap() {
-#ifdef OS_WINDOWS
-	if (IsDebuggerPresent()) {
-		__debugbreak();
-	}
-	else {
-		f_os_error_popup(F_LIT("Error!"), F_LIT("Program ran into an internal debug trap."));
-	}
-#else
-#error
-#endif
-}
+//void f_trap() {
+//#ifdef OS_WINDOWS
+//	if (IsDebuggerPresent()) {
+//		__debugbreak();
+//	}
+//	else {
+//		f_os_error_popup(F_LIT("Error!"), F_LIT("Program ran into an internal debug trap."));
+//	}
+//#else
+//#error
+//#endif
+//}

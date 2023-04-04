@@ -447,7 +447,7 @@ static TB_Global* global_create(TB_Module* m, const char* name, TB_DebugType* db
 	return global;
 }
 
-static void gen_global_constant(Gen* g, TB_Global* global, u8* base, u32 offset, ffzType* type, ffzConstant* constant) {
+static void gen_global_constant(Gen* g, TB_Global* global, u8* base, u32 offset, ffzType* type, ffzConstantData* constant) {
 	switch (type->tag) {
 	case ffzTypeTag_Bool: // fallthrough
 	case ffzTypeTag_Sint: // fallthrough
@@ -493,7 +493,7 @@ static void gen_global_constant(Gen* g, TB_Global* global, u8* base, u32 offset,
 
 	case ffzTypeTag_Record: {
 		memset(base + offset, 0, type->size);
-		ffzConstant empty_constant = {};
+		ffzConstantData empty_constant = {};
 		for (uint i = 0; i < type->record_fields.len; i++) {
 			ffzTypeRecordField* field = &type->record_fields[i];
 			
@@ -504,7 +504,7 @@ static void gen_global_constant(Gen* g, TB_Global* global, u8* base, u32 offset,
 	case ffzTypeTag_FixedArray: {
 		u32 elem_size = type->FixedArray.elem_type->size;
 		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
-			ffzConstant c = ffz_constant_fixed_array_get(type, constant, i);
+			ffzConstantData c = ffz_constant_fixed_array_get(type, constant, i);
 			gen_global_constant(g, global, base, offset + i * elem_size, type->FixedArray.elem_type, &c);
 		}
 	} break;

@@ -1,3 +1,5 @@
+#if 0
+
 #ifdef FFZ_BUILD_INCLUDE_GMMC
 
 #define F_INCLUDE_OS
@@ -409,7 +411,7 @@ static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
 	}
 }
 
-static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstant* constant) {
+static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstantData* constant) {
 	switch (type->tag) {
 	case ffzTypeTag_Float: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
@@ -454,7 +456,7 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 
 	case ffzTypeTag_Record: {
 		memset(base + offset, 0, type->size);
-		ffzConstant empty_constant = {};
+		ffzConstantData empty_constant = {};
 		for (uint i = 0; i < type->record_fields.len; i++) {
 			ffzField* field = &type->record_fields[i];
 
@@ -465,7 +467,7 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 	case ffzTypeTag_FixedArray: {
 		u32 elem_size = type->FixedArray.elem_type->size;
 		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
-			ffzConstant c = ffz_constant_fixed_array_get(type, constant, i);
+			ffzConstantData c = ffz_constant_fixed_array_get(type, constant, i);
 			fill_global_constant_data(g, global, base, offset + i * elem_size, type->FixedArray.elem_type, &c);
 		}
 	} break;
@@ -473,7 +475,7 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 	}
 }
 
-static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstant* constant, bool address_of) {
+static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* constant, bool address_of) {
 	gmmcOpIdx out = {};
 
 	switch (type->tag) {
@@ -1642,3 +1644,5 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project, fString build_dir, fSt
 }
 
 #endif // FFZ_BUILD_INCLUDE_GMMC
+
+#endif

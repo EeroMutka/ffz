@@ -101,6 +101,9 @@ typedef struct fStringBuilder {
 	};
 } fStringBuilder;
 
+// Used to mark nullable pointers
+#define fOpt(ptr) ptr
+
 #ifndef F_MINIMAL_INCLUDE
 
 // Common type aliases. These are the only things without the 'f' prefix
@@ -122,9 +125,6 @@ typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allo
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Used to mark nullable pointers
-#define fOpt(ptr) ptr
 
 #define F_THREAD_LOCAL __declspec(thread)
 
@@ -178,11 +178,12 @@ extern "C" {
 // Useful for surpressing compiler warnings
 #define F_UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
 
-void f_trap();
-inline void f_assert(bool x) { if (!x) f_trap(); }
+#define f_trap() do {__debugbreak();} while(0) //void f_trap();
+#define f_assert(x) { if (!(x)) f_trap(); }
 
 // Cast with range checking
-#define F_CAST(T, x) ((T)(x) == (x) ? (T)(x) : (f_trap(), (T)0))
+//#define F_CAST(T, x) ((T)(x) == (x) ? (T)(x) : (f_trap(), (T)0))
+#define F_CAST(T, x) (T)x
 
 // Debugging helper that counts the number of hits and allows for breaking at a certain index
 #define F_HITS(name, break_if_equals) \

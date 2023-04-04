@@ -1,14 +1,15 @@
 #define FOUNDATION_HELPER_MACROS
 #include "foundation/foundation.h"
 
-#include "ffz_ast.h"
+#include "ffz_checker.h"
+//#include "ffz_ast.h"
 
 #define TRY(x) { if ((x).ok == false) return (ffzOk){false}; }
 
 #define OPT(ptr) ptr
 
 #define ERR(p, at, fmt, ...) { \
-	p->report_error(p, at, f_aprint(p->alc, fmt, __VA_ARGS__)); \
+	p->error_cb.callback(p, NULL, at, f_aprint(p->alc, fmt, __VA_ARGS__), p->error_cb.userdata); \
 	return FFZ_OK; \
 }
 
@@ -33,7 +34,7 @@ typedef struct Token {
 	X("", "invalid")\
 	X("", "blank")\
 	X("", "identifier")\
-	X("", "polymorphic-parameter")\
+	X("", "poly-definition")\
 	X("", "keyword")\
 	X("", "this-value-dot")\
 	X("", "proc-type")\
@@ -290,9 +291,9 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_Record: {
 		f_print(w, node->Record.is_union ? "union" : "struct");
 
-		if (node->Record.polymorphic_parameters) {
-			print_ast(w, node->Record.polymorphic_parameters, tab_level);
-		}
+		//if (node->Record.polymorphic_parameters) {
+		//	print_ast(w, node->Record.polymorphic_parameters, tab_level);
+		//}
 		f_printb(w, '{');
 		for (ffzNode* n = node->first_child; n; n = n->next) {
 			if (n != node->first_child) f_print(w, ", ");
@@ -318,9 +319,9 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_ProcType: {
 		f_print(w, "proc");
 		
-		if (node->ProcType.polymorphic_parameters) {
-			print_ast(w, node->ProcType.polymorphic_parameters, tab_level);
-		}
+		//if (node->ProcType.polymorphic_parameters) {
+		//	print_ast(w, node->ProcType.polymorphic_parameters, tab_level);
+		//}
 
 		if (node->first_child) {
 			f_printb(w, '(');
@@ -422,13 +423,14 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_Blank: { f_print(w, "_"); } break;
 	case ffzNodeKind_ThisValueDot: { f_print(w, "."); } break;
 
-	case ffzNodeKind_PolyParamList: {
-		f_print(w, "[");
+	case ffzNodeKind_PolyDef: {
+		f_print(w, "poly[");
 		for (ffzNode* n = node->first_child; n; n = n->next) {
 			if (n != node->first_child) f_print(w, ", ");
 			print_ast(w, n, tab_level);
 		}
-		f_print(w, "]");
+		f_print(w, "] ");
+		print_ast(w, node->PolyDef.expr, tab_level);
 	} break;
 
 	default: {
@@ -630,8 +632,9 @@ static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 
 static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
 	ffzNode* node = f_mem_clone((ffzNode){0}, p->alc);
-	node->id.parser_id = p->id;
-	node->id.local_id = p->next_local_id++;
+	node->parser_id = p->self_id;
+	node->local_id = p->next_local_id++;
+	node->module_id = p->module->self_id;
 	node->parent = parent;
 	node->kind = kind;
 	node->loc = range;
@@ -750,21 +753,21 @@ static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	return root;
 }
 
-static ffzOk maybe_parse_polymorphic_parameter_list(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzNodePolyParamList** out) {
-	ffzLoc new_loc = *loc;
-	Token tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
-	if (tok.small == '[') {
-		*loc = new_loc;
-		ffzNodePolyParamList* node = new_node(p, parent, tok.range, ffzNodeKind_PolyParamList);
-		TRY(parse_children(p, loc, (ffzNode*)node, ']'));
-		*out = node;
-	}
-	return FFZ_OK;
-}
+//static ffzOk maybe_parse_polymorphic_parameter_list(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzNodePolyParamList** out) {
+//	ffzLoc new_loc = *loc;
+//	Token tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
+//	if (tok.small == '[') {
+//		*loc = new_loc;
+//		ffzNodePolyParamList* node = new_node(p, parent, tok.range, ffzNodeKind_PolyParamList);
+//		TRY(parse_children(p, loc, (ffzNode*)node, ']'));
+//		*out = node;
+//	}
+//	return FFZ_OK;
+//}
 
 static ffzOk parse_proc_type(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
 	ffzNodeProcType* node = new_node(p, parent, range, ffzNodeKind_ProcType);
-	TRY(maybe_parse_polymorphic_parameter_list(p, loc, node, &node->ProcType.polymorphic_parameters));
+	//TRY(maybe_parse_polymorphic_parameter_list(p, loc, node, &node->ProcType.polymorphic_parameters));
 
 	ffzLoc new_loc = *loc;
 	Token tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
@@ -902,7 +905,7 @@ static ffzOk parse_enum(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange 
 
 static ffzOk parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, bool is_union, ffzNodeRecord** out) {
 	ffzNodeRecord* node = new_node(p, parent, range, ffzNodeKind_Record);
-	TRY(maybe_parse_polymorphic_parameter_list(p, loc, node, &node->Record.polymorphic_parameters));
+	//TRY(maybe_parse_polymorphic_parameter_list(p, loc, node, &node->Record.polymorphic_parameters));
 
 	TRY(eat_expected_token(p, loc, F_LIT("{")));
 	TRY(parse_children(p, loc, node, '}'));
@@ -1122,6 +1125,17 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 					TRY(parse_node(p, loc, node, (ParseFlags)0, &node->Return.value));
 				}
 			}
+			else if (f_str_equals(tok.str, F_LIT("poly"))) {
+				node = new_node(p, parent, tok.range, ffzNodeKind_PolyDef);
+
+				tok = maybe_eat_next_token(p, loc, (ParseFlags)0); // With return statements, newlines do matter!
+				if (tok.small != '[') {
+					ERR(p, tok.range, "Expected `[`.", "");
+				}
+				
+				TRY(parse_children(p, loc, node, ']'));
+				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->PolyDef.expr));
+			}
 			else if (f_str_equals(tok.str, F_LIT("proc"))) {
 				TRY(parse_proc_type(p, loc, parent, tok.range, &node));
 			}
@@ -1258,14 +1272,16 @@ ffzOk ffz_parse(ffzParser* p) {
 	ffzLoc loc = {0};
 	loc.line_num = 1;
 	loc.column_num = 1;
-	p->root = new_node(p, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
 
-	TRY(parse_children(p, &loc, (ffzNode*)p->root, 0));
-	//ffzNode* n;
-	//ffzOk ok = parse_node(&state, (ffzNode*)p->root, &n);
-
-	//p->root->first_child = n;
+	//p->root = new_node(p, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
+	ffzNode root = {0};
+	TRY(parse_children(p, &loc, &root, 0));
 	
+	for (ffzNode* n = root.first_child; n; n = n->next) {
+		n->parent = NULL;
+		f_array_push(&p->top_level_nodes, n);
+	}
+
 	return FFZ_OK;
 }
 
