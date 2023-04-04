@@ -423,14 +423,14 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_Blank: { f_print(w, "_"); } break;
 	case ffzNodeKind_ThisValueDot: { f_print(w, "."); } break;
 
-	case ffzNodeKind_PolyDef: {
+	case ffzNodeKind_PolyExpr: {
 		f_print(w, "poly[");
 		for (ffzNode* n = node->first_child; n; n = n->next) {
 			if (n != node->first_child) f_print(w, ", ");
 			print_ast(w, n, tab_level);
 		}
 		f_print(w, "] ");
-		print_ast(w, node->PolyDef.expr, tab_level);
+		print_ast(w, node->PolyExpr.expr, tab_level);
 	} break;
 
 	default: {
@@ -1126,7 +1126,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				}
 			}
 			else if (f_str_equals(tok.str, F_LIT("poly"))) {
-				node = new_node(p, parent, tok.range, ffzNodeKind_PolyDef);
+				node = new_node(p, parent, tok.range, ffzNodeKind_PolyExpr);
 
 				tok = maybe_eat_next_token(p, loc, (ParseFlags)0); // With return statements, newlines do matter!
 				if (tok.small != '[') {
@@ -1134,7 +1134,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				}
 				
 				TRY(parse_children(p, loc, node, ']'));
-				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->PolyDef.expr));
+				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->PolyExpr.expr));
 			}
 			else if (f_str_equals(tok.str, F_LIT("proc"))) {
 				TRY(parse_proc_type(p, loc, parent, tok.range, &node));

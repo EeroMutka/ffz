@@ -46,12 +46,6 @@
 // This shouldn't be a problem since the goal is to be simple to implement. The goal is <5k LOC in C++
 // 
 
-// Global, project-wide unique index for ffzNode.
-//typedef u32 ffzNodeIdx;
-
-//#define FFZ_NO_POLYMORPH_IDX 0
-//typedef struct { u32 idx; } ffzPolymorphIdx;
-
 #define F_MINIMAL_INCLUDE
 #include "foundation/foundation.h"
 
@@ -72,6 +66,8 @@ typedef uint32_t ffzParserID;
 typedef uint32_t ffzParserLocalID;
 typedef uint32_t ffzModuleID;
 typedef uint32_t ffzCheckerLocalID;
+
+typedef uint32_t ffzPolymorphID;
 
 typedef struct ffzNode ffzNode;
 typedef ffzNode ffzNodeOpDeclare;
@@ -101,9 +97,9 @@ typedef struct ffzModule ffzModule;
 // Instead, they should only depend on the input program.
 typedef uint64_t ffzHash; // TODO: increase this to 128 bits.
 
-typedef ffzHash ffzNodeHash; // project-wide global hash of a node
+typedef ffzHash ffzNodeHash; // global (across project) hash of a node.
 
-//typedef ffzHash ffzPolymorphHash; // PolyInstHash should be consistent across modules across identical code!
+typedef ffzHash ffzPolymorphHash; // local to the module
 typedef ffzHash ffzTypeHash; // Should be consistent across modules across identical code!
 typedef ffzHash ffzConstantHash; // Should be consistent across modules across identical code!
 typedef ffzHash ffzFieldHash;
@@ -118,7 +114,7 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	ffzNodeKind_Blank,
 
 	ffzNodeKind_Identifier,
-	ffzNodeKind_PolyDef,      // poly[X, Y, ...] Z
+	ffzNodeKind_PolyExpr,      // poly[X, Y, ...] Z
 	ffzNodeKind_Keyword,
 	ffzNodeKind_ThisValueDot,  // .
 	ffzNodeKind_ProcType,
@@ -240,7 +236,8 @@ typedef struct ffzLocRange {
 	ffzLoc end;
 } ffzLocRange;
 
-typedef struct {
+typedef struct ffzCheckInfo {
+	// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
 	fOpt(ffzType*) type;
 	fOpt(ffzConstantData*) constant;
 } ffzCheckInfo;
@@ -263,6 +260,10 @@ struct ffzNode {
 	bool has_checked; // TODO: have a flip-flop re-checking
 	ffzCheckInfo checked;
 
+	// There is one benefit from having the node be a union, which is that we can do easy in-place replacement of nodes without having to store the
+	// prev - pointer. Maybe we should just store the prev pointer.
+	// :InPlaceNodeModification
+
 	union {
 		struct {
 			fString name;
@@ -274,7 +275,7 @@ struct ffzNode {
 
 		struct {
 			ffzNode* expr;
-		} PolyDef;
+		} PolyExpr;
 
 		struct {
 			ffzKeyword keyword;
@@ -292,7 +293,7 @@ struct ffzNode {
 		} If;
 
 		struct {
-			ffzNode* header_stmts[3];
+			fOpt(ffzNode*) header_stmts[3];
 			ffzNode* scope;
 		} For;
 
@@ -327,6 +328,7 @@ struct ffzNode {
 	};
 };
 
+// hmm... I don't think we really need the error callback, we could trivially return the error message, location, etc as a result. TODO!
 typedef struct ffzErrorCallback {
 	// `node` will be NULL during the parser stage
 	void(*callback)(ffzParser* parser, ffzNode* node, ffzLocRange location, fString error, void* userdata);
@@ -360,10 +362,9 @@ typedef enum ffzTypeTag {
 
 	ffzTypeTag_Raw,       // `raw`
 	ffzTypeTag_Undefined, // the type of the expression `~~`
-	//ffzTypeTag_Eater, // the type of the expression `_`
+
 	ffzTypeTag_Type,
-	//ffzTypeTag_PolyProc, // this is the type of an entire polymorphic procedure including a body
-	//ffzTypeTag_PolyRecord, // nothing should ever actually have the type of this - but a polymorphic struct type definition will type type to this
+	ffzTypeTag_PolyExpr,
 	ffzTypeTag_Module,
 
 	ffzTypeTag_Bool,
@@ -388,19 +389,6 @@ struct ffzDefinitionPath {
 	ffzNode* parent_scope; // NULL for top-level scope
 	fString name;
 };
-
-//typedef struct ffzPolymorph {
-//	ffzPolymorphHash hash;
-//	ffzModule* checker;
-//
-//	ffzNodeInst node;
-//	fSlice(ffzCheckedInst) parameters;
-//} ffzPolymorph;
-
-//typedef struct ffzCheckerScope {
-//	ffzNode* node;
-//	ffzCheckerScope* parent;
-//} ffzCheckerScope;
 
 typedef struct ffzConstantData {
 	union {
@@ -441,6 +429,11 @@ typedef struct ffzConstant {
 	ffzType* type;
 } ffzConstant;
 
+typedef struct ffzPolymorph {
+	ffzNode* poly_def;
+	fSlice(ffzConstant) parameters;
+} ffzPolymorph;
+
 typedef struct ffzField {
 	fString name;
 	fOpt(ffzNodeOpDeclare*) decl; // not always used, i.e. for slice type fields
@@ -470,7 +463,7 @@ typedef struct ffzType {
 
 	ffzTypeHash hash;
 	ffzModuleID checker_id;
-	fOpt(ffzNode*) unique_node; // available for struct, union, enum, and proc types.
+	fOpt(ffzNode*) unique_node; // available for struct, union, enum, poly-def, and proc types.
 
 	fSlice(ffzField) record_fields; // available for struct, union, slice types and the string type.
 
@@ -551,6 +544,7 @@ struct ffzModule {
 	fArray(ffzNode*) pending_imports;
 
 	ffzNode* root;
+	ffzNode* root_last_child;
 
 	// implicit state for the current checker invocation
 	//ffzCheckerScope* current_scope;
@@ -565,7 +559,9 @@ struct ffzModule {
 	//fMap64(ffzPolymorph*) poly_instantiation_sites; // key: ffz_hash_node_inst
 	
 	fMap64(ffzType*) type_from_hash; // key: TypeHash
-	//fMap64(ffzPolymorph*) poly_from_hash; // key: ffz_hash_poly_inst
+	
+	fMap64(ffzPolymorphID) poly_from_hash; // key: ffz_hash_poly_inst
+	fArray(ffzPolymorph) polymorphs; // index into this using ffzPolymorphID
 	
 	// Contains a list of all tag instances, within this module, of each type.
 	// fMap64(fArray(ffzNodeInst)) all_tags_of_type; // key: TypeHash
