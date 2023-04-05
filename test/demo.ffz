@@ -1,8 +1,5 @@
 
-#Twice: poly[T] T + T
+#Vector: poly[TYPE, VALUE] TYPE(VALUE)
 
-#A: Twice[50]
-#B: Twice[53]
-
-#foo: int
-
+#A: Vector[int, 505]
+#B: Vector[u32, 23]

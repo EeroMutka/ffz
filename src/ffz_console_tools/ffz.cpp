@@ -82,6 +82,24 @@ void log_pretty_error(ffzParser* p, ffzNode* node, ffzLocRange loc, fString erro
 			f_os_print_color(F_LIT("^"), fConsoleAttribute_Red);
 		}
 	}
+
+	f_trap();
+}
+
+static void dump_module_ast(ffzModule* m) {
+	u8 console_buf[4096];
+	fBufferedWriter console_writer;
+	fWriter* w = f_open_buffered_writer(f_get_stdout(), console_buf, F_LEN(console_buf), &console_writer);
+	f_print(w, "PRINTING AST: ======================================================\n");
+
+	for (ffzNode* n = m->root->first_child; n; n = n->next) {
+		ffz_print_ast(w, n);
+		f_print(w, "\n");
+	}
+
+	f_print(w, "====================================================================\n\n");
+	f_flush_buffered_writer(&console_writer);
+
 }
 
 static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString directory) {
@@ -94,24 +112,7 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	fOpt(ffzModule*) module = ffz_project_add_module_from_filesystem(project, directory, module_arena, error_cb);
 	if (!module) return NULL;
 
-
-	if (true) {
-		u8 console_buf[4096];
-		fBufferedWriter console_writer;
-		fWriter* w = f_open_buffered_writer(f_get_stdout(), console_buf, F_LEN(console_buf), &console_writer);
-		f_print(w, "PRINTING AST: ======================================================\n");
-		
-		for (ffzNode* n = module->root->first_child; n; n = n->next) {
-			ffz_print_ast(w, n);
-			f_print(w, "\n");
-		}
-		
-		f_print(w, "====================================================================\n\n");
-		f_flush_buffered_writer(&console_writer);
-	}
-	
 	if (!module->checked) {
-
 		if (!ffz_module_resolve_imports(module,
 			[](fString path, void* userdata) -> ffzModule* {
 				// TODO: check for `:`, etc.
@@ -136,6 +137,8 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 		error_cb_passed.error_kind = F_LIT("Semantic error ");
 		if (!ffz_module_check_single(module, error_cb)) return NULL;
 	}
+
+	dump_module_ast(module);
 
 	return module;
 
@@ -177,7 +180,7 @@ int main(int argc, const char* argv[]) {
 	fString project_name = f_str_path_tail(dir);
 	fString build_dir = F_STR_T_JOIN(dir, F_LIT("\\.build"));
 	f_assert(f_files_make_directory(build_dir));
-
+	
 #if defined(FFZ_BUILD_INCLUDE_TB)
 	if (!ffz_backend_gen_executable_tb(p)) {
 		return 1;

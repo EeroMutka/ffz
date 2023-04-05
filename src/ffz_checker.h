@@ -269,7 +269,7 @@ struct ffzNode {
 			fString name;
 			bool is_constant; // has # in front?
 
-			ffzNode* chk_definition; // resolved during the checker stage
+			// ffzNode* chk_definition; // resolved during the checker stage
 			// ffzNode* chk_next_use;   // resolved during the checker stage
 		} Identifier;
 
@@ -345,7 +345,7 @@ struct ffzParser {
 	fString source_code;
 	fString source_code_filepath;
 
-	fArray(ffzNode*) top_level_nodes;
+	ffzNode* root; // should we even store this here? Maybe we should return it from the parsing procedures instead.
 
 	fAllocator* alc;
 	ffzParserLocalID next_local_id;
@@ -390,21 +390,16 @@ struct ffzDefinitionPath {
 	fString name;
 };
 
+// if we wanted to pack the ffzConstantData structure down, then we would read bad memory in a few places  :PackConstantTroubles
 typedef struct ffzConstantData {
 	union {
-		int8_t     s8_;
-		int16_t   s16_;
-		int32_t   s32_;
-		int64_t   s64_;
-		uint8_t    u8_;
-		uint16_t  u16_;
-		uint32_t  u32_;
-		uint64_t  u64_;
-		uint16_t  f16_;
-		float     f32_;
-		double    f64_;
-		bool bool_;
-		fOpt(ffzConstantData*) ptr;
+		uint64_t  _uint;
+		int64_t   _sint;
+		double   _float;
+		bool      _bool;
+		
+		//fOpt(ffzConstantData*) ptr; // hmm... why is this optional?
+		ffzConstantData* ptr;
 
 		ffzType* type;
 		ffzModule* module;
@@ -635,12 +630,14 @@ FFZ_CAPI fString ffz_node_kind_to_string(ffzNodeKind kind);
 
 FFZ_CAPI fString ffz_node_kind_to_op_string(ffzNodeKind kind);
 
-FFZ_CAPI ffzOk ffz_parse(ffzParser* p);
+// ffz_parse_scope is for parsing i.e. a source code file that has multiple nodes in it, whereas
+// ffz_parse_node is for parsing a single node.
+FFZ_CAPI ffzOk ffz_parse_scope(ffzParser* p);
+FFZ_CAPI ffzOk ffz_parse_node(ffzParser* p);
 
 FFZ_CAPI fOpt(ffzNode*) ffz_skip_standalone_tags(fOpt(ffzNode*) node);
 
 FFZ_CAPI void ffz_print_ast(fWriter* w, ffzNode* node);
-
 
 // ------------------------------------------------------
 
@@ -676,10 +673,12 @@ bool ffz_type_is_comparable_for_equality(ffzType* type); // supports ==, !=
 bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.
 
 fString ffz_type_to_string(ffzProject* p, ffzType* type);
-char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
+//char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
 
 fString ffz_constant_to_string(ffzProject* p, ffzConstantData* constant, ffzType* type);
-char* ffz_constant_to_cstring(ffzProject* p, ffzConstantData* constant, ffzType* type);
+//char* ffz_constant_to_cstring(ffzProject* p, ffzConstantData* constant, ffzType* type);
+
+ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constant);
 
 //ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
 //ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst);
@@ -717,7 +716,7 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
 //bool ffz_module_add_code_string(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb);
 
 // The node must be a top-level node and have it's parent field set to NULL.
-void ffz_module_add_top_level_node(ffzModule* m, ffzNode* node);
+ffzOk ffz_module_add_top_level_node(ffzModule* m, ffzNode* node);
 
 bool ffz_module_resolve_imports(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata, ffzErrorCallback error_cb);
 

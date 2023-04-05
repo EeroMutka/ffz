@@ -1,6 +1,11 @@
 #define FOUNDATION_HELPER_MACROS
 #include "foundation/foundation.h"
 
+
+// Future research:
+// https://nothings.org/computer/lexing.html
+
+
 #include "ffz_checker.h"
 //#include "ffz_ast.h"
 
@@ -630,7 +635,7 @@ static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 //	return maybe_eat_next_token(p, &pos, ignore_newlines, out);
 //}
 
-static void* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
+ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
 	ffzNode* node = f_mem_clone((ffzNode){0}, p->alc);
 	node->parser_id = p->self_id;
 	node->local_id = p->next_local_id++;
@@ -1268,21 +1273,15 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 	return FFZ_OK;
 }
 
-ffzOk ffz_parse(ffzParser* p) {
-	ffzLoc loc = {0};
-	loc.line_num = 1;
-	loc.column_num = 1;
+FFZ_CAPI ffzOk ffz_parse_node(ffzParser* p) {
+	ffzLoc loc = { .line_num = 1, .column_num = 1 };
+	return parse_node(p, &loc, NULL, (ParseFlags)0, &p->root);
+}
 
-	//p->root = new_node(p, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
-	ffzNode root = {0};
-	TRY(parse_children(p, &loc, &root, 0));
-	
-	for (ffzNode* n = root.first_child; n; n = n->next) {
-		n->parent = NULL;
-		f_array_push(&p->top_level_nodes, n);
-	}
-
-	return FFZ_OK;
+ffzOk ffz_parse_scope(ffzParser* p) {
+	ffzLoc loc = { .line_num = 1, .column_num = 1 };
+	p->root = new_node(p, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
+	return parse_children(p, &loc, p->root, 0);
 }
 
 OPT(ffzNode*) ffz_skip_standalone_tags(OPT(ffzNode*) node) {

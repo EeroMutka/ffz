@@ -104,7 +104,7 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 	case ffzTypeTag_DefaultUint: // fallthrough
 	case ffzTypeTag_Raw: // fallthrough
 	case ffzTypeTag_Float: {
-		f_hash64_push(&h, constant.data->u64_); // TODO: u128
+		f_hash64_push(&h, constant.data->_uint); // TODO: u128
 	} break;
 	default: f_trap();
 	}
@@ -132,9 +132,9 @@ static ffzConstantData* make_constant(ffzModule* c) {
 	return constant;
 }
 
-static ffzConstantData* make_constant_int(ffzModule* c, u64 u64_) {
+static ffzConstantData* make_constant_int(ffzModule* c, u64 _uint) {
 	ffzConstantData* constant = make_constant(c);
-	constant->u64_ = u64_;
+	constant->_uint = _uint;
 	return constant;
 }
 
@@ -299,12 +299,44 @@ void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	}
 }
 
+// Print the constant as valid FFZ source code
 static void print_constant(ffzProject* p, fWriter* w, ffzConstant constant) {
-	if (constant.type->tag == ffzTypeTag_Type) {
-		_write_type(p, w, constant.data->type);
-	}
-	else {
-		f_trap();
+	switch (constant.type->tag) {
+	//ffzTypeTag_Raw,
+	//ffzTypeTag_Undefined,
+	case ffzTypeTag_Type: { _write_type(p, w, constant.data->type); } break;
+	//case ffzTypeTag_PolyExpr:
+	//case ffzTypeTag_Module:
+
+	case ffzTypeTag_Bool: { f_print(w, constant.data->_bool ? "true" : "false"); } break;
+	case ffzTypeTag_Pointer: {
+		f_trap(); // TODO
+	} break;
+	
+	case ffzTypeTag_DefaultSint: // fallthrough
+	case ffzTypeTag_Sint: { f_print_int(w, constant.data->_sint, 10); } break; // :PackConstantTroubles
+	case ffzTypeTag_DefaultUint: // fallthrough
+	case ffzTypeTag_Uint: { f_print_uint(w, constant.data->_uint, 10); } break; // :PackConstantTroubles
+	case ffzTypeTag_Float: { f_print_float(w, constant.data->_float); } break;  // :PackConstantTroubles
+	case ffzTypeTag_Proc: {
+		f_trap(); // TODO
+	} break;
+	case ffzTypeTag_Record: {
+		f_trap(); // TODO
+	} break;
+	case ffzTypeTag_Enum: {
+		f_trap(); // TODO
+	} break;
+	case ffzTypeTag_Slice: {
+		f_trap(); // TODO
+	} break;
+	case ffzTypeTag_String: {
+		f_trap(); // TODO
+	} break;
+	case ffzTypeTag_FixedArray: {
+		f_trap(); // TODO
+	} break;
+	default: f_trap();
 	}
 }
 
@@ -321,7 +353,7 @@ fString ffz_type_to_string(ffzProject* p, ffzType* type) {
 	return builder.buffer.slice;
 }
 
-ffzNode* ffz_get_scope(ffzNode* node) {
+fOpt(ffzNode*) ffz_get_scope(ffzNode* node) {
 	for (node = node->parent; node; node = node->parent) {
 		// or hmm.. what if we have a procedure {} and we're recursing into the procedure type parameters.
 		// in the parent, we need to know the type of the lhs first before knowing if it's a procedure scope or not.
@@ -335,7 +367,6 @@ ffzNode* ffz_get_scope(ffzNode* node) {
 
 		if (node->kind == ffzNodeKind_Record) return node;
 	}
-	f_trap();
 	return NULL;
 }
 
@@ -602,76 +633,35 @@ ffzConstantData ffz_constant_fixed_array_get(ffzConstant array, u32 index) {
 	return result;
 }
 
-ffzOk add_definitions_to_scope(ffzModule* c, fOpt(ffzNode*) scope, ffzNode* from) {
-	for FFZ_EACH_CHILD(n, from) {
-		if (n->kind == ffzNodeKind_Declare) {
-			
-			fString name = ffz_decl_get_name(n);
+ffzOk try_to_add_definition_to_scope(ffzModule* c, fOpt(ffzNode*) scope, ffzNodeIdentifier* def) {
+	fString name = def->Identifier.name;
 
-			for (ffzNode* test_scope = scope; test_scope; test_scope = test_scope->parent) {
-				ffzDefinitionPath path = { test_scope, name };
-				if (ffzNodeIdentifier** existing = f_map64_get(&c->definition_map, ffz_hash_definition_path(path))) {
-					ERR(c, n, "`~s` is already declared before (at line: ~u32)", name, (*existing)->loc.start.line_num);
-				}
-			}
-
-			ffzDefinitionPath path = { scope, name };
-			f_map64_insert(&c->definition_map, ffz_hash_definition_path(path), n->Op.left, fMapInsert_DoNotOverride);
+	for (ffzNode* test_scope = scope; test_scope; test_scope = test_scope->parent) {
+		ffzDefinitionPath path = { test_scope, name };
+		ffzNodeIdentifier** existing = f_map64_get(&c->definition_map, ffz_hash_definition_path(path));
+		if (existing) {
+			ERR(c, def, "`~s` is already declared before (at line: ~u32)", name, (*existing)->loc.start.line_num);
 		}
 	}
-	return { true };
+
+	ffzDefinitionPath path = { scope, name };
+	f_map64_insert(&c->definition_map, ffz_hash_definition_path(path), def, fMapInsert_DoNotOverride);
+	return FFZ_OK;
 }
 
-#if 0
-ffzOk ffz_instanceless_check(ffzModule* c, ffzNode* node) {
-	//ffzCheckerScope scope;
-	//
-	//if (new_scope) {
-	//	// when root level, we want the scope node to be NULL, instead of the parser root node!!!
-	//	// This is so that declarations across multiple files/parsers will be placed in equal scope.
-	//	scope = node->parent ? node : NULL;
-	//	scope.parent = c->current_scope;
-	//	c->current_scope = &scope;
-	//}
-
-	if (node->kind == ffzNodeKind_Record) {
-		//TRY(_ffz_add_possible_definitions(c, node->Record.polymorphic_parameters));
+ffzOk add_possible_definition_to_scope(ffzModule* c, fOpt(ffzNode*) scope, ffzNode* node) {
+	if (node->kind == ffzNodeKind_Declare) {
+		TRY(try_to_add_definition_to_scope(c, scope, node->Op.left));
 	}
-	else if (node->kind == ffzNodeKind_ProcType) {
-		//TRY(_ffz_add_possible_definitions(c, node->ProcType.polymorphic_parameters));
-		//if (node->ProcType.out_parameter) TRY(_ffz_add_possible_definition(c, node->ProcType.out_parameter));
-	}
-	else if (node->kind == ffzNodeKind_PostCurlyBrackets) {
-		// If the procedure type is anonymous, add the parameters to this scope. Otherwise, the programmer must use the `in` and `out` keywords to access parameters.
-		//if (node->Op.left->kind == ffzNodeKind_ProcType) {
-		//	ffz_instanceless_check(c, node->Op.left);
-		//	//TRY(_ffz_add_possible_definitions(c, derived->left));
-		//	//OPT(ffzNode*) out_parameter = AS(derived->left,ProcType)->out_parameter; // :AddOutParamDeclaration
-		//	//if (out_parameter) TRY(_ffz_add_possible_definition(c, out_parameter));
-		//}
-	}
-	else if (node->kind == ffzNodeKind_For) {
-		if (node->For.header_stmts[0]) { // e.g. `for i: 0, ...`
-			TRY(_ffz_add_possible_definition(c, node->For.header_stmts[0]));
-		}
-	}
-
-	for FFZ_EACH_CHILD(n, node) {
-		TRY(_ffz_add_possible_definition(c, n));
-	}
-
-	if (recursive) {
-		for FFZ_EACH_CHILD(n, node) {
-			TRY(ffz_instanceless_check(c, n, recursive));
-		}
-	}
-
-	//if (new_scope) {
-	//	c->current_scope = c->current_scope->parent;
-	//}
-	return { true };
+	return FFZ_OK;
 }
-#endif
+
+ffzOk add_possible_definitions_to_scope(ffzModule* c, fOpt(ffzNode*) scope, ffzNode* from_children) {
+	for FFZ_EACH_CHILD(n, from_children) {
+		TRY(add_possible_definition_to_scope(c, scope, n));
+	}
+	return FFZ_OK;
+}
 
 u32 get_alignment(ffzType* type, u32 pointer_size) {
 	switch (type->tag) {
@@ -862,96 +852,93 @@ static bool type_can_be_casted_to(ffzProject* p, ffzType* from, ffzType* to) {
 	return false;
 }
 
-//static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* require_type, InferFlags flags) {
-//	ffzNode* left = node->Op.left;
-//	bool fall = true;
-//	if (left->kind == ffzNodeKind_Keyword) {
-//		ffzKeyword keyword = left->Keyword.keyword;
-//		if (ffz_keyword_is_bitwise_op(keyword)) {
-//			if (ffz_get_child_count(node) != (keyword == ffzKeyword_bit_not ? 1 : 2)) {
-//				ERR(c, node, "Incorrect number of arguments to a bitwise operation.");
-//			}
-//			
-//			ffzNode* first = ffz_get_child(node, 0);
-//			if (keyword == ffzKeyword_bit_not) {
-//				TRY(check_node(c, first, require_type, flags));
-//				node->checked.type = first->checked.type;
-//			}
-//			else {
-//				ffzNodeInst second = ffz_get_child_inst(inst, 1);
-//				TRY(check_two_sided(c, first, second, &result->type));
-//			}
-//
-//			if (result->type && !is_basic_type_size(result->type->size)) {
-//				ERR(c, inst, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: ~u32", result->type->size);
-//			}
-//
-//			fall = false;
-//		}
-//		else if (keyword == ffzKeyword_size_of || keyword == ffzKeyword_align_of) {
-//			if (ffz_get_child_count(inst) != 1) {
-//				ERR(c, inst, "Incorrect number of arguments to ~s.", ffz_keyword_to_string(keyword));
-//			}
-//
-//			ffzCheckedInst chk;
-//			ffzNodeInst first = ffz_get_child_inst(inst, 0);
-//			TRY(check_node(c, first, NULL, 0, &chk));
-//			ffzType* type = _ffz_ground_type(chk);
-//			
-//			result->type = ffz_builtin_type(c, ffzKeyword_uint);
-//			result->const_val = make_constant_int(c, keyword == ffzKeyword_align_of ? type->align : type->size);
-//			fall = false;
-//		}
-//		else if (keyword == ffzKeyword_import) {
-//			result->type = c->module_type;
-//			result->const_val = make_constant(c);
-//
-//			ffzModule* node_module = ffz_checker_from_inst(c->project, inst);
-//			result->const_val->module = *f_map64_get(&node_module->imported_modules, inst->id.global_id);
-//			fall = false;
-//		}
-//	}
-//	if (fall) {
-//		ffzCheckedInst left_chk;
-//		TRY(check_node(c, left, NULL, 0, &left_chk));
-//
-//		if (left_chk.type->tag == ffzTypeTag_Type) {
-//			// ffzType casting
-//			result->type = left_chk.const_val->type;
-//			if (ffz_get_child_count(inst) != 1) ERR(c, inst, "Incorrect number of arguments in type initializer.");
-//
-//			ffzNodeInst arg = ffz_get_child_inst(inst, 0);
-//			ffzCheckedInst chk;
-//
-//			// check the expression, but do not enforce the type inference, as the type inference rules are
-//			// more strict than a manual cast. For example, an integer cannot implicitly cast to a pointer, but when inside a cast it can.
-//			
-//			TRY(check_node(c, arg, result->type, InferFlag_NoTypesMatchCheck, &chk));
-//			f_assert(chk.type); //if (chk.type == NULL) ERR(c, inst, "Invalid cast.");
-//
-//			bool is_undefined = chk.type->tag == ffzTypeTag_Type && chk.const_val->type->tag == ffzTypeTag_Undefined;
-//			if (!(flags & InferFlag_AllowUndefinedValues) && is_undefined) {
-//				ERR(c, arg, "Invalid place for an undefined value. Undefined values are only allowed in variable declarations.");
-//			}
-//			
-//			if (!is_undefined && !ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(chk.type->tag)) {
-//				// the following shouldn't be allowed:
-//				// #foo: false
-//				// #bar: uint(&foo)
-//				// This is because given a constant integer, we want to be able to trivially ask what its value is.
-//				result->const_val = chk.const_val;
-//			}
-//
-//			if (!is_undefined && !type_can_be_casted_to(c->project, chk.type, result->type)) {
-//				TRY(check_types_match(c, inst, chk.type, result->type, "The received type cannot be casted to the expected type:"));
-//			}
-//		}
-//		else {
-//			check_procedure_call(c, inst, require_type, flags, &result->type);
-//		}
-//	}
-//	return FFZ_OK;
-//}
+static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* require_type, InferFlags flags, ffzCheckInfo* result) {
+	ffzNode* left = node->Op.left;
+	bool fall = true;
+	if (left->kind == ffzNodeKind_Keyword) {
+		ffzKeyword keyword = left->Keyword.keyword;
+		if (ffz_keyword_is_bitwise_op(keyword)) {
+			//if (ffz_get_child_count(node) != (keyword == ffzKeyword_bit_not ? 1 : 2)) {
+			//	ERR(c, node, "Incorrect number of arguments to a bitwise operation.");
+			//}
+			//
+			//ffzNode* first = ffz_get_child(node, 0);
+			//if (keyword == ffzKeyword_bit_not) {
+			//	TRY(check_node(c, first, require_type, flags));
+			//	node->checked.type = first->checked.type;
+			//}
+			//else {
+			//	ffzNode* second = ffz_get_child(inst, 1);
+			//	TRY(check_two_sided(c, first, second, &result->type));
+			//}
+			//
+			//if (result->type && !is_basic_type_size(result->type->size)) {
+			//	ERR(c, inst, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: ~u32", result->type->size);
+			//}
+			//
+			//fall = false;
+			f_trap();
+		}
+		else if (keyword == ffzKeyword_size_of || keyword == ffzKeyword_align_of) {
+			if (ffz_get_child_count(node) != 1) {
+				ERR(c, node, "Incorrect number of arguments to ~s.", ffz_keyword_to_string(keyword));
+			}
+
+			ffzNode* first = ffz_get_child(node, 0);
+			TRY(check_node(c, first, NULL, 0));
+			ffzType* type = ffz_ground_type(first->checked.constant, first->checked.type);
+			
+			result->type = ffz_builtin_type(c, ffzKeyword_uint);
+			result->constant = make_constant_int(c, keyword == ffzKeyword_align_of ? type->align : type->size);
+			fall = false;
+		}
+		else if (keyword == ffzKeyword_import) {
+			result->type = c->module_type;
+			result->constant = make_constant(c);
+
+			f_assert(c->self_id == node->module_id);
+			result->constant->module = *f_map64_get(&c->imported_modules, (u64)node);
+			fall = false;
+		}
+	}
+	if (fall) {
+		TRY(check_node(c, left, NULL, 0));
+
+		if (left->checked.type->tag == ffzTypeTag_Type) {
+			// ffzType casting
+			result->type = left->checked.constant->type;
+			if (ffz_get_child_count(node) != 1) ERR(c, node, "Incorrect number of arguments in type initializer.");
+
+			ffzNode* arg = ffz_get_child(node, 0);
+			
+			// check the expression, but do not enforce the type inference, as the type inference rules are
+			// more strict than a manual cast. For example, an integer cannot implicitly cast to a pointer, but when inside a cast it can.
+			
+			TRY(check_node(c, arg, result->type, InferFlag_NoTypesMatchCheck));
+			
+			bool is_undefined = arg->checked.type->tag == ffzTypeTag_Type && arg->checked.constant->type->tag == ffzTypeTag_Undefined;
+			if (!(flags & InferFlag_AllowUndefinedValues) && is_undefined) {
+				ERR(c, arg, "Invalid place for an undefined value. Undefined values are only allowed in variable declarations.");
+			}
+			
+			if (!is_undefined && !ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(arg->checked.type->tag)) {
+				// the following shouldn't be allowed:
+				// #foo: false
+				// #bar: uint(&foo)
+				// This is because given a constant integer, we want to be able to trivially ask what its value is.
+				result->constant = arg->checked.constant;
+			}
+
+			if (!is_undefined && !type_can_be_casted_to(c->project, arg->checked.type, result->type)) {
+				TRY(check_types_match(c, node, arg->checked.type, result->type, "The received type cannot be casted to the expected type:"));
+			}
+		}
+		else {
+			f_trap(); //check_procedure_call(c, inst, require_type, flags, &result->type);
+		}
+	}
+	return FFZ_OK;
+}
 
 //static ffzOk check_post_curly_brackets(ffzModule* c, ffzNodeInst inst, OPT(ffzType*) require_type, InferFlags flags, bool* delayed_check_proc, ffzCheckedInst* result) {
 //	ffzNodeInst left = CHILD(inst, Op.left);
@@ -1052,7 +1039,8 @@ static bool type_can_be_casted_to(ffzProject* p, ffzType* from, ffzType* to) {
 //
 //}
 
-static void ffz_deep_copy(ffzModule* c, fOpt(ffzNode*)* p_node) {
+// `ident_remap` can be used if you want to optionally rename identifiers.
+static void ffz_deep_copy(ffzModule* c, fOpt(ffzNode*)* p_node, fOpt(fMap64(fString)*) ident_remap) {
 	if (*p_node == NULL) return;
 
 	ffzNode* new_node = f_mem_clone(**p_node, c->alc);
@@ -1061,40 +1049,47 @@ static void ffz_deep_copy(ffzModule* c, fOpt(ffzNode*)* p_node) {
 	for (ffzNode* child = new_node->first_child; child; child = child->next) {
 
 		f_assert(child == *link_to_next);
-		ffz_deep_copy(c, link_to_next);
+		ffz_deep_copy(c, link_to_next, ident_remap);
 		child->parent = new_node;
 
 		link_to_next = &child->next;
 	}
 	
 	if (ffz_node_is_operator(new_node->kind)) {
-		ffz_deep_copy(c, &new_node->Op.left);
-		ffz_deep_copy(c, &new_node->Op.right);
+		ffz_deep_copy(c, &new_node->Op.left, ident_remap);
+		ffz_deep_copy(c, &new_node->Op.right, ident_remap);
 	}
 	else switch (new_node->kind) {
 	case ffzNodeKind_Blank: break;
-	case ffzNodeKind_Identifier: break;
+	case ffzNodeKind_Identifier: {
+		if (ident_remap) {
+			fString* new_name = f_map64_get(ident_remap, f_hash64_str(new_node->Identifier.name));
+			if (new_name) {
+				new_node->Identifier.name = *new_name;
+			}
+		}
+	} break;
 	case ffzNodeKind_PolyExpr: {
-		ffz_deep_copy(c, &new_node->PolyExpr.expr);
+		ffz_deep_copy(c, &new_node->PolyExpr.expr, ident_remap);
 	} break;
 	case ffzNodeKind_Keyword: break;
 	case ffzNodeKind_ThisValueDot: break;
 	case ffzNodeKind_ProcType: {
-		ffz_deep_copy(c, &new_node->ProcType.out_parameter);
+		ffz_deep_copy(c, &new_node->ProcType.out_parameter, ident_remap);
 	} break;
 	case ffzNodeKind_Record: break;
 	case ffzNodeKind_Enum: break;
 	case ffzNodeKind_Return: {
-		ffz_deep_copy(c, &new_node->Return.value);
+		ffz_deep_copy(c, &new_node->Return.value, ident_remap);
 	} break;
 	case ffzNodeKind_If: {
-		ffz_deep_copy(c, &new_node->If.condition);
-		ffz_deep_copy(c, &new_node->If.true_scope);
-		ffz_deep_copy(c, &new_node->If.else_scope);
+		ffz_deep_copy(c, &new_node->If.condition, ident_remap);
+		ffz_deep_copy(c, &new_node->If.true_scope, ident_remap);
+		ffz_deep_copy(c, &new_node->If.else_scope, ident_remap);
 	} break;
 	case ffzNodeKind_For: {
-		for (int i=0; i<3; i++) ffz_deep_copy(c, &new_node->For.header_stmts[i]);
-		ffz_deep_copy(c, &new_node->For.scope);
+		for (int i=0; i<3; i++) ffz_deep_copy(c, &new_node->For.header_stmts[i], ident_remap);
+		ffz_deep_copy(c, &new_node->For.scope, ident_remap);
 	} break;
 	case ffzNodeKind_Scope: break;
 	case ffzNodeKind_IntLiteral: break;
@@ -1106,8 +1101,41 @@ static void ffz_deep_copy(ffzModule* c, fOpt(ffzNode*)* p_node) {
 	*p_node = new_node;
 }
 
-static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo* result) {
+// hmm... kind of the same as `new_node` in ffz_ast.c
+static ffzNode* new_generated_node(ffzModule* m, ffzNode* parent, ffzNodeKind kind) {
+	ffzNode* node = f_mem_clone(ffzNode{}, m->alc);
+	node->module_id = m->self_id;
+	node->parent = parent;
+	node->kind = kind;
+	return node;
+}
 
+ffzParser* ffz_module_add_parser(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb) {
+	ffzParser* parser = f_mem_clone(ffzParser{}, m->alc);
+	parser->module = m;
+	parser->alc = m->alc;
+	parser->self_id = (ffzParserID)f_array_push(&m->parsers, parser);
+	parser->source_code = code;
+	parser->source_code_filepath = filepath;
+	parser->keyword_from_string = &m->project->keyword_from_string;
+	parser->error_cb = error_cb;
+	parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
+	//parser->top_level_nodes = f_array_make<ffzNode*>(parser->alc);
+	return parser;
+}
+
+ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constant) {
+	// For simplicity, let's print the constant and parse it. In the future we should change this to a direct translation. @speed
+	fString constant_string = ffz_constant_to_string(m->project, constant);
+	
+	// this is very stupid. Parser is kind of a fat structure and we keep adding them now
+	ffzParser* parser = ffz_module_add_parser(m, constant_string, {}, {});
+	f_assert(ffz_parse_node(parser).ok);
+	
+	return parser->root;
+}
+
+static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo* result) {
 	TRY(check_node(c, node->Op.left, NULL, 0));
 
 	ffzCheckInfo left_chk = node->Op.left->checked;
@@ -1135,42 +1163,77 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 		}
 		
 		ffzNode* poly_def_parent = poly.poly_def->parent;
-
 		ffzPolymorphID poly_id = *entry._unstable_ptr;
 		
-		// Deep copy the poly-def node into a global declaration, then replace this post-square-brackets node with an identifier referring to it.
-		// After the checking stage, we will still have the poly-def nodes, but no actual node will be referring to them anymore.
-
-		ffzNode* poly_inst_decl = f_mem_clone(ffzNode{}, c->alc); // :NewNode
-		poly_inst_decl->kind = ffzNodeKind_Declare;
-		poly_inst_decl->module_id = c->self_id;
-			
-		ffzNode* def = f_mem_clone(ffzNode{}, c->alc); // :NewNode
-		def->kind = ffzNodeKind_Identifier;
-		def->module_id = c->self_id;
-		def->Identifier.name = f_tprint("~s__polyid_~u32", ffz_decl_get_name(poly_def_parent), poly_id);
-		def->Identifier.is_constant = true;
-
-		poly_inst_decl->Op.left = def;
-		poly_inst_decl->Op.right = poly.poly_def->PolyExpr.expr;
-		ffz_deep_copy(c, &poly_inst_decl->Op.right);
+		//  Example:
+		// 
+		// #Foo: poly[T] T(1) + T(2)
+		// #Bar: Foo[int]
+		// 
+		//  Will be expanded into:
+		// 
+		// #Foo: poly[T] T(1) + T(2)
+		// #Bar: Foo__poly_0
+		// #Foo__poly_0_T: int
+		// #Foo__poly_0: Foo__poly_0_T(1) + Foo__poly_0_T(2)
+		//
 		
-		// NOTE: we're pushing a top-level node to the end of the root node while iterating through them at the bottom of
-		// the callstack. But that's totally fine.
-		ffz_module_add_top_level_node(c, poly_inst_decl);
-
 		// Modify node from polymorph instantiator into an identifier. :InPlaceNodeModification
 		node->kind = ffzNodeKind_Identifier;
 		node->Identifier = {};
-		node->Identifier.name = def->Identifier.name;
-		node->Identifier.chk_definition = def;
+		node->Identifier.name = f_aprint(c->alc, "~s__poly_~u32", ffz_decl_get_name(poly_def_parent), poly_id);
+		//node->Identifier.chk_definition = def;
 
-		// lastly, check the instantiated declaration and take the results.
+		if (entry.added) {
+			fMap64(fString) replace_poly_arg_identifier = f_map64_make<fString>(f_temp_alc());
 
-		TRY(check_node(c, poly_inst_decl, NULL, 0));
-		*result = poly_inst_decl->Op.right->checked;
+			// add parameters as decls
+			for (u32 i = 0; i < poly.parameters.len; i++) {
+				fString param_name = ffz_get_child(poly.poly_def, i)->Identifier.name;
+				fString expanded_name = f_aprint(c->alc, "~s__poly_~u32_~s", ffz_decl_get_name(poly_def_parent), poly_id, param_name);
+				f_map64_insert(&replace_poly_arg_identifier, f_hash64_str(param_name), expanded_name);
 
-		//f_map64_insert(&c->poly_instantiation_sites, ffz_hash_node_inst(inst), poly_dedup);
+				ffzNode* arg_decl = new_generated_node(c, c->root, ffzNodeKind_Declare);
+				
+				ffzNode* arg_def = new_generated_node(c, arg_decl, ffzNodeKind_Identifier);
+				arg_def->Identifier.name = expanded_name;
+				arg_def->Identifier.is_constant = true;
+
+				arg_decl->Op.left = arg_def;
+				arg_decl->Op.right = ffz_constant_to_node(c, arg_decl, poly.parameters[i]);
+				
+				ffz_module_add_top_level_node(c, arg_decl);
+			}
+
+			ffzNode* inst_decl = new_generated_node(c, c->root, ffzNodeKind_Declare);
+			
+			ffzNode* inst_def = new_generated_node(c, inst_decl, ffzNodeKind_Identifier);
+			inst_def->Identifier.name = node->Identifier.name;
+			inst_def->Identifier.is_constant = true;
+
+			// hmm... there still could be a name collision.
+			// Imagine you expand the program once, then add another polymorph instance, then compile the program again.
+			// The newly expanded names will collide with the previously expanded names!!
+			// Maybe we could do a smart thing and include the hash in the name, then look if that identifier already exists and rewrite it if it does.
+			// That would allow for the full roundtrip multiple times.
+
+			ffzNode* poly_expr = poly.poly_def->PolyExpr.expr;
+			poly_expr->parent = c->root;
+			ffz_deep_copy(c, &poly_expr, &replace_poly_arg_identifier);
+			
+			inst_decl->Op.left = inst_def;
+			inst_decl->Op.right = poly_expr;
+
+			// NOTE: we're pushing a top-level node to the end of the root node while iterating through them at the bottom of
+			// the callstack. But that's totally fine.
+			ffz_module_add_top_level_node(c, inst_decl);
+			
+			// lastly, check the instantiated declaration and take the results.
+
+			TRY(check_node(c, inst_decl, NULL, InferFlag_Statement));
+			*result = inst_decl->Op.right->checked;
+		}
+
 	}
 	else {
 		// Array subscript
@@ -1371,8 +1434,6 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
 	c->alc = alc;
 	c->checked_identifiers = f_map64_make_raw(0, c->alc);
 	c->definition_map = f_map64_make<ffzNodeIdentifier*>(c->alc);
-	//c->cache = f_map64_make<ffzCheckedInst>(c->alc);
-	//c->poly_instantiation_sites = f_map64_make<ffzPolymorph*>(c->alc);
 	c->field_from_name_map = f_map64_make<ffzTypeRecordFieldUse*>(c->alc);
 	c->enum_value_from_name = f_map64_make<u64>(c->alc);
 	c->enum_value_is_taken = f_map64_make<ffzNode*>(c->alc);
@@ -1601,7 +1662,7 @@ static ffzOk check_identifier(ffzModule* c, ffzNodeIdentifier* node, ffzCheckInf
 		ERR(c, node, "Definition not found for an identifier: \"~s\"", name);
 	}
 	
-	node->Identifier.chk_definition = def;
+	//node->Identifier.chk_definition = def;
 
 	ffzNode* decl = def->parent;
 	f_assert(decl->kind == ffzNodeKind_Declare);
@@ -1755,7 +1816,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	// case ffzNodeKind_Return: { TRY(check_return(c, inst, &result)); } break;
 
 	case ffzNodeKind_Scope: {
-		TRY(add_definitions_to_scope(c, node, node));
+		TRY(add_possible_definitions_to_scope(c, node, node));
 
 		for FFZ_EACH_CHILD(stmt, node) {
 			TRY(check_node(c, stmt, NULL, InferFlag_Statement));
@@ -1766,6 +1827,11 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		// When you say `#foo: poly[T] T(100)`, you're declaring foo as a new type, more specifically a polymorphic expression type.
 		// It's the same thing as if foo was i.e. a struct type.
 		
+		for FFZ_EACH_CHILD(n, node) {
+			if (n->kind != ffzNodeKind_Identifier) ERR(c, n, "Expected a polymorphic parameter definition.");
+			TRY(try_to_add_definition_to_scope(c, node, n));
+		}
+
 		if (node->parent->kind != ffzNodeKind_Declare) {
 			ERR(c, node, "Polymorphic expression must be the right-hand-side of a constant declaration.");
 		}
@@ -1775,9 +1841,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		result = make_type_constant(c, ffz_make_type(c, type));
 	} break;
 
-	//case ffzNodeKind_PostRoundBrackets: {
-	//	TRY(check_post_round_brackets(c, inst, require_type, flags, &result));
-	//} break;
+	case ffzNodeKind_PostRoundBrackets: {
+		TRY(check_post_round_brackets(c, node, require_type, flags, &result));
+	} break;
 
 	//case ffzNodeKind_If: {
 	//	TRY(check_node(c, CHILD(inst, If.condition), ffz_builtin_type(c, ffzKeyword_bool), 0, NULL));
@@ -1859,24 +1925,20 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	//	result = make_type_constant(c, ffz_make_type(c, struct_type));
 	//} break;
 	
-	//case ffzNodeKind_FloatLiteral: {
-	//	if (require_type && require_type->tag == ffzTypeTag_Float) {
-	//		result.type = require_type;
-	//		result.const_val = make_constant(c);
-	//		
-	//		f64 val = inst->FloatLiteral.value;
-	//		if (require_type->size == 4) result.const_val->f32_ = (f32)val;
-	//		else if (require_type->size == 8) result.const_val->f64_ = val;
-	//		else f_trap();
-	//	}
-	//} break;
+	case ffzNodeKind_FloatLiteral: {
+		if (require_type && require_type->tag == ffzTypeTag_Float) {
+			result.type = require_type;
+			result.constant = make_constant(c);
+			result.constant->_float = node->FloatLiteral.value;
+		}
+	} break;
 
-	//case ffzNodeKind_IntLiteral: {
-	//	if (!(flags & InferFlag_TypeIsNotRequired_)) {
-	//		result.type = ffz_builtin_type(c, ffzKeyword_uint);
-	//		result.const_val = make_constant_int(c, inst->IntLiteral.value);
-	//	}
-	//} break;
+	case ffzNodeKind_IntLiteral: {
+		if (!(flags & InferFlag_TypeIsNotRequired_)) {
+			result.type = ffz_builtin_type(c, ffzKeyword_uint);
+			result.constant = make_constant_int(c, node->IntLiteral.value);
+		}
+	} break;
 
 	//case ffzNodeKind_StringLiteral: {
 	//	// pointers aren't guaranteed to be valid / non-null, but optional pointers are expected to be null.
@@ -2015,8 +2077,8 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 
 					u64 src = ffz_type_is_signed_integer(result.type->tag) ? (u64)-1 : 0;
 					u64 masked = src;
-					memcpy(&src, &result.constant->u64_, result.type->size);
-					memcpy(&masked, &result.constant->u64_, require_type->size);
+					memcpy(&src, &result.constant->_uint, result.type->size);
+					memcpy(&masked, &result.constant->_uint, require_type->size);
 					
 					bool src_is_negative = ffz_type_is_signed_integer(result.type->tag) && integer_is_negative(&src, result.type->size);
 					bool masked_is_negative = ffz_type_is_signed_integer(require_type->tag) && integer_is_negative(&masked, require_type->size);
@@ -2068,10 +2130,10 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			TRY(check_node(c, node->Op.left, NULL, 0));
 		}
 		else if (delayed_check_proc) {
-			TRY(add_definitions_to_scope(c, node, node));
+			TRY(add_possible_definitions_to_scope(c, node, node));
 			
 			if (node->Op.left->kind == ffzNodeKind_ProcType) {
-				TRY(add_definitions_to_scope(c, node, node->Op.left)); // Add parameters if they're visible (not needing the `in` keyword)
+				TRY(add_possible_definitions_to_scope(c, node, node->Op.left)); // Add parameters if they're visible (not needing the `in` keyword)
 			}
 			
 			// only check the procedure body when we have a physical procedure instance (not polymorphic)
@@ -2082,7 +2144,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			}
 		}
 		else if (delayed_check_record) {
-			TRY(add_definitions_to_scope(c, node, node));
+			TRY(add_possible_definitions_to_scope(c, node, node));
 
 			// Add the record fields only after the type has been registered in the cache. This is to avoid
 			// infinite loops when checking.
@@ -2143,28 +2205,16 @@ ffzProject* ffz_init_project(fArena* arena, fString modules_directory) {
 }
 
 
-ffzParser* ffz_module_add_parser(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb) {
-	ffzParser* parser = f_mem_clone(ffzParser{}, m->alc);
-	parser->module = m;
-	parser->alc = m->alc;
-	parser->self_id = (ffzParserID)f_array_push(&m->parsers, parser);
-	parser->source_code = code;
-	parser->source_code_filepath = filepath;
-	parser->keyword_from_string = &m->project->keyword_from_string;
-	parser->error_cb = error_cb;
-	parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
-	parser->top_level_nodes = f_array_make<ffzNode*>(parser->alc);
-	return parser;
-}
-
-void ffz_module_add_top_level_node(ffzModule* m, ffzNode* node) {
-	VALIDATE(node->parent == NULL);
-
+ffzOk ffz_module_add_top_level_node(ffzModule* m, ffzNode* node) {
 	if (m->root_last_child) m->root_last_child->next = node;
 	else m->root->first_child = node;
 
 	node->parent = m->root;
 	m->root_last_child = node;
+
+	// maybe this shouldn't be in here, and be a separate call?
+	TRY(add_possible_definition_to_scope(m, m->root, node));
+	return FFZ_OK;
 }
 
 //bool ffz_module_add_code_string(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb) {
@@ -2214,9 +2264,6 @@ bool ffz_module_check_single(ffzModule* m, ffzErrorCallback error_cb) {
 	//		return false;
 	//	}
 	//}
-	
-	ffzOk ok = add_definitions_to_scope(m, m->root, m->root);
-	if (!ok.ok) return false;
 
 	for (ffzNode* n = m->root->first_child; n; n = n->next) {
 
@@ -2304,7 +2351,8 @@ ffzModule* ffz_project_add_module_from_filesystem(ffzProject* p, fString directo
 		f_assert(f_files_read_whole(visit.files[i], &module_arena->alc, &file_contents));
 
 		ffzParser* parser = ffz_module_add_parser(module, file_contents, visit.files[i], error_cb);
-		ffzOk ok = ffz_parse(parser);
+		ffzOk ok = ffz_parse_scope(parser);
+		if (!ok.ok) return NULL;
 
 		// so... each ffzNode needs to be part of a Parser. Why? because we have a
 		// local index for the nodes that is used to check local variable usage.
@@ -2319,13 +2367,13 @@ ffzModule* ffz_project_add_module_from_filesystem(ffzProject* p, fString directo
 		// user wants to modify the tree, they can push the modified nodes to the end of the queue
 		// to be re-checked.
 
-		for (uint i = 0; i < parser->top_level_nodes.len; i++) {
-			ffz_module_add_top_level_node(module, parser->top_level_nodes[i]);
+		for (ffzNode* n = parser->root->first_child; n; n = n->next) {
+			ok = ffz_module_add_top_level_node(module, n);
+			if (!ok.ok) return NULL;
 		}
 
 		f_array_push_n(&module->pending_imports, parser->module_imports.slice);
 
-		if (!ok.ok) return NULL;
 
 		//if (!ffz_module_add_code_string(module, file_contents, visit.files[i], error_cb)) {
 		//	return NULL;
