@@ -4,8 +4,20 @@
 //#A: Vector[int, 505]
 //#B: Vector[u32, 23]
 
-#main: proc() {
+#adder: poly[T] proc(a: T, b: T) => T {
+	result: a + b
+	ret result
+}
+
+
+#main: proc(argc: u32, argv: ^raw) => u32 {
 	dbgbreak
+	
+	x: adder[u32](1, 2)
+	y: adder[int](5, 62)
+	z: adder[u32](12, 23)
+	
 	dbgbreak
+	ret 0
 }
 

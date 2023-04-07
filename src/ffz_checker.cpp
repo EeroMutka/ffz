@@ -362,6 +362,8 @@ fOpt(ffzNode*) ffz_get_parent_proc(ffzNode* node) {
 
 fOpt(ffzNode*) ffz_get_scope(ffzNode* node) {
 	for (node = node->parent; node; node = node->parent) {
+		f_assert(node->has_checked);
+
 		// or hmm.. what if we have a procedure {} and we're recursing into the procedure type parameters.
 		// in the parent, we need to know the type of the lhs first before knowing if it's a procedure scope or not.
 		// So a procedure type should be able to be checked independently. I guess the procedure body should then add the definitions from the proc type as well.
@@ -572,21 +574,6 @@ static ffzOk check_argument_list(ffzModule* c, ffzNode* node, fSlice(ffzField) f
 
 	return FFZ_OK;
 }
-
-//static ffzOk check_procedure_call(ffzModule* c, ffzNodeOpInst inst, OPT(ffzType*) require_type, InferFlags flags, OPT(ffzType*)* out_type) {
-//	ffzNodeInst left = CHILD(inst, Op.left);
-//	ffzCheckedInst left_chk;
-//	TRY(check_node(c, left, NULL, 0, &left_chk));
-//
-//	ffzType* type = left_chk.type;
-//	if (left_chk.type->tag != ffzTypeTag_Proc) {
-//		ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(c->project, left_chk.type));
-//	}
-//
-//	*out_type = type->Proc.return_type;
-//	TRY(check_argument_list(c, inst, type->Proc.in_params, NULL));
-//	return { true };
-//}
 
 static bool uint_is_subtype_of(ffzType* type, ffzType* subtype_of) {
 	if (ffz_type_is_unsigned_integer(type->tag) && ffz_type_is_unsigned_integer(subtype_of->tag) && type->size <= subtype_of->size) return true;
@@ -889,8 +876,9 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 	}
 	if (fall) {
 		TRY(check_node(c, left, NULL, 0));
+		ffzType* left_type = left->checked.type;
 
-		if (left->checked.type->tag == ffzTypeTag_Type) {
+		if (left_type->tag == ffzTypeTag_Type) {
 			// ffzType casting
 			result->type = left->checked.constant->type;
 			if (ffz_get_child_count(node) != 1) ERR(c, node, "Incorrect number of arguments in type initializer.");
@@ -920,7 +908,13 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 			}
 		}
 		else {
-			f_trap(); //check_procedure_call(c, inst, require_type, flags, &result->type);
+			// Procedure call
+			if (left_type->tag != ffzTypeTag_Proc) {
+				ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(c->project, left_type));
+			}
+
+			result->type = left_type->Proc.return_type;
+			TRY(check_argument_list(c, node, left_type->Proc.in_params, NULL));
 		}
 	}
 	return FFZ_OK;
@@ -985,24 +979,22 @@ static ffzOk check_post_curly_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo
 }
 
 // `ident_remap` can be used if you want to optionally rename identifiers.
-static void ffz_deep_copy(ffzModule* c, fOpt(ffzNode*)* p_node, fOpt(fMap64(fString)*) ident_remap) {
+static void ffz_deep_copy(ffzModule* c, ffzNode* new_parent, fOpt(ffzNode*)* p_node, fOpt(fMap64(fString)*) ident_remap) {
 	if (*p_node == NULL) return;
 
 	ffzNode* new_node = f_mem_clone(**p_node, c->alc);
+	new_node->local_id = c->project->parsers[new_node->parser_id]->next_local_id++; // local_id is used for the node hash
+	new_node->parent = new_parent;
+	new_node->TEST___expanded_from_poly = true;
 
-	ffzNode** link_to_next = &new_node->first_child;
-	for (ffzNode* child = new_node->first_child; child; child = child->next) {
+	// First copy special children, then copy regular children.
+	// This distinction matters, because in case of a procedure, we want to first recurse into the procedure type and copy the parameters,
+	// and only after that recurse into the procedure body. This way the parameter's `local_id` will be smaller than the usage sites,
+	// and we can still use this field to check for use-before-define errors.
 
-		f_assert(child == *link_to_next);
-		ffz_deep_copy(c, link_to_next, ident_remap);
-		child->parent = new_node;
-
-		link_to_next = &child->next;
-	}
-	
 	if (ffz_node_is_operator(new_node->kind)) {
-		ffz_deep_copy(c, &new_node->Op.left, ident_remap);
-		ffz_deep_copy(c, &new_node->Op.right, ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->Op.left, ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->Op.right, ident_remap);
 	}
 	else switch (new_node->kind) {
 	case ffzNodeKind_Blank: break;
@@ -1015,26 +1007,26 @@ static void ffz_deep_copy(ffzModule* c, fOpt(ffzNode*)* p_node, fOpt(fMap64(fStr
 		}
 	} break;
 	case ffzNodeKind_PolyExpr: {
-		ffz_deep_copy(c, &new_node->PolyExpr.expr, ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->PolyExpr.expr, ident_remap);
 	} break;
 	case ffzNodeKind_Keyword: break;
 	case ffzNodeKind_ThisDot: break;
 	case ffzNodeKind_ProcType: {
-		ffz_deep_copy(c, &new_node->ProcType.out_parameter, ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->ProcType.out_parameter, ident_remap);
 	} break;
 	case ffzNodeKind_Record: break;
 	case ffzNodeKind_Enum: break;
 	case ffzNodeKind_Return: {
-		ffz_deep_copy(c, &new_node->Return.value, ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->Return.value, ident_remap);
 	} break;
 	case ffzNodeKind_If: {
-		ffz_deep_copy(c, &new_node->If.condition, ident_remap);
-		ffz_deep_copy(c, &new_node->If.true_scope, ident_remap);
-		ffz_deep_copy(c, &new_node->If.else_scope, ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->If.condition, ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->If.true_scope, ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->If.else_scope, ident_remap);
 	} break;
 	case ffzNodeKind_For: {
-		for (int i=0; i<3; i++) ffz_deep_copy(c, &new_node->For.header_stmts[i], ident_remap);
-		ffz_deep_copy(c, &new_node->For.scope, ident_remap);
+		for (int i=0; i<3; i++) ffz_deep_copy(c, new_node, &new_node->For.header_stmts[i], ident_remap);
+		ffz_deep_copy(c, new_node, &new_node->For.scope, ident_remap);
 	} break;
 	case ffzNodeKind_Scope: break;
 	case ffzNodeKind_IntLiteral: break;
@@ -1043,13 +1035,26 @@ static void ffz_deep_copy(ffzModule* c, fOpt(ffzNode*)* p_node, fOpt(fMap64(fStr
 	default: f_trap();
 	}
 
+	ffzNode** link_to_next = &new_node->first_child;
+	for (ffzNode* child = new_node->first_child; child; child = child->next) {
+
+		ffz_deep_copy(c, new_node, link_to_next, ident_remap);
+		child = *link_to_next;
+
+		link_to_next = &child->next;
+	}
+
 	*p_node = new_node;
 }
 
 // hmm... kind of the same as `new_node` in ffz_ast.c
-static ffzNode* new_generated_node(ffzModule* m, ffzNode* parent, ffzNodeKind kind) {
-	ffzNode* node = f_mem_clone(ffzNode{}, m->alc);
-	node->module_id = m->self_id;
+static ffzNode* new_generated_node(ffzProject* p, ffzNode* parent, ffzNodeKind kind) {
+	ffzModule* module = p->checkers[parent->module_id];
+	
+	ffzNode* node = f_mem_clone(ffzNode{}, module->alc);
+	node->local_id = p->parsers[parent->parser_id]->next_local_id++; // local_id is used for the node hash
+	node->parser_id = parent->parser_id;
+	node->module_id = module->self_id;
 	node->parent = parent;
 	node->kind = kind;
 	return node;
@@ -1138,9 +1143,9 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 				fString expanded_name = f_aprint(c->alc, "~s__poly_~u32_~s", ffz_decl_get_name(poly_def_parent), poly_id, param_name);
 				f_map64_insert(&replace_poly_arg_identifier, f_hash64_str(param_name), expanded_name);
 
-				ffzNode* arg_decl = new_generated_node(c, c->root, ffzNodeKind_Declare);
+				ffzNode* arg_decl = new_generated_node(c->project, c->root, ffzNodeKind_Declare);
 				
-				ffzNode* arg_def = new_generated_node(c, arg_decl, ffzNodeKind_Identifier);
+				ffzNode* arg_def = new_generated_node(c->project, arg_decl, ffzNodeKind_Identifier);
 				arg_def->Identifier.name = expanded_name;
 				arg_def->Identifier.is_constant = true;
 
@@ -1150,9 +1155,9 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 				ffz_module_add_top_level_node(c, arg_decl);
 			}
 
-			ffzNode* inst_decl = new_generated_node(c, c->root, ffzNodeKind_Declare);
+			ffzNode* inst_decl = new_generated_node(c->project, c->root, ffzNodeKind_Declare);
 			
-			ffzNode* inst_def = new_generated_node(c, inst_decl, ffzNodeKind_Identifier);
+			ffzNode* inst_def = new_generated_node(c->project, inst_decl, ffzNodeKind_Identifier);
 			inst_def->Identifier.name = node->Identifier.name;
 			inst_def->Identifier.is_constant = true;
 
@@ -1163,8 +1168,7 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 			// That would allow for the full roundtrip multiple times.
 
 			ffzNode* poly_expr = poly.poly_def->PolyExpr.expr;
-			poly_expr->parent = c->root;
-			ffz_deep_copy(c, &poly_expr, &replace_poly_arg_identifier);
+			ffz_deep_copy(c, inst_decl, &poly_expr, &replace_poly_arg_identifier);
 			
 			inst_decl->Op.left = inst_def;
 			inst_decl->Op.right = poly_expr;
@@ -1178,7 +1182,10 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 			TRY(check_node(c, inst_decl, NULL, InferFlag_Statement));
 			*result = inst_decl->Op.right->checked;
 		}
-
+		else {
+			fOpt(ffzNodeIdentifier*) def = ffz_find_definition(c->project, node);
+			*result = def->parent->Op.right->checked;
+		}
 	}
 	else {
 		// Array subscript
@@ -1521,6 +1528,10 @@ static ffzOk check_proc_type(ffzModule* c, ffzNode* node, ffzCheckInfo* result) 
 	proc_type.unique_node = node;
 	proc_type.size = c->project->pointer_size;
 	
+	//F_HITS(_c, 3);
+	ffzNode* parameter_scope = node->parent->kind == ffzNodeKind_PostCurlyBrackets ? node->parent : node;
+	TRY(add_possible_definitions_to_scope(c, parameter_scope, node));
+
 	fArray(ffzField) in_parameters = f_array_make<ffzField>(c->alc);
 	for FFZ_EACH_CHILD(param, node) {
 		if (param->kind != ffzNodeKind_Declare) ERR(c, param, "Expected a declaration.");
@@ -1581,7 +1592,7 @@ static ffzOk check_proc_type(ffzModule* c, ffzNode* node, ffzCheckInfo* result) 
 */
 
 fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzProject* p, ffzNodeIdentifier* ident) {
-	for (fOpt(ffzNode*) scope = ffz_get_scope(ident); scope; scope = ffz_get_scope(scope)) {
+	for (fOpt(ffzNode*) scope = ident; scope; scope = scope->parent) {
 		fOpt(ffzNodeIdentifier*) def = ffz_find_definition_in_scope(p, scope, ident->Identifier.name);
 		if (def) {
 			return def;
@@ -1707,21 +1718,24 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	case ffzNodeKind_Declare: {
 		ffzNode* rhs = node->Op.right;
 
-		bool is_variable = ffz_decl_is_variable(node);
 		bool is_parameter = ffz_decl_is_parameter(node);
+		
+		// When checking a procedure type, we can't know the procedure type until we have checked all children.
+		// so checking a declaration shouldn't require the parent to be checked.
+		// BUT `ffz_decl_is_local_variable` calls get_scope which requires the parent to be checked.
+		bool is_var = !is_parameter && (ffz_decl_is_global_variable(node) || ffz_decl_is_local_variable(node));
 
 		InferFlags rhs_flags = 0;
-		if (is_variable && !is_parameter) {
+		if (is_var && !is_parameter) {
 			rhs_flags |= InferFlag_AllowUndefinedValues;
 		}
 		
 		// sometimes we want to pass `require_type` down to the rhs, namely with enum field declarations
 		TRY(check_node(c, rhs, require_type, rhs_flags));
-		TRY(verify_is_constant(c, rhs));
 
 		result = rhs->checked; // Declarations cache the value of the right-hand-side
 		
-		if (is_variable) {
+		if (is_var || is_parameter) {
 			if (is_parameter) {
 				// if the parameter is a type expression, then this declaration has that type
 				result.type = ffz_ground_type(result.constant, result.type);
@@ -1732,6 +1746,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			if (!ffz_type_is_concrete(result.type)) {
 				ERR(c, node, "Variable has a non-concrete type, the type being ~s.", ffz_type_to_string(c->project, result.type));
 			}
+		}
+		else {
+			TRY(verify_is_constant(c, rhs));
 		}
 
 		// The lhs identifier will recurse into this same declaration,
@@ -1744,10 +1761,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 
 	case ffzNodeKind_Scope: {
 		TRY(add_possible_definitions_to_scope(c, node, node));
-
-		for FFZ_EACH_CHILD(stmt, node) {
-			TRY(check_node(c, stmt, NULL, InferFlag_Statement));
-		}
+		// delayed check the scope so that get_scope() can be called by the children
 	} break;
 
 	case ffzNodeKind_PolyExpr: {
@@ -2043,15 +2057,20 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	// delayed check
 	
 	if (!child_already_fully_checked_us) {
-		if (node->kind == ffzNodeKind_Declare) {
+		if (node->kind == ffzNodeKind_Scope) {
+			for FFZ_EACH_CHILD(n, node) {
+				TRY(check_node(c, n, NULL, InferFlag_Statement));
+			}
+		}
+		else if (node->kind == ffzNodeKind_Declare) {
 			TRY(check_node(c, node->Op.left, NULL, 0));
 		}
 		else if (node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) {
 			TRY(add_possible_definitions_to_scope(c, node, node));
 			
-			if (node->Op.left->kind == ffzNodeKind_ProcType) {
-				TRY(add_possible_definitions_to_scope(c, node, node->Op.left)); // Add parameters if they're visible (not needing the `in` keyword)
-			}
+			//if (node->Op.left->kind == ffzNodeKind_ProcType) {
+			//	TRY(add_possible_definitions_to_scope(c, node, node->Op.left)); // Add parameters if they're visible (not needing the `in` keyword)
+			//}
 			
 			// only check the procedure body when we have a physical procedure instance (not polymorphic)
 			// and after the proc type has been cached.
@@ -2182,6 +2201,8 @@ bool ffz_module_check_single(ffzModule* m, ffzErrorCallback error_cb) {
 	//		return false;
 	//	}
 	//}
+
+	m->root->has_checked = true;
 
 	for (ffzNode* n = m->root->first_child; n; n = n->next) {
 

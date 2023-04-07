@@ -294,7 +294,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 		gmmcType param_type = value_is_primitive(param->type) ? get_gmmc_type(g, param->type) : gmmcType_ptr;
 		f_array_push(&param_types, param_type);
 	}
-
+	//F_HITS(_c, 3);
 	fString name = make_name(g, node);
 	//if (name == F_LIT("arena_push")) f_trap();
 	gmmcProcSignature* sig = gmmc_make_proc_signature(g->gmmc, ret_type_gmmc, param_types.data, (u32)param_types.len);
@@ -1472,12 +1472,13 @@ static bool build_x64(Gen* g, fString build_dir) {
 }
 
 static bool build_c(Gen* g, fString build_dir) {
-	fString c_file_path = F_STR_T_JOIN(build_dir, F_LIT("/a.c"));
+	fString c_filename = F_LIT("a.c");
+	fString c_filepath = F_STR_T_JOIN(build_dir, F_LIT("/"), c_filename);
 	
 	bool write = true;
 	if (write) {
 		fFile c_file;
-		if (!f_files_open(c_file_path, fFileOpenMode_Write, &c_file)) {
+		if (!f_files_open(c_filepath, fFileOpenMode_Write, &c_file)) {
 			f_cprint("Failed writing temporary C file to disk!\n");
 			return false;
 		}
@@ -1510,7 +1511,7 @@ static bool build_c(Gen* g, fString build_dir) {
 
 	f_array_push(&clang_args, F_LIT("-I../include"));
 	f_array_push(&clang_args, F_LIT("-Wno-main-return-type"));
-	f_array_push(&clang_args, c_file_path);
+	f_array_push(&clang_args, c_filename);
 
 	fStringBuilder clang_linker_args;
 	f_init_string_builder(&clang_linker_args, f_temp_alc());
@@ -1563,7 +1564,6 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 	g.root_module = root_module;
 	g.gmmc = gmmc;
 	g.alc = f_temp_alc();
-	//g.tb_file_from_parser_idx = f_array_make<TB_FileID>(g.alc);
 	g.value_from_definition = f_map64_make<Value>(g.alc);
 	g.proc_from_hash = f_map64_make<ProcInfo*>(g.alc);
 	g.procs_sorted = f_array_make<ProcInfo*>(g.alc);
@@ -1593,7 +1593,7 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 		}
 	}
 
-	bool x64 = true;
+	bool x64 = false;
 	if (x64) {
 		return build_x64(&g, build_dir);
 	}

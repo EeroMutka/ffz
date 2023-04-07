@@ -258,6 +258,7 @@ struct ffzNode {
 	ffzNode* first_child;
 
 	bool has_checked; // TODO: have a flip-flop re-checking
+	bool TEST___expanded_from_poly;
 	ffzCheckInfo checked;
 
 	// There is one benefit from having the node be a union, which is that we can do easy in-place replacement of nodes without having to store the
@@ -780,9 +781,8 @@ bool ffz_decl_is_global_variable(ffzNodeOpDeclare* decl);
 inline bool ffz_decl_is_parameter(ffzNodeOpDeclare* decl) { return decl->parent && decl->parent->kind == ffzNodeKind_ProcType; }
 
 inline bool ffz_decl_is_variable(ffzNodeOpDeclare* decl) {
-	return ffz_decl_is_local_variable(decl) || ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl);
+	return ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl) || ffz_decl_is_local_variable(decl);
 }
-
 
 bool ffz_is_code_scope(ffzNode* node);
 

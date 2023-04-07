@@ -384,6 +384,8 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 	gmmcProcSignature* signature,
 	gmmcString name, gmmcBasicBlock** out_entry_bb)
 {
+	VALIDATE(name.len > 0);
+
 	gmmcProc* proc = f_mem_clone(gmmcProc{}, m->allocator);
 	proc->sym.kind = gmmcSymbolKind_Proc;
 	proc->sym.module = m;
