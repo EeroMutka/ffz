@@ -4,14 +4,30 @@
 //#A: Vector[int, 505]
 //#B: Vector[u32, 23]
 
+#MyEnum: enum, u32 {
+	Thing: 0
+	Cat: 1
+	Dog: 2
+}
+
+@*global
+my_global: int(50)
+
 #adder: poly[T] proc(a: T, b: T) => T {
+	test: my_global
+	my_global = 50
+	
 	result: a + b
 	ret result
 }
 
-
 #main: proc(argc: u32, argv: ^raw) => u32 {
 	dbgbreak
+	
+	foo: MyEnum.Cat
+	foo = MyEnum.Dog
+	
+	my_global = 30
 	
 	x: adder[u32](1, 2)
 	y: adder[int](5, 62)

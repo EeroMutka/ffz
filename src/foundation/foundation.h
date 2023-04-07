@@ -18,6 +18,7 @@
 // hmm, maybe we should still provide an alignment parameter and plug in f_get_alignment() into most places as a default, because
 // having aligned pointers can be useful in some very niche cases. Like you could do some trick where you store a special data structure
 // at the base of some address range that is aligned, so you can just align the pointer down to access it.
+// OR if you want to align to cache line size... yeah.
 typedef struct fAllocator {
 	void*(*_proc)(struct fAllocator* allocator, /*opt*/ void* old_ptr, size_t old_size, size_t new_size);
 } fAllocator;

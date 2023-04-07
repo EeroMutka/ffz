@@ -216,6 +216,8 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_bit_not,
 
 	// -- Extended keywords ------------------------------------------------
+	// I think we should just make these keywords into regular keywords. Decide on a set that we ship with the core language and any extensions
+	// will be extensions, not global keywords. ...idk
 	ffzKeyword_FIRST_EXTENDED,
 	ffzKeyword_extern = ffzKeyword_FIRST_EXTENDED,
 	ffzKeyword_using,
@@ -237,6 +239,8 @@ typedef struct ffzLocRange {
 } ffzLocRange;
 
 typedef struct ffzCheckInfo {
+	bool is_local_variable; // TODO: turn this into a flags
+
 	// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
 	fOpt(ffzType*) type;
 	fOpt(ffzConstantData*) constant;
@@ -570,7 +574,7 @@ struct ffzModule {
 	fMap64(u64) enum_value_from_name; // key: FieldHash.
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
-	fArray(fString) extern_libraries; // TODO: deduplicate
+	fMap64(fString) extern_libraries;
 
 	fMap64(ffzModule*) imported_modules; // key: AstNode*
 
@@ -578,7 +582,7 @@ struct ffzModule {
 	
 	ffzType* type_type;
 	ffzType* module_type;
-	uint64_t next_pseudo_node_idx;
+	ffzParserLocalID next_pseudo_node_idx;
 	ffzType* builtin_types[ffzKeyword_COUNT];
 };
 

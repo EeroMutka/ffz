@@ -1005,7 +1005,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		
 	case ffzNodeKind_Declare: {
 		ffzNodeIdentifier* definition = node->Op.left;
-		
+		//F_HITS(__c, 2);
 		if (ffz_decl_is_variable(node)) {
 			ffzNode* rhs = node->Op.right;
 			Value val = {};

@@ -639,6 +639,7 @@ static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 
 ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
 	ffzNode* node = f_mem_clone((ffzNode){0}, p->alc);
+//	if (node == (void*)0x0000020000002790) f_trap();
 	node->parser_id = p->self_id;
 	node->local_id = p->next_local_id++;
 	node->module_id = p->module->self_id;
@@ -760,22 +761,9 @@ static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	return root;
 }
 
-//static ffzOk maybe_parse_polymorphic_parameter_list(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzNodePolyParamList** out) {
-//	ffzLoc new_loc = *loc;
-//	Token tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
-//	if (tok.small == '[') {
-//		*loc = new_loc;
-//		ffzNodePolyParamList* node = new_node(p, parent, tok.range, ffzNodeKind_PolyParamList);
-//		TRY(parse_children(p, loc, (ffzNode*)node, ']'));
-//		*out = node;
-//	}
-//	return FFZ_OK;
-//}
-
 static ffzOk parse_proc_type(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
 	ffzNodeProcType* node = new_node(p, parent, range, ffzNodeKind_ProcType);
-	//TRY(maybe_parse_polymorphic_parameter_list(p, loc, node, &node->ProcType.polymorphic_parameters));
-
+	
 	ffzLoc new_loc = *loc;
 	Token tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
 
