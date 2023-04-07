@@ -1,5 +1,11 @@
 
-#Vector: poly[TYPE, VALUE] TYPE(VALUE)
+//#Vector: poly[TYPE, VALUE] TYPE(VALUE)
+//
+//#A: Vector[int, 505]
+//#B: Vector[u32, 23]
 
-#A: Vector[int, 505]
-#B: Vector[u32, 23]
+#main: proc() {
+	dbgbreak
+	dbgbreak
+}
+

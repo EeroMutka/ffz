@@ -11,7 +11,7 @@
 //
 //#include "gmmc/gmmc.h" // for gmmc_test
 
-bool ffz_backend_gen_executable_gmmc(ffzProject* project, fString build_dir, fString name);
+bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name);
 
 
 struct ErrorCallbackPassed {
@@ -141,8 +141,6 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	dump_module_ast(module);
 
 	return module;
-
-
 	//module->report_error = [](ffzModule* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
 	//	ffzParser* parser = checker->project->parsers[at->id.parser_id];
 	//
@@ -157,7 +155,6 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	//module->parsers = f_make_slice_garbage<ffzParser*>(visit.files.len, module->alc);
 	
 }
-
 
 int main(int argc, const char* argv[]) {
 	f_init();
@@ -175,7 +172,8 @@ int main(int argc, const char* argv[]) {
 	fArena* arena = _f_temp_arena;
 	ffzProject* p = ffz_init_project(arena, modules_dir);
 
-	if (parse_and_check_directory(p, dir) == NULL) return false;
+	ffzModule* root_module = parse_and_check_directory(p, dir);
+	if (root_module == NULL) return false;
 
 	fString project_name = f_str_path_tail(dir);
 	fString build_dir = F_STR_T_JOIN(dir, F_LIT("\\.build"));
@@ -186,9 +184,9 @@ int main(int argc, const char* argv[]) {
 		return 1;
 	}
 #elif defined(FFZ_BUILD_INCLUDE_GMMC)
-	f_trap();//if (!ffz_backend_gen_executable_gmmc(p, build_dir, project_name)) {
-	//	return 1;
-	//}
+	if (!ffz_backend_gen_executable_gmmc(root_module, build_dir, project_name)) {
+		return 1;
+	}
 #else
 #error
 #endif

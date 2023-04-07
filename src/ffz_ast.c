@@ -1,6 +1,7 @@
 #define FOUNDATION_HELPER_MACROS
 #include "foundation/foundation.h"
 
+// TODO: convert the codebase to GCC-compitable C and hook it up with tracy?
 
 // Future research:
 // https://nothings.org/computer/lexing.html
@@ -187,6 +188,7 @@ u8 ffz_get_bracket_op_open_char(ffzNodeKind kind) {
 }
 
 u8 ffz_get_bracket_op_close_char(ffzNodeKind kind) {
+	//ZoneScoped
 	switch (kind) {
 	case ffzNodeKind_PreSquareBrackets: return ']';
 	case ffzNodeKind_PostSquareBrackets: return ']';
@@ -426,7 +428,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	} break;
 
 	case ffzNodeKind_Blank: { f_print(w, "_"); } break;
-	case ffzNodeKind_ThisValueDot: { f_print(w, "."); } break;
+	case ffzNodeKind_ThisDot: { f_print(w, "."); } break;
 
 	case ffzNodeKind_PolyExpr: {
 		f_print(w, "poly[");
@@ -1031,7 +1033,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				ffzLoc new_loc = *loc;
 				Token next = maybe_eat_next_token(p, &new_loc, 0);
 				if (next.str.len == 0 || !is_identifier_char(f_str_decode_rune(next.str))) {
-					node = new_node(p, parent, tok.range, ffzNodeKind_ThisValueDot);
+					node = new_node(p, parent, tok.range, ffzNodeKind_ThisDot);
 				}
 				else {
 					op_kind = ffzNodeKind_MemberAccess;

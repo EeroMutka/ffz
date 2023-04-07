@@ -1,5 +1,3 @@
-#if 0
-
 #ifdef FFZ_BUILD_INCLUDE_GMMC
 
 #define F_INCLUDE_OS
@@ -25,7 +23,7 @@
 
 #define todo f_trap()
 
-#define CHILD(parent, child_access) ffzNodeInst{ (parent).node->child_access, (parent).polymorph }
+#define CHILD(parent, child_access) ffzNode*{ (parent).node->child_access, (parent).polymorph }
 
 struct Value {
 	gmmcSymbol* symbol;
@@ -51,6 +49,8 @@ struct ProcInfo {
 
 struct Gen {
 	ffzProject* project;
+	ffzModule* root_module;
+
 	fAllocator* alc;
 	ffzModule* checker;
 
@@ -68,58 +68,35 @@ struct Gen {
 	
 	fMap64(ProcInfo*) proc_from_hash;
 	fArray(ProcInfo*) procs_sorted;
-	fMap64(Value) value_from_definition;
+	fMap64(Value) value_from_definition; // key: ffzNode*
 	
 	// debug info
 	fArray(cviewType) cv_types;
 	fArray(cviewSourceFile) cv_file_from_parser_idx;
 };
 
-static void gen_statement(Gen* g, ffzNodeInst inst);
-static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of);
+static void gen_statement(Gen* g, ffzNode* node);
+static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of);
 
-static fString make_name(Gen* g, ffzNodeInst inst = {}, bool pretty = true) {
+static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 	fStringBuilder name;
 	f_init_string_builder(&name, f_temp_alc());
 
-	if (inst.node) {
-		ffzNodeInst parent = ffz_parent_inst(g->project, inst);
-		f_prints(name.w, ffz_get_parent_decl_name(inst.node));
+	if (node) {
+		f_prints(name.w, ffz_get_parent_decl_name(node));
 		
-		if (inst.polymorph) {
-			//if (pretty) {
-			//	f_str_print(&name, F_LIT("["));
-			//
-			//	for (uint i = 0; i < inst.polymorph->parameters.len; i++) {
-			//		if (i > 0) f_str_print(&name, F_LIT(", "));
-			//
-			//		f_str_print(&name, ffz_constant_to_string(g->project, inst.polymorph->parameters[i]));
-			//	}
-			//
-			//	f_str_print(&name, F_LIT("]"));
-			//}
-			//else {
-			//	// hmm.. deterministic index for polymorph, how?
+		if (node->module_id != g->root_module->self_id) {
+			// We don't want to export symbols from imported modules.
+			// Currently, we're giving these symbols unique ids and exporting them anyway, because
+			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 			
-			f_print(name.w, "$~x64", inst.polymorph->hash);
-
-			//}
-			//f_str_printf(&name, "$%xll", inst.polymorph->hash);
+			bool is_extern = ffz_get_tag(g->project, node->parent, ffzKeyword_extern);
+			bool is_module_defined_entry = ffz_get_tag(g->project, node->parent, ffzKeyword_module_defined_entry);
+			if (!is_extern && !is_module_defined_entry) {
+				f_print(name.w, "$$~u32", node->module_id);
+				//f_prints(name.w, g->checker->_dbg_module_import_name);
+			}
 		}
-		
-		f_trap();//if (g->checker->_dbg_module_import_name.len > 0) {
-		//	// We don't want to export symbols from imported modules.
-		//	// Currently, we're giving these symbols unique ids and exporting them anyway, because
-		//	// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
-		//	
-		//	bool is_extern = ffz_get_tag(g->project, parent, ffzKeyword_extern);
-		//	bool is_module_defined_entry = ffz_get_tag(g->project, parent, ffzKeyword_module_defined_entry);
-		//	if (!is_extern && !is_module_defined_entry)
-		//	{
-		//		f_prints(name.w, F_LIT("$$"));
-		//		f_prints(name.w, g->checker->_dbg_module_import_name);
-		//	}
-		//}
 	}
 	else {
 		f_print(name.w, "_ffz_`u64", g->dummy_name_counter);
@@ -288,11 +265,11 @@ static void add_dbginfo_local(Gen* g, fString name, gmmcOpIdx addr, ffzType* typ
 	f_array_push(&g->proc_info->dbginfo_locals, dbginfo_local);
 }
 
-static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
-	auto insertion = f_map64_insert(&g->proc_from_hash, ffz_hash_node_inst(inst), (ProcInfo*)0, fMapInsert_DoNotOverride);
+static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
+	auto insertion = f_map64_insert(&g->proc_from_hash, (u64)node, (ProcInfo*)0, fMapInsert_DoNotOverride);
 	if (!insertion.added) return (*insertion._unstable_ptr)->gmmc_proc;
 
-	ffzType* proc_type = ffz_get_type(g->project, inst);
+	ffzType* proc_type = node->checked.type;
 	f_assert(proc_type->tag == ffzTypeTag_Proc);
 
 	fOpt(ffzType*) ret_type = proc_type->Proc.return_type;
@@ -318,7 +295,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 		f_array_push(&param_types, param_type);
 	}
 
-	fString name = make_name(g, inst);
+	fString name = make_name(g, node);
 	//if (name == F_LIT("arena_push")) f_trap();
 	gmmcProcSignature* sig = gmmc_make_proc_signature(g->gmmc, ret_type_gmmc, param_types.data, (u32)param_types.len);
 
@@ -328,15 +305,15 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	
 	ProcInfo* proc_info = f_mem_clone(ProcInfo{}, g->alc);
 	proc_info->gmmc_proc = proc;
-	proc_info->node = inst.node;
+	proc_info->node = node;
 	proc_info->type = proc_type;
 	proc_info->dbginfo_locals = f_array_make<DebugInfoLocal>(g->alc);
-	proc_info->dbginfo_line_ops = f_make_slice<gmmcOpIdx>(inst.node->loc.end.line_num - inst.node->loc.start.line_num + 1, GMMC_OP_IDX_INVALID, g->alc);
+	proc_info->dbginfo_line_ops = f_make_slice<gmmcOpIdx>(node->loc.end.line_num - node->loc.start.line_num + 1, GMMC_OP_IDX_INVALID, g->alc);
 
 	f_array_push(&g->procs_sorted, proc_info);
 	*insertion._unstable_ptr = proc_info;
 
-	//if (inst.node->Op.left->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name.len) {
+	//if (node->Op.left->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name.len) {
 	//	// Default initialize the output value
 	//	f_trap();//gen_statement(g, ICHILD(left, out_parameter));
 	//}
@@ -348,15 +325,9 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	g->proc = proc;
 	g->bb = entry_bb;
 
-	ffzNodeProcTypeInst proc_type_inst = proc_type->unique_node;
-	u32 i = 0;
-	for FFZ_EACH_CHILD_INST(n, proc_type_inst) {
+	
+	for (u32 i = 0; i < proc_type->Proc.in_params.len; i++) {
 		ffzField* param = &proc_type->Proc.in_params[i];
-		
-		f_assert(n.node->kind == ffzNodeKind_Declare);
-		ffzNodeIdentifierInst param_definition = CHILD(n, Op.left);
-		param_definition.polymorph = inst.polymorph; // hmmm...
-		ffzNodeInstHash hash = ffz_hash_node_inst(param_definition);
 
 		gmmcOpIdx param_addr = gmmc_op_addr_of_param(proc, i + (u32)big_return);
 		
@@ -371,18 +342,17 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 			//val.local_addr = gmmc_op_load(entry_bb, gmmcType_ptr, val.local_addr);
 		}
 
-		f_map64_insert(&g->value_from_definition, hash, val);
-		i++;
+		f_map64_insert(&g->value_from_definition, (u64)param->decl->Op.left, val);
 	}
 
-	for FFZ_EACH_CHILD_INST(n, inst) {
+	for FFZ_EACH_CHILD(n, node) {
 		gen_statement(g, n);
 	}
 	
 	if (!proc_type->Proc.return_type) { // automatically generate a return statement if the proc doesn't return a value
-		g->override_line_num = &inst.node->loc.end.line_num;
+		g->override_line_num = &node->loc.end.line_num;
 		gmmcOpIdx op = gmmc_op_return(g->bb, GMMC_OP_IDX_INVALID);
-		set_loc(g, op, inst.node);
+		set_loc(g, op, node);
 		g->override_line_num = NULL;
 	}
 
@@ -401,8 +371,8 @@ static gmmcProc* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	return proc;
 }
 
-static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
-	if (proc_node.node->kind == ffzNodeKind_ProcType) { // @extern proc
+static gmmcSymbol* get_proc_symbol(Gen* g, ffzNode* proc_node) {
+	if (proc_node->kind == ffzNodeKind_ProcType) { // @extern proc
 		fString name = make_name(g, proc_node);
 		return gmmc_extern_as_symbol(gmmc_make_extern(g->gmmc, name));
 	}
@@ -411,7 +381,7 @@ static gmmcSymbol* get_proc_symbol(Gen* g, ffzNodeInst proc_node) {
 	}
 }
 
-static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstantData* constant) {
+static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstantData* data) {
 	switch (type->tag) {
 	case ffzTypeTag_Float: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
@@ -419,24 +389,24 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 	case ffzTypeTag_DefaultSint: // fallthrough
 	case ffzTypeTag_Uint: // fallthrough
 	case ffzTypeTag_DefaultUint: {
-		memcpy(base + offset, constant, type->size);
+		memcpy(base + offset, data, type->size);
 	} break;
 
 	case ffzTypeTag_Proc: {
 		memset(base + offset, 0, 8);
-		if (constant->proc_node.node) {
-			gmmcSymbol* proc_sym = get_proc_symbol(g, constant->proc_node);
+		if (data->proc_node) {
+			gmmcSymbol* proc_sym = get_proc_symbol(g, data->proc_node);
 			gmmc_global_add_relocation(global, offset, proc_sym);
 		}
 	} break;
 
 	case ffzTypeTag_Pointer: {
-		if (constant->ptr) todo;
+		if (data->ptr) todo;
 		memset(base + offset, 0, 8);
 	} break;
 
 	case ffzTypeTag_String: {
-		fString s = constant->string_zero_terminated;
+		fString s = data->string_zero_terminated;
 
 		void* str_data;
 		gmmcGlobal* str_data_global = gmmc_make_global(g->gmmc, (u32)s.len + 1, 1, gmmcSection_RData, &str_data);
@@ -457,36 +427,38 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 	case ffzTypeTag_Record: {
 		memset(base + offset, 0, type->size);
 		ffzConstantData empty_constant = {};
+
 		for (uint i = 0; i < type->record_fields.len; i++) {
 			ffzField* field = &type->record_fields[i];
-
-			fill_global_constant_data(g, global, base, offset + field->offset, field->type,
-				constant->record_fields.len == 0 ? &empty_constant : &constant->record_fields[i]);
+			
+			ffzConstantData* field_data = data->record_fields.len == 0 ? &empty_constant : &data->record_fields[i];
+			fill_global_constant_data(g, global, base, offset + field->offset, field->type, field_data);
 		}
 	} break;
 	case ffzTypeTag_FixedArray: {
 		u32 elem_size = type->FixedArray.elem_type->size;
 		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
-			ffzConstantData c = ffz_constant_fixed_array_get(type, constant, i);
-			fill_global_constant_data(g, global, base, offset + i * elem_size, type->FixedArray.elem_type, &c);
+			ffzConstantData elem_constant_data = ffz_constant_fixed_array_get(ffzConstant{type, data}, i);
+			
+			fill_global_constant_data(g, global, base, offset + i * elem_size, type->FixedArray.elem_type, &elem_constant_data);
 		}
 	} break;
 	default: f_trap();
 	}
 }
 
-static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* constant, bool address_of) {
+static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* data, bool address_of) {
 	gmmcOpIdx out = {};
 
 	switch (type->tag) {
 	case ffzTypeTag_Bool: {
 		f_assert(!address_of);
-		out = gmmc_op_bool(g->proc, constant->bool_);
+		out = gmmc_op_bool(g->proc, data->_bool);
 	} break;
 
 	case ffzTypeTag_Float: {
-		if (type->size == 4)      out = gmmc_op_f32(g->proc, constant->f32_);
-		else if (type->size == 8) out = gmmc_op_f64(g->proc, constant->f64_);
+		if (type->size == 4)      out = gmmc_op_f32(g->proc, (f32)data->_float);
+		else if (type->size == 8) out = gmmc_op_f64(g->proc, data->_float);
 		else f_trap();
 	} break;
 
@@ -496,16 +468,16 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* constant, 
 	case ffzTypeTag_Uint: // fallthrough
 	case ffzTypeTag_DefaultUint: {
 		f_assert(!address_of);
-		if (type->size == 1)      out = gmmc_op_i8(g->proc, constant->u8_);
-		else if (type->size == 2) out = gmmc_op_i16(g->proc, constant->u16_);
-		else if (type->size == 4) out = gmmc_op_i32(g->proc, constant->u32_);
-		else if (type->size == 8) out = gmmc_op_i64(g->proc, constant->u64_);
+		if (type->size == 1)      out = gmmc_op_i8(g->proc,   (u8)data->_uint);
+		else if (type->size == 2) out = gmmc_op_i16(g->proc, (u16)data->_uint);
+		else if (type->size == 4) out = gmmc_op_i32(g->proc, (u32)data->_uint);
+		else if (type->size == 8) out = gmmc_op_i64(g->proc, (u64)data->_uint);
 		else f_trap();
 	} break;
 
 	case ffzTypeTag_Proc: {
 		f_assert(!address_of);
-		out = gmmc_op_addr_of_symbol(g->proc, get_proc_symbol(g, constant->proc_node));
+		out = gmmc_op_addr_of_symbol(g->proc, get_proc_symbol(g, data->proc_node));
 	} break;
 
 	case ffzTypeTag_Pointer: // fallthrough
@@ -516,7 +488,7 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* constant, 
 		void* global_data;
 		gmmcGlobal* global = gmmc_make_global(g->gmmc, type->size, type->align, gmmcSection_RData, &global_data);
 
-		fill_global_constant_data(g, global, (u8*)global_data, 0, type, constant);
+		fill_global_constant_data(g, global, (u8*)global_data, 0, type, data);
 
 		out = gmmc_op_addr_of_symbol(g->proc, gmmc_global_as_symbol(global));
 
@@ -531,10 +503,10 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* constant, 
 }
 
 
-static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
-	ffzNodeInst left = CHILD(inst,Op.left);
-	ffzCheckedInst left_chk = ffz_get_checked(g->project, left);
-	ffzType* proc_type = left_chk.type;
+static gmmcOpIdx gen_call(Gen* g, ffzNodeOp* node) {
+	ffzNode* left = node->Op.left;
+	
+	ffzType* proc_type = left->checked.type;
 	f_assert(proc_type->tag == ffzTypeTag_Proc);
 
 	fOpt(ffzType*) ret_type = proc_type->Proc.return_type;
@@ -551,20 +523,20 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 		f_array_push(&args, out);
 	}
 
-	fSlice(ffzNodeInst) arg_insts;
-	ffz_get_arguments_flat(inst, proc_type->Proc.in_params, &arg_insts, f_temp_alc());
+	fSlice(ffzNode*) arg_nodes;
+	ffz_get_arguments_flat(node, proc_type->Proc.in_params, &arg_nodes, f_temp_alc());
 
-	for (u32 i = 0; i< arg_insts.len; i++) {
+	for (u32 i = 0; i< arg_nodes.len; i++) {
 		ffzField* field = &proc_type->Proc.in_params[i];
-		ffzNodeInst arg_inst = arg_insts[i];
+		ffzNode* arg_node = arg_nodes[i];
 		ffzType* param_type = field->type;
 
 		gmmcOpIdx arg_value;
-		if (arg_inst.node == NULL) {
+		if (arg_node == NULL) {
 			// use the default value
 			arg_value = gen_constant(g, param_type, &field->default_value, false);
 		} else {
-			arg_value = gen_expr(g, arg_inst, false);
+			arg_value = gen_expr(g, arg_node, false);
 		}
 
 		if (param_type->size > 8) {
@@ -572,7 +544,7 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 
 			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
 			gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
-			set_loc(g, copy, inst.node);
+			set_loc(g, copy, node);
 			f_array_push(&args, local_copy_addr);
 		}
 		else {
@@ -581,7 +553,7 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 
 				gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, 8, 8);
 				gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
-				set_loc(g, copy, inst.node);
+				set_loc(g, copy, node);
 				arg_value = gmmc_op_load(g->bb, gmmcType_i64, local_copy_addr);
 			}
 		}
@@ -593,7 +565,7 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOpInst inst) {
 	f_assert(target);
 
 	gmmcOpIdx call = gmmc_op_call(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
-	set_loc(g, call, inst.node);
+	set_loc(g, call, node);
 	if (!big_return) out = call;
 
 	return out;
@@ -618,29 +590,28 @@ static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* typ
 //
 // i.e.   foo: int(~~)
 //
-static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
+static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	gmmcOpIdx out = {};
 
-	ffzCheckedInst checked = ffz_get_checked(g->project, inst);
-	f_assert(ffz_type_is_concrete(checked.type));
+	f_assert(ffz_type_is_concrete(node->checked.type));
 
-	f_assert(inst.node->kind != ffzNodeKind_Declare);
+	f_assert(node->kind != ffzNodeKind_Declare);
 
-	if (checked.const_val) {
-		out = gen_constant(g, checked.type, checked.const_val, address_of);
+	if (node->checked.constant) {
+		out = gen_constant(g, node->checked.type, node->checked.constant, address_of);
 
-		set_loc(g, out, inst.node);
+		set_loc(g, out, node);
 		return out;
 	}
 
 	bool should_dereference = false;
 	bool should_take_address = false;
 
-	if (ffz_node_is_operator(inst.node->kind)) {
-		ffzNodeInst left = CHILD(inst, Op.left);
-		ffzNodeInst right = CHILD(inst, Op.right);
+	if (ffz_node_is_operator(node->kind)) {
+		ffzNode* left = node->Op.left;
+		ffzNode* right = node->Op.right;
 
-		switch (inst.node->kind) {
+		switch (node->kind) {
 
 		case ffzNodeKind_Add: case ffzNodeKind_Sub:
 		case ffzNodeKind_Mul: case ffzNodeKind_Div:
@@ -650,7 +621,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		case ffzNodeKind_GreaterOrEqual:
 		{
 			f_assert(!address_of);
-			ffzType* input_type = ffz_get_type(g->project, left);
+			ffzType* input_type = left->checked.type;
 			bool is_signed = ffz_type_is_signed_integer(input_type->tag);
 			
 			// TODO: more operator defines. I guess we should do this together with the fix for vector math
@@ -660,7 +631,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			gmmcOpIdx b = gen_expr(g, right, false);
 
 			if (ffz_type_is_float(input_type->tag)) {
-				switch (inst.node->kind) {
+				switch (node->kind) {
 				case ffzNodeKind_Add: { out = gmmc_op_fadd(g->bb, a, b); } break;
 				case ffzNodeKind_Sub: { out = gmmc_op_fsub(g->bb, a, b); } break;
 				case ffzNodeKind_Mul: { out = gmmc_op_fmul(g->bb, a, b); } break;
@@ -674,7 +645,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				default: f_trap();
 				}
 			} else {
-				switch (inst.node->kind) {
+				switch (node->kind) {
 				case ffzNodeKind_Add: { out = gmmc_op_add(g->bb, a, b); } break;
 				case ffzNodeKind_Sub: { out = gmmc_op_sub(g->bb, a, b); } break;
 				case ffzNodeKind_Mul: { out = gmmc_op_mul(g->bb, a, b, is_signed); } break;
@@ -693,7 +664,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 		case ffzNodeKind_UnaryMinus: {
 			f_assert(!address_of);
-			gmmcType type = get_gmmc_type(g, checked.type);
+			gmmcType type = get_gmmc_type(g, node->checked.type);
 
 			u64 zero = 0;
 			out = gen_expr(g, right, false);
@@ -715,15 +686,15 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			// e.g.  copy_string("hello").ptr
 			should_take_address = address_of;
 
-			if (left.node->kind == ffzNodeKind_Keyword && ffz_keyword_is_bitwise_op(left.node->Keyword.keyword)) {
-				ffzKeyword keyword = left.node->Keyword.keyword;
+			if (left->kind == ffzNodeKind_Keyword && ffz_keyword_is_bitwise_op(left->Keyword.keyword)) {
+				ffzKeyword keyword = left->Keyword.keyword;
 
-				gmmcOpIdx first = gen_expr(g, ffz_get_child_inst(inst, 0), false);
+				gmmcOpIdx first = gen_expr(g, ffz_get_child(node, 0), false);
 				if (keyword == ffzKeyword_bit_not) {
 					out = gmmc_op_not(g->bb, first);
 				}
 				else {
-					gmmcOpIdx second = gen_expr(g, ffz_get_child_inst(inst, 1), false);
+					gmmcOpIdx second = gen_expr(g, ffz_get_child(node, 1), false);
 					switch (keyword) {
 					case ffzKeyword_bit_and: { out = gmmc_op_and(g->bb, first, second); } break;
 					case ffzKeyword_bit_or: { out = gmmc_op_or(g->bb, first, second); } break;
@@ -735,17 +706,16 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				}
 			}
 			else {
-				ffzCheckedInst left_chk = ffz_get_checked(g->project, left);
-				if (left_chk.type->tag == ffzTypeTag_Type) {
+				//ffzCheckedInst left_chk = ffz_get_checked(g->project, left);
+				if (left->checked.type->tag == ffzTypeTag_Type) {
 					// type cast, e.g. u32(520.32)
 
-					ffzType* dst_type = left_chk.const_val->type;
+					ffzType* dst_type = left->checked.constant->type;
 
-					ffzNodeInst arg = ffz_get_child_inst(inst, 0);
-					ffzCheckedInst arg_chk = ffz_get_checked(g->project, arg);
-					ffzType* arg_type = arg_chk.type;
+					ffzNode* arg = ffz_get_child(node, 0);
+					ffzType* arg_type = arg->checked.type;
 
-					if (arg_type->tag == ffzTypeTag_Type && arg_chk.const_val->type->tag == ffzTypeTag_Undefined) {
+					if (arg_type->tag == ffzTypeTag_Type && arg->checked.constant->type->tag == ffzTypeTag_Undefined) {
 						return UNDEFINED_VALUE;
 					}
 
@@ -783,7 +753,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					else todo;
 				}
 				else {
-					out = gen_call(g, inst);
+					out = gen_call(g, node);
 				}
 			}
 		} break;
@@ -799,9 +769,9 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 
 		case ffzNodeKind_MemberAccess: {
-			fString member_name = right.node->Identifier.name;
+			fString member_name = right->Identifier.name;
 
-			if (left.node->kind == ffzNodeKind_Identifier && left.node->Identifier.name == F_LIT("in")) {
+			if (left->kind == ffzNodeKind_Identifier && left->Identifier.name == F_LIT("in")) {
 				//f_assert(!address_of); // TODO
 				
 				bool found = false;
@@ -817,13 +787,13 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			}
 			else {
 				//F_HITS(____c, 61);
-				ffzCheckedInst left_chk = ffz_get_checked(g->project, left);
-				ffzType* struct_type = left_chk.type->tag == ffzTypeTag_Pointer ? left_chk.type->Pointer.pointer_to : left_chk.type;
+				ffzType* left_type = left->checked.type;
+				ffzType* struct_type = left_type->tag == ffzTypeTag_Pointer ? left_type->Pointer.pointer_to : left_type;
 
 				ffzTypeRecordFieldUse field;
 				f_assert(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
 
-				gmmcOpIdx addr_of_struct = gen_expr(g, left, left_chk.type->tag != ffzTypeTag_Pointer);
+				gmmcOpIdx addr_of_struct = gen_expr(g, left, left_type->tag != ffzTypeTag_Pointer);
 				f_assert(addr_of_struct);
 
 				out = field.offset ? gmmc_op_member_access(g->bb, addr_of_struct, field.offset) : addr_of_struct;
@@ -833,48 +803,47 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 
 		case ffzNodeKind_PostCurlyBrackets: {
 			
-			out = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
+			out = gmmc_op_local(g->proc, node->checked.type->size, node->checked.type->align);
 
-			if (checked.type->tag == ffzTypeTag_FixedArray) {
+			if (node->checked.type->tag == ffzTypeTag_FixedArray) {
 				u32 i = 0;
-				ffzType* elem_type = checked.type->FixedArray.elem_type;
-				for FFZ_EACH_CHILD_INST(n, inst) {
+				ffzType* elem_type = node->checked.type->FixedArray.elem_type;
+				for FFZ_EACH_CHILD(n, node) {
 					gmmcOpIdx src = gen_expr(g, n, false);
 					gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
-					gen_store(g, dst_ptr, src, elem_type, inst.node);
+					gen_store(g, dst_ptr, src, elem_type, node);
 					i++;
 				}
 			}
 			else {
-				fSlice(ffzField) fields = checked.type->record_fields;
+				fSlice(ffzField) fields = node->checked.type->record_fields;
 				
-				fSlice(ffzNodeInst) arguments;
-				ffz_get_arguments_flat(inst, fields, &arguments, f_temp_alc());
+				fSlice(ffzNode*) arguments;
+				ffz_get_arguments_flat(node, fields, &arguments, f_temp_alc());
 
 				// First memset to zero, then fill out the fields that are non-zero
-				gmmc_op_memset(g->bb, out, gmmc_op_i8(g->proc, 0), gmmc_op_i32(g->proc, checked.type->size));
+				gmmc_op_memset(g->bb, out, gmmc_op_i8(g->proc, 0), gmmc_op_i32(g->proc, node->checked.type->size));
 
 				for (uint i = 0; i < fields.len; i++) {
 					ffzField& field = fields[i];
-					ffzNodeInst arg = arguments[i];
+					ffzNode* arg = arguments[i];
 
 					gmmcOpIdx src;
-					if (arg.node == NULL) { // use default value
+					if (arg == NULL) { // use default value
 						if (ffz_constant_is_zero(field.default_value)) continue;
 						src = gen_constant(g, field.type, &field.default_value, false);
 					}
 					else {
-						ffzCheckedInst checked = ffz_get_checked(g->project, arg);
-						if (checked.const_val) {
-							if (ffz_constant_is_zero(*checked.const_val)) continue;
-							src = gen_constant(g, field.type, checked.const_val, false);
+						if (arg->checked.constant) {
+							if (ffz_constant_is_zero(*arg->checked.constant)) continue;
+							src = gen_constant(g, field.type, arg->checked.constant, false);
 						} else {
 							src = gen_expr(g, arg, false);
 						}
 					}
 
 					gmmcOpIdx field_addr = gmmc_op_member_access(g->bb, out, field.offset);
-					gen_store(g, field_addr, src, field.type, inst.node);
+					gen_store(g, field_addr, src, field.type, node);
 				}
 			}
 			
@@ -885,7 +854,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		} break;
 
 		case ffzNodeKind_PostSquareBrackets: {
-			ffzType* left_type = ffz_get_type(g->project, left);
+			ffzType* left_type = left->checked.type;
 			f_assert(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
 
 			ffzType* elem_type = left_type->tag == ffzTypeTag_Slice ? left_type->Slice.elem_type : left_type->FixedArray.elem_type;
@@ -897,13 +866,13 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				array_data = gmmc_op_load(g->bb, gmmcType_ptr, array_data);
 			}
 
-			if (ffz_get_child_count(inst.node) == 2) { // slicing
-				ffzNodeInst lo_inst = ffz_get_child_inst(inst, 0);
-				ffzNodeInst hi_inst = ffz_get_child_inst(inst, 1);
+			if (ffz_get_child_count(node) == 2) { // slicing
+				ffzNode* lo_node = ffz_get_child(node, 0);
+				ffzNode* hi_node = ffz_get_child(node, 1);
 
-				gmmcOpIdx lo = lo_inst.node->kind == ffzNodeKind_Blank ? gmmc_op_i64(g->proc, 0) : gen_expr(g, lo_inst, false);
+				gmmcOpIdx lo = lo_node->kind == ffzNodeKind_Blank ? gmmc_op_i64(g->proc, 0) : gen_expr(g, lo_node, false);
 				gmmcOpIdx hi;
-				if (hi_inst.node->kind == ffzNodeKind_Blank) {
+				if (hi_node->kind == ffzNodeKind_Blank) {
 					if (left_type->tag == ffzTypeTag_FixedArray) {
 						hi = gmmc_op_i64(g->proc, left_type->FixedArray.length);
 					}
@@ -913,7 +882,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 					}
 				}
 				else {
-					hi = gen_expr(g, hi_inst, false);
+					hi = gen_expr(g, hi_node, false);
 				}
 
 				out = gmmc_op_local(g->proc, 16, 8);
@@ -926,7 +895,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 				gmmc_op_store(g->bb, gmmc_op_member_access(g->bb, out, 8), len);
 			}
 			else { // taking an index
-				ffzNodeInst index_node = ffz_get_child_inst(inst, 0);
+				ffzNode* index_node = ffz_get_child(node, 0);
 				
 				gmmcOpIdx index = gen_expr(g, index_node, false);
 				index = gmmc_op_int2int(g->bb, index, gmmcType_i64, false);
@@ -946,7 +915,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
 
 			gmmcOpIdx result = gmmc_op_local(g->proc, 1, 1);
-			if (inst.node->kind == ffzNodeKind_LogicalAND) {
+			if (node->kind == ffzNodeKind_LogicalAND) {
 				gmmc_op_store(g->bb, result, gmmc_op_bool(g->proc, false));
 				gmmc_op_if(g->bb, left_val, test_right_bb, after_bb);
 			}
@@ -967,12 +936,12 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 		}
 	}
 	else {
-		switch (inst.node->kind) {
+		switch (node->kind) {
 		case ffzNodeKind_Identifier: {
-			ffzNodeIdentifierInst def = ffz_get_definition(g->project, inst);
-			if (def.node->Identifier.is_constant) f_trap();
+			ffzNodeIdentifier* def = ffz_find_definition(g->project, node);
+			if (def->Identifier.is_constant) f_trap();
 
-			Value* val = f_map64_get(&g->value_from_definition, ffz_hash_node_inst(def));
+			Value* val = f_map64_get(&g->value_from_definition, (u64)def);
 			f_assert(val);
 
 			out = val->symbol ? gmmc_op_addr_of_symbol(g->proc, val->symbol) : val->local_addr;
@@ -983,95 +952,89 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 			should_dereference = !address_of;
 		} break;
 
-		case ffzNodeKind_ThisValueDot: {
-			ffzNodeInst assignee;
-			f_assert(ffz_dot_get_assignee(inst, &assignee));
+		case ffzNodeKind_ThisDot: {
+			ffzNode* assignee = ffz_this_dot_get_assignee(node);
 			out = gen_expr(g, assignee, address_of);
 		} break;
 		}
 	}
 
 	f_assert(out);
-	set_loc(g, out, inst.node);
+	set_loc(g, out, node);
 	
 	if (should_dereference) {
 		f_assert(!should_take_address);
-		if (value_is_primitive(checked.type)) {
+		if (value_is_primitive(node->checked.type)) {
 			//out = load_small(g, out, checked.type);
-			out = gmmc_op_load(g->bb, get_gmmc_type(g, checked.type), out);
-			set_loc(g, out, inst.node);
+			out = gmmc_op_load(g->bb, get_gmmc_type(g, node->checked.type), out);
+			set_loc(g, out, node);
 		}
 	}
 	if (should_take_address) {
 		f_assert(!should_dereference);
-		if (value_is_primitive(checked.type)) {
-			gmmcOpIdx tmp = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
+		if (value_is_primitive(node->checked.type)) {
+			gmmcOpIdx tmp = gmmc_op_local(g->proc, node->checked.type->size, node->checked.type->align);
 			gmmc_op_store(g->bb, tmp, out);
 			out = tmp;
-			set_loc(g, out, inst.node);
+			set_loc(g, out, node);
 		}
 	}
 
 	return out;
 }
 
-static void gen_statement(Gen* g, ffzNodeInst inst) {
+static void gen_statement(Gen* g, ffzNode* node) {
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
-		if (inst.node->kind == ffzNodeKind_Scope) {}
-		else if (inst.node->kind == ffzNodeKind_If) {}
-		else if (inst.node->kind == ffzNodeKind_For) {}
-		else if (ffz_node_is_keyword(inst.node, ffzKeyword_dbgbreak)) {}
+		if (node->kind == ffzNodeKind_Scope) {}
+		else if (node->kind == ffzNodeKind_If) {}
+		else if (node->kind == ffzNodeKind_For) {}
+		else if (ffz_node_is_keyword(node, ffzKeyword_dbgbreak)) {}
 		else {
-			ffzParser* parser = g->project->parsers[inst.node->id.parser_id];
-			u32 start = inst.node->loc.start.offset;
-			u32 end = inst.node->loc.end.offset;
 			
-			gmmc_op_comment(g->bb, f_tprint("line ~u32:   ~s", inst.node->loc.start.line_num,
+			ffzParser* parser = g->project->parsers[node->parser_id];
+			u32 start = node->loc.start.offset;
+			u32 end = node->loc.end.offset;
+			
+			gmmc_op_comment(g->bb, f_tprint("line ~u32:   ~s", node->loc.start.line_num,
 				fString{ parser->source_code.data + start, end - start }));
 		}
 	}
 	
-	//u32 _line_num = line_num ? *line_num : inst.node->loc.start.line_num;
-	//line_num = &_line_num;
-
-	switch (inst.node->kind) {
+	switch (node->kind) {
 		
 	case ffzNodeKind_Declare: {
-		ffzNodeIdentifierInst definition = CHILD(inst,Op.left);
-		ffzCheckedInst checked = ffz_get_checked(g->project, inst);
-
-		if (ffz_decl_is_variable(inst.node)) {
-			ffzNodeInst rhs = CHILD(inst, Op.right);
+		ffzNodeIdentifier* definition = node->Op.left;
+		
+		if (ffz_decl_is_variable(node)) {
+			ffzNode* rhs = node->Op.right;
 			Value val = {};
-			if (ffz_get_tag(g->project, inst, ffzKeyword_global)) {
-				ffzCheckedInst rhs_checked = ffz_get_checked(g->project, rhs); // get the initial value
-				
+			if (ffz_get_tag(g->project, node, ffzKeyword_global)) {
 				void* global_data;
-				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs_checked.type->size, rhs_checked.type->align, gmmcSection_Data, &global_data);
+				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs->checked.type->size, rhs->checked.type->align, gmmcSection_Data, &global_data);
 
-				if (rhs_checked.const_val != NULL) { // Could be an undefined (~~) global
-					fill_global_constant_data(g, global, (u8*)global_data, 0, rhs_checked.type, rhs_checked.const_val);
+				if (rhs->checked.constant != NULL) { // Could be an undefined (~~) global
+					fill_global_constant_data(g, global, (u8*)global_data, 0, rhs->checked.type, rhs->checked.constant);
 				}
 		
 				val.symbol = gmmc_global_as_symbol(global);
 			}
 			else {
 				gmmcOpIdx rhs_value = gen_expr(g, rhs, false);
-				val.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
-				add_dbginfo_local(g, definition.node->Identifier.name, val.local_addr, checked.type);
+				val.local_addr = gmmc_op_local(g->proc, node->checked.type->size, node->checked.type->align);
+				add_dbginfo_local(g, definition->Identifier.name, val.local_addr, node->checked.type);
 		
 				if (rhs_value != UNDEFINED_VALUE) {
-					gen_store(g, val.local_addr, rhs_value, checked.type, inst.node);
+					gen_store(g, val.local_addr, rhs_value, node->checked.type, node);
 				}
 			}
-			f_map64_insert(&g->value_from_definition, ffz_hash_node_inst(definition), val);
+			f_map64_insert(&g->value_from_definition, (u64)definition, val);
 		}
 		else {
 			// need to still generate exported procs
-			if (checked.type->tag == ffzTypeTag_Proc) {
-				ffzNodeInst rhs = CHILD(inst,Op.right);
-				if (rhs.node->kind == ffzNodeKind_PostCurlyBrackets) { // @extern procs also have the type ffzTypeTag_Proc so we need to ignore those
+			if (node->checked.type->tag == ffzTypeTag_Proc) {
+				ffzNode* rhs = node->Op.right;
+				if (rhs->kind == ffzNodeKind_PostCurlyBrackets) { // @extern procs also have the type ffzTypeTag_Proc so we need to ignore those
 					gen_procedure(g, rhs);
 				}
 			}
@@ -1079,42 +1042,42 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 	} break;
 
 	case ffzNodeKind_Assign: {
-		ffzNodeInst lhs = CHILD(inst,Op.left);
-		ffzNodeInst rhs = CHILD(inst,Op.right);
+		ffzNode* lhs = node->Op.left;
+		ffzNode* rhs = node->Op.right;
 
 		gmmcOpIdx rhs_value = gen_expr(g, rhs, false);
 
-		if (!ffz_node_is_keyword(lhs.node, ffzKeyword_Eater)) {
+		if (!ffz_node_is_keyword(lhs, ffzKeyword_Eater)) {
 			gmmcOpIdx lhs_addr = gen_expr(g, lhs, true);
-			gen_store(g, lhs_addr, rhs_value, ffz_get_type(g->project, rhs), inst.node);
+			gen_store(g, lhs_addr, rhs_value, rhs->checked.type, node);
 		}
 	} break;
 
 	case ffzNodeKind_Scope: {
-		for FFZ_EACH_CHILD_INST(n, inst) {
+		for FFZ_EACH_CHILD(n, node) {
 			gen_statement(g, n);
 		}
 	} break;
 
 	case ffzNodeKind_If: {
-		gmmcOpIdx cond = gen_expr(g, CHILD(inst, If.condition), false);
+		gmmcOpIdx cond = gen_expr(g, node->If.condition, false);
 
 		gmmcBasicBlock* true_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* false_bb;
-		if (inst.node->If.else_scope) {
+		if (node->If.else_scope) {
 			false_bb = gmmc_make_basic_block(g->proc);
 		}
 
 		gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
-		set_loc(g, gmmc_op_if(g->bb, cond, true_bb, inst.node->If.else_scope ? false_bb : after_bb), inst.node);
+		set_loc(g, gmmc_op_if(g->bb, cond, true_bb, node->If.else_scope ? false_bb : after_bb), node);
 
 		g->bb = true_bb;
-		gen_statement(g, CHILD(inst,If.true_scope));
+		gen_statement(g, node->If.true_scope);
 		gmmc_op_goto(g->bb, after_bb);
 
-		if (inst.node->If.else_scope) {
+		if (node->If.else_scope) {
 			g->bb = false_bb;
-			gen_statement(g, CHILD(inst,If.else_scope));
+			gen_statement(g, node->If.else_scope);
 			gmmc_op_goto(g->bb, after_bb);
 		}
 
@@ -1122,19 +1085,19 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 	} break;
 
 	case ffzNodeKind_For: {
-		ffzNodeInst pre = CHILD(inst,For.header_stmts[0]);
-		ffzNodeInst condition = CHILD(inst,For.header_stmts[1]);
-		ffzNodeInst post = CHILD(inst,For.header_stmts[2]);
-		ffzNodeInst body = CHILD(inst,For.scope);
+		fOpt(ffzNode*) pre = node->For.header_stmts[0];
+		fOpt(ffzNode*) condition = node->For.header_stmts[1];
+		fOpt(ffzNode*) post = node->For.header_stmts[2];
+		ffzNode* body = node->For.scope;
 		
-		if (pre.node) gen_statement(g, pre);
+		if (pre) gen_statement(g, pre);
 		
 		gmmcBasicBlock* cond_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* body_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
 		gmmc_op_goto(g->bb, cond_bb);
 
-		if (!condition.node) f_trap(); // TODO
+		if (!condition) f_trap(); // TODO
 		
 		g->bb = cond_bb;
 		gmmcOpIdx cond = gen_expr(g, condition, false);
@@ -1143,13 +1106,13 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 		g->bb = body_bb;
 		gen_statement(g, body);
 			
-		if (post.node) {
-			g->override_line_num = &body.node->loc.end.line_num;
+		if (post) {
+			g->override_line_num = &body->loc.end.line_num;
 			gen_statement(g, post); // let's override the loc to be at the end of the body scope
 			g->override_line_num = NULL;
 			//set_dbginfo_loc(g, 
 		}
-		//inst_loc(g, inst.node, );
+		//inst_loc(g, node, );
 		//if (post.node) gen_statement(g, post, false); 
 
 		gmmc_op_goto(g->bb, cond_bb);
@@ -1158,17 +1121,16 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 	} break;
 
 	case ffzNodeKind_Keyword: {
-		f_assert(inst.node->Keyword.keyword == ffzKeyword_dbgbreak);
-		set_loc(g, gmmc_op_debugbreak(g->bb), inst.node);
+		f_assert(node->Keyword.keyword == ffzKeyword_dbgbreak);
+		set_loc(g, gmmc_op_debugbreak(g->bb), node);
 	} break;
 
 	case ffzNodeKind_Return: {
-		ffzNodeReturnInst ret = inst;
 		gmmcOpIdx val = 0;
 
-		if (ret.node->Return.value) {
-			ffzType* ret_type = ffz_get_type(g->project, CHILD(ret,Return.value));
-			gmmcOpIdx return_value = gen_expr(g, CHILD(ret,Return.value), false);
+		if (node->Return.value) {
+			ffzType* ret_type = node->Return.value->checked.type;
+			gmmcOpIdx return_value = gen_expr(g, node->Return.value, false);
 			if (ret_type->size > 8) {
 				val = gmmc_op_load(g->bb, gmmcType_ptr, gmmc_op_addr_of_param(g->proc, 0)); // :BigReturn
 				gmmc_op_memcpy(g->bb, val, return_value, gmmc_op_i32(g->proc, ret_type->size));
@@ -1178,11 +1140,11 @@ static void gen_statement(Gen* g, ffzNodeInst inst) {
 			}
 		}
 
-		set_loc(g, gmmc_op_return(g->bb, val), inst.node);
+		set_loc(g, gmmc_op_return(g->bb, val), node);
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: {
-		gen_call(g, inst);
+		gen_call(g, node);
 	} break;
 
 	default: f_trap();
@@ -1380,7 +1342,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 			cv_func.section_sym_index = build_x64_section_get_sym_idx(SectionNum_Code);
 			cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prolog_size(asm_module, proc);
 			cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
-			cv_func.file_idx = proc_info->node->id.parser_id;
+			cv_func.file_idx = proc_info->node->parser_id;
 
 			fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->alc);
 			for (uint i = 0; i < proc_info->dbginfo_locals.len; i++) {
@@ -1420,7 +1382,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 		}
 	}
 
-	fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("\\a.obj"));
+	fString obj_file_path = F_LIT("a.obj");
 
 	if (INCLUDE_DEBUG_INFO) {
 		cviewGenerateDebugInfoDesc cv_desc = {};
@@ -1590,15 +1552,17 @@ static bool build_c(Gen* g, fString build_dir) {
 	return exit_code == 0;
 }
 
-bool ffz_backend_gen_executable_gmmc(ffzProject* project, fString build_dir, fString name) {
+bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name) {
+	ffzProject* project = root_module->project;
 
 	fArenaMark temp_base = f_temp_get_mark();
 	gmmcModule* gmmc = gmmc_init(f_temp_alc());
 
 	Gen g = {};
+	g.project = project;
+	g.root_module = root_module;
 	g.gmmc = gmmc;
 	g.alc = f_temp_alc();
-	g.project = project;
 	//g.tb_file_from_parser_idx = f_array_make<TB_FileID>(g.alc);
 	g.value_from_definition = f_map64_make<Value>(g.alc);
 	g.proc_from_hash = f_map64_make<ProcInfo*>(g.alc);
@@ -1624,11 +1588,8 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project, fString build_dir, fSt
 		ffzModule* checker = project->checkers_dependency_sorted[i];
 		g.checker = checker;
 		
-		for (uint j = 0; j < checker->parsers.len; j++) {
-			ffzParser* parser = checker->parsers[j];
-			for FFZ_EACH_CHILD(n, parser->root) {
-				gen_statement(&g, ffz_get_toplevel_inst(g.checker, n));
-			}
+		for FFZ_EACH_CHILD(n, checker->root) {
+			gen_statement(&g, n);
 		}
 	}
 
@@ -1644,5 +1605,3 @@ bool ffz_backend_gen_executable_gmmc(ffzProject* project, fString build_dir, fSt
 }
 
 #endif // FFZ_BUILD_INCLUDE_GMMC
-
-#endif

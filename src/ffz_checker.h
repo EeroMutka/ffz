@@ -116,7 +116,7 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	ffzNodeKind_Identifier,
 	ffzNodeKind_PolyExpr,      // poly[X, Y, ...] Z
 	ffzNodeKind_Keyword,
-	ffzNodeKind_ThisValueDot,  // .
+	ffzNodeKind_ThisDot,  // .
 	ffzNodeKind_ProcType,
 	ffzNodeKind_Record,
 	ffzNodeKind_Enum,
@@ -420,8 +420,8 @@ typedef struct ffzConstantData {
 } ffzConstantData;
 
 typedef struct ffzConstant {
-	ffzConstantData* data;
 	ffzType* type;
+	ffzConstantData* data;
 } ffzConstant;
 
 typedef struct ffzPolymorph {
@@ -503,6 +503,9 @@ typedef struct ffzProject {
 	fArray(fString) link_libraries;
 	fArray(fString) link_system_libraries;
 
+	// having the parsers array in the project instead of per-module is convenient for the backend
+	fArray(ffzParser*) parsers; // key: ffzParserID
+
 	fArray(ffzModule*) checkers; // key: ffzCheckerID
 	
 	fArray(ffzModule*) checkers_dependency_sorted; // topologically sorted from leaf modules towards higher-level modules
@@ -535,7 +538,6 @@ struct ffzModule {
 
 	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
 
-	fArray(ffzParser*) parsers; // key: ffzParserID
 	fArray(ffzNode*) pending_imports;
 
 	ffzNode* root;
@@ -681,7 +683,7 @@ fString ffz_constant_to_string(ffzProject* p, ffzConstantData* constant, ffzType
 ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constant);
 
 //ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
-//ffzNodeInstHash ffz_hash_node_inst(ffzNodeInst inst);
+//ffzNodeHash ffz_hash_node(ffzNode* node);
 //u64 ffz_hash_declaration_path(ffzDefinitionPath path);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
 //ffzConstantHash ffz_hash_constant(ffzCheckedInst constant);
@@ -753,8 +755,8 @@ bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, 
 
 
 // "definition" is the identifier of a value that defines the name of the value.
-// e.g. in  foo: int  the "foo" identifier would be a definition.
-//fOpt(ffzNode*) ffz_find_definition(ffzProject* p, ffzNode* ident);
+// e.g. in `foo: int`, the foo identifier would be a definition.
+fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzProject* p, ffzNodeIdentifier* ident);
 
 bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, uint32_t* out_index);
 
@@ -784,13 +786,8 @@ inline bool ffz_decl_is_variable(ffzNodeOpDeclare* decl) {
 
 bool ffz_is_code_scope(ffzNode* node);
 
-fOpt(ffzNode*) ffz_dot_get_assignee(ffzNodeThisValueDot* dot);
+fOpt(ffzNode*) ffz_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 
 fOpt(ffzConstantData*) ffz_get_tag_of_type(ffzProject* p, ffzNode* node, ffzType* tag_type);
-
-//inline ffzConstantData* ffz_get_tag(ffzProject* p, ffzNode* node, ffzKeyword tag) {
-//	return ffz_get_tag_of_type(p, node, ffz_builtin_type(ffz_checker_from_inst(p, node), tag));
-//}
-
-//c->project, inst, ffz_builtin_type(c, ))
+fOpt(ffzConstantData*) ffz_get_tag(ffzProject* p, ffzNode* node, ffzKeyword tag);
 
