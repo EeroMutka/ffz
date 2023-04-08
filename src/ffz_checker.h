@@ -46,6 +46,12 @@
 // This shouldn't be a problem since the goal is to be simple to implement. The goal is <5k LOC in C++
 // 
 
+// TODO: make ffz_checker.cpp, etc, compile both in C99 and C++.
+//       Compiling in C++ would have the benefit of slice and map types being visualizable in the debugger!
+//       ALSO: this way we COULD make the entire library a single-header library if we wanted to!
+//       ... buut to be honest, idk if that's a good idea. It's probably nicer to have the separation of files, even for end users who want to tweak the library.
+//           IDK! And if we go down the single-header library route, we'd probably want to get back to using libc more, as in with the file IO.
+
 #define F_MINIMAL_INCLUDE
 #include "foundation/foundation.h"
 
@@ -54,6 +60,8 @@
 #else
 #define FFZ_CAPI
 #endif
+
+// hmm... should we have a single thread-local ffzProject? That'd make things a bit less verbose.
 
 typedef struct ffzModule ffzModule;
 typedef struct ffzParser ffzParser;

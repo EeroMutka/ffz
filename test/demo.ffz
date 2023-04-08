@@ -1,3 +1,4 @@
+#Basic: import(":Basic")
 
 //#Vector: poly[TYPE, VALUE] TYPE(VALUE)
 //
@@ -10,28 +11,36 @@
 	Dog: 2
 }
 
-@*global
-my_global: int(50)
+//my_global: int(50)
 
-#adder: poly[T] proc(a: T, b: T) => T {
-	test: my_global
-	my_global = 50
-	
-	result: a + b
-	ret result
+#subber: poly[T] proc(x: T) => bool {
+	if x > 0 {
+		ret true
+	}
+	ret false
 }
 
-#main: proc(argc: u32, argv: ^raw) => u32 {
+#adder: poly[T] proc(a: T) => T {
+	result: subber[T](a)
+	if result {
+		ret a
+	}
+	ret 500
+}
+
+#entry: proc(argc: u32, argv: ^raw) => u32 {
 	dbgbreak
+	
+	Basic.print("moi moi\n")
 	
 	foo: MyEnum.Cat
 	foo = MyEnum.Dog
 	
-	my_global = 30
+	//my_global = 30
 	
-	x: adder[u32](1, 2)
-	y: adder[int](5, 62)
-	z: adder[u32](12, 23)
+	x: adder[u32](1)
+	//y: adder[int](5, 62)
+	//z: adder[u32](12, 23)
 	
 	dbgbreak
 	ret 0

@@ -115,23 +115,23 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	if (!module->checked) {
 		if (!ffz_module_resolve_imports(module,
 			[](fString path, void* userdata) -> ffzModule* {
-				// TODO: check for `:`, etc.
+				ffzModule* module = (ffzModule*)userdata;
 
-				// : means that the path is relative to the modules directory shipped with the compiler
-				//if (f_str_starts_with(import_path, F_LIT(":"))) {
-				//	import_path = F_STR_T_JOIN(project->modules_directory, F_LIT("/"), f_str_slice_after(import_path, 1));
-				//}
-				//else {
-				//	// let's make the import path absolute
-				//	if (!f_files_path_to_canonical(module->directory, import_path, f_temp_alc(), &import_path)) {
-				//		f_trap();
-				//	}
-				//}
+				// `:` means that the path is relative to the modules directory shipped with the compiler
+				if (f_str_starts_with(path, F_LIT(":"))) {
+					path = F_STR_T_JOIN(module->project->modules_directory, F_LIT("/"), f_str_slice_after(path, 1));
+				}
+				else {
+					// let's make the import path absolute
+					if (!f_files_path_to_canonical(module->directory, path, f_temp_alc(), &path)) {
+						f_trap();
+					}
+				}
 
-				ffzModule* imported = parse_and_check_directory((ffzProject*)userdata, path);
+				ffzModule* imported = parse_and_check_directory(module->project, path);
 				return imported;
 
-			}, project, error_cb)) return NULL;
+			}, module, error_cb)) return NULL;
 
 
 		error_cb_passed.error_kind = F_LIT("Semantic error ");

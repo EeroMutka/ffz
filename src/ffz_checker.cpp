@@ -443,9 +443,9 @@ static ffzOk add_fields_to_field_from_name_map(ffzModule* c, ffzType* root_type,
 		}
 
 		if (field->decl) {
-			f_trap();//if (ffz_get_tag(c->project, field->decl, ffzKeyword_using)) {
-			//	TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
-			//}
+			if (ffz_get_tag(c->project, field->decl, ffzKeyword_using)) {
+				TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
+			}
 		}
 	}
 	return { true };
@@ -548,6 +548,8 @@ static ffzOk check_argument_list(ffzModule* c, ffzNode* node, fSlice(ffzField) f
 		}
 		else if (has_used_named_argument) ERR(c, arg, "Using an unnamed argument after a named argument is not allowed.");
 
+		if (i >= fields.len) ERR(c, arg, "Received too many arguments.");
+
 		TRY(check_node(c, arg_value, fields[i].type, 0));
 
 		if (record_literal) {
@@ -587,7 +589,7 @@ static ffzOk check_two_sided(ffzModule* c, ffzNode* left, ffzNode* right, OPT(ff
 	// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
 	
 	InferFlags child_flags = InferFlag_TypeIsNotRequired_ | InferFlag_CacheOnlyIfGotType;
-
+	F_HITS(_c, 6);
 	for (int i = 0; i < 2; i++) {
 		TRY(check_node(c, left, NULL, child_flags));
 		TRY(check_node(c, right, NULL, child_flags));
@@ -679,17 +681,14 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 	case ffzTypeTag_Raw: break;
 	case ffzTypeTag_Undefined: break;
 	case ffzTypeTag_Module: break;
-	case ffzTypeTag_PolyExpr: break;
 	case ffzTypeTag_Type: break;
 	case ffzTypeTag_String: break;
 
 	case ffzTypeTag_Pointer: { f_hash64_push(&h, ffz_hash_type(type->Pointer.pointer_to)); } break;
 
-	//case ffzTypeTag_PolyProc: // fallthrough
-	case ffzTypeTag_Proc: { f_hash64_push(&h, ffz_hash_node(type->unique_node)); } break;
-	case ffzTypeTag_Enum: { f_hash64_push(&h, ffz_hash_node(type->unique_node)); } break; // :EnumFieldsShouldNotContributeToTypeHash
-
-	//case ffzTypeTag_PolyRecord: // fallthrough
+	case ffzTypeTag_PolyExpr: // fallthrough
+	case ffzTypeTag_Proc:     // fallthrough
+	case ffzTypeTag_Enum:     // fallthrough   :EnumFieldsShouldNotContributeToTypeHash
 	case ffzTypeTag_Record: { f_hash64_push(&h, ffz_hash_node(type->unique_node)); } break;
 
 	case ffzTypeTag_Slice: { f_hash64_push(&h, ffz_hash_type(type->Slice.elem_type)); } break;
@@ -834,26 +833,25 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 	if (left->kind == ffzNodeKind_Keyword) {
 		ffzKeyword keyword = left->Keyword.keyword;
 		if (ffz_keyword_is_bitwise_op(keyword)) {
-			//if (ffz_get_child_count(node) != (keyword == ffzKeyword_bit_not ? 1 : 2)) {
-			//	ERR(c, node, "Incorrect number of arguments to a bitwise operation.");
-			//}
-			//
-			//ffzNode* first = ffz_get_child(node, 0);
-			//if (keyword == ffzKeyword_bit_not) {
-			//	TRY(check_node(c, first, require_type, flags));
-			//	node->checked.type = first->checked.type;
-			//}
-			//else {
-			//	ffzNode* second = ffz_get_child(inst, 1);
-			//	TRY(check_two_sided(c, first, second, &result->type));
-			//}
-			//
-			//if (result->type && !is_basic_type_size(result->type->size)) {
-			//	ERR(c, inst, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: ~u32", result->type->size);
-			//}
-			//
-			//fall = false;
-			f_trap();
+			if (ffz_get_child_count(node) != (keyword == ffzKeyword_bit_not ? 1 : 2)) {
+				ERR(c, node, "Incorrect number of arguments to a bitwise operation.");
+			}
+			
+			ffzNode* first = ffz_get_child(node, 0);
+			if (keyword == ffzKeyword_bit_not) {
+				TRY(check_node(c, first, require_type, flags));
+				node->checked.type = first->checked.type;
+			}
+			else {
+				ffzNode* second = ffz_get_child(node, 1);
+				TRY(check_two_sided(c, first, second, &result->type));
+			}
+			
+			if (result->type && !is_basic_type_size(result->type->size)) {
+				ERR(c, node, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: ~u32", result->type->size);
+			}
+			
+			fall = false;
 		}
 		else if (keyword == ffzKeyword_size_of || keyword == ffzKeyword_align_of) {
 			if (ffz_get_child_count(node) != 1) {
@@ -1135,6 +1133,7 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 		node->kind = ffzNodeKind_Identifier;
 		node->Identifier = {};
 		node->Identifier.name = f_aprint(c->alc, "~s__poly_~u32", ffz_decl_get_name(poly_def_parent), poly_id);
+		if (node->Identifier.name == F_LIT("flip_rightmost_one_bit__poly_0")) f_trap();
 		//node->Identifier.chk_definition = def;
 
 		if (entry.added) {
@@ -1382,6 +1381,7 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
 	c->enum_value_is_taken = f_map64_make<ffzNode*>(c->alc);
 	c->imported_modules = f_map64_make<ffzModule*>(c->alc);
 	c->type_from_hash = f_map64_make<ffzType*>(c->alc);
+	c->pending_imports = f_array_make<ffzNode*>(c->alc);
 	//c->all_tags_of_type = f_map64_make<fArray(ffzNodeInst)>(c->alc);
 	c->poly_from_hash = f_map64_make<ffzPolymorphID>(c->alc);
 	c->polymorphs = f_array_make<ffzPolymorph>(c->alc);
@@ -1694,6 +1694,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	}
 
 	ffzCheckInfo result = {};
+	if (node == (void*)0x00000200000452a0) f_trap();
+
+	F_HITS(_c, 183);
 
 	switch (node->kind) {
 	case ffzNodeKind_Declare: {
@@ -2280,7 +2283,6 @@ ffzModule* ffz_project_add_module_from_filesystem(ffzProject* p, fString directo
 		// but what if you want to generate your own nodes?
 		// hmm, but the error reporting procedures expect source code and source file.
 		// let's just say for now, there is always a parser.
-		
 
 		// What we could then do is have a queue for top-level nodes that need to be (re)checked.
 		// When expanding polymorph nodes, push those nodes to the end of the queue. Or if the
@@ -2293,8 +2295,7 @@ ffzModule* ffz_project_add_module_from_filesystem(ffzProject* p, fString directo
 		}
 
 		f_array_push_n(&module->pending_imports, parser->module_imports.slice);
-
-
+		
 		//if (!ffz_module_add_code_string(module, file_contents, visit.files[i], error_cb)) {
 		//	return NULL;
 		//}

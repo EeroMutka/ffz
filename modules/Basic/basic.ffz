@@ -132,13 +132,13 @@ _temp_arena_tls_index: u32(0)
 
 // i.e. 0b0010101000
 // =>   0b0010100000
-#flip_rightmost_one_bit: proc[T](x: T) => T {
+#flip_rightmost_one_bit: poly[T] proc(x: T) => T {
 	ret bit_and(x, x - 1)
 }
 
 // i.e. 0b0010101111
 // =>   0b0010111111
-#flip_rightmost_zero_bit: proc[T](x: T) => T {
+#flip_rightmost_zero_bit: poly[T] proc(x: T) => T {
 	ret bit_or(x, x + 1)
 }
 
@@ -159,9 +159,11 @@ _temp_arena_tls_index: u32(0)
 }
 
 // x == 0 will return 1
-#is_power_of_2: proc[T](x: T) => bool {
+#is_power_of_2: poly[T] proc(x: T) => bool {
 	// When x is a power of 2, it must only contain a single 1-bit
-	ret flip_rightmost_one_bit[T](x) == 0
+	#oioioioi: flip_rightmost_one_bit[T]
+	flipped: oioioioi(x)
+	ret flipped == 0
 }
 
 #get_alignment_for_size: proc(size: uint) => uint {
@@ -212,32 +214,32 @@ _temp_arena_tls_index: u32(0)
 	ret VirtualFree(ptr, 0, MEM_RELEASE) == 1
 }
 
-#select: proc[T](select_a: bool, a: T, b: T) => T {
+#select: poly[T] proc(select_a: bool, a: T, b: T) => T {
 	if select_a { ret a }
 	ret b
 }
 
-#max: proc[T](a: T, b: T) => T {
+#max: poly[T] proc(a: T, b: T) => T {
 	if a > b { ret a }
 	ret b
 }
 
-#min: proc[T](a: T, b: T) => T {
+#min: poly[T] proc(a: T, b: T) => T {
 	if a < b { ret a }
 	ret b
 }
 
-#copy: proc[T](dst: []T, src: []T) {
+#copy: poly[T] proc(dst: []T, src: []T) {
 	//assert(dst.len == src.len)
 	// I think copy should do a memmove...
 	dbgbreak //memcpy(dst.ptr, src.ptr, src.len * size_of(T))
 }
 
-#fill: proc[T](dst: []T, value: T) {
+#fill: poly[T] proc(dst: []T, value: T) {
 	dbgbreak
 }
 
-#as_bytes: proc[T](value: ^T) => []u8 {
+#as_bytes: poly[T] proc(value: ^T) => []u8 {
 	ret []u8{^u8(value), size_of(T)}
 }
 
@@ -245,17 +247,17 @@ _temp_arena_tls_index: u32(0)
 	_proc: AllocatorProc
 }
 
-#make_slice_undef: proc[T](len: uint, alc: ^Allocator) => []T {
+#make_slice_undef: poly[T] proc(len: uint, alc: ^Allocator) => []T {
 	ret []T{
 		^T(alc._proc(alc, ^raw(0), 0, len * size_of(T), align_of(T)))
 		len
 	}
 }
 
-#resize_slice_undef: proc[T](slice: ^[]T, len: uint, alc: ^Allocator) {
+#resize_slice_undef: poly[T] proc(slice: ^[]T, len: uint, alc: ^Allocator) {
 }
 
-#free_slice: proc[T](slice: []T, alc: ^Allocator) {
+#free_slice: poly[T] proc(slice: []T, alc: ^Allocator) {
 	alc._proc(alc, (^raw)(slice.ptr), slice.len, 0, 0)
 }
 
