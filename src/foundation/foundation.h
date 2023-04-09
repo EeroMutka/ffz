@@ -590,12 +590,44 @@ s64 f_floor_to_s64(float x);
 
 // -- Hash --------------------------------------------------------------------
 
-#define f_hash64(value) ((value) * 0x9E3779B97F4A7D69LLU) // Multiply by golden ratio (0.61803398874989486662 * 2^64)
-#define f_hash64_ex(value, seed) (f_hash64(value) ^ (u64)(seed)) // fvn64-style hash
-#define f_hash64_push(hash, value) *(u64*)(hash) = f_hash64_ex(value, *(u64*)hash)
+// Interesting resources related to hashing:
+// https://www.reddit.com/r/RNG/comments/jqnq20/the_wang_and_jenkins_integer_hash_functions_just/
+// https://marc-b-reynolds.github.io/math/2019/08/10/Avalanche.html
+// https://github.com/jonmaiga/mx3/blob/master/mx3.h
+// https://nullprogram.com/blog/2018/07/31/
 
+inline uint64_t f_mix64(uint64_t x) {
+	// https://github.com/jonmaiga/mx3/blob/master/mx3.h
+	static const uint64_t C = 0xbea225f9eb34556d;
+	x ^= x >> 32;
+	x *= C;
+	x ^= x >> 29;
+	x *= C;
+	x ^= x >> 32;
+	x *= C;
+	x ^= x >> 29;
+	return x;
+}
+
+inline uint64_t f_mix64_stream(uint64_t h, uint64_t x) {
+	// https://github.com/jonmaiga/mx3/blob/master/mx3.h
+	static const uint64_t C = 0xbea225f9eb34556d;
+	x *= C;
+	x ^= (x >> 57) ^ (x >> 43);
+	x *= C;
+	h += x;
+	h *= C;
+	return h;
+}
+
+// TODO: replace xxhash with mx3 hash / benchmark it!
 u64 f_hash64_str_ex(fString s, u64 seed);
-#define f_hash64_str(s) f_hash64_str_ex(s, 0) 
+#define f_hash64_str(s) f_hash64_str_ex(s, 0)
+
+typedef struct fHasher { uint64_t state; } fHasher;
+inline fHasher f_hasher_begin() { fHasher h = { 0 }; return h; }
+inline void f_hasher_add(fHasher* h, uint64_t data) { h->state = f_mix64_stream(h->state, data); }
+inline uint64_t f_hasher_end(fHasher* h) { return f_mix64(h->state); }
 
 // -- fString ------------------------------------------------------------------
 

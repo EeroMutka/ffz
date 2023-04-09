@@ -157,6 +157,14 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 }
 
 int main(int argc, const char* argv[]) {
+	//fHash64 h1 = f_hash64_start();
+	//f_hash64_update(&h1, 0);
+	//f_hash64_update(&h1, 1);
+	//
+	//fHash64 h2 = f_hash64_start();
+	//f_hash64_update(&h2, 1);
+	//f_hash64_update(&h2, 0);
+
 	f_init();
 
 	if (argc <= 1) {

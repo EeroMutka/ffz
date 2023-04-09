@@ -62,25 +62,30 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 // ------------------------------
 
 ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value) {
-	return f_hash64_ex(enum_type->hash, value);
+	fHasher h = f_hasher_begin();
+	f_hasher_add(&h, enum_type->hash);
+	f_hasher_add(&h, value);
+	return f_hasher_end(&h);
 }
 
 ffzNodeHash ffz_hash_node(ffzNode* node) {
-	ffzTypeHash h = node->local_id;
-	f_hash64_push(&h, node->parser_id);
-	f_hash64_push(&h, node->module_id);
-	return h;
+	fHasher h = f_hasher_begin();
+	f_hasher_add(&h, node->local_id);
+	f_hasher_add(&h, node->parser_id);
+	f_hasher_add(&h, node->module_id);
+	return f_hasher_end(&h);
 }
 
 ffzConstantHash ffz_hash_constant(ffzConstant constant) {
+	fHasher h = f_hasher_begin();
 	// The type must be hashed into the constant, because otherwise i.e. `u64(0)` and `false` would have the same hash!
-	ffzTypeHash h = constant.type->hash;
+	f_hasher_add(&h, constant.type->hash);
 	switch (constant.type->tag) {
 	case ffzTypeTag_Pointer: { f_trap(); } break;
 
 		//case ffzTypeTag_PolyProc: // fallthrough
 	case ffzTypeTag_Proc: {
-		f_hash64_push(&h, ffz_hash_node(constant.data->proc_node));
+		f_hasher_add(&h, ffz_hash_node(constant.data->proc_node));
 	} break;
 
 		//case ffzTypeTag_PolyRecord: // fallthrough
@@ -91,12 +96,12 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 		for (u32 i = 0; i < (u32)constant.type->FixedArray.length; i++) {
 			ffzConstantData elem_data = ffz_constant_fixed_array_get(constant, i);
 			ffzConstant elem = { constant.type->FixedArray.elem_type, &elem_data };
-			f_hash64_push(&h, ffz_hash_constant(elem));
+			f_hasher_add(&h, ffz_hash_constant(elem));
 		}
 	} break;
 
-	case ffzTypeTag_Module: { f_hash64_push(&h, (u64)constant.data->module->self_id); } break;
-	case ffzTypeTag_Type: { f_hash64_push(&h, constant.data->type->hash); } break;
+	case ffzTypeTag_Module: { f_hasher_add(&h, (u64)constant.data->module->self_id); } break;
+	case ffzTypeTag_Type: { f_hasher_add(&h, constant.data->type->hash); } break;
 	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
@@ -106,25 +111,29 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 	case ffzTypeTag_DefaultUint: // fallthrough
 	case ffzTypeTag_Raw: // fallthrough
 	case ffzTypeTag_Float: {
-		f_hash64_push(&h, constant.data->_uint); // TODO: u128
+		f_hasher_add(&h, constant.data->_uint); // TODO: u128
 	} break;
 	default: f_trap();
 	}
-	return h;
+	return f_hasher_end(&h);
 }
 
 ffzPolymorphHash ffz_hash_polymorph(ffzPolymorph poly) {
-	ffzHash h = ffz_hash_node(poly.poly_def);
+	fHasher h = f_hasher_begin();
+	f_hasher_add(&h, ffz_hash_node(poly.poly_def));
 	for (uint i = 0; i < poly.parameters.len; i++) {
-		f_hash64_push(&h, ffz_hash_constant(poly.parameters[i]));
+		f_hasher_add(&h, ffz_hash_constant(poly.parameters[i]));
 	}
-	return h;
+	return f_hasher_end(&h);
 }
 
 u64 ffz_hash_definition_path(ffzDefinitionPath path) {
-	u64 hash = f_hash64_str(path.name);
-	if (path.parent_scope) f_hash64_push(&hash, ffz_hash_node(path.parent_scope));
-	return hash;
+	fHasher h = f_hasher_begin();
+	f_hasher_add(&h, f_hash64_str(path.name));
+	if (path.parent_scope) {
+		f_hasher_add(&h, ffz_hash_node(path.parent_scope));
+	}
+	return f_hasher_end(&h);
 }
 
 static ffzConstantData* make_constant(ffzModule* c) {
@@ -429,7 +438,10 @@ ffzConstantData* ffz_zero_value_constant(ffzModule* c, ffzType* t) {
 }
 
 ffzFieldHash ffz_hash_field(ffzType* type, fString member_name) {
-	return f_hash64_ex(type->hash, f_hash64_str(member_name));
+	fHasher h = f_hasher_begin();
+	f_hasher_add(&h, type->hash);
+	f_hasher_add(&h, f_hash64_str(member_name));
+	return f_hasher_end(&h);
 }
 
 static ffzOk add_fields_to_field_from_name_map(ffzModule* c, ffzType* root_type, ffzType* parent_type, u32 offset_from_root = 0) {
@@ -676,7 +688,9 @@ u32 get_alignment(ffzType* type, u32 pointer_size) {
 }
 
 ffzTypeHash ffz_hash_type(ffzType* type) {
-	ffzTypeHash h = f_hash64(type->tag);
+	fHasher h = f_hasher_begin();
+	f_hasher_add(&h, type->tag);
+	
 	switch (type->tag) {
 	case ffzTypeTag_Raw: break;
 	case ffzTypeTag_Undefined: break;
@@ -684,17 +698,17 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 	case ffzTypeTag_Type: break;
 	case ffzTypeTag_String: break;
 
-	case ffzTypeTag_Pointer: { f_hash64_push(&h, ffz_hash_type(type->Pointer.pointer_to)); } break;
+	case ffzTypeTag_Pointer: { f_hasher_add(&h, ffz_hash_type(type->Pointer.pointer_to)); } break;
 
 	case ffzTypeTag_PolyExpr: // fallthrough
 	case ffzTypeTag_Proc:     // fallthrough
 	case ffzTypeTag_Enum:     // fallthrough   :EnumFieldsShouldNotContributeToTypeHash
-	case ffzTypeTag_Record: { f_hash64_push(&h, ffz_hash_node(type->unique_node)); } break;
+	case ffzTypeTag_Record: { f_hasher_add(&h, ffz_hash_node(type->unique_node)); } break;
 
-	case ffzTypeTag_Slice: { f_hash64_push(&h, ffz_hash_type(type->Slice.elem_type)); } break;
+	case ffzTypeTag_Slice: { f_hasher_add(&h, ffz_hash_type(type->Slice.elem_type)); } break;
 	case ffzTypeTag_FixedArray: {
-		f_hash64_push(&h, ffz_hash_type(type->FixedArray.elem_type));
-		f_hash64_push(&h, type->FixedArray.length);
+		f_hasher_add(&h, ffz_hash_type(type->FixedArray.elem_type));
+		f_hasher_add(&h, type->FixedArray.length);
 	} break;
 
 	case ffzTypeTag_Bool: // fallthrough
@@ -704,12 +718,13 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 	case ffzTypeTag_DefaultUint: // fallthrough
 	case ffzTypeTag_Float: {
 		// Note: we don't want record types to hash in the size of the type, because of :delayed_check_record
-		f_hash64_push(&h, type->size);
+		f_hasher_add(&h, type->size);
 		break;
 	}
 	default: f_trap();
 	}
-	return h;
+	//if (h == 9900648307514547948) f_trap();
+	return f_hasher_end(&h);
 }
 
 ffzType* ffz_make_type(ffzModule* c, ffzType type_desc) {
@@ -1705,6 +1720,8 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	for (ffzNode* tag_n = node->first_tag; tag_n; tag_n = tag_n->next) {
 		TRY(check_tag(c, tag_n));
 	}
+
+//	if (node == (void*)0x0000020000005a10) f_trap();
 
 	ffzCheckInfo result = {};
 
