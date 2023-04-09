@@ -5,33 +5,279 @@
 
 // TODO: @alias_module_name
 
-#Array: struct[T] {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Array: poly[T] struct {
 	@*using slice: []T{}
 	capacity: uint(0)
 	allocator: ^Basic.Allocator
 }
 
-#make: proc[T](alc: ^Basic.Allocator) => Array[T] {
+#make: poly[T] proc(alc: ^Basic.Allocator) => Array[T] {
 	ret Array[T]{allocator: alc}
 }
 
-#free: proc[T](array: ^Array[T]) {
+#free: poly[T] proc(array: ^Array[T]) {
 	array.allocator._proc(array.allocator, array.ptr, array.capacity*size_of(T), 0, 0)
 }
 
-#push: proc[T](array: ^Array[T], elem: T) {
+#push: poly[T] proc(array: ^Array[T], elem: T) {
 	push_n_raw(^Array[raw](array), &elem, 1, size_of(T), align_of(T))
 }
 
-#push_n: proc[T](array: ^Array[T], elems: []T) {
+#push_n: poly[T] proc(array: ^Array[T], elems: []T) {
 	push_n_raw(^Array[raw](array), elems.ptr, elems.len, size_of(T), align_of(T))
 }
 
-#insert: proc[T](array: ^Array[T], at: uint, elem: T) {
+#insert: poly[T] proc(array: ^Array[T], at: uint, elem: T) {
 	insert_n_raw(^Array[raw](array), at, &elem, 1, size_of(T), align_of(T))
 }
 
-#insert_n: proc[T](array: ^Array[T], at: uint, elems: []T) {
+#insert_n: poly[T] proc(array: ^Array[T], at: uint, elems: []T) {
 	insert_n_raw(^Array[raw](array), at, elems.ptr, elems.len, size_of(T), align_of(T))
 }
 

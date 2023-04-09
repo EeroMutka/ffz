@@ -545,7 +545,7 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOp* node) {
 			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
 			gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
 			set_loc(g, copy, node);
-			f_array_push(&args, local_copy_addr);
+			arg_value = local_copy_addr;
 		}
 		else {
 			if (!value_is_primitive(param_type)) {
