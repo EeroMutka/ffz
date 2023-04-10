@@ -296,6 +296,13 @@ struct ffzNode {
 			fString name;
 			bool is_constant; // has # in front?
 
+			// When instantiating a polymorphic definition, i.e. Array[int], that node will be replaced with an identifier referring
+			// to the copied instance. It might look something like "Array__poly_12". This way of instantiating polymorphs is nice, because
+			// it means that any tools that deal with the FFZ tree don't have to worry about polymorphism at all, except of course the checker which
+			// generates the instantiations. But it also means that using the generated name, we would get bad error messages.
+			// So, the checker also generates an optional `pretty_name`, which will be displayed in error messages over `name` when it's non-empty.
+			fString pretty_name;
+
 			// ffzNode* chk_definition; // resolved during the checker stage
 			// ffzNode* chk_next_use;   // resolved during the checker stage
 		} Identifier;
@@ -673,7 +680,9 @@ inline bool ffz_op_is_postfix(ffzNodeKind kind) { return kind >= ffzNodeKind_Pos
 inline bool ffz_op_is_comparison(ffzNodeKind kind) { return kind >= ffzNodeKind_Equal && kind <= ffzNodeKind_GreaterOrEqual; }
 //inline bool ffz_operator_is_arithmetic(ffzNodeKind kind) { return kind >= ffzNodeKind_Add && kind <= ffzNodeKind_Modulo; }
 
-FFZ_CAPI fString ffz_get_parent_decl_name(fOpt(ffzNode*) node); // returns an empty string if the node's parent is not a declaration, or the node itself is NULL
+// These both return an empty string if the node's parent is not a declaration, or the node itself is NULL
+FFZ_CAPI fString ffz_get_parent_decl_name(fOpt(ffzNode*) node); 
+FFZ_CAPI fString ffz_get_parent_decl_pretty_name(fOpt(ffzNode*) node);
 
 FFZ_CAPI uint32_t ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
 FFZ_CAPI ffzNode* ffz_get_child(ffzNode* parent, uint32_t idx);
@@ -695,6 +704,7 @@ FFZ_CAPI ffzOk ffz_parse_node(ffzParser* p);
 FFZ_CAPI fOpt(ffzNode*) ffz_skip_standalone_tags(fOpt(ffzNode*) node);
 
 FFZ_CAPI void ffz_print_ast(fWriter* w, ffzNode* node);
+FFZ_CAPI fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc);
 
 // ------------------------------------------------------
 

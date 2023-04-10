@@ -204,7 +204,7 @@ bool ffz_type_is_comparable(ffzType* type) {
 	return ffz_type_is_integer(type->tag) || type->tag == ffzTypeTag_Enum || ffz_type_is_float(type->tag);
 }
 
-void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
+void print_type(ffzProject* p, fWriter* w, ffzType* type) {
 	switch (type->tag) {
 	case ffzTypeTag_Invalid: { f_print(w, "<invalid>"); } break;
 	case ffzTypeTag_Module: { f_print(w, "<module>"); } break;
@@ -215,7 +215,7 @@ void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	case ffzTypeTag_Raw: { f_print(w, "raw"); } break;
 	case ffzTypeTag_Pointer: {
 		f_print(w, "^");
-		_write_type(p, w, type->Pointer.pointer_to);
+		print_type(p, w, type->Pointer.pointer_to);
 	} break;
 	case ffzTypeTag_DefaultSint: { f_print(w, "int"); } break;
 	case ffzTypeTag_DefaultUint: { f_print(w, "uint"); } break;
@@ -230,7 +230,7 @@ void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	} break;
 	case ffzTypeTag_Proc: {
 		ffzNode* s = type->unique_node;
-		fString name = ffz_get_parent_decl_name(s);
+		fString name = ffz_get_parent_decl_pretty_name(s);
 		if (name.len > 0) {
 			f_prints(w, name);
 		}
@@ -262,7 +262,7 @@ void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	} break;
 	case ffzTypeTag_Enum: {
 		ffzNode* n = type->unique_node;
-		fString name = ffz_get_parent_decl_name(n);
+		fString name = ffz_get_parent_decl_pretty_name(n);
 		if (name.len > 0) {
 			f_prints(w, name);
 		}
@@ -272,7 +272,7 @@ void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	} break;
 	case ffzTypeTag_Record: {
 		ffzNodeRecord* n = type->unique_node;
-		fString name = ffz_get_parent_decl_name(n);
+		fString name = ffz_get_parent_decl_pretty_name(n);
 		if (name.len > 0) {
 			f_prints(w, name);
 		}
@@ -293,14 +293,14 @@ void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	} break;
 	case ffzTypeTag_Slice: {
 		f_print(w, "[]");
-		_write_type(p, w, type->Slice.elem_type);
+		print_type(p, w, type->Slice.elem_type);
 	} break;
 	case ffzTypeTag_String: {
 		f_print(w, "string");
 	} break;
 	case ffzTypeTag_FixedArray: {
 		f_print(w, "[~i32]", type->FixedArray.length);
-		_write_type(p, w, type->FixedArray.elem_type);
+		print_type(p, w, type->FixedArray.elem_type);
 	} break;
 	default: f_assert(false);
 	}
@@ -311,7 +311,7 @@ static void print_constant(ffzProject* p, fWriter* w, ffzConstant constant) {
 	switch (constant.type->tag) {
 	//ffzTypeTag_Raw,
 	//ffzTypeTag_Undefined,
-	case ffzTypeTag_Type: { _write_type(p, w, constant.data->type); } break;
+	case ffzTypeTag_Type: { print_type(p, w, constant.data->type); } break;
 	//case ffzTypeTag_PolyExpr:
 	//case ffzTypeTag_Module:
 
@@ -356,7 +356,7 @@ fString ffz_constant_to_string(ffzProject* p, ffzConstant constant) {
 
 fString ffz_type_to_string(ffzProject* p, ffzType* type) {
 	fStringBuilder builder; f_init_string_builder(&builder, p->persistent_allocator);
-	_write_type(p, builder.w, type);
+	print_type(p, builder.w, type);
 	return builder.buffer.slice;
 }
 
@@ -372,8 +372,8 @@ fOpt(ffzNode*) ffz_get_scope(ffzNode* node) {
 		f_assert(node->has_checked);
 
 		if (node->kind == ffzNodeKind_Scope) return node;
+		if (node->kind == ffzNodeKind_Record) return node;
 		if (node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) return node;
-		if (node->checked.type && node->checked.type->tag == ffzTypeTag_Record) return node;
 	}
 	return NULL;
 }
@@ -465,6 +465,7 @@ static bool type_is_a_bit_by_bit(ffzProject* p, ffzType* src, ffzType* target) {
 }
 
 static ffzOk check_types_match(ffzModule* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
+//F_HITS(_c, 196);
 	if (!type_is_a_bit_by_bit(c->project, received, expected)) {
 		ERR(c, node, "~c\n    received: ~s\n    expected: ~s",
 			message, ffz_type_to_string(c->project, received), ffz_type_to_string(c->project, expected));
@@ -976,7 +977,7 @@ static ffzOk check_post_curly_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo
 // 
 struct InstantiatePolyExprCtx {
 	ffzModule* m;
-	fMap64(fString) poly_param_name_to_generated_constant_name;
+	fMap64(ffzNode*) poly_param_name_to_generated_constant_ident;
 	ffzNode* root;
 };
 
@@ -991,9 +992,8 @@ static void instantiate_deep_copy_poly(InstantiatePolyExprCtx* ctx, ffzCursor cu
 	f_assert(cursor.parent->module_id == ctx->m->self_id);
 
 	ffzNode* new_node = ffz_clone_node(ctx->m, old_node);
-	//new_node->parent = new_parent;
 	new_node->TEST___expanded_from_poly = true;
-	ffz_replace_node(&cursor, new_node); //*cursor.pp_node = new_node;
+	ffz_replace_node(&cursor, new_node);
 
 	// OLD COMMENT, DOESN'T MATTER ANYMORE:
 	// First copy special children, then copy regular children.
@@ -1009,23 +1009,23 @@ static void instantiate_deep_copy_poly(InstantiatePolyExprCtx* ctx, ffzCursor cu
 	case ffzNodeKind_Blank: break;
 	case ffzNodeKind_Identifier: {
 
-		fString* new_name = f_map64_get(&ctx->poly_param_name_to_generated_constant_name, f_hash64_str(new_node->Identifier.name));
+		fOpt(ffzNode**) new_name = f_map64_get(&ctx->poly_param_name_to_generated_constant_ident, f_hash64_str(new_node->Identifier.name));
 		if (new_name) {
-			new_node->Identifier.name = *new_name;
+			new_node->Identifier.name        = (*new_name)->Identifier.name;
+			new_node->Identifier.pretty_name = (*new_name)->Identifier.pretty_name;
 		}
 		else {
 			if (ctx->root->module_id != ctx->m->self_id) {
 				// hmm... ffz_find_definition doesn't work here because we haven't checked the node tree yet.
-				// Actually we can use this to our advantage right? ffz_find_definition will give us the result if HAS been checked,
-				// and thus not part of the poly tree, and will fail if hasn't been checked!
-				//f_trap();
+				// Actually we can use this to our advantage! ffz_find_definition will give us the definition if HAS been checked,
+				// and thus not part of the poly tree, and will fail if hasn't been checked.
 
 				ffzProject* p = ctx->m->project;
 				ffzModule* original_module = p->checkers[ctx->root->module_id];
 
 				fOpt(ffzNodeIdentifier*) def = ffz_find_definition(p, old_node);
 				if (def) {
-					// add module prefix
+					// add module prefix if the definition is not part of the poly tree (and thus is a global)
 					
 					ffzNode* accessor = ffz_new_node(ctx->m, ffzNodeKind_MemberAccess);
 					ffz_replace_node(&cursor, accessor);
@@ -1150,22 +1150,27 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 		//
 		
 		// Modify node from polymorph instantiator into an identifier. :InPlaceNodeModification
+		
+		fString pretty_name = ffz_node_to_string(c->project, node, true, c->alc);
 		node->kind = ffzNodeKind_Identifier;
 		node->Identifier = {};
 		node->Identifier.name = f_aprint(c->alc, "~s__poly_~u32", ffz_decl_get_name(poly_def_parent), poly_id);
-		if (node->Identifier.name == F_LIT("flip_rightmost_one_bit__poly_0")) f_trap();
+		node->Identifier.pretty_name = pretty_name;
+//		if (node->Identifier.name == F_LIT("Array__poly_0")) f_trap();
+		f_assert(pretty_name.len > 0);
+	//	if (node == (void*)0x0000020000080d60) f_trap();
+		
 		//node->Identifier.chk_definition = def;
 
 		if (entry.added) {
 			InstantiatePolyExprCtx deep_copy_ctx = {};
 			deep_copy_ctx.m = c;
-			deep_copy_ctx.poly_param_name_to_generated_constant_name = f_map64_make<fString>(f_temp_alc());
+			deep_copy_ctx.poly_param_name_to_generated_constant_ident = f_map64_make<ffzNode*>(f_temp_alc());
 
 			// add parameters as decls
 			for (u32 i = 0; i < poly.parameters.len; i++) {
 				fString param_name = ffz_get_child(poly.poly_def, i)->Identifier.name;
 				fString expanded_name = f_aprint(c->alc, "~s__poly_~u32_~s", ffz_decl_get_name(poly_def_parent), poly_id, param_name);
-				f_map64_insert(&deep_copy_ctx.poly_param_name_to_generated_constant_name, f_hash64_str(param_name), expanded_name);
 
 				ffzNode* arg_decl = ffz_new_node(c, ffzNodeKind_Declare);
 				arg_decl->source_id = node->source_id;
@@ -1175,7 +1180,10 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 				arg_def->source_id = node->source_id;
 				arg_def->parent = arg_decl;
 				arg_def->Identifier.name = expanded_name;
+				arg_def->Identifier.pretty_name = param_name;
 				arg_def->Identifier.is_constant = true;
+				
+				f_map64_insert(&deep_copy_ctx.poly_param_name_to_generated_constant_ident, f_hash64_str(param_name), arg_def);
 
 				arg_decl->Op.left = arg_def;
 				arg_decl->Op.right = ffz_constant_to_node(c, arg_decl, poly.parameters[i]);
@@ -1185,12 +1193,12 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 
 			ffzNode* inst_decl = ffz_new_node(c, ffzNodeKind_Declare);
 			inst_decl->source_id = node->source_id;
-			//inst_decl->parent = c->root;
 			
 			ffzNode* inst_def = ffz_new_node(c, ffzNodeKind_Identifier);
 			inst_def->source_id = node->source_id;
 			inst_def->parent = inst_decl;
-			inst_def->Identifier.name = node->Identifier.name;
+			inst_def->Identifier.name        = node->Identifier.name;
+			inst_def->Identifier.pretty_name = node->Identifier.pretty_name;
 			inst_def->Identifier.is_constant = true;
 
 			// hmm... there still could be a name collision.
@@ -1733,20 +1741,25 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		// `get_scope` however requires the parent to be checked. So only do this when we know it's not a parameter.
 		// For all other cases, except for parameters, the parent has already been checked.
 
+//		F_HITS(__c, 48);
+
 		bool is_parameter = ffz_decl_is_parameter(node);
 		bool is_local = false;
-		if (!is_parameter) {
+		bool is_global_variable = ffz_decl_is_global_variable(node);
+
+		if (!is_parameter && !lhs->Identifier.is_constant) {
+			// try to find the procedure scope
 			for (ffzNode* scope = ffz_get_scope(node); scope; scope = ffz_get_scope(scope)) {
 				if (scope->kind == ffzNodeKind_Scope) continue;
-				if (scope->checked.type && scope->checked.type->tag == ffzTypeTag_Proc) {
-					is_local = true;
-					break;
-				}
+				if (scope->kind == ffzNodeKind_If) continue;
+				if (scope->kind == ffzNodeKind_For) continue;
+				is_local = scope->checked.type && scope->checked.type->tag == ffzTypeTag_Proc;
+				break;
 			}
 		}
 
 		InferFlags rhs_flags = 0;
-		if (is_local || ffz_decl_is_global_variable(node)) {
+		if (is_local || is_global_variable) {
 			rhs_flags |= InferFlag_AllowUndefinedValues;
 		}
 		
@@ -1756,7 +1769,8 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		result = rhs->checked; // Declarations cache the value of the right-hand side
 		result.is_local_variable = is_local;
 
-		if (is_local || is_parameter) {
+		
+		if (is_local || is_parameter || is_global_variable) {
 			if (is_parameter) {
 				// if the parameter is a type expression, then this declaration has that type
 				result.type = ffz_ground_type(result.constant, result.type);
@@ -1768,7 +1782,8 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 				ERR(c, node, "Variable has a non-concrete type, the type being ~s.", ffz_type_to_string(c->project, result.type));
 			}
 		}
-		else {
+		
+		if (!is_local) {
 			TRY(verify_is_constant(c, rhs));
 		}
 
@@ -1807,29 +1822,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		TRY(check_post_round_brackets(c, node, require_type, flags, &result));
 	} break;
 
-	case ffzNodeKind_If: {
-		TRY(check_node(c, node->If.condition, ffz_builtin_type(c, ffzKeyword_bool), 0));
-		TRY(check_node(c, node->If.true_scope, NULL, InferFlag_Statement));
-		if (node->If.else_scope) {
-			TRY(check_node(c, node->If.else_scope, NULL, InferFlag_Statement));
-		}
-	} break;
+	case ffzNodeKind_If: break; // delayed check
+	case ffzNodeKind_For: break; // delayed check
 	
-	case ffzNodeKind_For: {
-		for (uint i = 0; i < 3; i++) {
-			if (node->For.header_stmts[i]) {
-				if (i == 1) {
-					TRY(check_node(c, node->For.header_stmts[i], ffz_builtin_type(c, ffzKeyword_bool), 0));
-				}
-				else {
-					TRY(check_node(c, node->For.header_stmts[i], NULL, InferFlag_Statement));
-				}
-			}
-		}
-		
-		TRY(check_node(c, node->For.scope, NULL, InferFlag_Statement));
-	} break;
-
 	case ffzNodeKind_Keyword: {
 		ffzKeyword keyword = node->Keyword.keyword;
 		OPT(ffzType*) type_expr = ffz_builtin_type(c, keyword);
@@ -2075,13 +2070,35 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		}
 	}
 
-	// delayed check
+	// delayed checking. The idea is to check the children AFTER we have cached the CheckInfo for this node.
+	// This gives more freedom to the children to use utilities, such as get_scope() which requires the parents to be checked.
 	
 	if (!child_already_fully_checked_us) {
 		if (node->kind == ffzNodeKind_Scope) {
 			for FFZ_EACH_CHILD(n, node) {
 				TRY(check_node(c, n, NULL, flags));
 			}
+		}
+		else if (node->kind == ffzNodeKind_If) {
+			TRY(check_node(c, node->If.condition, ffz_builtin_type(c, ffzKeyword_bool), 0));
+			TRY(check_node(c, node->If.true_scope, NULL, InferFlag_Statement));
+			if (node->If.else_scope) {
+				TRY(check_node(c, node->If.else_scope, NULL, InferFlag_Statement));
+			}
+		}
+		else if (node->kind == ffzNodeKind_For) {
+			for (uint i = 0; i < 3; i++) {
+				if (node->For.header_stmts[i]) {
+					if (i == 1) {
+						TRY(check_node(c, node->For.header_stmts[i], ffz_builtin_type(c, ffzKeyword_bool), 0));
+					}
+					else {
+						TRY(check_node(c, node->For.header_stmts[i], NULL, InferFlag_Statement));
+					}
+				}
+			}
+
+			TRY(check_node(c, node->For.scope, NULL, InferFlag_Statement));
 		}
 		else if (node->kind == ffzNodeKind_Declare) {
 			TRY(check_node(c, node->Op.left, NULL, 0));

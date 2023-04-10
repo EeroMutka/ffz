@@ -19,9 +19,6 @@
 	return FFZ_OK; \
 }
 
-//#define AS(node,kind) FFZ_AS(node, kind)
-//#define (ffzNode*)node FFZ_(ffzNode*)node
-
 #define SLICE_BEFORE(T, slice, mid) (fSliceRaw){(T*)slice.data, (mid)}
 #define SLICE_AFTER(T, slice, mid) (fSliceRaw){(T*)slice.data + (mid), (slice.len) - (mid)}
 #define fSlice(T) fSliceRaw
@@ -463,6 +460,20 @@ void ffz_print_ast(fWriter* w, ffzNode* node) {
 	print_ast(w, node, 0);
 }
 
+FFZ_CAPI fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc) {
+	if (node->source_id != FFZ_SOURCE_ID_NONE && try_to_use_source) {
+		ffzParser** parsers = p->parsers.data;
+		fString source_code = parsers[node->source_id]->source_code;
+		return f_str_slice(source_code, node->loc.start.offset, node->loc.end.offset);
+	}
+	else {
+		fStringBuilder b;
+		f_init_string_builder(&b, alc);
+		ffz_print_ast(b.w, node);
+		return b.str;
+	}
+}
+
 #define IS_WHITESPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\r')
 
 typedef enum ParseFlags {
@@ -649,6 +660,8 @@ ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
 }
 
 ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node) {
+	f_assert(!node->has_checked);
+
 	ffzNode* new_node = f_mem_clone(*node, m->alc);
 	new_node->module_id = m->self_id;
 	new_node->parent = NULL;
@@ -1320,6 +1333,13 @@ OPT(ffzNodeOpDeclare*) ffz_get_parent_decl(OPT(ffzNode*) node) {
 fString ffz_get_parent_decl_name(OPT(ffzNode*) node) {
 	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
 	return decl ? decl->Op.left->Identifier.name : (fString) { 0 };
+}
+
+fString ffz_get_pretty_name(ffzNodeIdentifier* n) { return n->Identifier.pretty_name.len ? n->Identifier.pretty_name : n->Identifier.name; }
+
+fString ffz_get_parent_decl_pretty_name(OPT(ffzNode*) node) {
+	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
+	return decl ? ffz_get_pretty_name(decl->Op.left) : (fString){0};
 }
 
 // :NoteAboutSeqLiterals

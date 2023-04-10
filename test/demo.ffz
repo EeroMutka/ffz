@@ -1,13 +1,155 @@
-//#Basic: import(":Basic")
 
-#Lettuce: import("Lettuce")
+#Basic: import(":Basic")
+#Array: import(":Array")
+#str: import(":String")
 
-#main: proc(argc: u32, argv: ^raw) => u32 {
-	dbgbreak
-	
-	foo: Lettuce.adder[u32](50)
-	
-	dbgbreak
-	ret 0
+#Window: import(":Window")
+#GL: import(":OpenGL")
+
+#vertex_shader_src: "
+#version 330
+
+layout (location = 0) in vec3 a_position;
+layout (location = 1) in vec4 a_color;
+
+out vec4 f_color;
+
+void main() {
+	f_color = a_color;
+	gl_Position = vec4(a_position, 1.0);
+}
+"
+
+#fragment_shader_src: "
+#version 330
+
+in vec4 f_color;
+out vec4 frag_color;
+
+void main() {
+	frag_color = f_color;
+}
+"
+
+#Vertex: struct {
+	position: [3]f32
+	color: [4]f32
 }
 
+#compile_shader: proc(gl: ^GL.API, shader_type: GL.GLenum, src: ^u8) => GL.GLuint {
+	shader: gl.CreateShader(shader_type)
+	gl.ShaderSource(shader, 1, &src, ^GL.GLint(0))
+	gl.CompileShader(shader)
+	
+	success: GL.GLint(0)
+	gl.GetShaderiv(shader, GL.COMPILE_STATUS, &success)
+	if success == 0 {
+		vs_log: [512]GL.GLchar(~~)
+		gl.GetShaderInfoLog(shader, 512, ^GL.GLsizei(0), &vs_log[0])
+		dbgbreak
+	}
+	ret shader
+}
+
+@*global
+globals: struct {
+	window: Window.Window
+	gl: GL.API
+	test: bool
+}(~~)
+
+#draw: proc {
+	globals.gl.ClearColor(.3, .2, .4, 1.)
+	globals.gl.Clear(GL.COLOR_BUFFER_BIT)
+	
+	globals.gl.DrawArrays(GL.TRIANGLES, 0, 3)
+	
+	if !GL.swap_buffers(globals.window) {dbgbreak}
+}
+	
+#resize_cb: Window.ResizeCallback {
+	Basic.print("resizing. width: ")
+	Basic.print(str.tfrom_uint(in.width))
+	Basic.print(", height: ")
+	Basic.print(str.tfrom_uint(in.height))
+	Basic.print("\n")
+	
+	globals.gl.Viewport(0, 0, s32(in.width), s32(in.height))
+	draw()
+}
+
+#entry: proc {
+	Basic.print("hello!\n")
+	globals.window = Window.create(512, 512, "My window")
+	
+	//_gl: GL.API
+	
+	gl: &globals.gl
+	GL.load(gl, globals.window, GL.Version._3_3)
+	// Compile the vertex and the fragment shader
+	vs: compile_shader(gl, GL.VERTEX_SHADER, vertex_shader_src.ptr)
+	fs: compile_shader(gl, GL.FRAGMENT_SHADER, fragment_shader_src.ptr)
+	
+	// Link the shaders together into a shader program
+	shader_program: gl.CreateProgram()
+	gl.AttachShader(shader_program, vs)
+	gl.AttachShader(shader_program, fs)
+	gl.LinkProgram(shader_program)
+	
+	link_success: GL.GLint(0)
+	gl.GetProgramiv(shader_program, GL.LINK_STATUS, &link_success)
+	if link_success == 0 {
+		log: [512]u8(~~)
+		gl.GetProgramInfoLog(shader_program, 512, ^GL.GLsizei(0), &log[0])
+		dbgbreak
+	}
+	
+	// We can safely delete the shaders now that we have the shader program ready
+	gl.DeleteShader(vs)
+	gl.DeleteShader(fs)
+	
+	vertices: [?]Vertex{
+		Vertex{[3]f32{-0.5, -0.5, 0.}, [4]f32{1., 0., 0., 1.}}
+		Vertex{[3]f32{ 0.5, -0.5, 0.}, [4]f32{0., 1., 0., 1.}}
+		Vertex{[3]f32{  0.,  0.5, 0.}, [4]f32{0., 0., 1., 1.}}
+	}
+	
+	// Create the vertex array object
+	vao: GL.GLuint(0)
+	gl.GenVertexArrays(1, &vao)
+	gl.BindVertexArray(vao)
+	
+	// Create the vertex buffer object
+	vbo: GL.GLuint(0)
+	gl.GenBuffers(1, &vbo)
+	gl.BindBuffer(GL.ARRAY_BUFFER, vbo)
+	gl.BufferData(GL.ARRAY_BUFFER, size_of(vertices), &vertices, GL.STATIC_DRAW)
+	
+	// Specify the vertex layout
+	gl.VertexAttribPointer(0, 3, GL.FLOAT, false, size_of(Vertex), ^raw(0)/*offsetof(Vertex, position)*/)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointer(1, 4, GL.FLOAT, false, size_of(Vertex), ^raw(4*3)/*offsetof(Vertex, color)*/)
+	gl.EnableVertexAttribArray(1)
+	
+	Window.show(globals.window)
+	
+	i: 0
+	
+	gl.UseProgram(shader_program)
+	gl.BindVertexArray(vao)
+	
+	quit: false
+	for, !quit {
+		events: Window.poll_events(globals.window, resize_cb, ^raw(gl))
+		
+		if events.quit {
+			quit = true
+		}
+		
+		if !quit {
+			draw()
+		}
+		
+		i= . + 1
+	}
+}
