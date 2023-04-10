@@ -70,10 +70,12 @@ typedef struct ffzConstantData ffzConstantData;
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
 //typedef struct ffzPolymorph ffzPolymorph;
 
-typedef uint32_t ffzParserID;
+typedef uint32_t ffzSourceID;
 //typedef uint32_t ffzParserLocalID;
 typedef uint32_t ffzModuleID;
 typedef uint32_t ffzCheckerLocalID;
+
+#define FFZ_SOURCE_ID_NONE 0xFFFFFFFF
 
 typedef uint32_t ffzPolymorphID;
 
@@ -252,12 +254,26 @@ typedef struct ffzCheckInfo {
 	fOpt(ffzConstantData*) constant;
 } ffzCheckInfo;
 
+
+//
+// An ffzNode can have a list of child nodes. These are called its "main children". In addition, a node can have
+// "secondary children". For example, an If-node has two secondary children - one for the true scope and another for the false scope.
+// Secondary children are always one-off nodes and cannot be lists (A secondary child slot can hold 0 or 1 nodes).
+//
+// ffzCursor is a way to refer to a location in the AST where a node can be inserted,
+// i.e. between two nodes. It can also be at the beginning or end of a (potentially empty) child node list.
+// A cursor may also point to the beginning/left side of a secondary child slot.
+//
+typedef struct ffzCursor {
+	ffzNode* parent;
+	fOpt(ffzNode*)* pp_node; // This will point either to the `first_child` or `next` field, or to one of the secondary child fields.
+} ffzCursor;
+
 struct ffzNode {
 	ffzNodeKind kind;
 	ffzNodeFlags flags;
 	
-	//ffzParserLocalID local_id; // used to compare if definitions come before they're used or not
-	ffzParserID source_id;
+	ffzSourceID source_id; // can be FFZ_SOURCE_ID_NONE
 	ffzModuleID module_id;
 	
 	ffzLocRange loc;
@@ -265,7 +281,7 @@ struct ffzNode {
 	ffzNode* first_tag;
 	ffzNode* parent;
 	ffzNode* next;
-	ffzNode* first_child;
+	ffzNode* first_child; // first main child
 
 	bool has_checked; // TODO: have a flip-flop re-checking
 	bool TEST___expanded_from_poly;
@@ -349,7 +365,7 @@ typedef struct ffzErrorCallback {
 // Parser is responsible for parsing a single file / string of source code
 struct ffzParser {
 	ffzModule* module;       // unused in the parser stage
-	ffzParserID self_id;
+	ffzSourceID self_id;
 
 	fMap64(ffzKeyword)* keyword_from_string; // key: f_hash64_str(str);
 
@@ -361,7 +377,7 @@ struct ffzParser {
 	fAllocator* alc;
 	//ffzParserLocalID next_local_id;
 
-	fArray(ffzNodeKeyword*) module_imports;
+	fArray(ffzNode*) import_keywords;
 
 	bool stop_at_curly_brackets;
 
@@ -549,7 +565,7 @@ struct ffzModule {
 	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
 	uint32_t next_flat_index;
 
-	fArray(ffzNode*) pending_imports;
+	fArray(ffzNode*) pending_import_keywords;
 
 	ffzNode* root;
 	ffzNode* root_last_child;
@@ -582,24 +598,52 @@ struct ffzModule {
 
 	fMap64(fString) extern_libraries;
 
-	fMap64(ffzModule*) imported_modules; // key: AstNode*
+	// An `import` node must always be part of a declaration, and must uniquely import a module that
+	// hasn't been imported previously. This restriction exists, so that we have a way
+	// of mapping from module import to an import name. This property is useful for instance in error
+	// reporting, and polymorph instantiation code.
 
-	//void(*report_error)(ffzModule* c, fSlice(ffzNode*) poly_path, ffzNode* at, fString error);
-	
+	fMap64(ffzNode*) import_decl_from_module;   // key: ffzModule*
+	fMap64(ffzModule*) module_from_import_decl; // key: ffzNode*
+
 	ffzType* type_type;
 	ffzType* module_type;
 	//ffzParserLocalID next_pseudo_node_idx;
 	ffzType* builtin_types[ffzKeyword_COUNT];
 };
 
-//#define FFZ_EACH_CHILD_INST(n, parent) (\
-//	ffzNodeInst n = {(parent.node) ? (parent).node->first_child : NULL, (parent).polymorph};\
-//	n.node = ffz_skip_standalone_tags(n.node);\
-//	n.node = n.node->next)
-
 #define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? parent->first_child : NULL; n = ffz_skip_standalone_tags(n); n = n->next)
-//#define FFZ_INST_CHILD(T, parent, child_access) T { (parent).node->child_access, (parent).poly_inst }
 
+// -- Builder -------------------------------------------
+
+inline fOpt(ffzNode*) ffz_get_node_at_cursor(ffzCursor* at) { return *at->pp_node; }
+
+// Replace the node at the cursor with another node, and update the cursor keeping it in place.
+FFZ_CAPI void ffz_replace_node(ffzCursor* at, ffzNode* with);
+
+// Insert a new node at the cursor, and update the cursor keeping it in place.
+FFZ_CAPI void ffz_insert_node(ffzCursor* at, ffzNode* node);
+
+// Remove a node at the cursor, and update the cursor keeping it in place.
+FFZ_CAPI void ffz_remove_node(ffzCursor* at);
+
+// clones `node` into the module `m`
+FFZ_CAPI ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node);
+
+// module-allocated node
+FFZ_CAPI ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind);
+
+// Helper functions for getting a cursor to a secondary child node
+inline ffzCursor ffz_cursor_poly_expr(ffzNode* node) { ffzCursor c = { node, &node->PolyExpr.expr }; return c; }
+inline ffzCursor ffz_cursor_op_left(ffzNode* node) { ffzCursor c = { node, &node->Op.left }; return c; }
+inline ffzCursor ffz_cursor_op_right(ffzNode* node) { ffzCursor c = { node, &node->Op.right }; return c; }
+inline ffzCursor ffz_cursor_if_condition(ffzNode* node) { ffzCursor c = { node, &node->If.condition }; return c; }
+inline ffzCursor ffz_cursor_if_true_scope(ffzNode* node) { ffzCursor c = { node, &node->If.true_scope }; return c; }
+inline ffzCursor ffz_cursor_if_false_scope(ffzNode* node) { ffzCursor c = { node, &node->If.else_scope }; return c; }
+inline ffzCursor ffz_cursor_for_header_stmt(ffzNode* node, uint32_t i) { ffzCursor c = { node, &node->For.header_stmts[i] }; return c; }
+inline ffzCursor ffz_cursor_for_scope(ffzNode* node) { ffzCursor c = { node, &node->For.scope }; return c; }
+inline ffzCursor ffz_cursor_proc_type_out_parameter(ffzNode* node) { ffzCursor c = { node, &node->ProcType.out_parameter }; return c; }
+inline ffzCursor ffz_cursor_ret_value(ffzNode* node) { ffzCursor c = { node, &node->Return.value }; return c; }
 
 // -- Parser --------------------------------------------
 
@@ -764,12 +808,16 @@ fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString d
 
 bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
 
-
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in `foo: int`, the foo identifier would be a definition.
 fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzProject* p, ffzNodeIdentifier* ident);
 
 bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, uint32_t* out_index);
+
+// * Return the name of an import declaration, given an imported module.
+//     e.g. if module `m` contains `#Foo: import("imported_module")`, then the returned value would be "Foo"
+// * If `imported_module` is not imported by `m`, an empty string is returned.
+fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module);
 
 // 
 // Given an argument list (either a post-curly-brackets initializer or a procedure call) that might contain

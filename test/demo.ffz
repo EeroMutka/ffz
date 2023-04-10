@@ -2,15 +2,10 @@
 
 #Lettuce: import("Lettuce")
 
-#adder_u32: Lettuce.adder[u32]
-
 #main: proc(argc: u32, argv: ^raw) => u32 {
 	dbgbreak
 	
-	foo: u32(50)
-	foo = 50
-	
-	//foo: adder_u32(50)
+	foo: Lettuce.adder[u32](50)
 	
 	dbgbreak
 	ret 0

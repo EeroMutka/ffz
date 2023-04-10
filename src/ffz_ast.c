@@ -619,34 +619,41 @@ static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 	return FFZ_OK;
 }
 
-//static ffzOk parse_statement_separator(ffzParser* p, ffzLoc* pos) {
-//	Token tok;
-//	TRY(eat_next_token(p, pos, false, "parsing a statement separator", &tok));
-//	
-//	if (!f_str_equals(tok.str, F_LIT("\n")) && !f_str_equals(tok.str, F_LIT(","))) {
-//		ERR(p, tok.range, "Expected a statement separator character (either a comma or a newline).", "");
-//	}
-//	return ffz_ok;
-//}
-
-//static ffzOk peek_next_token(ffzParser* p, ffzLoc pos, bool ignore_newlines, const char* task_verb, Token* out) {
-//	return eat_next_token(p, &pos, ignore_newlines, task_verb, out);
-//}
-//
-//static ffzOk maybe_peek_next_token(ffzParser* p, ffzLoc pos, bool ignore_newlines, Token* out) {
-//	return maybe_eat_next_token(p, &pos, ignore_newlines, out);
-//}
-
-ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
+// parser-allocated node
+ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange loc, ffzNodeKind kind) {
 	ffzNode* node = f_mem_clone((ffzNode){0}, p->alc);
-//	if (node == (void*)0x0000020000002790) f_trap();
 	node->source_id = p->self_id;
-	//node->local_id = p->next_local_id++;
 	node->module_id = p->module->self_id;
 	node->parent = parent;
 	node->kind = kind;
-	node->loc = range;
+	node->loc = loc;
 	return node;
+}
+
+void ffz_replace_node(ffzCursor* at, ffzNode* with) {
+	f_assert(with->parent == NULL && with->next == NULL);
+	fOpt(ffzNode*) replaced = *at->pp_node;
+	if (replaced) {
+		with->next = replaced->next;
+	}
+	with->parent = at->parent;
+	*at->pp_node = with;
+}
+
+ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
+	ffzNode* node = f_mem_clone((ffzNode){0}, m->alc);
+	node->module_id = m->self_id;
+	node->source_id = FFZ_SOURCE_ID_NONE;
+	node->kind = kind;
+	return node;
+}
+
+ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node) {
+	ffzNode* new_node = f_mem_clone(*node, m->alc);
+	new_node->module_id = m->self_id;
+	new_node->parent = NULL;
+	new_node->next = NULL;
+	return new_node;
 }
 
 static ffzOk parse_children(ffzParser* p, ffzLoc* loc, ffzNode* parent, u8 bracket_close_char) {
@@ -1158,7 +1165,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 					node->Keyword.keyword = *keyword;
 
 					if (*keyword == ffzKeyword_import) {
-						f_array_push(&p->module_imports, node);
+						f_array_push(&p->import_keywords, node);
 					}
 				}
 				else {

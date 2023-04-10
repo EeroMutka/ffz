@@ -208,9 +208,6 @@ void _write_type(ffzProject* p, fWriter* w, ffzType* type) {
 	switch (type->tag) {
 	case ffzTypeTag_Invalid: { f_print(w, "<invalid>"); } break;
 	case ffzTypeTag_Module: { f_print(w, "<module>"); } break;
-	//case ffzTypeTag_PolyProc: { f_print(w, "<poly-proc>"); } break;
-	//case ffzTypeTag_PolyRecord: { f_print(w, "<poly-struct>"); } break;
-		//case TypeTag_UninstantiatedPolyStruct: { str_print(builder, F_LIT("[uninstantiated polymorphic struct]")); } break;
 	case ffzTypeTag_Type: {
 		f_print(w, "<type>"); // maybe it'd be good to actually store the type type thing in the type
 	} break;
@@ -381,26 +378,9 @@ fOpt(ffzNode*) ffz_get_scope(ffzNode* node) {
 	return NULL;
 }
 
-//bool ffz_is_executable_scope(fOpt(ffzNode*) node) {
-//	if (node == NULL) return false;
-//	if (node->parent == NULL) return false; // root scope?
-//
-//	if (node->kind == ffzNodeKind_Scope) {
-//		ffzNode* parent_scope = ffz_get_scope(node);
-//		return ffz_is_executable_scope(parent_scope);
-//	}
-//	
-//	if (node->kind == ffzNodeKind_PostCurlyBrackets &&
-//		node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) return true;
-//
-//	return false;
-//}
-
 bool ffz_decl_is_local_variable(ffzNodeOpDeclare* decl) {
 	f_assert(decl->has_checked);
 	return decl->checked.is_local_variable;
-	//fOpt(ffzNode*) scope = ffz_get_scope(decl);
-	//return ffz_is_executable_scope(scope) && !decl->Op.left->Identifier.is_constant;
 }
 
 bool ffz_decl_is_global_variable(ffzNodeOpDeclare* decl) {
@@ -874,8 +854,9 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 			result->type = c->module_type;
 			result->constant = make_constant(c);
 
-			f_assert(c->self_id == node->module_id);
-			result->constant->module = *f_map64_get(&c->imported_modules, (u64)node);
+			// `ffz_module_resolve_imports` already makes sure that the import node is part of a declaration
+			ffzNode* import_decl = node->parent;
+			result->constant->module = *f_map64_get(&c->module_from_import_decl, (u64)import_decl);
 			fall = false;
 		}
 	}
@@ -983,68 +964,103 @@ static ffzOk check_post_curly_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo
 	return FFZ_OK;
 }
 
-// hmmm... When you instantiate a polymorphic thing from another module, you yoink the nodes into your own module.
+
+
+//
+// When you instantiate a polymorphic thing from another module, you yoink the nodes into your own module.
 // The thing is, just copy-pasting code from a module into your own module won't work, because of identifiers to nodes
 // defined inside the module. So these identifiers need to be patched with a ModuleName.xxx prefix.
-//
-// ffz_make_identifier_to builds an identifier path into any top-level declaration in any of
-// the modules the target module depends on (can be from a recursively imported module).
-static ffzNode* ffz_make_identifier_to(ffzModule* m, ffzNode* target_decl) {
-	f_assert(target_decl->kind == ffzNodeKind_Declare);
-	// we need an import path from the target decl module into `m`
-}
+// 
+// we need to get the import name of the node's module inside `m`.
+// There should be only one import name for a module.
+// 
+struct InstantiatePolyExprCtx {
+	ffzModule* m;
+	fMap64(fString) poly_param_name_to_generated_constant_name;
+	ffzNode* root;
+};
 
-// `ident_remap` can be used if you want to rename identifiers.
-static void ffz_deep_copy(ffzModule* m, ffzNode* new_parent, fOpt(ffzNode*)* p_node, fOpt(fMap64(fString)*) ident_remap) {
-	if (*p_node == NULL) return;
+// Deep copies the polymorphic expression while replacing identifiers to
+// polymorphic parameters to generated constants
+static void instantiate_deep_copy_poly(InstantiatePolyExprCtx* ctx, ffzCursor cursor) {
+	fOpt(ffzNode*) old_node = ffz_get_node_at_cursor(&cursor);
+	if (!old_node) return;
 
 	// TODO: deep copy tags
 
-	ffzNode* new_node = f_mem_clone(**p_node, m->alc);
-	new_node->module_id = m->self_id; // yoink the copy into the copyer module if it's not already
-	new_node->parent = new_parent;
-	new_node->TEST___expanded_from_poly = true;
+	f_assert(cursor.parent->module_id == ctx->m->self_id);
 
+	ffzNode* new_node = ffz_clone_node(ctx->m, old_node);
+	//new_node->parent = new_parent;
+	new_node->TEST___expanded_from_poly = true;
+	ffz_replace_node(&cursor, new_node); //*cursor.pp_node = new_node;
+
+	// OLD COMMENT, DOESN'T MATTER ANYMORE:
 	// First copy special children, then copy regular children.
 	// This distinction matters, because in case of a procedure, we want to first recurse into the procedure type and copy the parameters,
 	// and only after that recurse into the procedure body. This way the parameter's `local_id` will be smaller than the usage sites,
 	// and we can still use this field to check for use-before-define errors.
 
 	if (ffz_node_is_operator(new_node->kind)) {
-		ffz_deep_copy(m, new_node, &new_node->Op.left, ident_remap);
-		ffz_deep_copy(m, new_node, &new_node->Op.right, ident_remap);
+		instantiate_deep_copy_poly(ctx, ffz_cursor_op_left(new_node));
+		instantiate_deep_copy_poly(ctx, ffz_cursor_op_right(new_node));
 	}
 	else switch (new_node->kind) {
 	case ffzNodeKind_Blank: break;
 	case ffzNodeKind_Identifier: {
-		if (ident_remap) {
-			fString* new_name = f_map64_get(ident_remap, f_hash64_str(new_node->Identifier.name));
-			if (new_name) {
-				new_node->Identifier.name = *new_name;
+
+		fString* new_name = f_map64_get(&ctx->poly_param_name_to_generated_constant_name, f_hash64_str(new_node->Identifier.name));
+		if (new_name) {
+			new_node->Identifier.name = *new_name;
+		}
+		else {
+			if (ctx->root->module_id != ctx->m->self_id) {
+				// hmm... ffz_find_definition doesn't work here because we haven't checked the node tree yet.
+				// Actually we can use this to our advantage right? ffz_find_definition will give us the result if HAS been checked,
+				// and thus not part of the poly tree, and will fail if hasn't been checked!
+				//f_trap();
+
+				ffzProject* p = ctx->m->project;
+				ffzModule* original_module = p->checkers[ctx->root->module_id];
+
+				fOpt(ffzNodeIdentifier*) def = ffz_find_definition(p, old_node);
+				if (def) {
+					// add module prefix
+					
+					ffzNode* accessor = ffz_new_node(ctx->m, ffzNodeKind_MemberAccess);
+					ffz_replace_node(&cursor, accessor);
+
+					ffzNode* module_ident = ffz_new_node(ctx->m, ffzNodeKind_Identifier);
+					module_ident->Identifier.name = ffz_get_import_name(ctx->m, original_module);
+					f_assert(module_ident->Identifier.name.len > 0);
+
+					accessor->Op.left = module_ident; module_ident->parent = accessor;
+					accessor->Op.right = new_node; new_node->parent = accessor;
+				}
 			}
 		}
 	} break;
 	case ffzNodeKind_PolyExpr: {
-		ffz_deep_copy(m, new_node, &new_node->PolyExpr.expr, ident_remap);
+		instantiate_deep_copy_poly(ctx, ffz_cursor_poly_expr(new_node));
 	} break;
 	case ffzNodeKind_Keyword: break;
 	case ffzNodeKind_ThisDot: break;
 	case ffzNodeKind_ProcType: {
-		ffz_deep_copy(m, new_node, &new_node->ProcType.out_parameter, ident_remap);
+		instantiate_deep_copy_poly(ctx, ffz_cursor_proc_type_out_parameter(new_node));
 	} break;
 	case ffzNodeKind_Record: break;
 	case ffzNodeKind_Enum: break;
 	case ffzNodeKind_Return: {
-		ffz_deep_copy(m, new_node, &new_node->Return.value, ident_remap);
+		instantiate_deep_copy_poly(ctx, ffz_cursor_ret_value(new_node));
 	} break;
 	case ffzNodeKind_If: {
-		ffz_deep_copy(m, new_node, &new_node->If.condition, ident_remap);
-		ffz_deep_copy(m, new_node, &new_node->If.true_scope, ident_remap);
-		ffz_deep_copy(m, new_node, &new_node->If.else_scope, ident_remap);
+		instantiate_deep_copy_poly(ctx, ffz_cursor_if_condition(new_node));
+		instantiate_deep_copy_poly(ctx, ffz_cursor_if_true_scope(new_node));
+		instantiate_deep_copy_poly(ctx, ffz_cursor_if_false_scope(new_node));
 	} break;
 	case ffzNodeKind_For: {
-		for (int i=0; i<3; i++) ffz_deep_copy(m, new_node, &new_node->For.header_stmts[i], ident_remap);
-		ffz_deep_copy(m, new_node, &new_node->For.scope, ident_remap);
+		for (int i = 0; i < 3; i++) instantiate_deep_copy_poly(ctx, ffz_cursor_for_header_stmt(new_node, i));
+		instantiate_deep_copy_poly(ctx, ffz_cursor_for_scope(new_node));
 	} break;
 	case ffzNodeKind_Scope: break;
 	case ffzNodeKind_IntLiteral: break;
@@ -1055,39 +1071,26 @@ static void ffz_deep_copy(ffzModule* m, ffzNode* new_parent, fOpt(ffzNode*)* p_n
 
 	ffzNode** link_to_next = &new_node->first_child;
 	for (ffzNode* child = new_node->first_child; child; child = child->next) {
-
-		ffz_deep_copy(m, new_node, link_to_next, ident_remap);
+		instantiate_deep_copy_poly(ctx, ffzCursor{ new_node, link_to_next });
 		child = *link_to_next;
 
 		link_to_next = &child->next;
 	}
-
-	*p_node = new_node;
 }
 
 // hmm... kind of the same as `new_node` in ffz_ast.c
 // ALSO TODO: merge with make_pseudo_node
-static ffzNode* new_generated_node(ffzProject* p, ffzNode* parent, ffzNodeKind kind) {
-	ffzModule* module = p->checkers[parent->module_id];
-	
-	ffzNode* node = f_mem_clone(ffzNode{}, module->alc);
-	node->source_id = parent->source_id;
-	node->module_id = module->self_id;
-	node->parent = parent;
-	node->kind = kind;
-	return node;
-}
 
 ffzParser* ffz_module_add_parser(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb) {
 	ffzParser* parser = f_mem_clone(ffzParser{}, m->alc);
 	parser->module = m;
 	parser->alc = m->alc;
-	parser->self_id = (ffzParserID)f_array_push(&m->project->parsers, parser);
+	parser->self_id = (ffzSourceID)f_array_push(&m->project->parsers, parser);
 	parser->source_code = code;
 	parser->source_code_filepath = filepath;
 	parser->keyword_from_string = &m->project->keyword_from_string;
 	parser->error_cb = error_cb;
-	parser->module_imports = f_array_make<ffzNodeKeyword*>(parser->alc);
+	parser->import_keywords = f_array_make<ffzNode*>(parser->alc);
 	//parser->top_level_nodes = f_array_make<ffzNode*>(parser->alc);
 	return parser;
 }
@@ -1154,17 +1157,23 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 		//node->Identifier.chk_definition = def;
 
 		if (entry.added) {
-			fMap64(fString) replace_poly_arg_identifier = f_map64_make<fString>(f_temp_alc());
+			InstantiatePolyExprCtx deep_copy_ctx = {};
+			deep_copy_ctx.m = c;
+			deep_copy_ctx.poly_param_name_to_generated_constant_name = f_map64_make<fString>(f_temp_alc());
 
 			// add parameters as decls
 			for (u32 i = 0; i < poly.parameters.len; i++) {
 				fString param_name = ffz_get_child(poly.poly_def, i)->Identifier.name;
 				fString expanded_name = f_aprint(c->alc, "~s__poly_~u32_~s", ffz_decl_get_name(poly_def_parent), poly_id, param_name);
-				f_map64_insert(&replace_poly_arg_identifier, f_hash64_str(param_name), expanded_name);
+				f_map64_insert(&deep_copy_ctx.poly_param_name_to_generated_constant_name, f_hash64_str(param_name), expanded_name);
 
-				ffzNode* arg_decl = new_generated_node(c->project, c->root, ffzNodeKind_Declare);
+				ffzNode* arg_decl = ffz_new_node(c, ffzNodeKind_Declare);
+				arg_decl->source_id = node->source_id;
+				//arg_decl->parent = c->root;
 				
-				ffzNode* arg_def = new_generated_node(c->project, arg_decl, ffzNodeKind_Identifier);
+				ffzNode* arg_def = ffz_new_node(c, ffzNodeKind_Identifier);
+				arg_def->source_id = node->source_id;
+				arg_def->parent = arg_decl;
 				arg_def->Identifier.name = expanded_name;
 				arg_def->Identifier.is_constant = true;
 
@@ -1174,9 +1183,13 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 				ffz_module_add_top_level_node(c, arg_decl);
 			}
 
-			ffzNode* inst_decl = new_generated_node(c->project, c->root, ffzNodeKind_Declare);
+			ffzNode* inst_decl = ffz_new_node(c, ffzNodeKind_Declare);
+			inst_decl->source_id = node->source_id;
+			//inst_decl->parent = c->root;
 			
-			ffzNode* inst_def = new_generated_node(c->project, inst_decl, ffzNodeKind_Identifier);
+			ffzNode* inst_def = ffz_new_node(c, ffzNodeKind_Identifier);
+			inst_def->source_id = node->source_id;
+			inst_def->parent = inst_decl;
 			inst_def->Identifier.name = node->Identifier.name;
 			inst_def->Identifier.is_constant = true;
 
@@ -1187,10 +1200,12 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 			// That would allow for the full roundtrip multiple times.
 
 			ffzNode* poly_expr = poly.poly_def->PolyExpr.expr;
-			ffz_deep_copy(c, inst_decl, &poly_expr, &replace_poly_arg_identifier);
+			deep_copy_ctx.root = poly_expr;
 			
 			inst_decl->Op.left = inst_def;
 			inst_decl->Op.right = poly_expr;
+			
+			instantiate_deep_copy_poly(&deep_copy_ctx, ffz_cursor_op_right(inst_decl));
 
 			// NOTE: we're pushing a top-level node to the end of the root node while iterating through them at the bottom of
 			// the callstack. But that's totally fine.
@@ -1252,6 +1267,14 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 	return FFZ_OK;
 }
 
+fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module) {
+	fOpt(ffzNode**) module_import_decl = f_map64_get(&m->import_decl_from_module, (u64)imported_module);
+	if (module_import_decl) {
+		return (*module_import_decl)->Op.left->Identifier.name;
+	}
+	return {};
+}
+
 static ffzOk check_member_access(ffzModule* c, ffzNode* node, ffzCheckInfo* result) {
 	ffzNode* left = node->Op.left;
 	ffzNode* right = node->Op.right;
@@ -1294,7 +1317,7 @@ static ffzOk check_member_access(ffzModule* c, ffzNode* node, ffzCheckInfo* resu
 		
 		if (left_type->tag == ffzTypeTag_Module) {
 			ffzModule* left_module = left_constant->module;
-			lhs_name = F_LIT("TODO: come up with a module name!");
+			lhs_name = ffz_get_import_name(c, left_module);
 
 			fOpt(ffzNode*) def = ffz_find_definition_in_scope(c->project, left_module->root, member_name);
 			if (def && def->parent->kind == ffzNodeKind_Declare) {
@@ -1370,12 +1393,8 @@ static ffzOk check_tag(ffzModule* c, ffzNode* tag) {
 }
 
 static ffzType* ffz_make_pseudo_record_type(ffzModule* c) {
-	ffzNode* n = f_mem_clone(ffzNode{}, c->alc);
-	n->source_id = 0xFFFFFFFF;
-	//n->local_id = c->next_pseudo_node_idx++;
-	
-	ffzType t = { ffzTypeTag_Record }; // hmm... maybe PseudoRecordType should be its own type tag / call it BuiltinRecord
-	t.unique_node = n; // NOTE: ffz_hash_node looks at the id of the unique node for record types
+	ffzType t = { ffzTypeTag_Record };
+	t.unique_node = ffz_new_node(c, ffzNodeKind_Record); // NOTE: ffz_hash_node looks at the hash of the unique node for record types
 	return ffz_make_type(c, t);
 }
 
@@ -1391,9 +1410,10 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
 	c->field_from_name_map = f_map64_make<ffzTypeRecordFieldUse*>(c->alc);
 	c->enum_value_from_name = f_map64_make<u64>(c->alc);
 	c->enum_value_is_taken = f_map64_make<ffzNode*>(c->alc);
-	c->imported_modules = f_map64_make<ffzModule*>(c->alc);
+	c->import_decl_from_module = f_map64_make<ffzNode*>(c->alc);
+	c->module_from_import_decl = f_map64_make<ffzModule*>(c->alc);
 	c->type_from_hash = f_map64_make<ffzType*>(c->alc);
-	c->pending_imports = f_array_make<ffzNode*>(c->alc);
+	c->pending_import_keywords = f_array_make<ffzNode*>(c->alc);
 	//c->all_tags_of_type = f_map64_make<fArray(ffzNodeInst)>(c->alc);
 	c->poly_from_hash = f_map64_make<ffzPolymorphID>(c->alc);
 	c->polymorphs = f_array_make<ffzPolymorph>(c->alc);
@@ -1574,20 +1594,7 @@ static ffzOk check_proc_type(ffzModule* c, ffzNode* node, ffzCheckInfo* result) 
 	return FFZ_OK;
 }
 
-/*
-	#AdderType: proc[T](first: T, second: T)
-	#adder: AdderType { dbgbreak }
-	#demo: proc() { adder[int](5, 6) }
-*/
-
-/*
-	#B: import("basic")
-	#adder: proc[T](first: T, second: T) {
-		B.test()
-	}
-	#demo: proc() { adder[int](5, 6) }
-*/
-
+// TODO: take in the ident's module instead of ffzProject and assert that it's correct
 fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzProject* p, ffzNodeIdentifier* ident) {
 	for (fOpt(ffzNode*) scope = ident; scope; scope = scope->parent) {
 		fOpt(ffzNodeIdentifier*) def = ffz_find_definition_in_scope(p, scope, ident->Identifier.name);
@@ -1603,12 +1610,11 @@ static ffzOk check_identifier(ffzModule* c, ffzNodeIdentifier* node, ffzCheckInf
 //	if (name == F_LIT("foo")) f_trap();
 
 	fOpt(ffzNodeIdentifier*) def = ffz_find_definition(c->project, node);
-	bool def_comes_before_this = def->has_checked;
-
 	if (def == NULL) {
 		ERR(c, node, "Definition not found for an identifier: \"~s\"", name);
 	}
 	
+	bool def_comes_before_this = def->has_checked;
 	//node->Identifier.chk_definition = def;
 
 	ffzNode* decl = def->parent;
@@ -2159,6 +2165,8 @@ ffzProject* ffz_init_project(fArena* arena, fString modules_directory) {
 
 
 ffzOk ffz_module_add_top_level_node(ffzModule* m, ffzNode* node) {
+	f_assert(node->parent == NULL);
+
 	if (m->root_last_child) m->root_last_child->next = node;
 	else m->root->first_child = node;
 
@@ -2185,23 +2193,27 @@ ffzOk ffz_module_add_top_level_node(ffzModule* m, ffzNode* node) {
 bool ffz_module_resolve_imports(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata, ffzErrorCallback error_cb) {
 	VALIDATE(!m->checked);
 
-	for (uint i = 0; i < m->pending_imports.len; i++) {
-		ffzNodeKeyword* import_keyword = m->pending_imports[i];
-
+	for (uint i = 0; i < m->pending_import_keywords.len; i++) {
+		ffzNode* import_keyword = m->pending_import_keywords[i];
+		
 		ffzNodeOp* import_op = import_keyword->parent;
-		f_assert(import_op && import_op->kind == ffzNodeKind_PostRoundBrackets && ffz_get_child_count(import_op) == 1); // TODO
+		f_assert(import_op && import_op->kind == ffzNodeKind_PostRoundBrackets && ffz_get_child_count(import_op) == 1); // TODO: error report
+
+		ffzNode* import_decl = import_op->parent;
+		f_assert(import_decl && import_decl->kind == ffzNodeKind_Declare); // TODO: error report
 
 		ffzNode* import_name_node = ffz_get_child(import_op, 0);
-		f_assert(import_name_node->kind == ffzNodeKind_StringLiteral); // TODO
+		f_assert(import_name_node->kind == ffzNodeKind_StringLiteral); // TODO: error report
 		fString import_path = import_name_node->StringLiteral.zero_terminated_string;
 			
 		fOpt(ffzModule*) imported_module = module_from_path(import_path, userdata);
 		if (!imported_module) return false;
 
-		f_map64_insert(&m->imported_modules, (u64)import_op, imported_module);
+		f_map64_insert(&m->module_from_import_decl, (u64)import_decl, imported_module, fMapInsert_AssertUnique);
+		f_map64_insert(&m->import_decl_from_module, (u64)imported_module, import_decl, fMapInsert_AssertUnique); // TODO: error report
 	}
 	
-	m->pending_imports.len = 0;
+	m->pending_import_keywords.len = 0;
 	return true;
 }
 
@@ -2317,11 +2329,12 @@ ffzModule* ffz_project_add_module_from_filesystem(ffzProject* p, fString directo
 		// to be re-checked.
 
 		for (ffzNode* n = parser->root->first_child; n; n = n->next) {
+			n->parent = NULL; // ffz_module_add_top_level_node requires the parent to be NULL
 			ok = ffz_module_add_top_level_node(module, n);
 			if (!ok.ok) return NULL;
 		}
 
-		f_array_push_n(&module->pending_imports, parser->module_imports.slice);
+		f_array_push_n(&module->pending_import_keywords, parser->import_keywords.slice);
 		
 		//if (!ffz_module_add_code_string(module, file_contents, visit.files[i], error_cb)) {
 		//	return NULL;
