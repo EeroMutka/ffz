@@ -640,8 +640,8 @@ static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange range, ffzNodeKind kind) {
 	ffzNode* node = f_mem_clone((ffzNode){0}, p->alc);
 //	if (node == (void*)0x0000020000002790) f_trap();
-	node->parser_id = p->self_id;
-	node->local_id = p->next_local_id++;
+	node->source_id = p->self_id;
+	//node->local_id = p->next_local_id++;
 	node->module_id = p->module->self_id;
 	node->parent = parent;
 	node->kind = kind;

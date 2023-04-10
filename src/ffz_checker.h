@@ -71,7 +71,7 @@ typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
 //typedef struct ffzPolymorph ffzPolymorph;
 
 typedef uint32_t ffzParserID;
-typedef uint32_t ffzParserLocalID;
+//typedef uint32_t ffzParserLocalID;
 typedef uint32_t ffzModuleID;
 typedef uint32_t ffzCheckerLocalID;
 
@@ -99,17 +99,15 @@ typedef ffzNode ffzNodePolyParamList;
 typedef struct ffzProject ffzProject;
 typedef struct ffzModule ffzModule;
 
-// About hashing:
-// Hashes should be fully deterministic across compilations.
-// The hashes shouldn't depend on any runtime address / the compilers memory allocation strategy.
-// Instead, they should only depend on the input program.
 typedef uint64_t ffzHash; // TODO: increase this to 128 bits.
 
-typedef ffzHash ffzNodeHash; // global (across project) hash of a node.
+// We could make hashes fully deterministic across multiple compilations (not dependend on any runtime addresses),
+// but right now they do depend on runtime addresses. See `ffz_hash_node`
 
-typedef ffzHash ffzPolymorphHash; // local to the module
-typedef ffzHash ffzTypeHash; // Should be consistent across modules across identical code!
-typedef ffzHash ffzConstantHash; // Should be consistent across modules across identical code!
+typedef ffzHash ffzNodeHash;       // project-global (different nodes in different modules must not share a hash)
+typedef ffzHash ffzPolymorphHash;  // local to the module (different polymorphs in different modules may share a hash)
+typedef ffzHash ffzTypeHash;       // project-global
+typedef ffzHash ffzConstantHash;   // project-global
 typedef ffzHash ffzFieldHash;
 typedef ffzHash ffzEnumValueHash;
 
@@ -258,8 +256,8 @@ struct ffzNode {
 	ffzNodeKind kind;
 	ffzNodeFlags flags;
 	
-	ffzParserLocalID local_id; // used to compare if definitions come before they're used or not
-	ffzParserID parser_id;
+	//ffzParserLocalID local_id; // used to compare if definitions come before they're used or not
+	ffzParserID source_id;
 	ffzModuleID module_id;
 	
 	ffzLocRange loc;
@@ -361,7 +359,7 @@ struct ffzParser {
 	ffzNode* root; // should we even store this here? Maybe we should return it from the parsing procedures instead.
 
 	fAllocator* alc;
-	ffzParserLocalID next_local_id;
+	//ffzParserLocalID next_local_id;
 
 	fArray(ffzNodeKeyword*) module_imports;
 
@@ -532,7 +530,6 @@ typedef struct ffzProject {
 	} filesystem_helpers;
 } ffzProject;
 
-
 struct ffzModule {
 	ffzProject* project;
 	bool checked;
@@ -550,6 +547,7 @@ struct ffzModule {
 	// 1. parse 2. check 3. modify 4. check again, because the definitions would be filled in the parsing stage.
 
 	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
+	uint32_t next_flat_index;
 
 	fArray(ffzNode*) pending_imports;
 
@@ -590,7 +588,7 @@ struct ffzModule {
 	
 	ffzType* type_type;
 	ffzType* module_type;
-	ffzParserLocalID next_pseudo_node_idx;
+	//ffzParserLocalID next_pseudo_node_idx;
 	ffzType* builtin_types[ffzKeyword_COUNT];
 };
 

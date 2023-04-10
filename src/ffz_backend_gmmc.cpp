@@ -992,7 +992,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		else if (ffz_node_is_keyword(node, ffzKeyword_dbgbreak)) {}
 		else {
 			
-			ffzParser* parser = g->project->parsers[node->parser_id];
+			ffzParser* parser = g->project->parsers[node->source_id];
 			u32 start = node->loc.start.offset;
 			u32 end = node->loc.end.offset;
 			
@@ -1342,7 +1342,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 			cv_func.section_sym_index = build_x64_section_get_sym_idx(SectionNum_Code);
 			cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prolog_size(asm_module, proc);
 			cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
-			cv_func.file_idx = proc_info->node->parser_id;
+			cv_func.file_idx = proc_info->node->source_id;
 
 			fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->alc);
 			for (uint i = 0; i < proc_info->dbginfo_locals.len; i++) {

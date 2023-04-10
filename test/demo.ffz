@@ -7,7 +7,10 @@
 #main: proc(argc: u32, argv: ^raw) => u32 {
 	dbgbreak
 	
-	foo: adder_u32(50)
+	foo: u32(50)
+	foo = 50
+	
+	//foo: adder_u32(50)
 	
 	dbgbreak
 	ret 0

@@ -300,7 +300,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	*insertion._unstable_ptr = func;
 
 	// Set function start location
-	tb_inst_loc(func, g->tb_file_from_parser_idx[inst.node->id.parser_id], inst.node->loc.start.line_num);
+	tb_inst_loc(func, g->tb_file_from_parser_idx[inst.node->id.source_id], inst.node->loc.start.line_num);
 	
 	ffzNodeInst left = CHILD(inst,Op.left);
 	if (left.node->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name) {
@@ -353,7 +353,7 @@ static TB_Function* gen_procedure(Gen* g, ffzNodeOpInst inst) {
 	}
 	
 	if (!proc_type->Proc.out_param) { // automatically generate a return statement if the proc doesn't return a value
-		tb_inst_loc(func, g->tb_file_from_parser_idx[inst.node->id.parser_id], inst.node->loc.end.line_num);
+		tb_inst_loc(func, g->tb_file_from_parser_idx[inst.node->id.source_id], inst.node->loc.end.line_num);
 		tb_inst_ret(func, TB_NULL_REG);
 	}
 
@@ -964,7 +964,7 @@ static SmallOrPtr gen_expr(Gen* g, ffzNodeInst inst, bool address_of) {
 }
 
 static void inst_loc(Gen* g, ffzNode* node, u32 line_num) {
-	tb_inst_loc(g->fn, g->tb_file_from_parser_idx[node->id.parser_id], line_num);
+	tb_inst_loc(g->fn, g->tb_file_from_parser_idx[node->id.source_id], line_num);
 }
 
 static void gen_statement(Gen* g, ffzNodeInst inst, bool set_loc) {

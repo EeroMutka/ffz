@@ -591,11 +591,11 @@ s64 f_floor_to_s64(float x);
 // -- Hash --------------------------------------------------------------------
 
 // Interesting resources related to hashing:
+// https://papa.bretmulvey.com/post/124027987928/hash-functions
+// https://nullprogram.com/blog/2018/07/31/
 // https://www.reddit.com/r/RNG/comments/jqnq20/the_wang_and_jenkins_integer_hash_functions_just/
 // https://marc-b-reynolds.github.io/math/2019/08/10/Avalanche.html
 // https://github.com/jonmaiga/mx3/blob/master/mx3.h
-// https://nullprogram.com/blog/2018/07/31/
-
 inline uint64_t f_mix64(uint64_t x) {
 	// https://github.com/jonmaiga/mx3/blob/master/mx3.h
 	static const uint64_t C = 0xbea225f9eb34556d;

@@ -15,7 +15,7 @@
 #define OPT(ptr) ptr
 
 #define ERR(c, node, fmt, ...) { \
-	c->error_cb.callback(c->project->parsers[node->parser_id], node, node->loc, f_aprint(c->alc, fmt, __VA_ARGS__), c->error_cb.userdata); \
+	c->error_cb.callback(c->project->parsers[node->source_id], node, node->loc, f_aprint(c->alc, fmt, __VA_ARGS__), c->error_cb.userdata); \
 	return ffzOk{false}; \
 }
 
@@ -49,8 +49,6 @@ enum InferFlag {
 
 	// We only allow undefined values in variable (not parameter) declarations.
 	InferFlag_AllowUndefinedValues = 1 << 6,
-	
-	InferFlag_ProcedureScope = 1 << 7, // inside executable scope
 };
 
 // ------------------------------
@@ -69,11 +67,12 @@ ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value) {
 }
 
 ffzNodeHash ffz_hash_node(ffzNode* node) {
-	fHasher h = f_hasher_begin();
-	f_hasher_add(&h, node->local_id);
-	f_hasher_add(&h, node->parser_id);
-	f_hasher_add(&h, node->module_id);
-	return f_hasher_end(&h);
+	return (ffzNodeHash)node;
+	//fHasher h = f_hasher_begin();
+	//f_hasher_add(&h, node->local_id);
+	//f_hasher_add(&h, node->source_id);
+	//f_hasher_add(&h, node->module_id);
+	//return f_hasher_end(&h);
 }
 
 ffzConstantHash ffz_hash_constant(ffzConstant constant) {
@@ -375,19 +374,9 @@ fOpt(ffzNode*) ffz_get_scope(ffzNode* node) {
 	for (node = node->parent; node; node = node->parent) {
 		f_assert(node->has_checked);
 
-		// or hmm.. what if we have a procedure {} and we're recursing into the procedure type parameters.
-		// in the parent, we need to know the type of the lhs first before knowing if it's a procedure scope or not.
-		// So a procedure type should be able to be checked independently. I guess the procedure body should then add the definitions from the proc type as well.
-		// so maybe before calling check_node() on the procedure body, call add_definitions()
-
 		if (node->kind == ffzNodeKind_Scope) return node;
 		if (node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) return node;
 		if (node->checked.type && node->checked.type->tag == ffzTypeTag_Record) return node;
-		
-		//if (node->kind == ffzNodeKind_PostCurlyBrackets &&
-		//	node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) return node;
-
-		//if (node->kind == ffzNodeKind_Record) return node;
 	}
 	return NULL;
 }
@@ -1012,10 +1001,6 @@ static void ffz_deep_copy(ffzModule* m, ffzNode* new_parent, fOpt(ffzNode*)* p_n
 	// TODO: deep copy tags
 
 	ffzNode* new_node = f_mem_clone(**p_node, m->alc);
-
-	// this would be a race condition... modifying the parser from who-knows-which module
-	new_node->local_id = m->project->parsers[new_node->parser_id]->next_local_id++; // local_id is used for the node hash
-	//new_node->parser_id
 	new_node->module_id = m->self_id; // yoink the copy into the copyer module if it's not already
 	new_node->parent = new_parent;
 	new_node->TEST___expanded_from_poly = true;
@@ -1086,8 +1071,7 @@ static ffzNode* new_generated_node(ffzProject* p, ffzNode* parent, ffzNodeKind k
 	ffzModule* module = p->checkers[parent->module_id];
 	
 	ffzNode* node = f_mem_clone(ffzNode{}, module->alc);
-	node->local_id = p->parsers[parent->parser_id]->next_local_id++; // local_id is used for the node hash
-	node->parser_id = parent->parser_id;
+	node->source_id = parent->source_id;
 	node->module_id = module->self_id;
 	node->parent = parent;
 	node->kind = kind;
@@ -1387,8 +1371,8 @@ static ffzOk check_tag(ffzModule* c, ffzNode* tag) {
 
 static ffzType* ffz_make_pseudo_record_type(ffzModule* c) {
 	ffzNode* n = f_mem_clone(ffzNode{}, c->alc);
-	n->parser_id = 0xFFFFFFFF;
-	n->local_id = c->next_pseudo_node_idx++;
+	n->source_id = 0xFFFFFFFF;
+	//n->local_id = c->next_pseudo_node_idx++;
 	
 	ffzType t = { ffzTypeTag_Record }; // hmm... maybe PseudoRecordType should be its own type tag / call it BuiltinRecord
 	t.unique_node = n; // NOTE: ffz_hash_node looks at the id of the unique node for record types
@@ -1616,8 +1600,10 @@ fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzProject* p, ffzNodeIdentifier* i
 
 static ffzOk check_identifier(ffzModule* c, ffzNodeIdentifier* node, ffzCheckInfo* result) {
 	fString name = node->Identifier.name;
+//	if (name == F_LIT("foo")) f_trap();
 
 	fOpt(ffzNodeIdentifier*) def = ffz_find_definition(c->project, node);
+	bool def_comes_before_this = def->has_checked;
 
 	if (def == NULL) {
 		ERR(c, node, "Definition not found for an identifier: \"~s\"", name);
@@ -1635,7 +1621,7 @@ static ffzOk check_identifier(ffzModule* c, ffzNodeIdentifier* node, ffzCheckInf
 	TRY(check_node(c, decl, NULL, InferFlag_Statement));
 	*result = decl->checked;
 
-	if (def != node && ffz_decl_is_variable(decl) && decl->local_id > node->local_id) {
+	if (def != node && ffz_decl_is_variable(decl) && !def_comes_before_this /*decl->local_id > node->local_id*/) {
 		ERR(c, node, "Variable is being used before it is declared.");
 	}
 	
@@ -1727,21 +1713,34 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 
 	switch (node->kind) {
 	case ffzNodeKind_Declare: {
+//		if (node->loc.start.line_num == 11) f_trap();
 		ffzNode* lhs = node->Op.left;
 		ffzNode* rhs = node->Op.right;
 		if (lhs->kind != ffzNodeKind_Identifier) ERR(c, lhs, "The left-hand side of a declaration must be an identifier.");
 		
-		
-		// OLD COMMENT:
-		// When checking a procedure type, we can't know the procedure type until we have checked all children.
+		// When checking a procedure type, we can't know the procedure type until we have checked all its children.
 		// so checking a declaration shouldn't require the parent to be checked.
-		// BUT `ffz_decl_is_local_variable` calls get_scope which requires the parent to be checked.
-		bool is_local = (flags & InferFlag_ProcedureScope) && !lhs->Identifier.is_constant;
+		// How can we know if this declaration is a local variable or not?
+		// (passing this information down the callstack isn't possible, because `check_identifier` breaks that context information).
+		//
+		// We need to use `get_scope` to determine if we're in a procedure scope.
+		// `get_scope` however requires the parent to be checked. So only do this when we know it's not a parameter.
+		// For all other cases, except for parameters, the parent has already been checked.
+
 		bool is_parameter = ffz_decl_is_parameter(node);
-		bool is_var = !is_parameter && (ffz_decl_is_global_variable(node) || is_local);
+		bool is_local = false;
+		if (!is_parameter) {
+			for (ffzNode* scope = ffz_get_scope(node); scope; scope = ffz_get_scope(scope)) {
+				if (scope->kind == ffzNodeKind_Scope) continue;
+				if (scope->checked.type && scope->checked.type->tag == ffzTypeTag_Proc) {
+					is_local = true;
+					break;
+				}
+			}
+		}
 
 		InferFlags rhs_flags = 0;
-		if (is_var && !is_parameter) {
+		if (is_local || ffz_decl_is_global_variable(node)) {
 			rhs_flags |= InferFlag_AllowUndefinedValues;
 		}
 		
@@ -1751,7 +1750,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		result = rhs->checked; // Declarations cache the value of the right-hand side
 		result.is_local_variable = is_local;
 
-		if (is_var || is_parameter) {
+		if (is_local || is_parameter) {
 			if (is_parameter) {
 				// if the parameter is a type expression, then this declaration has that type
 				result.type = ffz_ground_type(result.constant, result.type);
@@ -1804,9 +1803,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 
 	case ffzNodeKind_If: {
 		TRY(check_node(c, node->If.condition, ffz_builtin_type(c, ffzKeyword_bool), 0));
-		TRY(check_node(c, node->If.true_scope, NULL, InferFlag_Statement | InferFlag_ProcedureScope));
+		TRY(check_node(c, node->If.true_scope, NULL, InferFlag_Statement));
 		if (node->If.else_scope) {
-			TRY(check_node(c, node->If.else_scope, NULL, InferFlag_Statement | InferFlag_ProcedureScope));
+			TRY(check_node(c, node->If.else_scope, NULL, InferFlag_Statement));
 		}
 	} break;
 	
@@ -1817,12 +1816,12 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 					TRY(check_node(c, node->For.header_stmts[i], ffz_builtin_type(c, ffzKeyword_bool), 0));
 				}
 				else {
-					TRY(check_node(c, node->For.header_stmts[i], NULL, InferFlag_Statement | InferFlag_ProcedureScope));
+					TRY(check_node(c, node->For.header_stmts[i], NULL, InferFlag_Statement));
 				}
 			}
 		}
 		
-		TRY(check_node(c, node->For.scope, NULL, InferFlag_Statement | InferFlag_ProcedureScope));
+		TRY(check_node(c, node->For.scope, NULL, InferFlag_Statement));
 	} break;
 
 	case ffzNodeKind_Keyword: {
@@ -2091,7 +2090,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 				// and after the proc type has been cached.
 
 				for FFZ_EACH_CHILD(n, node) {
-					TRY(check_node(c, n, NULL, InferFlag_Statement | InferFlag_ProcedureScope));
+					TRY(check_node(c, n, NULL, InferFlag_Statement));
 				}
 			}
 		}

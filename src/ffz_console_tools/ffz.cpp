@@ -142,7 +142,7 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 
 	return module;
 	//module->report_error = [](ffzModule* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
-	//	ffzParser* parser = checker->project->parsers[at->id.parser_id];
+	//	ffzParser* parser = checker->project->parsers[at->id.source_id];
 	//
 	//	ffz_log_pretty_error(parser, F_LIT("Semantic error "), at->loc, error, true);
 	//	for (uint i = poly_path.len - 1; i < poly_path.len; i++) {
