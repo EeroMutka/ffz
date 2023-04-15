@@ -52,6 +52,11 @@
 //       ... buut to be honest, idk if that's a good idea. It's probably nicer to have the separation of files, even for end users who want to tweak the library.
 //           IDK! And if we go down the single-header library route, we'd probably want to get back to using libc more, as in with the file IO.
 
+// About caching/threading the checker:
+// Imagine you're writing a little program and you're importing a big game engine module. Module-level multithreading doesn't help here.
+// Caching is the solution. Most of the times you compile a program, you won't have edited multiple modules, so it makes sense to cache
+// the checked modules.
+
 #define F_MINIMAL_INCLUDE
 #include "foundation/foundation.h"
 
@@ -71,13 +76,14 @@ typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
 //typedef struct ffzPolymorph ffzPolymorph;
 
 typedef uint32_t ffzSourceID;
+#define FFZ_SOURCE_ID_NONE 0xFFFFFFFF
+
 //typedef uint32_t ffzParserLocalID;
 typedef uint32_t ffzModuleID;
 typedef uint32_t ffzCheckerLocalID;
 
-#define FFZ_SOURCE_ID_NONE 0xFFFFFFFF
-
 typedef uint32_t ffzPolymorphID;
+#define FFZ_POLYMORPH_ID_NONE 0xFFFFFFFF
 
 typedef struct ffzNode ffzNode;
 typedef ffzNode ffzNodeOpDeclare;
@@ -106,8 +112,20 @@ typedef uint64_t ffzHash; // TODO: increase this to 128 bits.
 // We could make hashes fully deterministic across multiple compilations (not dependend on any runtime addresses),
 // but right now they do depend on runtime addresses. See `ffz_hash_node`
 
-typedef ffzHash ffzNodeHash;       // project-global (different nodes in different modules must not share a hash)
+// * project-global (different nodes in different modules must not share a hash). This is so that
+//   types that use the node hash as their identity can be checked compatibility across modules.
+// 
+// * EXCEPT: Say module X and Y instantiate an identical polymorphic definition from module Z.
+//   In that case, the duplicated nodes in both X and Y will get the same NodeHash. This is so
+//   that if it's for example a record definition, the record will get the same hash and thus 
+//   the types will be compatible.
+//   or maybe this exception should only live in the ffzTypeHash and ffzConstantHash. ugh.
+typedef ffzHash ffzNodeHash;
+
+// This should be project-global; see the note about exception at ffzNodeHash
 typedef ffzHash ffzPolymorphHash;  // local to the module (different polymorphs in different modules may share a hash)
+
+
 typedef ffzHash ffzTypeHash;       // project-global
 typedef ffzHash ffzConstantHash;   // project-global
 typedef ffzHash ffzFieldHash;
@@ -249,6 +267,10 @@ typedef struct ffzLocRange {
 typedef struct ffzCheckInfo {
 	bool is_local_variable; // TODO: turn this into a flags
 
+	//ffzPolymorphID polymorphed_from; // by default this is FFZ_POLYMORPH_ID_NONE
+	// this is a weird edge case.
+	ffzPolymorphID use_polymorph_hash_as_node_hash; // by default this is FFZ_POLYMORPH_ID_NONE
+
 	// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
 	fOpt(ffzType*) type;
 	fOpt(ffzConstantData*) constant;
@@ -284,7 +306,7 @@ struct ffzNode {
 	ffzNode* first_child; // first main child
 
 	bool has_checked; // TODO: have a flip-flop re-checking
-	bool TEST___expanded_from_poly;
+	//bool TEST___expanded_from_poly;
 	ffzCheckInfo checked;
 
 	// There is one benefit from having the node be a union, which is that we can do easy in-place replacement of nodes without having to store the
@@ -302,6 +324,10 @@ struct ffzNode {
 			// generates the instantiations. But it also means that using the generated name, we would get bad error messages.
 			// So, the checker also generates an optional `pretty_name`, which will be displayed in error messages over `name` when it's non-empty.
 			fString pretty_name;
+			
+			// hmm... Or maybe we could do something like prefix generated names with `\`, so it'd be like `\Array[u32]` and parse things starting with \
+			// in the parser until whitespace into a single identifier. Then the backend could see that it starts with \ and wrangle a name for it.
+			// Just an idea.
 
 			// ffzNode* chk_definition; // resolved during the checker stage
 			// ffzNode* chk_next_use;   // resolved during the checker stage

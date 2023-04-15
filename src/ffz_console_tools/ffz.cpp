@@ -86,12 +86,12 @@ void log_pretty_error(ffzParser* p, ffzNode* node, ffzLocRange loc, fString erro
 	f_trap();
 }
 
-static void dump_module_ast(ffzModule* m) {
+static void dump_module_ast(ffzModule* m, fString dir) {
 	u8 console_buf[4096];
 	fBufferedWriter console_writer;
 	fWriter* w = f_open_buffered_writer(f_get_stdout(), console_buf, F_LEN(console_buf), &console_writer);
-	f_print(w, "PRINTING AST: ======================================================\n");
-
+	f_print(w, "PRINTING AST: (~s) ======================================================\n", dir);
+	
 	for (ffzNode* n = m->root->first_child; n; n = n->next) {
 		ffz_print_ast(w, n);
 		f_print(w, "\n");
@@ -136,9 +136,9 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 
 		error_cb_passed.error_kind = F_LIT("Semantic error ");
 		if (!ffz_module_check_single(module, error_cb)) return NULL;
+		
+		dump_module_ast(module, directory);
 	}
-
-	dump_module_ast(module);
 
 	return module;
 	//module->report_error = [](ffzModule* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {

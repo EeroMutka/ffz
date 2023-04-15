@@ -1163,6 +1163,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			else if (f_str_equals(tok.str, F_LIT("union"))) {
 				TRY(parse_struct(p, loc, parent, tok.range, true, &node));
 			}
+			       // hmm... I don't think we even need the `f_str_decode_rune` here, we can just look at the first byte
 			else if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?' || is_extended_keyword) {
 				ffzKeyword* keyword = f_map64_get_raw(p->keyword_from_string, f_hash64_str(tok.str));
 				if (keyword) {

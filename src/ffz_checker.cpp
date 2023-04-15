@@ -66,8 +66,18 @@ ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value) {
 	return f_hasher_end(&h);
 }
 
-ffzNodeHash ffz_hash_node(ffzNode* node) {
-	return (ffzNodeHash)node;
+ffzNodeHash ffz_hash_node(ffzModule* m, ffzNode* node) {
+	f_assert(node->module_id == m->self_id);
+	if (node->has_checked && node->checked.polymorphed_from != FFZ_POLYMORPH_ID_NONE) {
+		// merge identical polymorph instance hashes from different modules.
+		// hmm... but what about child nodes? Those should also get unique hashes.
+		// how do I get a node hash relative to its parent?
+		ffzPolymorph polymorph = m->polymorphs[node->checked.polymorphed_from];
+		if (polymorph.po
+		return ffz_hash_polymorph(polymorph); // TODO: store the hash this in ffzPolymorph itself
+	}
+	return  ? 
+		(ffzNodeHash)node;
 	//fHasher h = f_hasher_begin();
 	//f_hasher_add(&h, node->local_id);
 	//f_hasher_add(&h, node->source_id);
@@ -80,6 +90,7 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 	// The type must be hashed into the constant, because otherwise i.e. `u64(0)` and `false` would have the same hash!
 	f_hasher_add(&h, constant.type->hash);
 	switch (constant.type->tag) {
+	case ffzTypeTag_Raw: break;
 	case ffzTypeTag_Pointer: { f_trap(); } break;
 
 		//case ffzTypeTag_PolyProc: // fallthrough
@@ -108,7 +119,6 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 	case ffzTypeTag_Uint: // fallthrough
 	case ffzTypeTag_DefaultSint: // fallthrough
 	case ffzTypeTag_DefaultUint: // fallthrough
-	case ffzTypeTag_Raw: // fallthrough
 	case ffzTypeTag_Float: {
 		f_hasher_add(&h, constant.data->_uint); // TODO: u128
 	} break;
@@ -118,6 +128,9 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 }
 
 ffzPolymorphHash ffz_hash_polymorph(ffzPolymorph poly) {
+	// should be project-global.
+	f_trap();
+
 	fHasher h = f_hasher_begin();
 	f_hasher_add(&h, ffz_hash_node(poly.poly_def));
 	for (uint i = 0; i < poly.parameters.len; i++) {
@@ -465,7 +478,7 @@ static bool type_is_a_bit_by_bit(ffzProject* p, ffzType* src, ffzType* target) {
 }
 
 static ffzOk check_types_match(ffzModule* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
-//F_HITS(_c, 196);
+	F_HITS(_c, 196);
 	if (!type_is_a_bit_by_bit(c->project, received, expected)) {
 		ERR(c, node, "~c\n    received: ~s\n    expected: ~s",
 			message, ffz_type_to_string(c->project, received), ffz_type_to_string(c->project, expected));
@@ -1111,6 +1124,8 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 
 	ffzCheckInfo left_chk = node->Op.left->checked;
 	if (left_chk.type->tag == ffzTypeTag_Type && left_chk.constant->type->tag == ffzTypeTag_PolyExpr) {
+		F_HITS(__c, 4);
+		F_HITS(__c2, 13);
 
 		// so per node, should we store the polymorph source index?
 
@@ -1125,6 +1140,20 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 		ffzPolymorph poly = {};
 		poly.poly_def = left_chk.constant->type->unique_node;
 		poly.parameters = params.slice;
+
+
+		// hmm.... `poly_from_hash` map is per-module. That means that if two modules instantiate an identical polymorph,
+		// they will get separate AST nodes. Separate AST nodes means that, if they were for example record types, the type hashes
+		// wouldn't be compatible anymore, because record types hash the AST node it comes from.
+		
+		// So what if a polymorphic definition is defined in module X. Module Y and module Z both import module X, and are checked
+		// in parallel. What if both module Y and module Z instantiate identical polymorphs?
+		// 
+		// Where should the code go? ...at least not in module it came from, because that'd mean if you cached a huge library and then altered your own code,
+		// then the huge library would need a recompile.
+
+		// hmm... if instantiation doesn't exist in X, then
+
 
 		ffzPolymorphHash hash = ffz_hash_polymorph(poly);
 		auto entry = f_map64_insert(&c->poly_from_hash, hash, (ffzPolymorphID)0, fMapInsert_DoNotOverride);
@@ -1214,6 +1243,11 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 			inst_decl->Op.right = poly_expr;
 			
 			instantiate_deep_copy_poly(&deep_copy_ctx, ffz_cursor_op_right(inst_decl));
+
+			// hmm.....   poly_from_hash checker is different for the different modules.
+			// so even though the hashes are the same, it still uniquely adds it every time.
+			if (inst_decl->Op.right == (void*)0x0000020000080d90) f_trap();
+			if (inst_decl->Op.right == (void*)0x00000200000a12d0) f_trap();
 
 			// NOTE: we're pushing a top-level node to the end of the root node while iterating through them at the bottom of
 			// the callstack. But that's totally fine.
@@ -1724,6 +1758,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 //	if (node == (void*)0x0000020000005a10) f_trap();
 
 	ffzCheckInfo result = {};
+	result.polymorphed_from = FFZ_POLYMORPH_ID_NONE;
 
 	switch (node->kind) {
 	case ffzNodeKind_Declare: {
@@ -2247,7 +2282,10 @@ bool ffz_module_check_single(ffzModule* m, ffzErrorCallback error_cb) {
 	//	}
 	//}
 
+	ffzCheckInfo checked = {};
+	checked.polymorphed_from = FFZ_POLYMORPH_ID_NONE;
 	m->root->has_checked = true;
+	m->root->checked = checked;
 
 	for (ffzNode* n = m->root->first_child; n; n = n->next) {
 
