@@ -517,7 +517,7 @@ void* memset(void* str, int c, size_t n);
 			}
 		}
 
-		if (is_all_zeroes) {
+		if (is_all_zeroes && global->relocations.len == 0) {
 			f_print(f, "; // zeroed out\n");
 		}
 		else {

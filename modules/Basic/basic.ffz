@@ -176,6 +176,9 @@ _temp_arena_tls_index: u32(0)
 	memset(ptr, 0xCC, size)
 }
 
+// should we have a polymorphic `arena_push_new` thing?
+// #arena_push_new: poly[T] proc(arena: ^Arena) => ^T {...}
+
 #arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
 	allocation_pos: ^u8(align_up(int(arena.head), align))
 	

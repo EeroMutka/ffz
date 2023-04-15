@@ -2329,18 +2329,19 @@ bool ffz_module_check_single(ffzModule* m, ffzErrorCallback error_cb) {
 		if (!ok.ok) return false;
 	}
 
-	//for (uint i = 0; i < module->extern_libraries.len; i++) {
-	//	fString input = module->extern_libraries[i];
-	//	if (input == F_LIT("?")) continue;
-	//
-	//	if (f_str_cut_start(&input, F_LIT(":"))) {
-	//		f_array_push(&project->link_system_libraries, input);
-	//	}
-	//	else {
-	//		f_assert(f_files_path_to_canonical(directory, input, f_temp_alc(), &input));
-	//		f_array_push(&project->link_libraries, input);
-	//	}
-	//}
+	fString* p_library;
+	for f_map64_each_raw(&m->extern_libraries, _key, &p_library) {
+		fString library = *p_library;
+		if (library == F_LIT("?")) continue;
+		
+		if (f_str_cut_start(&library, F_LIT(":"))) {
+			f_array_push(&m->project->link_system_libraries, library);
+		}
+		else {
+			f_assert(f_files_path_to_canonical(m->directory, library, f_temp_alc(), &library)); // TODO: error checking
+			f_array_push(&m->project->link_libraries, library);
+		}
+	}
 
 	m->checked = true;
 	f_array_push(&m->project->checkers_dependency_sorted, m);

@@ -544,7 +544,7 @@ inline bool f_map64_iterate(fMap64Raw* map, uint* i, uint* key, void** value_ptr
 	}
 }
 
-#define f_map64_each_raw(map, key, value_ptr) (uint _i=0, key=0; f_map64_iterate((fMap64Raw*)map, &_i, &key, value_ptr); )
+#define f_map64_each_raw(map, key, value_ptr) (uint _i=0, key=0; f_map64_iterate((fMap64Raw*)map, &_i, &key, (void**)value_ptr); )
 
 
 
