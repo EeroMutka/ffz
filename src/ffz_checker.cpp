@@ -66,18 +66,10 @@ ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value) {
 	return f_hasher_end(&h);
 }
 
-ffzNodeHash ffz_hash_node(ffzModule* m, ffzNode* node) {
-	f_assert(node->module_id == m->self_id);
-	if (node->has_checked && node->checked.polymorphed_from != FFZ_POLYMORPH_ID_NONE) {
-		// merge identical polymorph instance hashes from different modules.
-		// hmm... but what about child nodes? Those should also get unique hashes.
-		// how do I get a node hash relative to its parent?
-		ffzPolymorph polymorph = m->polymorphs[node->checked.polymorphed_from];
-		if (polymorph.po
-		return ffz_hash_polymorph(polymorph); // TODO: store the hash this in ffzPolymorph itself
-	}
-	return  ? 
-		(ffzNodeHash)node;
+
+
+ffzNodeHash ffz_hash_node(ffzNode* node) {
+	return (ffzNodeHash)node;
 	//fHasher h = f_hasher_begin();
 	//f_hasher_add(&h, node->local_id);
 	//f_hasher_add(&h, node->source_id);
@@ -85,7 +77,7 @@ ffzNodeHash ffz_hash_node(ffzModule* m, ffzNode* node) {
 	//return f_hasher_end(&h);
 }
 
-ffzConstantHash ffz_hash_constant(ffzConstant constant) {
+ffzConstantHash ffz_hash_constant(ffzProject* p, ffzConstant constant) {
 	fHasher h = f_hasher_begin();
 	// The type must be hashed into the constant, because otherwise i.e. `u64(0)` and `false` would have the same hash!
 	f_hasher_add(&h, constant.type->hash);
@@ -95,7 +87,8 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 
 		//case ffzTypeTag_PolyProc: // fallthrough
 	case ffzTypeTag_Proc: {
-		f_hasher_add(&h, ffz_hash_node(constant.data->proc_node));
+		ffzNode* node = constant.data->proc_node;
+		f_hasher_add(&h, ffz_hash_expression(p, node));
 	} break;
 
 		//case ffzTypeTag_PolyRecord: // fallthrough
@@ -106,7 +99,7 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 		for (u32 i = 0; i < (u32)constant.type->FixedArray.length; i++) {
 			ffzConstantData elem_data = ffz_constant_fixed_array_get(constant, i);
 			ffzConstant elem = { constant.type->FixedArray.elem_type, &elem_data };
-			f_hasher_add(&h, ffz_hash_constant(elem));
+			f_hasher_add(&h, ffz_hash_constant(p, elem));
 		}
 	} break;
 
@@ -127,16 +120,22 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 	return f_hasher_end(&h);
 }
 
-ffzPolymorphHash ffz_hash_polymorph(ffzPolymorph poly) {
-	// should be project-global.
-	f_trap();
-
+ffzPolymorphHash ffz_hash_polymorph(ffzProject* p, ffzPolymorph poly) {
 	fHasher h = f_hasher_begin();
-	f_hasher_add(&h, ffz_hash_node(poly.poly_def));
+	f_hasher_add(&h, ffz_hash_expression(p, poly.poly_def));
 	for (uint i = 0; i < poly.parameters.len; i++) {
-		f_hasher_add(&h, ffz_hash_constant(poly.parameters[i]));
+		f_hasher_add(&h, ffz_hash_constant(p, poly.parameters[i]));
 	}
 	return f_hasher_end(&h);
+}
+
+ffzExpressionHash ffz_hash_expression(ffzProject* p, ffzNode* node) {
+	if (node->is_instantiation_root_of_poly != FFZ_POLYMORPH_ID_NONE) {
+		ffzModule* m = p->checkers[node->module_id];
+		ffzPolymorph polymorph = m->polymorphs[node->is_instantiation_root_of_poly];
+		return ffz_hash_polymorph(p, polymorph); // @speed: store the hash this in ffzPolymorph itself
+	}
+	return ffz_hash_node(node);
 }
 
 u64 ffz_hash_definition_path(ffzDefinitionPath path) {
@@ -161,8 +160,10 @@ static ffzConstantData* make_constant_int(ffzModule* c, u64 _uint) {
 	return constant;
 }
 
+inline ffzCheckInfo ffzCheckInfo_default() { ffzCheckInfo x = {}; /*x.instantiation_root_of_poly = FFZ_POLYMORPH_ID_NONE; */return x; }
+
 ffzCheckInfo make_type_constant(ffzModule* c, ffzType* type) {
-	ffzCheckInfo out;
+	ffzCheckInfo out = ffzCheckInfo_default();
 	out.type = c->type_type;
 	out.constant = make_constant(c);
 	out.constant->type = type;
@@ -380,16 +381,17 @@ fOpt(ffzNode*) ffz_get_parent_proc(ffzNode* node) {
 	return NULL;
 }
 
-fOpt(ffzNode*) ffz_get_scope(ffzNode* node) {
-	for (node = node->parent; node; node = node->parent) {
-		f_assert(node->has_checked);
-
-		if (node->kind == ffzNodeKind_Scope) return node;
-		if (node->kind == ffzNodeKind_Record) return node;
-		if (node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) return node;
-	}
-	return NULL;
-}
+//fOpt(ffzNode*) ffz_get_scope(ffzNode* node) {
+//	for (node = node->parent; node; node = node->parent) {
+//		f_assert(node->has_checked);
+//
+//		if (node->kind == ffzNodeKind_Scope) return node;
+//		//if (node->kind == ffzNodeKind_Enum) return node;
+//		if (node->kind == ffzNodeKind_Record) return node;
+//		if (node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) return node;
+//	}
+//	return NULL;
+//}
 
 bool ffz_decl_is_local_variable(ffzNodeOpDeclare* decl) {
 	f_assert(decl->has_checked);
@@ -460,6 +462,7 @@ static ffzOk verify_is_type_expression(ffzModule* c, ffzNode* node) {
 }
 
 static ffzOk verify_is_constant(ffzModule* c, ffzNode* node) {
+	f_assert(!node->checked.is_undefined);
 	if (node->checked.constant == NULL) ERR(c, node, "Expression is not constant, but constant was expected.");
 	return FFZ_OK;
 }
@@ -478,7 +481,7 @@ static bool type_is_a_bit_by_bit(ffzProject* p, ffzType* src, ffzType* target) {
 }
 
 static ffzOk check_types_match(ffzModule* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
-	F_HITS(_c, 196);
+	//F_HITS(_c, 196);
 	if (!type_is_a_bit_by_bit(c->project, received, expected)) {
 		ERR(c, node, "~c\n    received: ~s\n    expected: ~s",
 			message, ffz_type_to_string(c->project, received), ffz_type_to_string(c->project, expected));
@@ -642,8 +645,8 @@ ffzOk try_to_add_definition_to_scope(ffzModule* c, fOpt(ffzNode*) scope, ffzNode
 	return FFZ_OK;
 }
 
-ffzOk add_possible_definition_to_scope(ffzModule* c, fOpt(ffzNode*) scope, ffzNode* node) {
-	if (node->kind == ffzNodeKind_Declare) {
+ffzOk add_possible_definition_to_scope(ffzModule* c, fOpt(ffzNode*) scope, fOpt(ffzNode*) node) {
+	if (node && node->kind == ffzNodeKind_Declare) {
 		TRY(try_to_add_definition_to_scope(c, scope, node->Op.left));
 	}
 	return FFZ_OK;
@@ -670,7 +673,7 @@ u32 get_alignment(ffzType* type, u32 pointer_size) {
 	return type->size;
 }
 
-ffzTypeHash ffz_hash_type(ffzType* type) {
+ffzTypeHash ffz_hash_type(ffzProject* p, ffzType* type) {
 	fHasher h = f_hasher_begin();
 	f_hasher_add(&h, type->tag);
 	
@@ -681,16 +684,20 @@ ffzTypeHash ffz_hash_type(ffzType* type) {
 	case ffzTypeTag_Type: break;
 	case ffzTypeTag_String: break;
 
-	case ffzTypeTag_Pointer: { f_hasher_add(&h, ffz_hash_type(type->Pointer.pointer_to)); } break;
+	case ffzTypeTag_Pointer: { f_hasher_add(&h, ffz_hash_type(p, type->Pointer.pointer_to)); } break;
 
 	case ffzTypeTag_PolyExpr: // fallthrough
 	case ffzTypeTag_Proc:     // fallthrough
 	case ffzTypeTag_Enum:     // fallthrough   :EnumFieldsShouldNotContributeToTypeHash
-	case ffzTypeTag_Record: { f_hasher_add(&h, ffz_hash_node(type->unique_node)); } break;
+	case ffzTypeTag_Record: {
+		// If the node is an instantiation of a polymorphic definition, we need to use the polymorph hash instead of the
+		// unique node hash, because different modules can contain an identical polymorphic instantiation.
+		f_hasher_add(&h, ffz_hash_expression(p, type->unique_node));
+	} break;
 
-	case ffzTypeTag_Slice: { f_hasher_add(&h, ffz_hash_type(type->Slice.elem_type)); } break;
+	case ffzTypeTag_Slice: { f_hasher_add(&h, ffz_hash_type(p, type->Slice.elem_type)); } break;
 	case ffzTypeTag_FixedArray: {
-		f_hasher_add(&h, ffz_hash_type(type->FixedArray.elem_type));
+		f_hasher_add(&h, ffz_hash_type(p, type->FixedArray.elem_type));
 		f_hasher_add(&h, type->FixedArray.length);
 	} break;
 
@@ -714,7 +721,7 @@ ffzType* ffz_make_type(ffzModule* c, ffzType type_desc) {
 	//F_HITS(_c, 35);
 	//F_HITS(_c1, 416);
 	type_desc.checker_id = c->self_id;
-	type_desc.hash = ffz_hash_type(&type_desc);
+	type_desc.hash = ffz_hash_type(c->project, &type_desc);
 	//if (type_desc.hash == 16688289346569842202) f_trap();
 	//if (type_desc.hash == 14042532921040479959) f_trap();
 
@@ -890,12 +897,12 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 			
 			TRY(check_node(c, arg, result->type, InferFlag_NoTypesMatchCheck));
 			
-			bool is_undefined = arg->checked.type->tag == ffzTypeTag_Type && arg->checked.constant->type->tag == ffzTypeTag_Undefined;
-			if (!(flags & InferFlag_AllowUndefinedValues) && is_undefined) {
+			result->is_undefined = arg->checked.type->tag == ffzTypeTag_Type && arg->checked.constant->type->tag == ffzTypeTag_Undefined;
+			if (!(flags & InferFlag_AllowUndefinedValues) && result->is_undefined) {
 				ERR(c, arg, "Invalid place for an undefined value. Undefined values are only allowed in variable declarations.");
 			}
 			
-			if (!is_undefined && !ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(arg->checked.type->tag)) {
+			if (!result->is_undefined && !ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(arg->checked.type->tag)) {
 				// the following shouldn't be allowed:
 				// #foo: false
 				// #bar: uint(&foo)
@@ -903,7 +910,7 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 				result->constant = arg->checked.constant;
 			}
 
-			if (!is_undefined && !type_can_be_casted_to(c->project, arg->checked.type, result->type)) {
+			if (!result->is_undefined && !type_can_be_casted_to(c->project, arg->checked.type, result->type)) {
 				TRY(check_types_match(c, node, arg->checked.type, result->type, "The received type cannot be casted to the expected type:"));
 			}
 		}
@@ -988,7 +995,7 @@ static ffzOk check_post_curly_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo
 // we need to get the import name of the node's module inside `m`.
 // There should be only one import name for a module.
 // 
-struct InstantiatePolyExprCtx {
+struct InstantiateDeepCopyPolyContext {
 	ffzModule* m;
 	fMap64(ffzNode*) poly_param_name_to_generated_constant_ident;
 	ffzNode* root;
@@ -996,18 +1003,17 @@ struct InstantiatePolyExprCtx {
 
 // Deep copies the polymorphic expression while replacing identifiers to
 // polymorphic parameters to generated constants
-static void instantiate_deep_copy_poly(InstantiatePolyExprCtx* ctx, ffzCursor cursor) {
+static void instantiate_deep_copy_poly(InstantiateDeepCopyPolyContext* ctx, ffzCursor cursor) {
 	fOpt(ffzNode*) old_node = ffz_get_node_at_cursor(&cursor);
 	if (!old_node) return;
 
-	// TODO: deep copy tags
-
 	f_assert(cursor.parent->module_id == ctx->m->self_id);
 
+
 	ffzNode* new_node = ffz_clone_node(ctx->m, old_node);
-	new_node->TEST___expanded_from_poly = true;
 	ffz_replace_node(&cursor, new_node);
 
+	
 	// OLD COMMENT, DOESN'T MATTER ANYMORE:
 	// First copy special children, then copy regular children.
 	// This distinction matters, because in case of a procedure, we want to first recurse into the procedure type and copy the parameters,
@@ -1082,13 +1088,30 @@ static void instantiate_deep_copy_poly(InstantiatePolyExprCtx* ctx, ffzCursor cu
 	default: f_trap();
 	}
 
-	ffzNode** link_to_next = &new_node->first_child;
-	for (ffzNode* child = new_node->first_child; child; child = child->next) {
-		instantiate_deep_copy_poly(ctx, ffzCursor{ new_node, link_to_next });
-		child = *link_to_next;
-
-		link_to_next = &child->next;
+	// Deep copy tags
+	{
+		ffzNode** link_to_next = &new_node->first_tag;
+		while (*link_to_next) {
+			instantiate_deep_copy_poly(ctx, ffzCursor{ new_node, link_to_next });
+			link_to_next = &(*link_to_next)->next;
+		}
 	}
+
+	// Deep copy main children
+	{
+		ffzNode** link_to_next = &new_node->first_child;
+		while (*link_to_next) {
+			instantiate_deep_copy_poly(ctx, ffzCursor{ new_node, link_to_next });
+			link_to_next = &(*link_to_next)->next;
+		}
+	}
+	//ffzNode** link_to_next = &new_node->first_child;
+	//for (ffzNode* child = new_node->first_child; child; child = child->next) {
+	//	instantiate_deep_copy_poly(ctx, ffzCursor{ new_node, link_to_next });
+	//	child = *link_to_next;
+	//
+	//	link_to_next = &child->next;
+	//}
 }
 
 // hmm... kind of the same as `new_node` in ffz_ast.c
@@ -1124,8 +1147,8 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 
 	ffzCheckInfo left_chk = node->Op.left->checked;
 	if (left_chk.type->tag == ffzTypeTag_Type && left_chk.constant->type->tag == ffzTypeTag_PolyExpr) {
-		F_HITS(__c, 4);
-		F_HITS(__c2, 13);
+		//F_HITS(__c, 4);
+		//F_HITS(__c2, 13);
 
 		// so per node, should we store the polymorph source index?
 
@@ -1141,21 +1164,7 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 		poly.poly_def = left_chk.constant->type->unique_node;
 		poly.parameters = params.slice;
 
-
-		// hmm.... `poly_from_hash` map is per-module. That means that if two modules instantiate an identical polymorph,
-		// they will get separate AST nodes. Separate AST nodes means that, if they were for example record types, the type hashes
-		// wouldn't be compatible anymore, because record types hash the AST node it comes from.
-		
-		// So what if a polymorphic definition is defined in module X. Module Y and module Z both import module X, and are checked
-		// in parallel. What if both module Y and module Z instantiate identical polymorphs?
-		// 
-		// Where should the code go? ...at least not in module it came from, because that'd mean if you cached a huge library and then altered your own code,
-		// then the huge library would need a recompile.
-
-		// hmm... if instantiation doesn't exist in X, then
-
-
-		ffzPolymorphHash hash = ffz_hash_polymorph(poly);
+		ffzPolymorphHash hash = ffz_hash_polymorph(c->project, poly);
 		auto entry = f_map64_insert(&c->poly_from_hash, hash, (ffzPolymorphID)0, fMapInsert_DoNotOverride);
 		if (entry.added) {
 			*entry._unstable_ptr = (ffzPolymorphID)c->polymorphs.len;
@@ -1192,7 +1201,7 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 		//node->Identifier.chk_definition = def;
 
 		if (entry.added) {
-			InstantiatePolyExprCtx deep_copy_ctx = {};
+			InstantiateDeepCopyPolyContext deep_copy_ctx = {};
 			deep_copy_ctx.m = c;
 			deep_copy_ctx.poly_param_name_to_generated_constant_ident = f_map64_make<ffzNode*>(f_temp_alc());
 
@@ -1244,10 +1253,13 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 			
 			instantiate_deep_copy_poly(&deep_copy_ctx, ffz_cursor_op_right(inst_decl));
 
+			ffzNode* poly_expr_new = inst_decl->Op.right;
+			poly_expr_new->is_instantiation_root_of_poly = poly_id;
+			
 			// hmm.....   poly_from_hash checker is different for the different modules.
 			// so even though the hashes are the same, it still uniquely adds it every time.
-			if (inst_decl->Op.right == (void*)0x0000020000080d90) f_trap();
-			if (inst_decl->Op.right == (void*)0x00000200000a12d0) f_trap();
+			//if (inst_decl->Op.right == (void*)0x0000020000080d90) f_trap();
+			//if (inst_decl->Op.right == (void*)0x00000200000a12d0) f_trap();
 
 			// NOTE: we're pushing a top-level node to the end of the root node while iterating through them at the bottom of
 			// the callstack. But that's totally fine.
@@ -1256,7 +1268,7 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 			// lastly, check the instantiated declaration and take the results.
 
 			TRY(check_node(c, inst_decl, NULL, InferFlag_Statement));
-			*result = inst_decl->Op.right->checked;
+			*result = poly_expr_new->checked;
 		}
 		else {
 			fOpt(ffzNodeIdentifier*) def = ffz_find_definition(c->project, node);
@@ -1537,48 +1549,35 @@ fOpt(ffzConstantData*) ffz_get_tag(ffzProject* p, ffzNode* node, ffzKeyword tag)
 }
 
 
-static ffzOk check_enum(ffzModule* c, ffzNode* node, ffzCheckInfo* result) {
-	ffzNode* type_node = node->Enum.internal_type;
-	TRY(check_node(c, type_node, NULL, 0));
-
-	if (type_node->checked.type->tag != ffzTypeTag_Type || !ffz_type_is_integer(type_node->checked.constant->type->tag)) {
-		ERR(c, type_node, "Invalid enum type; expected an integer.");
-	}
-
-	ffzType enum_type = { ffzTypeTag_Enum };
-	enum_type.Enum.internal_type = type_node->checked.constant->type;
-	enum_type.size = enum_type.Enum.internal_type->size;
-	enum_type.unique_node = node;
-	enum_type.Enum.fields = f_make_slice_garbage<ffzTypeEnumField>(ffz_get_child_count(node), c->alc);
-
-	// :EnumFieldsShouldNotContributeToTypeHash
-	// Note that we're making the enum type pointer BEFORE populating all of the fields
-	ffzType* enum_type_ptr = ffz_make_type(c, enum_type);
+static ffzOk post_check_enum(ffzModule* c, ffzNode* node) {
+	ffzType* enum_type = node->checked.constant->type;
 
 	TRY(add_possible_definitions_to_scope(c, node, node));
 
-	uint i = 0;
+	fArray(ffzTypeEnumField) fields = f_array_make<ffzTypeEnumField>(c->alc);
+	
 	for FFZ_EACH_CHILD(n, node) {
 		if (n->kind != ffzNodeKind_Declare) ERR(c, n, "Expected a declaration; got: [~s]", ffz_node_kind_to_string(n->kind));
 
 		// NOTE: Infer the declaration from the enum internal type!
-		TRY(check_node(c, n, enum_type.Enum.internal_type, InferFlag_Statement));
+		TRY(check_node(c, n, enum_type->Enum.internal_type, InferFlag_Statement));
 
 		u64 val = n->checked.constant->_uint;
 		
-		ffzFieldHash key = ffz_hash_field(enum_type_ptr, ffz_decl_get_name(n));
+		ffzFieldHash key = ffz_hash_field(enum_type, ffz_decl_get_name(n));
 		f_map64_insert(&c->enum_value_from_name, key, val);
 
-		enum_type.Enum.fields[i] = ffzTypeEnumField{ ffz_decl_get_name(n), val };
+		f_array_push(&fields, ffzTypeEnumField{ ffz_decl_get_name(n), val });
 
-		auto val_taken = f_map64_insert(&c->enum_value_is_taken, ffz_hash_enum_value(enum_type_ptr, val), n, fMapInsert_DoNotOverride);
+		auto val_taken = f_map64_insert(&c->enum_value_is_taken, ffz_hash_enum_value(enum_type, val), n, fMapInsert_DoNotOverride);
 		if (!val_taken.added) {
 			fString taken_by = ffz_decl_get_name((*val_taken._unstable_ptr));
 			ERR(c, n->Op.right, "The enum value `~u64` is already taken by `~s`.", val, taken_by);
 		}
-		i++;
+		
 	}
-	*result = make_type_constant(c, enum_type_ptr);
+	
+	enum_type->Enum.fields = fields.slice;
 	return FFZ_OK;
 }
 
@@ -1755,10 +1754,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		TRY(check_tag(c, tag_n));
 	}
 
-//	if (node == (void*)0x0000020000005a10) f_trap();
+	//if (node == (void*)0x0000020000048310) f_trap();
 
-	ffzCheckInfo result = {};
-	result.polymorphed_from = FFZ_POLYMORPH_ID_NONE;
+	ffzCheckInfo result = ffzCheckInfo_default();
 
 	switch (node->kind) {
 	case ffzNodeKind_Declare: {
@@ -1776,19 +1774,25 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		// `get_scope` however requires the parent to be checked. So only do this when we know it's not a parameter.
 		// For all other cases, except for parameters, the parent has already been checked.
 
-//		F_HITS(__c, 48);
+//		F_HITS(__c, 489);
 
 		bool is_parameter = ffz_decl_is_parameter(node);
 		bool is_local = false;
 		bool is_global_variable = ffz_decl_is_global_variable(node);
 
 		if (!is_parameter && !lhs->Identifier.is_constant) {
-			// try to find the procedure scope
-			for (ffzNode* scope = ffz_get_scope(node); scope; scope = ffz_get_scope(scope)) {
-				if (scope->kind == ffzNodeKind_Scope) continue;
-				if (scope->kind == ffzNodeKind_If) continue;
-				if (scope->kind == ffzNodeKind_For) continue;
-				is_local = scope->checked.type && scope->checked.type->tag == ffzTypeTag_Proc;
+			// check if this declaration is a local variable
+
+			for (ffzNode* n = node->parent; n; n = n->parent) {
+				f_assert(n->has_checked);
+
+				if (n->kind == ffzNodeKind_Enum) break;
+				if (n->kind == ffzNodeKind_Record) break;
+				
+				if (n->kind == ffzNodeKind_Scope) continue;
+				if (n->kind == ffzNodeKind_If) continue;
+				if (n->kind == ffzNodeKind_For) continue;
+				is_local = n->checked.type && n->checked.type->tag == ffzTypeTag_Proc;
 				break;
 			}
 		}
@@ -1818,7 +1822,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			}
 		}
 		
-		if (!is_local) {
+		if (!is_local && !rhs->checked.is_undefined) {
 			TRY(verify_is_constant(c, rhs));
 		}
 
@@ -1832,7 +1836,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 
 	case ffzNodeKind_Scope: {
 		TRY(add_possible_definitions_to_scope(c, node, node));
-		// delayed check the scope so that get_scope() can be called by the children
+		// post-check the scope so that get_scope() can be called by the children
 	} break;
 
 	case ffzNodeKind_PolyExpr: {
@@ -1857,8 +1861,28 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		TRY(check_post_round_brackets(c, node, require_type, flags, &result));
 	} break;
 
-	case ffzNodeKind_If: break; // delayed check
-	case ffzNodeKind_For: break; // delayed check
+	case ffzNodeKind_If: break; // post-check
+	case ffzNodeKind_For: break; // post-check
+	
+	case ffzNodeKind_Enum: {
+		ffzNode* type_node = node->Enum.internal_type;
+		TRY(check_node(c, type_node, NULL, 0));
+
+		if (type_node->checked.type->tag != ffzTypeTag_Type || !ffz_type_is_integer(type_node->checked.constant->type->tag)) {
+			ERR(c, type_node, "Invalid enum type; expected an integer.");
+		}
+
+		ffzType enum_type = { ffzTypeTag_Enum };
+		enum_type.Enum.internal_type = type_node->checked.constant->type;
+		enum_type.size = enum_type.Enum.internal_type->size;
+		enum_type.unique_node = node;
+
+		// :EnumFieldsShouldNotContributeToTypeHash
+		// Note that we're making the enum type pointer BEFORE populating all of the fields
+		result = make_type_constant(c, ffz_make_type(c, enum_type));
+		
+		// The children are post-checked
+	} break;
 	
 	case ffzNodeKind_Keyword: {
 		ffzKeyword keyword = node->Keyword.keyword;
@@ -1952,8 +1976,6 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	} break;
 	
 	case ffzNodeKind_ProcType: { TRY(check_proc_type(c, node, &result)); } break;
-	
-	case ffzNodeKind_Enum: { TRY(check_enum(c, node, &result)); } break;
 	
 	case ffzNodeKind_PostCurlyBrackets: {
 		TRY(check_post_curly_brackets(c, node, &result));
@@ -2105,7 +2127,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		}
 	}
 
-	// delayed checking. The idea is to check the children AFTER we have cached the CheckInfo for this node.
+	// post-check. The idea is to check the children AFTER we have cached the CheckInfo for this node.
 	// This gives more freedom to the children to use utilities, such as get_scope() which requires the parents to be checked.
 	
 	if (!child_already_fully_checked_us) {
@@ -2121,7 +2143,12 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 				TRY(check_node(c, node->If.else_scope, NULL, InferFlag_Statement));
 			}
 		}
+		else if (node->kind == ffzNodeKind_Enum) {
+			TRY(post_check_enum(c, node));
+		}
 		else if (node->kind == ffzNodeKind_For) {
+			TRY(add_possible_definition_to_scope(c, node, node->For.header_stmts[0]));
+
 			for (uint i = 0; i < 3; i++) {
 				if (node->For.header_stmts[i]) {
 					if (i == 1) {
@@ -2282,8 +2309,7 @@ bool ffz_module_check_single(ffzModule* m, ffzErrorCallback error_cb) {
 	//	}
 	//}
 
-	ffzCheckInfo checked = {};
-	checked.polymorphed_from = FFZ_POLYMORPH_ID_NONE;
+	ffzCheckInfo checked = ffzCheckInfo_default();
 	m->root->has_checked = true;
 	m->root->checked = checked;
 
@@ -2336,6 +2362,7 @@ ffzModule* ffz_project_add_module_from_filesystem(ffzProject* p, fString directo
 	
 	ffzModule* module = ffz_project_add_module(p, module_arena);
 	*module_exists._unstable_ptr = module;
+	module->directory = directory;
 
 	struct FileVisitData {
 		fArray(fString) files;

@@ -1,5 +1,5 @@
 #Basic: import(":Basic")
-#str: import(":String")
+#String: import(":String")
 
 #assert: Basic.assert
 

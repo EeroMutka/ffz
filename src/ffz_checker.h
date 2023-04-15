@@ -55,7 +55,16 @@
 // About caching/threading the checker:
 // Imagine you're writing a little program and you're importing a big game engine module. Module-level multithreading doesn't help here.
 // Caching is the solution. Most of the times you compile a program, you won't have edited multiple modules, so it makes sense to cache
-// the checked modules.
+// the checked modules. Then it kinda makes sense to not use pointers, but offsets instead so you can just load a checked module into memory.
+// As for the backend, the cached modules don't need to be fed into the backend at all, as the object files are already generated.
+// 
+// One cool thing about caching could be that you could use it as a reflection tool. In your program, you could just load the cached binary
+// and get direct access to FULL semantic information of the project, including the AST tree.
+// 
+// Where should we put the polymorph instantiations? If we wanted to have a global table of them, then we have a problem if a cached module contains
+// them. When loading a cached module, we'd have to enumerate the instantiations in the cached data and add them to the global table.
+// soo.. put them in the module who instantiates.
+//
 
 #define F_MINIMAL_INCLUDE
 #include "foundation/foundation.h"
@@ -114,20 +123,21 @@ typedef uint64_t ffzHash; // TODO: increase this to 128 bits.
 
 // * project-global (different nodes in different modules must not share a hash). This is so that
 //   types that use the node hash as their identity can be checked compatibility across modules.
-// 
-// * EXCEPT: Say module X and Y instantiate an identical polymorphic definition from module Z.
-//   In that case, the duplicated nodes in both X and Y will get the same NodeHash. This is so
-//   that if it's for example a record definition, the record will get the same hash and thus 
-//   the types will be compatible.
-//   or maybe this exception should only live in the ffzTypeHash and ffzConstantHash. ugh.
+
 typedef ffzHash ffzNodeHash;
 
-// This should be project-global; see the note about exception at ffzNodeHash
-typedef ffzHash ffzPolymorphHash;  // local to the module (different polymorphs in different modules may share a hash)
+// ffzExpressionHash is usually the same thing as ffzNodeHash. But there is an exception:
+// Say module X defines and instantiates a polymorphic expression. Module Y imports X, and makes an identical
+// instantiation to the one in module X. The instantiations are copied into both modules and will get their own nodes.
+// This is done so that we can individually cache the modules and still have it all work (i.e. say the module exposes a struct that uses a local instantiation as a field).
+// So in this case, ffzExpressionHash will hash to the same thing for the instantiated node in both modules.    
+// 
+// NOTE: currently the child nodes of the instantations will get different hashes in different instantiations/modules.
+typedef ffzHash ffzExpressionHash;
 
-
-typedef ffzHash ffzTypeHash;       // project-global
-typedef ffzHash ffzConstantHash;   // project-global
+typedef ffzHash ffzPolymorphHash;  // project-global (e.g. if module X and Y instantiate identical polymorph from module Z, they will have the same hash)
+typedef ffzHash ffzTypeHash;       // project-global (e.g. if module X and Y both use the type [15]^int, they will have the same hash)
+typedef ffzHash ffzConstantHash;   // project-global (e.g. if module X and Y both use the value int(6123), they will have the same hash)
 typedef ffzHash ffzFieldHash;
 typedef ffzHash ffzEnumValueHash;
 
@@ -265,11 +275,9 @@ typedef struct ffzLocRange {
 } ffzLocRange;
 
 typedef struct ffzCheckInfo {
-	bool is_local_variable; // TODO: turn this into a flags
-
-	//ffzPolymorphID polymorphed_from; // by default this is FFZ_POLYMORPH_ID_NONE
-	// this is a weird edge case.
-	ffzPolymorphID use_polymorph_hash_as_node_hash; // by default this is FFZ_POLYMORPH_ID_NONE
+	// TODO: turn these into flags
+	bool is_local_variable;
+	bool is_undefined;
 
 	// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
 	fOpt(ffzType*) type;
@@ -298,8 +306,12 @@ struct ffzNode {
 	ffzSourceID source_id; // can be FFZ_SOURCE_ID_NONE
 	ffzModuleID module_id;
 	
+	ffzPolymorphID is_instantiation_root_of_poly; // by default this is FFZ_POLYMORPH_ID_NONE
+	
 	ffzLocRange loc;
 
+	// So. I think we should have two compilation modes for these links. One for debugging where these are
+	// pointers and module caching is disabled, and another where they're 32-bit offsets from the source base.
 	ffzNode* first_tag;
 	ffzNode* parent;
 	ffzNode* next;
@@ -517,7 +529,13 @@ typedef struct ffzType {
 	uint32_t align;
 
 	ffzTypeHash hash;
+	
+	// This is here so that it's possible to, for example, get to the enum field map (stored per module) from just a checked node.
+	// With cached modules, I guess we could treat the ModuleIDs as a slot array, where when creating a new module we make sure to not take
+	// an index that has already been taken.
+	// hmm... but do we then need it? we could then just do unique_node->module_id instead
 	ffzModuleID checker_id;
+
 	fOpt(ffzNode*) unique_node; // available for struct, union, enum, poly-def, and proc types.
 
 	fSlice(ffzField) record_fields; // available for struct, union, slice types and the string type.
@@ -775,6 +793,7 @@ ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constan
 
 //ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
 //ffzNodeHash ffz_hash_node(ffzNode* node);
+ffzExpressionHash ffz_hash_expression(ffzProject* p, ffzNode* node);
 //u64 ffz_hash_declaration_path(ffzDefinitionPath path);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
 //ffzConstantHash ffz_hash_constant(ffzCheckedInst constant);

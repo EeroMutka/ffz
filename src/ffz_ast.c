@@ -24,6 +24,8 @@
 #define fSlice(T) fSliceRaw
 #define Array(T) fArrayRaw
 
+const static ffzNode ffzNode_default = { .is_instantiation_root_of_poly = FFZ_POLYMORPH_ID_NONE };
+
 typedef struct Token {
 	union {
 		struct { ffzLoc start; ffzLoc end; };
@@ -632,7 +634,7 @@ static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 
 // parser-allocated node
 ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange loc, ffzNodeKind kind) {
-	ffzNode* node = f_mem_clone((ffzNode){0}, p->alc);
+	ffzNode* node = f_mem_clone(ffzNode_default, p->alc);
 	node->source_id = p->self_id;
 	node->module_id = p->module->self_id;
 	node->parent = parent;
@@ -652,13 +654,15 @@ void ffz_replace_node(ffzCursor* at, ffzNode* with) {
 }
 
 ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
-	ffzNode* node = f_mem_clone((ffzNode){0}, m->alc);
+	ffzNode* node = f_mem_clone(ffzNode_default, m->alc);
 	node->module_id = m->self_id;
 	node->source_id = FFZ_SOURCE_ID_NONE;
 	node->kind = kind;
 	return node;
 }
 
+// This is a weird procedure, because you need to be careful with the children as we're not doing a deep copy.
+// Idk if we should have it here
 ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node) {
 	f_assert(!node->has_checked);
 

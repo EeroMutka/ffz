@@ -546,10 +546,15 @@ inline bool f_map64_iterate(fMap64Raw* map, uint* i, uint* key, void** value_ptr
 
 #define f_map64_each_raw(map, key, value_ptr) (uint _i=0, key=0; f_map64_iterate((fMap64Raw*)map, &_i, &key, value_ptr); )
 
+
+
 // WARNING: The largest 2 key values (see HASHMAP64_LAST_VALID_KEY)
 // are reserved internally for marking empty/destroyed slots by the hashmap, so you cannot use them as valid keys.
 // An assertion will fail if you try to insert a value with a reserved key.
 // This is done for performance, but maybe we should have an option to default to a safe implementation.
+
+// I think we should provide serialization and deserialization functions for map.
+
 fMap64Raw f_map64_make_raw(u32 value_size, fAllocator* a);
 fMap64Raw f_make_map64_cap_raw(u32 value_size, uint_pow2 capacity, fAllocator* a);
 void f_map64_free_raw(fMap64Raw* map);
@@ -557,6 +562,8 @@ void f_map64_resize_raw(fMap64Raw* map, u32 slot_count_log2);
 fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) value, fMapInsert mode);
 bool f_map64_remove_raw(fMap64Raw* map, u64 key);
 fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key);
+
+
 
 void f_mem_copy(void* dst, const void* src, uint size); // TODO: make this an inline call?
 

@@ -129,8 +129,8 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 				}
 
 				ffzModule* imported = parse_and_check_directory(module->project, path);
+				int _ = 50;
 				return imported;
-
 			}, module, error_cb)) return NULL;
 
 
