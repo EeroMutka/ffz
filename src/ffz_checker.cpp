@@ -338,7 +338,11 @@ static void print_constant(ffzProject* p, fWriter* w, ffzConstant constant) {
 	case ffzTypeTag_Sint: { f_print_int(w, constant.data->_sint, 10); } break; // :PackConstantTroubles
 	case ffzTypeTag_DefaultUint: // fallthrough
 	case ffzTypeTag_Uint: { f_print_uint(w, constant.data->_uint, 10); } break; // :PackConstantTroubles
-	case ffzTypeTag_Float: { f_print_float(w, constant.data->_float); } break;  // :PackConstantTroubles
+	case ffzTypeTag_Float: {
+		if (constant.type->size == 4)      f_print_float(w, constant.data->_f32);
+		else if (constant.type->size == 8) f_print_float(w, constant.data->_f64);
+		else f_trap();
+	} break;  // :PackConstantTroubles
 	case ffzTypeTag_Proc: {
 		f_trap(); // TODO
 	} break;
@@ -1936,7 +1940,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		if (require_type && require_type->tag == ffzTypeTag_Float) {
 			result.type = require_type;
 			result.constant = make_constant(c);
-			result.constant->_float = node->FloatLiteral.value;
+			if (require_type->size == 4)      result.constant->_f32 = (f32)node->FloatLiteral.value;
+			else if (require_type->size == 8) result.constant->_f64 = node->FloatLiteral.value;
+			else f_trap();
 		}
 	} break;
 

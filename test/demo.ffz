@@ -78,7 +78,6 @@ globals: struct {
 	draw()
 }
 
-
 #entry: proc {
 	Basic.print("hello!\n")
 	globals.window = Window.create(512, 512, "My window")

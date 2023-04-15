@@ -467,7 +467,8 @@ typedef struct ffzConstantData {
 	union {
 		uint64_t  _uint;
 		int64_t   _sint;
-		double   _float;
+		float      _f32;
+		double     _f64;
 		bool      _bool;
 		
 		//fOpt(ffzConstantData*) ptr; // hmm... why is this optional?

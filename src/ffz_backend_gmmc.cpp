@@ -457,8 +457,8 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* data, bool
 	} break;
 
 	case ffzTypeTag_Float: {
-		if (type->size == 4)      out = gmmc_op_f32(g->proc, (f32)data->_float);
-		else if (type->size == 8) out = gmmc_op_f64(g->proc, data->_float);
+		if (type->size == 4)      out = gmmc_op_f32(g->proc, data->_f32);
+		else if (type->size == 8) out = gmmc_op_f64(g->proc, data->_f64);
 		else f_trap();
 	} break;
 
@@ -1247,6 +1247,9 @@ static int cviewLine_compare_fn(const void* a, const void* b) {
 }
 
 static bool build_x64(Gen* g, fString build_dir) {
+	fString obj_filename = F_LIT("a.obj");
+	fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("/"), obj_filename);
+
 	gmmcAsmModule* asm_module = gmmc_asm_build_x64(g->gmmc);
 
 	const bool INCLUDE_DEBUG_INFO = true;
@@ -1382,11 +1385,10 @@ static bool build_x64(Gen* g, fString build_dir) {
 		}
 	}
 
-	fString obj_file_path = F_LIT("a.obj");
 
 	if (INCLUDE_DEBUG_INFO) {
 		cviewGenerateDebugInfoDesc cv_desc = {};
-		cv_desc.obj_name = obj_file_path;
+		cv_desc.obj_name = obj_filename;
 		cv_desc.files = g->cv_file_from_parser_idx.data;
 		cv_desc.files_count = (u32)g->cv_file_from_parser_idx.len;
 		cv_desc.functions = cv_functions.data;
@@ -1434,7 +1436,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 
 	fArray(fString) ms_linker_args = f_array_make<fString>(g->alc);
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(msvc_directory, F_LIT("\\link.exe")));
-	f_array_push(&ms_linker_args, obj_file_path);
+	f_array_push(&ms_linker_args, obj_filename);
 
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
@@ -1593,7 +1595,7 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 		}
 	}
 
-	bool x64 = false;
+	bool x64 = true;
 	if (x64) {
 		return build_x64(&g, build_dir);
 	}
