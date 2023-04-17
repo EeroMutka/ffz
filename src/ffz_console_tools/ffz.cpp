@@ -14,34 +14,36 @@
 bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name);
 
 
-struct ErrorCallbackPassed {
-	fString error_kind;
-};
+//struct ErrorCallbackPassed {
+//	fString error_kind;
+//};
 
-void log_pretty_error(ffzParser* p, ffzNode* node, ffzLocRange loc, fString error, void* userdata) {
-	ErrorCallbackPassed* passed = (ErrorCallbackPassed*)userdata;
+void log_pretty_error(ffzError error, fString kind) {
+	//ErrorCallbackPassed* passed = (ErrorCallbackPassed*)userdata;
 	
-	f_os_print_color(passed->error_kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+	f_os_print_color(kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
 	f_os_print(F_LIT("("));
 
-	f_os_print_color(p->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+	f_assert(error.source); // TODO
 
-	fString line_num_str = f_str_from_uint(loc.start.line_num, 10, f_temp_alc());
+	f_os_print_color(error.source->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+
+	fString line_num_str = f_str_from_uint(error.location.start.line_num, 10, f_temp_alc());
 
 	f_os_print(F_LIT(":"));
 	f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
 	f_os_print(F_LIT(":"));
-	f_os_print_color(f_str_from_uint(loc.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
+	f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
 	f_os_print(F_LIT(")\n  "));
-	f_os_print(error);
+	f_os_print(error.message);
 	f_os_print(F_LIT("\n"));
 	//if (extra_newline) f_os_print(F_LIT("\n"));
 
 	// Scan left until the start of the line
-	uint line_start_offset = loc.start.offset;
+	uint line_start_offset = error.location.start.offset;
 	for (;;) {
 		uint prev = line_start_offset;
-		u8 r = (u8)f_str_prev_rune(p->source_code, &prev);
+		u8 r = (u8)f_str_prev_rune(error.source->source_code, &prev);
 		if (r == 0 || r == '\n') break;
 		line_start_offset = prev;
 	}
@@ -51,18 +53,18 @@ void log_pretty_error(ffzParser* p, ffzNode* node, ffzLocRange loc, fString erro
 	fString src_line_separator = F_LIT(":    ");
 	f_os_print_color(line_num_str, fConsoleAttribute_Intensify);
 	f_os_print_color(src_line_separator, fConsoleAttribute_Intensify);
-	fString start_str = f_str_replace(f_slice(p->source_code, line_start_offset, loc.start.offset), F_LIT("\t"), F_LIT("    "), f_temp_alc());
+	fString start_str = f_str_replace(f_slice(error.source->source_code, line_start_offset, error.location.start.offset), F_LIT("\t"), F_LIT("    "), f_temp_alc());
 	f_os_print_color(start_str, code_color);
 
 	{
-		uint offset = loc.start.offset;
+		uint offset = error.location.start.offset;
 		for (uint i = 0;; i++) {
-			rune r = (u8)f_str_next_rune(p->source_code, &offset);
+			rune r = (u8)f_str_next_rune(error.source->source_code, &offset);
 			if (r == 0 || r == '\n') break;
 
 			u8 r_utf8[4];
 			fString r_str = { r_utf8, f_str_encode_rune(r_utf8, r) };
-			f_os_print_color(r_str, offset <= loc.end.offset ? (fConsoleAttribute_Red | fConsoleAttribute_Intensify) : code_color);
+			f_os_print_color(r_str, offset <= error.location.end.offset ? (fConsoleAttribute_Red | fConsoleAttribute_Intensify) : code_color);
 		}
 		f_os_print(F_LIT("\n"));
 	}
@@ -74,9 +76,9 @@ void log_pretty_error(ffzParser* p, ffzNode* node, ffzLocRange loc, fString erro
 		uint num_spaces = line_num_str.len + src_line_separator.len + f_str_rune_count(start_str);
 		for (uint i = 0; i < num_spaces; i++) f_os_print(F_LIT(" "));
 
-		uint offset = loc.start.offset;
-		for (uint i = 0; offset < loc.end.offset; i++) {
-			rune r = (u8)f_str_next_rune(p->source_code, &offset);
+		uint offset = error.location.start.offset;
+		for (uint i = 0; offset < error.location.end.offset; i++) {
+			rune r = (u8)f_str_next_rune(error.source->source_code, &offset);
 			if (r == 0 || r == '\n') break;
 
 			f_os_print_color(F_LIT("^"), fConsoleAttribute_Red);
@@ -85,6 +87,9 @@ void log_pretty_error(ffzParser* p, ffzNode* node, ffzLocRange loc, fString erro
 
 	f_trap();
 }
+
+inline void log_pretty_syntax_error(ffzError error) { log_pretty_error(error, F_LIT("Syntax error ")); }
+inline void log_pretty_semantic_error(ffzError error) { log_pretty_error(error, F_LIT("Semantic error ")); }
 
 static void dump_module_ast(ffzModule* m, fString dir) {
 	u8 console_buf[4096];
@@ -105,15 +110,19 @@ static void dump_module_ast(ffzModule* m, fString dir) {
 static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString directory) {
 	fArena* module_arena = _f_temp_arena; // TODO
 
-	ErrorCallbackPassed error_cb_passed = {};
-	error_cb_passed.error_kind = F_LIT("Syntax error ");
-	ffzErrorCallback error_cb = { log_pretty_error, &error_cb_passed };
+	//ErrorCallbackPassed error_cb_passed = {};
+	//error_cb_passed.error_kind = F_LIT("Syntax error ");
+	//ffzParserErrorCallback error_cb = { log_pretty_error, &error_cb_passed };
 
-	fOpt(ffzModule*) module = ffz_project_add_module_from_filesystem(project, directory, module_arena, error_cb);
-	if (!module) return NULL;
+	ffzError err;
+	fOpt(ffzModule*) module = ffz_project_add_module_from_filesystem(project, directory, module_arena, &err);
+	if (!module) {
+		log_pretty_syntax_error(err);
+		return NULL;
+	}
 
 	if (!module->checked) {
-		if (!ffz_module_resolve_imports(module,
+		if (!ffz_module_resolve_imports_(module,
 			[](fString path, void* userdata) -> ffzModule* {
 				ffzModule* module = (ffzModule*)userdata;
 
@@ -131,11 +140,16 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 				ffzModule* imported = parse_and_check_directory(module->project, path);
 				int _ = 50;
 				return imported;
-			}, module, error_cb)) return NULL;
+			}, module).ok)
+		{
+			log_pretty_semantic_error(module->error);
+			return NULL;
+		}
 
-
-		error_cb_passed.error_kind = F_LIT("Semantic error ");
-		if (!ffz_module_check_single(module, error_cb)) return NULL;
+		if (!ffz_module_check_single_(module).ok) {
+			log_pretty_semantic_error(module->error);
+			return NULL;
+		}
 		
 		dump_module_ast(module, directory);
 	}

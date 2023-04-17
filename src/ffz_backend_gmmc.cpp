@@ -85,7 +85,7 @@ static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 	if (node) {
 		f_prints(name.w, ffz_get_parent_decl_name(node));
 		
-		if (node->module_id != g->root_module->self_id) {
+		if (node->_module != g->root_module) {
 			// We don't want to export symbols from imported modules.
 			// Currently, we're giving these symbols unique ids and exporting them anyway, because
 			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
@@ -93,7 +93,7 @@ static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 			bool is_extern = ffz_get_tag(g->project, node->parent, ffzKeyword_extern);
 			bool is_module_defined_entry = ffz_get_tag(g->project, node->parent, ffzKeyword_module_defined_entry);
 			if (!is_extern && !is_module_defined_entry) {
-				f_print(name.w, "$$~u32", node->module_id);
+				f_print(name.w, "$$~u32", node->_module->self_id);
 				//f_prints(name.w, g->checker->_dbg_module_import_name);
 			}
 		}
@@ -938,7 +938,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	else {
 		switch (node->kind) {
 		case ffzNodeKind_Identifier: {
-			ffzNodeIdentifier* def = ffz_find_definition(g->project, node);
+			ffzNodeIdentifier* def = ffz_find_definition(node);
 			if (def->Identifier.is_constant) f_trap();
 
 			Value* val = f_map64_get(&g->value_from_definition, (u64)def);
@@ -991,13 +991,12 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		else if (node->kind == ffzNodeKind_For) {}
 		else if (ffz_node_is_keyword(node, ffzKeyword_dbgbreak)) {}
 		else {
-			
-			ffzParser* parser = g->project->parsers[node->source_id];
+			//ffzParser* parser = g->project->parsers[node->source_id];
 			u32 start = node->loc.start.offset;
 			u32 end = node->loc.end.offset;
 			
 			gmmc_op_comment(g->bb, f_tprint("line ~u32:   ~s", node->loc.start.line_num,
-				fString{ parser->source_code.data + start, end - start }));
+				fString{ node->loc_source->source_code.data + start, end - start }));
 		}
 	}
 	
@@ -1064,20 +1063,20 @@ static void gen_statement(Gen* g, ffzNode* node) {
 
 		gmmcBasicBlock* true_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* false_bb;
-		if (node->If.else_scope) {
+		if (node->If.false_scope) {
 			false_bb = gmmc_make_basic_block(g->proc);
 		}
 
 		gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
-		set_loc(g, gmmc_op_if(g->bb, cond, true_bb, node->If.else_scope ? false_bb : after_bb), node);
+		set_loc(g, gmmc_op_if(g->bb, cond, true_bb, node->If.false_scope ? false_bb : after_bb), node);
 
 		g->bb = true_bb;
 		gen_statement(g, node->If.true_scope);
 		gmmc_op_goto(g->bb, after_bb);
 
-		if (node->If.else_scope) {
+		if (node->If.false_scope) {
 			g->bb = false_bb;
-			gen_statement(g, node->If.else_scope);
+			gen_statement(g, node->If.false_scope);
 			gmmc_op_goto(g->bb, after_bb);
 		}
 
@@ -1345,7 +1344,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 			cv_func.section_sym_index = build_x64_section_get_sym_idx(SectionNum_Code);
 			cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prolog_size(asm_module, proc);
 			cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
-			cv_func.file_idx = proc_info->node->source_id;
+			cv_func.file_idx = proc_info->node->loc_source->self_id;
 
 			fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->alc);
 			for (uint i = 0; i < proc_info->dbginfo_locals.len; i++) {
@@ -1572,15 +1571,15 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 	g.cv_file_from_parser_idx = f_array_make<cviewSourceFile>(g.alc);
 	g.cv_types = f_array_make<cviewType>(g.alc);
 
-	for (u32 i = 0; i < project->parsers.len; i++) {
-		ffzParser* parser = project->parsers[i];
+	for (u32 i = 0; i < project->sources.len; i++) {
+		ffzSource* source = project->sources[i];
 
 		cviewSourceFile file = {};
-		file.filepath = parser->source_code_filepath;
+		file.filepath = source->source_code_filepath;
 		
 		SHA256_CTX sha256;
 		sha256_init(&sha256);
-		sha256_update(&sha256, parser->source_code.data, parser->source_code.len);
+		sha256_update(&sha256, source->source_code.data, source->source_code.len);
 		sha256_final(&sha256, &file.hash.bytes[0]);
 		
 		f_array_push(&g.cv_file_from_parser_idx, file);

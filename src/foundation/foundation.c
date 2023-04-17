@@ -806,10 +806,16 @@ void f_str_copy(fString dst, fString src) {
 	memcpy(dst.data, src.data, src.len);
 }
 
-u8* f_arena_push_str(fArena* arena, fString data, uint_pow2 align) {
-	fString result = f_arena_push(arena, data.len, align);
-	f_str_copy(result, data);
-	return result.data;
+void* f_arena_push(fArena* arena, fString data, uint align) {
+	void* result = f_arena_push_undef(arena, data.len, align);
+	memcpy(result, data.data, data.len);
+	return result;
+}
+
+void* f_arena_push_zero(fArena* arena, uint size, uint align) {
+	void* result = f_arena_push_undef(arena, size, align);
+	memset(result, 0, size);
+	return result;
 }
 
 static void error_out_of_memory() {
@@ -817,7 +823,7 @@ static void error_out_of_memory() {
 	exit(1);
 }
 
-fString f_arena_push(fArena* arena, uint size, uint align) {
+void* f_arena_push_undef(fArena* arena, uint size, uint align) {
 	f_assert(F_IS_POWER_OF_2(align));
 	//ZoneScoped;
 	u8* allocation_pos = NULL;
@@ -912,7 +918,7 @@ fString f_arena_push(fArena* arena, uint size, uint align) {
 	default: f_trap();
 	}
 
-	return (fString){ allocation_pos, size };
+	return allocation_pos;
 }
 
 
@@ -1273,7 +1279,7 @@ static void* arena_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_siz
 	//}
 
 	if (new_size > old_size) {
-		fString new_allocation = f_arena_push(arena, new_size, f_get_alignment(new_size));
+		u8* new_allocation = f_arena_push_undef(arena, new_size, f_get_alignment(new_size));
 
 		// TODO: Reuse the end of the arena if possible?
 		//if (old_ptr + old_size == arena->internal_base + arena->internal_pos &&
@@ -1287,12 +1293,12 @@ static void* arena_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_siz
 		//}
 
 		if (old_ptr) {
-			memcpy(new_allocation.data, old_ptr, old_size); // first do the copy, then fill old with garbage
+			memcpy(new_allocation, old_ptr, old_size); // first do the copy, then fill old with garbage
 			f_debug_fill_garbage(old_ptr, old_size);
-			f_debug_fill_garbage(new_allocation.data + old_size, new_size - old_size);
+			f_debug_fill_garbage(new_allocation + old_size, new_size - old_size);
 		}
 
-		return new_allocation.data;
+		return new_allocation;
 	}
 	else {
 		f_debug_fill_garbage(old_ptr + new_size, old_size - new_size); // erase the top
@@ -1373,7 +1379,7 @@ fArena* f_arena_make_ex(fArenaDesc desc) {
 	default: f_trap();
 	}
 
-	fArena* arena = (fArena*)f_arena_push(&_arena, sizeof(fArena), 1).data;
+	fArena* arena = f_arena_push_undef(&_arena, sizeof(fArena), 1);
 	*arena = _arena;
 	
 	f_leak_tracker_begin_entry(arena, 1);

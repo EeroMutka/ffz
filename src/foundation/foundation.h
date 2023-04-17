@@ -505,8 +505,9 @@ fArena* f_arena_make_buffer_fixed(void* base, uint size);
 fArena* f_arena_make_ex(fArenaDesc desc);
 void f_arena_free(fArena* arena);
 
-fString f_arena_push(fArena* arena, uint size, uint align);
-u8* f_arena_push_str(fArena* arena, fString data, uint align);
+void* f_arena_push(fArena* arena, fString str, uint align);
+void* f_arena_push_undef(fArena* arena, uint size, uint align);
+void* f_arena_push_zero(fArena* arena, uint size, uint align);
 
 u8* f_arena_get_contiguous_base(fArena* arena);
 uint f_arena_get_contiguous_cursor(fArena* arena);

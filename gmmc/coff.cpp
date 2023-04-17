@@ -16,7 +16,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 	
 	fArena* arena = f_arena_make_virtual_reserve_fixed(F_GIB(2), NULL);
 	
-	IMAGE_FILE_HEADER* header = (IMAGE_FILE_HEADER*)f_arena_push(arena, sizeof(IMAGE_FILE_HEADER), 1).data;
+	IMAGE_FILE_HEADER* header = (IMAGE_FILE_HEADER*)f_arena_push_zero(arena, sizeof(IMAGE_FILE_HEADER), 1);
 	header->Machine = IMAGE_FILE_MACHINE_AMD64;
 	header->NumberOfSections = 0;
 
@@ -80,8 +80,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 
 		//if (section.name == F_LIT(".drectve")) f_trap();
 
-		IMAGE_SECTION_HEADER* s_header = (IMAGE_SECTION_HEADER*)f_arena_push(arena, sizeof(IMAGE_SECTION_HEADER), 1).data;
-		memset(s_header, 0, sizeof(IMAGE_SECTION_HEADER));
+		IMAGE_SECTION_HEADER* s_header = (IMAGE_SECTION_HEADER*)f_arena_push_zero(arena, sizeof(IMAGE_SECTION_HEADER), 1);
 
 		f_assert(section.name.len <= 8);
 		memcpy(s_header->Name, section.name.data, section.name.len);
@@ -122,7 +121,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 		}
 		else {
 			sections[i]->PointerToRawData = (u32)f_arena_get_contiguous_cursor(arena);
-			f_arena_push_str(arena, { section.data.data, section.data.len }, 1);
+			f_arena_push(arena, section.data, 1);
 		}
 		
 		// --- Relocations ---
@@ -139,7 +138,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 				coffRelocation& r = section.relocations[i];
 				VALIDATE(r.sym_idx < desc->symbols_count);
 
-				IMAGE_RELOCATION* reloc = (IMAGE_RELOCATION*)f_arena_push(arena, sizeof(IMAGE_RELOCATION), 1).data;
+				IMAGE_RELOCATION* reloc = (IMAGE_RELOCATION*)f_arena_push_zero(arena, sizeof(IMAGE_RELOCATION), 1);
 				reloc->VirtualAddress = r.offset;
 
 				f_array_push(&patch_symbol_index_with_real_index, &reloc->SymbolTableIndex);
@@ -166,8 +165,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 
 			//if (symbol.name == F_LIT(".debug$S")) f_trap();
 
-			IMAGE_SYMBOL* s = (IMAGE_SYMBOL*)f_arena_push(arena, sizeof(IMAGE_SYMBOL), 1).data;
-			memset(s, 0, sizeof(IMAGE_SYMBOL));
+			IMAGE_SYMBOL* s = (IMAGE_SYMBOL*)f_arena_push_zero(arena, sizeof(IMAGE_SYMBOL), 1);
 
 			s->N.Name.Short = 0;
 			s->N.Name.Long = 0;
@@ -197,8 +195,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 
 				IMAGE_SECTION_HEADER* section = sections[symbol.section_number - 1];
 
-				IMAGE_AUX_SYMBOL* aux = (IMAGE_AUX_SYMBOL*)f_arena_push(arena, sizeof(IMAGE_AUX_SYMBOL), 1).data;
-				memset(aux, 0, sizeof(IMAGE_AUX_SYMBOL));
+				IMAGE_AUX_SYMBOL* aux = (IMAGE_AUX_SYMBOL*)f_arena_push_zero(arena, sizeof(IMAGE_AUX_SYMBOL), 1);
 				aux->Section.Length = section->SizeOfRawData; // I'm not sure if this field is actually used.
 				aux->Section.NumberOfRelocations = section->NumberOfRelocations;
 				aux->Section.NumberOfLinenumbers = section->NumberOfLinenumbers;
@@ -228,8 +225,8 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 	// string table
 	{
 		u32 s = 4 + (u32)string_table.len; // string table size, including the field itself
-		f_arena_push_str(arena, F_AS_BYTES(s), 1);
-		f_arena_push_str(arena, string_table.slice, 1);
+		f_arena_push(arena, F_AS_BYTES(s), 1);
+		f_arena_push(arena, string_table.slice, 1);
 	}
 
 	// We're done!
