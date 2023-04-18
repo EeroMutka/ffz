@@ -1,5 +1,5 @@
 
-
+- debug info on globals
 - break, continue
 - automatic slicing for array types? i.e. make this possible: []string({"hi", "bye"})
 - initializers

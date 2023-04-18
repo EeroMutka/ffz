@@ -167,6 +167,7 @@ static void generate_xdata_and_pdata(fArray(u8)* pdata_builder, fArray(coffReloc
 			// Do we need IMAGE_REL_AMD64_ADDR32NB???
 			// "In an object file, an RVA is less meaningful because
 			// "memory locations are not assigned.In this case, an RVA would be an address within a section"
+			// hmm.. and could we get rid of `section_sym_index` and use IMAGE_REL_AMD64_SECTION?
 
 			{
 				coffRelocation reloc = {};
@@ -543,6 +544,20 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 	return t;
 }
 
+static u32 begin_subsection(DebugSectionGen* gen, DEBUG_S_SUBSECTION_TYPE type) {
+	CV_DebugSSubsectionHeader_t subsection_header;
+	subsection_header.type = type;
+	f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
+	
+	u32 subsection_base = (u32)gen->debugS.buffer.len;
+	return subsection_base;
+}
+
+static void end_subsection(DebugSectionGen* gen, u32 subsection_base) {
+	patch_cbLen(&gen->debugS, subsection_base);
+	pad_to_4_bytes_zero(&gen->debugS); // Subsections must be aligned to 4 byte boundaries
+}
+
 static void generate_debug_sections(DebugSectionGen* gen) {
 	fAllocator* temp = f_temp_alc();
 
@@ -599,12 +614,8 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 	// *** SYMBOLS
 
 	{
-		CV_DebugSSubsectionHeader_t subsection_header;
-		subsection_header.type = DEBUG_S_SYMBOLS;
-		// subsection_header.cbLen
-		f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
-		u32 subsection_base = (u32)gen->debugS.buffer.len;
-
+		u32 subsection_base = begin_subsection(gen, DEBUG_S_SYMBOLS);
+		
 		{
 			//fString name = F_LIT("C:\\dev\\slump\\GMMC\\minimal\\lettuce.obj");
 			VALIDATE(!f_str_contains(gen->desc->obj_name, F_LIT("/"))); // Only backslashes are allowed!
@@ -634,9 +645,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			patch_reclen(&gen->debugS, reclen_offset);
 		}
 
-		patch_cbLen(&gen->debugS, subsection_base);
-
-		pad_to_4_bytes_zero(&gen->debugS); // Subsections must be aligned to 4 byte boundaries.
+		end_subsection(gen, subsection_base);
 	}
 
 	const uint size_of_file_checksum_entry = 40;
@@ -646,11 +655,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 		// *** SYMBOLS
 		{
-
-			CV_DebugSSubsectionHeader_t subsection_header;
-			subsection_header.type = DEBUG_S_SYMBOLS;
-			f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
-			u32 subsection_base = (u32)gen->debugS.buffer.len;
+			u32 subsection_base = begin_subsection(gen, DEBUG_S_SYMBOLS);
 
 			// S_GPROC32_ID
 			{
@@ -683,7 +688,6 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				// in cvdump, this is the "Cb" field. This marks the size of the function in the .text section, in bytes.
 				proc_sym.len = fn.block.end_offset - fn.block.start_offset;
 
-				//f_trap();
 				proc_sym.typind = 0; // this is an index of the symbol's type
 				proc_sym.DbgStart = 0; // this seems to always be zero
 				proc_sym.DbgEnd = proc_sym.len - 1; // this seems to usually (not always) be PROCSYM32.len - 1. Not sure what this means.
@@ -722,33 +726,18 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				SYMTYPE sym;
 				u32 reclen_offset = (u32)gen->debugS.buffer.len;
 				sym.rectyp = S_PROC_ID_END;
-
 				f_prints(gen->debugS.w, F_AS_BYTES(sym));
-
 				patch_reclen(&gen->debugS, reclen_offset);
 			}
-
-
-			// locals
-			//f_trap();
-			// block = &fn.root_block;
-			//for (;;) {
-			//}
-
-			patch_cbLen(&gen->debugS, subsection_base);
-
-			pad_to_4_bytes_zero(&gen->debugS); // Subsections must be aligned to 4 byte boundaries
+			
+			end_subsection(gen, subsection_base);
 		}
 
 		// *** LINES
 		{
 			// see DumpModC13Lines (microsoft's pdb source code dump)
 
-			CV_DebugSSubsectionHeader_t subsection_header;
-			subsection_header.type = DEBUG_S_LINES;
-			// subsection_header.cbLen
-			f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
-			u32 subsection_base = (u32)gen->debugS.buffer.len;
+			u32 subsection_base = begin_subsection(gen, DEBUG_S_LINES);
 
 			{
 				CV_DebugSLinesHeader_t lines_header;
@@ -806,12 +795,52 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				}
 			}
 
-			patch_cbLen(&gen->debugS, subsection_base);
-
-			// Each of the above structures are 4-byte aligned
-			f_assert(gen->debugS.buffer.len % 4 == 0); // Subsections must be aligned to 4 byte boundaries
+			end_subsection(gen, subsection_base);
 		}
 	}
+
+	// *** SYMBOLS
+
+	if (gen->desc->globals_count > 0) {
+		u32 subsection_base = begin_subsection(gen, DEBUG_S_SYMBOLS);
+		
+		for (uint i = 0; i < gen->desc->globals_count; i++) {
+			cviewGlobal* global = &gen->desc->globals[i];
+			
+			u32 reclen_offset = (u32)gen->debugS.buffer.len;
+			DATASYM32 sym = {};
+			sym.rectyp = S_GDATA32;
+			sym.typind = types.to_codeview_type_idx[global->type_idx];
+
+			sym.seg = 0; // Section number of the procedure. To be relocated
+			{
+				coffRelocation seg_reloc = {};
+				seg_reloc.offset = reclen_offset + F_OFFSET_OF(DATASYM32, seg);
+				seg_reloc.sym_idx = global->sym_index;
+				seg_reloc.type = IMAGE_REL_AMD64_SECTION; // IMAGE_REL_X_SECTION sets the relocated value to be the section number of the target symbol
+				f_array_push(&gen->debugS_relocs, seg_reloc);
+			}
+
+			sym.off = 0; // Start offset of the function within the section. To be relocated
+			{
+				coffRelocation off_reloc = {};
+				off_reloc.offset = reclen_offset + F_OFFSET_OF(DATASYM32, off);
+				off_reloc.sym_idx = global->sym_index;
+				off_reloc.type = IMAGE_REL_AMD64_SECREL; // IMAGE_REL_X_SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
+				f_array_push(&gen->debugS_relocs, off_reloc);
+			}
+
+			f_prints(gen->debugS.w, { (u8*)&sym, sizeof(sym) - 1 });
+			f_prints(gen->debugS.w, global->name);
+			f_printb(gen->debugS.w, '\0');
+
+			patch_reclen(&gen->debugS, reclen_offset);
+		}
+
+		end_subsection(gen, subsection_base);
+	}
+
+
 
 	// *** SYMBOLS
 	// S_UDT, not sure if this symbol subsection is needed / what it does
@@ -850,12 +879,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 	// *** FILECHKSUMS
 	{
 		// see DumpModFileChecksums (microsoft's pdb source code dump)
-
-		CV_DebugSSubsectionHeader_t subsection_header;
-		subsection_header.type = DEBUG_S_FILECHKSMS;
-		// subsection_header.cbLen
-		f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
-		u32 subsection_base = (u32)gen->debugS.buffer.len;
+		u32 subsection_base = begin_subsection(gen, DEBUG_S_FILECHKSMS);
 
 		for (uint i = 0; i < gen->desc->files_count; i++) {
 			cviewSourceFile* file = &gen->desc->files[i];
@@ -883,24 +907,16 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			f_assert(gen->debugS.buffer.len - len_before == size_of_file_checksum_entry);
 		}
 
-		patch_cbLen(&gen->debugS, subsection_base);
-
-		pad_to_4_bytes_zero(&gen->debugS); // Subsections must be aligned to 4 byte boundaries
+		end_subsection(gen, subsection_base);
 	}
 
 	// *** STRINGTABLE
 
 	{
 		// see DumpModStringTable (microsoft's pdb source code dump)
-
-		CV_DebugSSubsectionHeader_t subsection_header;
-		subsection_header.type = DEBUG_S_STRINGTABLE;
-		f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
-		u32 subsection_base = (u32)gen->debugS.buffer.len;
-
+		u32 subsection_base = begin_subsection(gen, DEBUG_S_STRINGTABLE);
 		f_prints(gen->debugS.w, string_table.slice);
-
-		patch_cbLen(&gen->debugS, subsection_base);
+		end_subsection(gen, subsection_base);
 	}
 }
 

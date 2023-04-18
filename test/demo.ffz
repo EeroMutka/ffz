@@ -19,7 +19,7 @@ globals: struct {
 #draw: proc {
 	// build draw list
 	Draw2D.clear(&globals.canvas)
-	Draw2D.triangle(&globals.canvas, {-0.5, -0.5}, {0.5, -0.5}, {0., 0.5}, {255, 0, 0, 255})
+	Draw2D.triangle(&globals.canvas, {-0.5, -0.5}, {0.5, -0.5}, {0., 0.5}, color: {255, 0, 0, 255})
 	
 	globals.gl.ClearColor(.3, .2, .4, 1.)
 	globals.gl.Clear(GL.COLOR_BUFFER_BIT)

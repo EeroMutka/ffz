@@ -151,7 +151,7 @@ void main() {
 		gl.EnableVertexAttribArray(1)
 	}
 	
-	canvas: Canvas{
+	ret {
 		gl: gl
 		arena: arena
 		vertices: Array.make[Vertex](alc)
@@ -161,7 +161,6 @@ void main() {
 		ebo: ebo
 		vao: vao
 	}
-	ret canvas
 }
 
 #deinit: proc(c: ^Canvas) {

@@ -5,9 +5,9 @@ struct cviewLine {
 	uint32_t offset; // offset into the .text section
 };
 
-typedef uint32_t cviewTypeIdx;
+typedef uint32_t cviewTypeIdx; // index into the `types` array
 
-typedef struct {
+typedef struct cviewStructMember {
 	coffString name;
 	cviewTypeIdx type_idx;
 	uint32_t offset_of_member;
@@ -26,7 +26,7 @@ typedef enum cviewTypeTag {
 	cviewTypeTag_Array,
 } cviewTypeTag;
 
-typedef struct {
+typedef struct cviewEnumField {
 	coffString name;
 	uint32_t value; // values > 2^32 are not supported by Codeview
 } cviewEnumField;
@@ -60,24 +60,30 @@ typedef struct cviewType {
 	};
 } cviewType;
 
-struct cviewLocal {
+typedef struct cviewLocal {
 	coffString name;
 	u32 rsp_rel_offset;
-	cviewTypeIdx type_idx; // index into the `types` array
-};
+	cviewTypeIdx type_idx;
+} cviewLocal;
 
-struct cviewBlock {
+typedef struct cviewBlock {
 	u32 start_offset; // block start offset into the code section. QUESTION: should this include the prologue?
 	u32 end_offset; // block end offset into the code section
 
-	cviewBlock* child_blocks;
+	struct cviewBlock* child_blocks;
 	u32 child_blocks_count;
 
 	cviewLocal* locals;
 	u32 locals_count;
-};
+} cviewBlock;
 
-struct cviewFunction {
+typedef struct cviewGlobal {
+	coffString name;
+	uint32_t sym_index;
+	cviewTypeIdx type_idx;
+} cviewGlobal;
+
+typedef struct cviewFunction {
 	coffString name;
 	uint32_t sym_index;
 	uint32_t section_sym_index; // symbol index of the code section this function belongs to
@@ -92,10 +98,13 @@ struct cviewFunction {
 	u32 lines_count;
 
 	cviewBlock block;
-};
+} cviewFunction;
 
-typedef struct { uint8_t bytes[32]; } coffHashSHA256;
-typedef struct {
+typedef struct coffHashSHA256 {
+	uint8_t bytes[32];
+} coffHashSHA256;
+
+typedef struct cviewSourceFile {
 	coffString filepath;
 
 	// You can find an implementation of the SHA256 hashing algorithm for example in
@@ -111,6 +120,10 @@ struct cviewGenerateDebugInfoDesc {
 
 	cviewFunction* functions;
 	u32 functions_count;
+
+	// NOTE: globals are untested
+	cviewGlobal* globals;
+	u32 globals_count;
 
 	cviewType* types;
 	u32 types_count;
