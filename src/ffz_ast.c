@@ -31,8 +31,7 @@ ffzProject* project_from_parser(ffzParser* p) { return p->source->_module->proje
 
 #define ERR(p, at, fmt, ...) { \
 	p->error = (ffzError){.source = p->source, .location = at, .message = f_aprint(parser_allocator(p), fmt, __VA_ARGS__)}; \
-	f_trap(); \
-	return FFZ_OK; \
+	return (ffzOk){false}; \
 }
 
 #define SLICE_BEFORE(T, slice, mid) (fSliceRaw){(T*)slice.data, (mid)}

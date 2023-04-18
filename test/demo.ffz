@@ -21,7 +21,7 @@ globals: struct {
 	Draw2D.clear(&globals.canvas)
 	
 	//Draw2D.rect(&globals.canvas, Draw2D.Rect{[2]f32{1., 2.}, [2]f32{5., 6.}}, Draw2D.Color{255, 0, 0, 255})
-	Draw2D.triangle(&globals.canvas, [2]f32{-0.5, -0.5}, [2]f32{0.5, -1.}, [2]f32{0., 0.5}, Draw2D.Color{255, 0, 0, 255})
+	Draw2D.triangle(&globals.canvas, [2]f32{-0.5, -0.5}, [2]f32{0.5, -0.5}, [2]f32{0., 0.5}, Draw2D.Color{255, 0, 0, 255})
 	
 	// TODO:
 	// globals.canvas'rect({{1., 2.}, {5., 6.}}, color: {255, 0, 0, 255})

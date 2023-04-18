@@ -79,6 +79,7 @@ static void gen_statement(Gen* g, ffzNode* node);
 static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of);
 
 static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
+	// @memory; we could reuse the names
 	fStringBuilder name;
 	f_init_string_builder(&name, f_temp_alc());
 
@@ -99,7 +100,7 @@ static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 		}
 	}
 	else {
-		f_print(name.w, "_ffz_`u64", g->dummy_name_counter);
+		f_print(name.w, "_ffz_~x64", g->dummy_name_counter);
 		g->dummy_name_counter++;
 	}
 

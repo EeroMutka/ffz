@@ -49,27 +49,37 @@
 #vertex_shader_src: "
 #version 330
 
-layout (location = 0) in vec3 a_position
-layout (location = 1) in vec4 a_color
+layout (location = 0) in vec2 a_position;
+layout (location = 1) in vec2 a_uv;
 
-out vec4 f_color
+//out vec4 f_color;
 
 void main() {
-	f_color = a_color
-	gl_Position = vec4(a_position, 1.0)
+	//f_color = a_uv
+	gl_Position = vec4(a_position, 0, 1.0);
 }
 "
 
 #fragment_shader_src: "
 #version 330
 
-in vec4 f_color
-out vec4 frag_color
+//in vec4 f_color;
+out vec4 frag_color;
 
 void main() {
-	frag_color = f_color
+	frag_color = vec4(1, 0, 0, 1);
 }
 "
+
+#_check_gl_error: proc(gl: ^GL.API) {
+	for, true, {
+		err: gl.GetError()
+		if err == GL.NO_ERROR {
+			ret
+		}
+		dbgbreak
+	}
+}
 
 #compile_shader: proc(gl: ^GL.API, shader_type: GL.GLenum, src: ^u8) => GL.GLuint {
 	shader: gl.CreateShader(shader_type)
@@ -93,11 +103,15 @@ void main() {
 	vs: compile_shader(gl, GL.VERTEX_SHADER, vertex_shader_src.ptr)
 	fs: compile_shader(gl, GL.FRAGMENT_SHADER, fragment_shader_src.ptr)
 	
+	_check_gl_error(gl)
+	
 	// Link the shaders together into a shader program
 	shader_program: gl.CreateProgram()
 	gl.AttachShader(shader_program, vs)
 	gl.AttachShader(shader_program, fs)
 	gl.LinkProgram(shader_program)
+	
+	_check_gl_error(gl)
 	
 	link_success: GL.GLint(0)
 	gl.GetProgramiv(shader_program, GL.LINK_STATUS, &link_success)
@@ -107,15 +121,20 @@ void main() {
 		dbgbreak
 	}
 	
-	// We can safely delete the shaders now that we have the shader program ready
-	gl.DeleteShader(vs)
-	gl.DeleteShader(fs)
+	_check_gl_error(gl)
 	
+	// We can safely delete the shaders now that we have the shader program ready
+	//gl.DeleteShader(vs)
+	//gl.DeleteShader(fs)
+	
+	//gl.UseProgram(shader_program)
 	
 	// Create the vertex array object
 	vao: GL.GLuint(0)
 	gl.GenVertexArrays(1, &vao)
 	gl.BindVertexArray(vao)
+	
+	_check_gl_error(gl)
 	
 	// Create the vertex buffer object
 	vbo: GL.GLuint(0)
@@ -134,6 +153,7 @@ void main() {
 			//  scissor_rect: u32    | offset: 20
 			//  color: Color         | offset: 24
 		*/
+		gl.BindBuffer(GL.ARRAY_BUFFER, vbo)
 		
 		gl.VertexAttribPointer(0, 2, GL.FLOAT, false, size_of(Vertex), ^raw(0))   // position
 		gl.VertexAttribPointer(1, 2, GL.FLOAT, false, size_of(Vertex), ^raw(8))   // uv
@@ -166,6 +186,8 @@ void main() {
 	gl.BufferData(GL.ELEMENT_ARRAY_BUFFER, s64(c.indices.len * size_of(Index)), c.indices.ptr, GL.DYNAMIC_DRAW)
 	
 	gl.DrawElements(GL.TRIANGLES, s32(c.indices.len), GL.UNSIGNED_INT, ^raw(0))
+	
+	_check_gl_error(gl)
 }
 
 #triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color) {
