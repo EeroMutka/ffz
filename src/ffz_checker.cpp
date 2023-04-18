@@ -938,21 +938,16 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 	return FFZ_OK;
 }
 
-static ffzOk check_post_curly_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo* result) {
-	ffzNode* left = node->Op.left;
-	
-	TRY(check_node(c, left, NULL, 0));
-	TRY(verify_is_type_expression(c, left));
-	
-	result->type = left->checked.constant->type;
+static ffzOk check_initializer(ffzModule* c, ffzType* type, ffzNode* node, ffzCheckInfo* result) {
+	result->type = type;
 
-	if (result->type->tag == ffzTypeTag_Proc) {
+	if (type->tag == ffzTypeTag_Proc) {
 		result->constant = make_constant(c);
 		result->constant->node = node;
 	}
-	else if (result->type->tag == ffzTypeTag_FixedArray) {
+	else if (type->tag == ffzTypeTag_FixedArray) {
 		// Array literal
-		ffzType* elem_type = result->type->FixedArray.elem_type;
+		ffzType* elem_type = type->FixedArray.elem_type;
 
 		fArray(ffzNode*) elems = f_array_make<ffzNode*>(f_temp_alc());
 		bool all_elems_are_constant = true;
@@ -963,7 +958,7 @@ static ffzOk check_post_curly_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo
 			all_elems_are_constant = all_elems_are_constant && n->checked.constant != NULL;
 		}
 		
-		s32 expected = result->type->FixedArray.length;
+		s32 expected = type->FixedArray.length;
 		if (expected < 0) { // make a new type if [?]
 			result->type = ffz_make_type_fixed_array(c, elem_type, (s32)elems.len);
 		}
@@ -981,9 +976,8 @@ static ffzOk check_post_curly_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo
 			result->constant->fixed_array_elems = ptr;
 		}
 	}
-	else if (result->type->tag == ffzTypeTag_Record || ffz_type_is_slice_ish(result->type->tag)) {
-		ffzType* type = result->type;
-		if (result->type->tag == ffzTypeTag_Record && type->Record.is_union) {
+	else if (type->tag == ffzTypeTag_Record || ffz_type_is_slice_ish(type->tag)) {
+		if (type->tag == ffzTypeTag_Record && type->Record.is_union) {
 			ERR(node, "Union initialization with {} is not currently supported.");
 		}
 		
@@ -991,11 +985,10 @@ static ffzOk check_post_curly_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo
 		TRY(check_argument_list(c, node, type->record_fields, result));
 	}
 	else {
-		ERR(node, "{}-initializer is not allowed for `~s`.", ffz_type_to_string(c->project, result->type));
+		ERR(node, "{}-initializer is not allowed for `~s`.", ffz_type_to_string(c->project, type));
 	}
 	return FFZ_OK;
 }
-
 
 
 //
@@ -1143,11 +1136,6 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 
 	ffzCheckInfo left_chk = left->checked;
 	if (left_chk.type->tag == ffzTypeTag_PolyExpr) {
-		//F_HITS(__c, 4);
-		//F_HITS(__c2, 13);
-
-		// so per node, should we store the polymorph source index?
-
 		fArray(ffzConstant) params = f_array_make<ffzConstant>(c->alc);
 
 		for FFZ_EACH_CHILD(arg, node) {
@@ -1831,8 +1819,14 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	case ffzNodeKind_Return: { TRY(check_return(c, node, &result)); } break;
 
 	case ffzNodeKind_Scope: {
-		TRY(add_possible_definitions_to_scope(c, node, node));
-		// post-check the scope so that get_scope() can be called by the children
+		if (require_type == NULL) {
+			TRY(add_possible_definitions_to_scope(c, node, node));
+			// post-check the scope
+		}
+		else {
+			// type-inferred initializer
+			TRY(check_initializer(c, require_type, node, &result));
+		}
 	} break;
 
 	case ffzNodeKind_PolyExpr: {
@@ -1977,7 +1971,10 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	case ffzNodeKind_ProcType: { TRY(check_proc_type(c, node, &result)); } break;
 	
 	case ffzNodeKind_PostCurlyBrackets: {
-		TRY(check_post_curly_brackets(c, node, &result));
+		ffzNode* left = node->Op.left;
+		TRY(check_node(c, left, NULL, 0));
+		TRY(verify_is_type_expression(c, left));
+		TRY(check_initializer(c, left->checked.constant->type, node, &result));
 	} break;
 	
 	case ffzNodeKind_PostSquareBrackets: {
@@ -2130,24 +2127,30 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	// This gives more freedom to the children to use utilities, such as get_scope() which requires the parents to be checked.
 	
 	if (!child_already_fully_checked_us) {
-		if (node->kind == ffzNodeKind_Scope) {
-			for FFZ_EACH_CHILD(n, node) {
-				TRY(check_node(c, n, NULL, flags));
+		switch (node->kind) {
+		case ffzNodeKind_Scope: {
+			if (require_type == NULL) {
+				for FFZ_EACH_CHILD(n, node) {
+					TRY(check_node(c, n, NULL, flags));
+				}
 			}
-		}
-		else if (node->kind == ffzNodeKind_If) {
+		} break;
+		
+		case ffzNodeKind_If: {
 			TRY(check_node(c, node->If.condition, ffz_builtin_type(c, ffzKeyword_bool), 0));
 			TRY(check_node(c, node->If.true_scope, NULL, InferFlag_Statement));
-			
+
 			fOpt(ffzNode*) false_scope = node->If.false_scope;
 			if (false_scope) {
 				TRY(check_node(c, false_scope, NULL, InferFlag_Statement));
 			}
-		}
-		else if (node->kind == ffzNodeKind_Enum) {
+		} break;
+		
+		case ffzNodeKind_Enum: {
 			TRY(post_check_enum(c, node));
-		}
-		else if (node->kind == ffzNodeKind_For) {
+		} break;
+		
+		case ffzNodeKind_For: {
 			TRY(add_possible_definition_to_scope(c, node, node->For.header_stmts[0]));
 
 			for (u32 i = 0; i < 3; i++) {
@@ -2163,25 +2166,13 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			}
 
 			TRY(check_node(c, node->For.scope, NULL, InferFlag_Statement));
-		}
-		else if (node->kind == ffzNodeKind_Declare) {
+		} break;
+		
+		case ffzNodeKind_Declare: {
 			TRY(check_node(c, node->Op.left, NULL, 0));
-		}
-		else if (node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) {
-			// ignore extern procs.
-			// It's a bit weird how the extern tag turns a type declaration into a value declaration. Maybe this should be changed.
-			if (node->kind != ffzNodeKind_ProcType) {
-				TRY(add_possible_definitions_to_scope(c, node, node));
+		} break;
 
-				// only check the procedure body when we have a physical procedure instance (not polymorphic)
-				// and after the proc type has been cached.
-
-				for FFZ_EACH_CHILD(n, node) {
-					TRY(check_node(c, n, NULL, InferFlag_Statement));
-				}
-			}
-		}
-		else if (node->kind == ffzNodeKind_Record) {
+		case ffzNodeKind_Record: {
 			//if (node->loc.start.line_num == 254) f_trap();
 			TRY(add_possible_definitions_to_scope(c, node, node));
 
@@ -2195,16 +2186,33 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			for FFZ_EACH_CHILD(n, node) {
 				if (n->kind != ffzNodeKind_Declare) ERR(n, "Expected a declaration.");
 				fString name = ffz_decl_get_name(n);
-				
+
 				TRY(check_node(c, n, NULL, InferFlag_Statement));
 				TRY(verify_is_constant(c, n));
-				
+
 				ffzType* field_type = n->checked.type->tag == ffzTypeTag_Type ? n->checked.constant->type : n->checked.type;
 				fOpt(ffzConstantData*) default_value = n->checked.type->tag == ffzTypeTag_Type ? NULL : n->checked.constant;
-				
+
 				ffz_record_builder_add_field(&b, name, field_type, default_value, n);
 			}
 			TRY(ffz_record_builder_finish(&b));
+		} break;
+
+		default:
+			if (node->checked.type && node->checked.type->tag == ffzTypeTag_Proc) {
+				// ignore extern procs.
+				// It's a bit weird how the extern tag turns a type declaration into a value declaration. Maybe this should be changed.
+				if (node->kind != ffzNodeKind_ProcType) {
+					TRY(add_possible_definitions_to_scope(c, node, node));
+
+					// only check the procedure body when we have a physical procedure instance (not polymorphic)
+					// and after the proc type has been cached.
+
+					for FFZ_EACH_CHILD(n, node) {
+						TRY(check_node(c, n, NULL, InferFlag_Statement));
+					}
+				}
+			}
 		}
 	}
 

@@ -157,9 +157,9 @@ static bool has_big_return(ffzType* proc_type) {
 }
 
 // optionally set debug-info location
-static void set_loc(Gen* g, gmmcOpIdx op, ffzNode* node) {
+static void set_loc(Gen* g, gmmcOpIdx op, ffzNode* loc_of_node) {
 	if (!gmmc_is_op_direct(g->proc, op)) {
-		u32 line_num = g->override_line_num ? *g->override_line_num : node->loc.start.line_num;
+		u32 line_num = g->override_line_num ? *g->override_line_num : loc_of_node->loc.start.line_num;
 		line_num -= g->proc_info->node->loc.start.line_num;
 		
 		gmmcOpIdx* line_op = &g->proc_info->dbginfo_line_ops[line_num];
@@ -584,6 +584,55 @@ static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* typ
 	return result;
 }
 
+static gmmcOpIdx gen_initializer(Gen* g, ffzType* type, ffzNode* node) {
+	gmmcOpIdx out = gmmc_op_local(g->proc, type->size, type->align);
+
+	if (type->tag == ffzTypeTag_FixedArray) {
+		u32 i = 0;
+		ffzType* elem_type = type->FixedArray.elem_type;
+		for FFZ_EACH_CHILD(n, node) {
+			gmmcOpIdx src = gen_expr(g, n, false);
+			gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
+			gen_store(g, dst_ptr, src, elem_type, n);
+			i++;
+		}
+	}
+	else {
+		fSlice(ffzField) fields = type->record_fields;
+
+		fSlice(fOpt(ffzNode*)) arguments;
+		ffz_get_arguments_flat(node, fields, &arguments, f_temp_alc());
+
+		// First memset to zero, then fill out the fields that are non-zero
+		// TODO: only do this memset if there's any padding!
+		gmmc_op_memset(g->bb, out, gmmc_op_i8(g->proc, 0), gmmc_op_i32(g->proc, type->size));
+
+		for (uint i = 0; i < fields.len; i++) {
+			ffzField& field = fields[i];
+			fOpt(ffzNode*) arg = arguments[i];
+
+			gmmcOpIdx src;
+			if (arg == NULL) { // use default value
+				if (ffz_constant_is_zero(field.default_value)) continue;
+				src = gen_constant(g, field.type, &field.default_value, false);
+			}
+			else {
+				if (arg->checked.constant) {
+					if (ffz_constant_is_zero(*arg->checked.constant)) continue;
+					src = gen_constant(g, field.type, arg->checked.constant, false);
+				}
+				else {
+					src = gen_expr(g, arg, false);
+				}
+			}
+
+			gmmcOpIdx field_addr = gmmc_op_member_access(g->bb, out, field.offset);
+			gen_store(g, field_addr, src, field.type, node);
+		}
+	}
+	return out;
+}
+
 #define UNDEFINED_VALUE GMMC_OP_IDX_INVALID
 //
 // NOTE: this will return UNDEFINED_VALUE in case of an undefined value.
@@ -803,55 +852,8 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		} break;
 
 		case ffzNodeKind_PostCurlyBrackets: {
-			
-			out = gmmc_op_local(g->proc, node->checked.type->size, node->checked.type->align);
-
-			if (node->checked.type->tag == ffzTypeTag_FixedArray) {
-				u32 i = 0;
-				ffzType* elem_type = node->checked.type->FixedArray.elem_type;
-				for FFZ_EACH_CHILD(n, node) {
-					gmmcOpIdx src = gen_expr(g, n, false);
-					gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
-					gen_store(g, dst_ptr, src, elem_type, node);
-					i++;
-				}
-			}
-			else {
-				fSlice(ffzField) fields = node->checked.type->record_fields;
-				
-				fSlice(ffzNode*) arguments;
-				ffz_get_arguments_flat(node, fields, &arguments, f_temp_alc());
-
-				// First memset to zero, then fill out the fields that are non-zero
-				gmmc_op_memset(g->bb, out, gmmc_op_i8(g->proc, 0), gmmc_op_i32(g->proc, node->checked.type->size));
-
-				for (uint i = 0; i < fields.len; i++) {
-					ffzField& field = fields[i];
-					ffzNode* arg = arguments[i];
-
-					gmmcOpIdx src;
-					if (arg == NULL) { // use default value
-						if (ffz_constant_is_zero(field.default_value)) continue;
-						src = gen_constant(g, field.type, &field.default_value, false);
-					}
-					else {
-						if (arg->checked.constant) {
-							if (ffz_constant_is_zero(*arg->checked.constant)) continue;
-							src = gen_constant(g, field.type, arg->checked.constant, false);
-						} else {
-							src = gen_expr(g, arg, false);
-						}
-					}
-
-					gmmcOpIdx field_addr = gmmc_op_member_access(g->bb, out, field.offset);
-					gen_store(g, field_addr, src, field.type, node);
-				}
-			}
-			
+			out = gen_initializer(g, node->checked.type, node);
 			should_dereference = !address_of;
-			//if (!address_of && checked.type->size <= 8) {
-			//	out = load_small(g, out, checked.type->size);
-			//}
 		} break;
 
 		case ffzNodeKind_PostSquareBrackets: {
@@ -938,6 +940,11 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	}
 	else {
 		switch (node->kind) {
+		case ffzNodeKind_Scope: {
+			// type-inferred initializer
+			out = gen_initializer(g, node->checked.type, node);
+			should_dereference = !address_of;
+		} break;
 		case ffzNodeKind_Identifier: {
 			ffzNodeIdentifier* def = ffz_find_definition(node);
 			if (def->Identifier.is_constant) f_trap();

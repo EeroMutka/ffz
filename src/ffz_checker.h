@@ -887,10 +887,10 @@ fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module);
 // 
 // Given an argument list (either a post-curly-brackets initializer or a procedure call) that might contain
 // both unnamed as well as named arguments, this procedure will give the arguments
-// in a flat list in the same order as the `fields` array. Note that some arguments might not exist,
-// so those will have just have the default value of ffzNodeInst{}
+// in a flat list in the same order as the `fields` array. Note that some arguments might not exist -
+// those elements will be set to NULL.
 // 
-void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(ffzNode*)* out_arguments, fAllocator* alc);
+void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(fOpt(ffzNode*))* out_arguments, fAllocator* alc);
 
 bool ffz_constant_is_zero(ffzConstantData constant);
 
