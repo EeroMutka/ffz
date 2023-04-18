@@ -103,15 +103,11 @@ void main() {
 	vs: compile_shader(gl, GL.VERTEX_SHADER, vertex_shader_src.ptr)
 	fs: compile_shader(gl, GL.FRAGMENT_SHADER, fragment_shader_src.ptr)
 	
-	_check_gl_error(gl)
-	
 	// Link the shaders together into a shader program
 	shader_program: gl.CreateProgram()
 	gl.AttachShader(shader_program, vs)
 	gl.AttachShader(shader_program, fs)
 	gl.LinkProgram(shader_program)
-	
-	_check_gl_error(gl)
 	
 	link_success: GL.GLint(0)
 	gl.GetProgramiv(shader_program, GL.LINK_STATUS, &link_success)
@@ -121,20 +117,14 @@ void main() {
 		dbgbreak
 	}
 	
-	_check_gl_error(gl)
-	
 	// We can safely delete the shaders now that we have the shader program ready
-	//gl.DeleteShader(vs)
-	//gl.DeleteShader(fs)
-	
-	//gl.UseProgram(shader_program)
+	gl.DeleteShader(vs)
+	gl.DeleteShader(fs)
 	
 	// Create the vertex array object
 	vao: GL.GLuint(0)
 	gl.GenVertexArrays(1, &vao)
 	gl.BindVertexArray(vao)
-	
-	_check_gl_error(gl)
 	
 	// Create the vertex buffer object
 	vbo: GL.GLuint(0)
@@ -172,6 +162,14 @@ void main() {
 		vao: vao
 	}
 	ret canvas
+}
+
+#deinit: proc(c: ^Canvas) {
+	gl: c.gl
+	gl.DeleteBuffers(1, &c.ebo)
+	gl.DeleteBuffers(1, &c.vbo)
+	gl.DeleteVertexArrays(1, &c.vao)
+	gl.DeleteProgram(c.shader_program)
 }
 
 #draw_to_backend: proc(c: ^Canvas) {

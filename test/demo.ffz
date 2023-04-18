@@ -48,8 +48,6 @@ globals: struct {
 	
 	globals.canvas = Draw2D.init(gl, Basic.temp_arena())
 	
-	//Draw2D.rect(&canvas, Draw2D.Rect{[2]f32{1, 2}, [2]f32{5, 6}})
-	
 	Window.show(globals.window)
 	
 	i: 0
