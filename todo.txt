@@ -20,6 +20,7 @@
 - Ray tracer demo program
 - Game of life
 - Chess game, maybe even 3d? That would be pretty cool!
+- 2D physics simulation
 - tetris? breakout? pong? snake?
 
 Future:

@@ -480,10 +480,10 @@ typedef struct ffzConstantData {
 		// You can use ffz_constant_fixed_array_get() to get an element from it.
 		fOpt(void*) fixed_array_elems; // or NULL for zero-initialized
 
-		// `proc-type` if extern proc, otherwise `post-curly-brackets`.
-		// Currently, procedure definitions are actually categorized as "operators" in the AST,
-		// because they have the form of `procedure_type{}`, which might seem a bit strange.
-		ffzNode* proc_node;
+		// for procedures and poly-expressions.
+		// NOTE: When an extern procedure, `node` will point to the ProcType node that is tagged @extern,
+		// since there is no procedure body.
+		ffzNode* node;
 
 		fSlice(ffzConstantData) record_fields; // or empty for zero-initialized
 	};
@@ -688,8 +688,7 @@ FFZ_CAPI void ffz_remove_node(ffzCursor* at);
 // clones `node` into the module `m`. It will be added to the `extra_nodes` source.
 FFZ_CAPI ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node);
 
-//FFZ_CAPI ffzNode* ffz_new_node(ffzSource* s, ffzNodeKind kind);
-FFZ_CAPI ffzNode* ffz_module_new_node(ffzModule* m, ffzNodeKind kind);
+FFZ_CAPI ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind);
 
 // Helper functions for getting a cursor to a secondary child node
 inline ffzCursor ffz_cursor_poly_expr(ffzNode* node) { ffzCursor c = { node, &node->PolyExpr.expr }; return c; }
@@ -820,8 +819,12 @@ ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
 // C. Compile a program that contains `#return_error: proc(err: string) { trap() }`, then replace all calls
 // to that procedure with a return statement that returns the first argument
 // 
+// D. Tool to rename an identifier - get the identifier at line+column and rename all references to that identifier.
+//    It'd be cool to be able to quickly write code-modifying tools like this. It'd be nice if the code was preserved
+//    perfectly otherwise when AST printing (comments, whitespace, underscores in numeric literals, etc)
+// 
 // Now something that requires some polymorphism!
-// D. find all casts that cast from u16 -> u8 and insert a runtime if-check that traps if the
+// E. find all casts that cast from u16 -> u8 and insert a runtime if-check that traps if the
 //    value doesn't fit.
 // 
 //

@@ -33,7 +33,7 @@ _temp_arena_tls_index: u32(0)
 #ArenaMark: struct {head: ^u8}
 
 #Arena: struct {
-	@*using allocator: Allocator // NOTE: must be the first field for downcasting!
+	@*using allocator: Allocator // NOTE: must be the first field for downcasting! (see `arena_alc`)
 	
 	system_page_size: u32 // practically always 4 KiB
 	
@@ -64,6 +64,8 @@ _temp_arena_tls_index: u32(0)
 #U64_MAX: 0xffffffffffffffff
 
 #AllocatorProc: proc(allocator: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => ^raw
+
+#arena_alc: proc(arena: ^Arena) => ^Allocator { ret ^Allocator(arena) }
 
 #arena_allocator_proc: AllocatorProc {
 	is_pow: is_power_of_2[uint](in.align)
@@ -272,7 +274,11 @@ _temp_arena_tls_index: u32(0)
 	assert(WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), str.ptr, u32(str.len), &num_chars_written, ^raw(0)) != 0)
 }
 
-#temp_alc: proc() => ^Allocator {
+#temp_arena: proc => ^Arena {
+	ret ^Arena(TlsGetValue(_temp_arena_tls_index))
+}
+
+#temp_alc: proc => ^Allocator {
 	ret ^Allocator(TlsGetValue(_temp_arena_tls_index))
 }
 
@@ -293,9 +299,9 @@ _temp_arena_tls_index: u32(0)
 	
 	// Deterministic base-address. hmm... this won't work with multiple threads.
 	temp_arena_base: ^u8(TiB(2))
-	temp_arena: arena_make_virtual_reserve_fixed(MiB(2), temp_arena_base)
+	arena: arena_make_virtual_reserve_fixed(MiB(2), temp_arena_base)
 	_temp_arena_tls_index = TlsAlloc()
-	assert(TlsSetValue(_temp_arena_tls_index, temp_arena) != 0)
+	assert(TlsSetValue(_temp_arena_tls_index, arena) != 0)
 }
 
 #thread_deinit_basic: proc() {

@@ -1,0 +1,186 @@
+// OpenGL drawing backend
+
+#Draw2D: import("../") // common declarations
+
+// hmm... maybe we should implement @using for import? IDK! I do like the explicitness.
+#GL: Draw2D.GL
+#Basic: Draw2D.Basic
+#Color: Draw2D.Color
+#Vec2: Draw2D.Vec2
+#Rect: Draw2D.Rect
+#ScissorID: Draw2D.ScissorID
+#DEFAULT_TEXCOORDS: Draw2D.DEFAULT_TEXCOORDS
+
+#Array: import(":Array")
+
+#Vertex: struct {
+	position: Vec2
+	uv: Vec2 // this could be packed better if we wanted to
+
+	// The last bit is the primitive type:
+	//   0: Textured triangles
+	//      The first 31 bits are the texture binding slot
+	//   1: SoftRect
+	//      The first 31 bits are the soft rect offset
+	//info: u32
+	
+	//scissor_rect: u32
+	//color: Color
+}
+
+#Index: u32
+
+#Canvas: struct {
+	gl: ^GL.API
+	arena: ^Basic.Arena
+	
+	vertices: Array.Array[Vertex]
+	indices: Array.Array[Index]
+	
+	//current_scissor: ScissorID
+	
+	shader_program: GL.GLuint
+	
+	vbo: GL.GLuint
+	ebo: GL.GLuint
+	vao: GL.GLuint
+}
+
+#vertex_shader_src: "
+#version 330
+
+layout (location = 0) in vec3 a_position
+layout (location = 1) in vec4 a_color
+
+out vec4 f_color
+
+void main() {
+	f_color = a_color
+	gl_Position = vec4(a_position, 1.0)
+}
+"
+
+#fragment_shader_src: "
+#version 330
+
+in vec4 f_color
+out vec4 frag_color
+
+void main() {
+	frag_color = f_color
+}
+"
+
+#compile_shader: proc(gl: ^GL.API, shader_type: GL.GLenum, src: ^u8) => GL.GLuint {
+	shader: gl.CreateShader(shader_type)
+	gl.ShaderSource(shader, 1, &src, ^GL.GLint(0))
+	gl.CompileShader(shader)
+	
+	success: GL.GLint(0)
+	gl.GetShaderiv(shader, GL.COMPILE_STATUS, &success)
+	if success == 0 {
+		vs_log: [512]GL.GLchar(~~)
+		gl.GetShaderInfoLog(shader, 512, ^GL.GLsizei(0), &vs_log[0])
+		dbgbreak
+	}
+	ret shader
+}
+
+
+#init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas {
+	alc: Basic.arena_alc(arena)
+	
+	vs: compile_shader(gl, GL.VERTEX_SHADER, vertex_shader_src.ptr)
+	fs: compile_shader(gl, GL.FRAGMENT_SHADER, fragment_shader_src.ptr)
+	
+	// Link the shaders together into a shader program
+	shader_program: gl.CreateProgram()
+	gl.AttachShader(shader_program, vs)
+	gl.AttachShader(shader_program, fs)
+	gl.LinkProgram(shader_program)
+	
+	link_success: GL.GLint(0)
+	gl.GetProgramiv(shader_program, GL.LINK_STATUS, &link_success)
+	if link_success == 0 {
+		log: [512]u8(~~)
+		gl.GetProgramInfoLog(shader_program, 512, ^GL.GLsizei(0), &log[0])
+		dbgbreak
+	}
+	
+	// We can safely delete the shaders now that we have the shader program ready
+	gl.DeleteShader(vs)
+	gl.DeleteShader(fs)
+	
+	
+	// Create the vertex array object
+	vao: GL.GLuint(0)
+	gl.GenVertexArrays(1, &vao)
+	gl.BindVertexArray(vao)
+	
+	// Create the vertex buffer object
+	vbo: GL.GLuint(0)
+	gl.GenBuffers(1, &vbo)
+	
+	// Create the element buffer object
+	ebo: GL.GLuint(0)
+	gl.GenBuffers(1, &ebo)
+	
+	// Specify the vertex layout
+	{
+		/*
+			position: Vec2     | offset: 0
+			uv: Vec2           | offset: 8
+			//  info: u32            | offset: 16
+			//  scissor_rect: u32    | offset: 20
+			//  color: Color         | offset: 24
+		*/
+		
+		gl.VertexAttribPointer(0, 2, GL.FLOAT, false, size_of(Vertex), ^raw(0))   // position
+		gl.VertexAttribPointer(1, 2, GL.FLOAT, false, size_of(Vertex), ^raw(8))   // uv
+		gl.EnableVertexAttribArray(0)
+		gl.EnableVertexAttribArray(1)
+	}
+	
+	canvas: Canvas{
+		gl: gl
+		arena: arena
+		vertices: Array.make[Vertex](alc)
+		indices: Array.make[Index](alc)
+		shader_program: shader_program
+		vbo: vbo
+		ebo: ebo
+		vao: vao
+	}
+	ret canvas
+}
+
+#draw_to_backend: proc(c: ^Canvas) {
+	gl: c.gl
+	gl.UseProgram(c.shader_program)
+	gl.BindVertexArray(c.vao)
+	
+	gl.BindBuffer(GL.ARRAY_BUFFER, c.vbo)
+	gl.BufferData(GL.ARRAY_BUFFER, s64(c.vertices.len * size_of(Vertex)), c.vertices.ptr, GL.DYNAMIC_DRAW)
+	
+	gl.BindBuffer(GL.ELEMENT_ARRAY_BUFFER, c.ebo)
+	gl.BufferData(GL.ELEMENT_ARRAY_BUFFER, s64(c.indices.len * size_of(Index)), c.indices.ptr, GL.DYNAMIC_DRAW)
+	
+	gl.DrawElements(GL.TRIANGLES, s32(c.indices.len), GL.UNSIGNED_INT, ^raw(0))
+}
+
+#triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color) {
+	first_vertex: Index(c.vertices.len)
+	
+	Array.push[Vertex](&c.vertices, Vertex{p1, uv: Vec2{0., 0.}})
+	Array.push[Vertex](&c.vertices, Vertex{p2, uv: Vec2{0., 0.}})
+	Array.push[Vertex](&c.vertices, Vertex{p3, uv: Vec2{0., 0.}})
+	
+	Array.push[Index](&c.indices, first_vertex)
+	Array.push[Index](&c.indices, first_vertex + 1)
+	Array.push[Index](&c.indices, first_vertex + 2)
+}
+
+#clear: proc(c: ^Canvas) {
+	Array.clear[Vertex](&c.vertices)
+	Array.clear[Index](&c.indices)
+}

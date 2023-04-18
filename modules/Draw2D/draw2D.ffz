@@ -1,0 +1,80 @@
+
+// Simple 2D drawing library.
+// Gives you the ability to draw basic primitives such as rectangles, circles, and text.
+
+#GL: import(":OpenGL")
+#Basic: import(":Basic")
+
+#Color: struct {r: u8, g: u8, b: u8, a: u8}
+
+#Vec2: [2]f32
+
+#Rect: struct {
+	pos: Vec2
+	size: Vec2
+}
+
+#ScissorID: u32
+
+#DEFAULT_TEXCOORDS: Rect{Vec2{0., 0.}, Vec2{1., 1.}}
+
+/* -- API ------------------------------------
+
+#init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas
+#deinit: proc(c: ^Canvas)
+#clear: proc(c: ^Canvas)
+
+
+// NOTE: modifies OpenGL state
+#draw_to_backend: proc(c: ^Canvas)
+
+#triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color)
+#rect:     proc(c: ^Canvas, rect: Rect, color: Color)
+#rect:     proc(c: ^Canvas, rect: Rect, color: Color, tex_coords: DEFAULT_TEXCOORDS, texture: ^Texture(0))
+#circle:   proc(c: ^Canvas, p: Vec2, radius: f32, color: Color, edge_softness: f32(0.), border_thickness: f32)
+
+*/
+
+
+// TODO: auto-incrementing enums
+//#AnchorV: enum, u32 {Top, Middle, Bottom}
+//#AnchorH: enum, u32 {Left, Middle, Right}
+
+//#Anchor: struct{v: AnchorV.Top, h: AnchorH.Left}
+
+// #Canvas: struct
+
+
+
+
+
+
+// colors correspond to {x0y0, x1y0, x1y1, x0y1}
+// #rect_ex(c: ^Canvas, rect: Rect, colors: [4]Color, corner_radius: f32 = 0.f, edge_softness: f32 = 0.f, border_thickness: f32 = F32_MAX)
+
+
+// #make_scissor: proc(c: ^Canvas, rect: Rect) => ScissorID
+// #get_scissor:  proc(c: ^Canvas) => ScissorID
+// #set_scissor:  proc(c: ^Canvas, id: ScissorID)
+
+//#convex_polygon: proc(points: []Vec2, color: Color)
+//#point: proc(p: Vec2, thickness: f32, color: Color)
+//#line: proc(a: Vec2, b: Vec2, thickness: f32, color: Color)
+//#text: proc(String text, LT_Font* font, p: Vec2, anchor: Anchor{}, color: WHITE)
+//#polyline: proc(points: []Vec2, thickness: f32, color: Color)
+
+//LT_draw2d_line_3d(const hmm_mat4& ws_to_proj, hmm_vec3 a, hmm_vec3 b, thickness: f32, color: Color)
+//LT_draw2d_point_3d(const hmm_mat4& ws_to_proj, hmm_vec3 p, thickness: f32, color: Color)
+//LT_draw2d_arrow_3d(const hmm_mat4& ws_to_proj, hmm_vec3 tail, hmm_vec3 head, thickness: f32, color: Color)
+//LT_draw2d_text_3d(const hmm_mat4& ws_to_proj, String text, LT_Font* font, hmm_vec3 p, LT_TextOriginH origin_h, LT_TextOriginV origin_v, color: Color)
+//LT_draw2d_box_3d(const hmm_mat4& ws_to_proj, hmm_vec3 box_min, hmm_vec3 box_max, thickness: f32, color: Color)
+
+//LT_rune_width: f32(rune r, LT_Font* font)
+//LT_text_width: f32(String text, LT_Font* font)
+//LT_text_height: f32(LT_Font* font)
+//LT_text_dimensions(String str, LT_Font* font)
+
+//LT_Font* LT_make_font()
+//LT_font_params(LT_Font* font, Slice<u8> font_data, size: f32, y_offset: f32)
+//LT_rebuild_font_atlas()
+

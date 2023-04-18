@@ -31,6 +31,7 @@ ffzProject* project_from_parser(ffzParser* p) { return p->source->_module->proje
 
 #define ERR(p, at, fmt, ...) { \
 	p->error = (ffzError){.source = p->source, .location = at, .message = f_aprint(parser_allocator(p), fmt, __VA_ARGS__)}; \
+	f_trap(); \
 	return FFZ_OK; \
 }
 
@@ -668,6 +669,10 @@ void ffz_replace_node(ffzCursor* at, ffzNode* with) {
 	*at->pp_node = with;
 }
 
+//#ifdef _DEBUG
+//static uint __nodes_memory_usage = 0;
+//#endif
+
 ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange loc, ffzNodeKind kind) {
 	ffzNode* node = f_mem_clone(_ffz_node_default, p->alc);
 	node->_module = p->source->_module;
@@ -675,10 +680,11 @@ ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange loc, ffzNodeKind ki
 	node->loc_source = p->source;
 	node->parent = parent;
 	node->loc = loc;
+	//__nodes_memory_usage += sizeof(ffzNode);
 	return node;
 }
 
-ffzNode* ffz_module_new_node(ffzModule* m, ffzNodeKind kind) {
+ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
 	ffzNode* node = f_mem_clone(_ffz_node_default, m->alc);
 	node->_module = m;
 	node->kind = kind;
@@ -950,7 +956,6 @@ static ffzOk parse_enum(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange 
 
 static ffzOk parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, bool is_union, ffzNodeRecord** out) {
 	ffzNodeRecord* node = new_node(p, parent, range, ffzNodeKind_Record);
-	//TRY(maybe_parse_polymorphic_parameter_list(p, loc, node, &node->Record.polymorphic_parameters));
 
 	TRY(eat_expected_token(p, loc, F_LIT("{")));
 	TRY(parse_children(p, loc, node, '}'));
@@ -1119,8 +1124,6 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			break;
 		}
 		
-		//if (f_str_equals(tok.str, F_LIT(".55202"))) f_trap();
-
 		if (!node) {
 			if (f_str_equals(tok.str, F_LIT("if"))) {
 				// TOOD: I think we should make if, for, etc keywords and call parse_if, parse_for, etc from the keyword codepath

@@ -263,6 +263,10 @@
 	array.allocator._proc(array.allocator, array.ptr, array.capacity*size_of(T), 0, 0)
 }
 
+#clear: poly[T] proc(array: ^Array[T]) {
+	array.len = 0
+}
+
 #push: poly[T] proc(array: ^Array[T], elem: T) {
 	push_n_raw(^Array[raw](array), &elem, 1, size_of(T), align_of(T))
 }

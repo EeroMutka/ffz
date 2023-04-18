@@ -84,8 +84,7 @@ void log_pretty_error(ffzError error, fString kind) {
 			f_os_print_color(F_LIT("^"), fConsoleAttribute_Red);
 		}
 	}
-
-	f_trap();
+	f_os_print(F_LIT("\n"));
 }
 
 inline void log_pretty_syntax_error(ffzError error) { log_pretty_error(error, F_LIT("Syntax error ")); }
@@ -122,8 +121,9 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	}
 
 	if (!module->checked) {
+		//F_HITS(__c, 2);
 		if (!ffz_module_resolve_imports_(module,
-			[](fString path, void* userdata) -> ffzModule* {
+			[](fString path, void* userdata) -> fOpt(ffzModule*) {
 				ffzModule* module = (ffzModule*)userdata;
 
 				// `:` means that the path is relative to the modules directory shipped with the compiler
@@ -137,7 +137,7 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 					}
 				}
 
-				ffzModule* imported = parse_and_check_directory(module->project, path);
+				fOpt(ffzModule*) imported = parse_and_check_directory(module->project, path);
 				int _ = 50;
 				return imported;
 			}, module).ok)
@@ -206,6 +206,11 @@ int main(int argc, const char* argv[]) {
 		return 1;
 	}
 #elif defined(FFZ_BUILD_INCLUDE_GMMC)
+	
+	// hmm.. if we want to reduce memory usage / increase cache efficiency and speed, I think we could
+	// consider building a procedure after right after checking it, then throwing away the AST nodes.
+	// Or maybe only do that for GMMC nodes.
+
 	if (!ffz_backend_gen_executable_gmmc(root_module, build_dir, project_name)) {
 		return 1;
 	}

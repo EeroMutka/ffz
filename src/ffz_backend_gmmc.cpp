@@ -394,8 +394,8 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 
 	case ffzTypeTag_Proc: {
 		memset(base + offset, 0, 8);
-		if (data->proc_node) {
-			gmmcSymbol* proc_sym = get_proc_symbol(g, data->proc_node);
+		if (data->node) {
+			gmmcSymbol* proc_sym = get_proc_symbol(g, data->node);
 			gmmc_global_add_relocation(global, offset, proc_sym);
 		}
 	} break;
@@ -477,7 +477,7 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* data, bool
 
 	case ffzTypeTag_Proc: {
 		f_assert(!address_of);
-		out = gmmc_op_addr_of_symbol(g->proc, get_proc_symbol(g, data->proc_node));
+		out = gmmc_op_addr_of_symbol(g->proc, get_proc_symbol(g, data->node));
 	} break;
 
 	case ffzTypeTag_Pointer: // fallthrough

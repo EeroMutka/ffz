@@ -38,6 +38,18 @@ void* _f_stdout_handle;
 
 #define SEPARATOR_CHARS F_LIT("/\\")
 
+uint round_up_to_power_of_2(uint x) {
+	// https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+	x--;
+	x |= x >> 1;
+	x |= x >> 2;
+	x |= x >> 4;
+	x |= x >> 8;
+	x |= x >> 16;
+	x |= x >> 32;
+	return x + 1;
+}
+
 typedef struct {
 	u8 bytes[32];
 } ASCII_Set;
@@ -623,9 +635,12 @@ fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a) {
 
 void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size) {
 	if (capacity > array->capacity) {
+		// the + 7 is to make us start off with 8 elements the first time we're appending to an array
+		uint new_capacity = round_up_to_power_of_2(capacity + 7);
+		
 		f_assert(array->alc); // Did you call f_array_make?
-		array->data = f_mem_resize_n(u8, array->data, array->capacity * elem_size, capacity * elem_size, array->alc);
-		array->capacity = capacity;
+		array->data = f_mem_resize_n(u8, array->data, array->capacity * elem_size, new_capacity * elem_size, array->alc);
+		array->capacity = new_capacity;
 	}
 }
 
@@ -657,13 +672,8 @@ void f_array_resize_raw(fArrayRaw* array, uint len, fOpt(const void*) value, u32
 }
 
 uint f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size) {
-	if (array->len >= array->capacity) {
-		// grow the array
-		uint new_capacity = F_MAX(8, array->capacity * 2);
-		
-		array->data = f_mem_resize(array->data, elem_size * array->capacity, elem_size * new_capacity, array->alc);
-		array->capacity = new_capacity;
-	}
+	f_array_reserve_raw(array, array->len + 1, elem_size);
+
 	memcpy((u8*)array->data + array->len * elem_size, elem, elem_size);
 	return array->len++;
 }
@@ -1306,18 +1316,6 @@ static void* arena_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_siz
 	}
 
 	return old_ptr;
-}
-
-uint round_up_pow_of_2(uint x) {
-	// https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
-	x--;
-	x |= x >> 1;
-	x |= x >> 2;
-	x |= x >> 4;
-	x |= x >> 8;
-	x |= x >> 16;
-	x |= x >> 32;
-	return x + 1;
 }
 
 void* heap_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {

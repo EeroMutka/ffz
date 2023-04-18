@@ -7,11 +7,6 @@ int main__() {
 	// Compile a program that contains `#return_error: proc(err : string) { trap() }`, then replace all calls
 	// to that procedure with a return statement that returns the first argument
 	
-	
-	// it'd be cool to be able to replace an AST node with source code string
-	// hmm, this is already trivial. Just replace the node with another node that you build from a string.
-
-
 	// the plan:
 	// - build the main module
 	// - lookup `return_error`
