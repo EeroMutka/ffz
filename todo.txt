@@ -1,14 +1,25 @@
 
-- debug info on globals
-- break, continue
-- automatic slicing for array types? i.e. make this possible: []string({"hi", "bye"})
-- initializers
-- make .slice[] not necessary for Arrays
-- anonymous struct and array literals?
+[] slice literals
+  we kind of need this if we want to support something like `#print: proc(args: []string)` and want to be able to 
+  do  print({"hello", "sailor"})
 
-- OpenGL + Win32
+[] if statement semicolon parsing
+[] make .slice[] not necessary for Array
+
+[] make FFZ work properly from cmd + add a message for "internal compiler error (pls message Eero)" when it asserts
+[] get raylib up and running
+
 - keyboard / mouse input
+[] HMM-like math library with stuff like sqrt and vectors to start with until we implement array math
+
 - Goal #1: Basic 2D drawing library + demo app for it
+
+[] @module_struct
+
+--------------- Keith release candidate ---------------
+[] hash procedure type based on its contents, not its unique node
+[] break, continue, to_else, named scopes
+[] module ' declaration
 
 - Goal #2: 3D chess game with OpenGL with no third-party dependencies, except
 - cgltf, miniaudio, stbi, stbtt

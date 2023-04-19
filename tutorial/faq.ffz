@@ -12,6 +12,9 @@ A: It causes too many problems and clashes with the rest of the language design.
 			procedure type is responsible for defining something that the procedure body should be defining.
 			We could make a special exception for procedure types that are defined alongside their bodies, but
 			a big goal of FFZ is to say no to exceptions like that.
+			
+			I suppose we could give an error if you never assign to the return value, the same way we currently
+			give an error if you never return when a return value is expected.
 		
 		NOT VARIABLES, PURELY DOCUMENTATIONAL WITH NO SEMANTICS:
 			

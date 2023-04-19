@@ -658,6 +658,10 @@ ffzOk try_to_add_definition_to_scope(ffzModule* c, fOpt(ffzNode*) scope, ffzNode
 
 ffzOk add_possible_definition_to_scope(ffzModule* c, fOpt(ffzNode*) scope, fOpt(ffzNode*) node) {
 	if (node && node->kind == ffzNodeKind_Declare) {
+		// NOTE: we need to do this check here, because this function can be called on the node BEFORE having checked the node.
+		if (node->Op.left->kind != ffzNodeKind_Identifier) {
+			ERR(node->Op.left, "The left-hand side of a declaration must be an identifier.");
+		}
 		TRY(try_to_add_definition_to_scope(c, scope, node->Op.left));
 	}
 	return FFZ_OK;

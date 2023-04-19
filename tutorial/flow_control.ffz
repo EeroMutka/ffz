@@ -1,0 +1,40 @@
+
+/*
+// I have decided. Named scopes are the best for complicated code, so we should have those.
+// break and continue apply to the deepest for loop by default, but can be used with named scopes.
+// to_else looks at the deepest true-scope it is in and jumps to that by default, but can also be used with a named if-statement.
+
+// maybe 'if' and 'for' are otherwise identical, except 'for' has an implicit continue at the end (and 'for' works implicitly with break and continue).
+
+my_scope: if x {
+	if y && x {
+		...
+	}
+	else to_else
+	
+	for i: 0, i < 16 {
+		break
+		
+		if i == 3; break my_scope
+	}
+}
+else {
+	
+}
+
+
+my_loop: if i: 0, i < 64, i= .+1 {
+	
+	my_thing: {
+		dbgbreak
+		
+		continue my_thing
+	}
+	
+	if test {
+		continue my_loop
+	}
+}
+
+*/
+	

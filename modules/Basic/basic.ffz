@@ -181,6 +181,20 @@ _temp_arena_tls_index: u32(0)
 // should we have a polymorphic `arena_push_new` thing?
 // #arena_push_new: poly[T] proc(arena: ^Arena) => ^T {...}
 
+#form_string: proc(ptr: ^u8, len: uint) => string {
+	out: string(~~)
+	out.ptr = ptr
+	out.len = len
+	ret out
+}
+
+#form_slice: poly[T] proc(ptr: ^T, len: uint) => []T {
+	out: []u8(~~)
+	out.ptr = ptr
+	out.len = len
+	ret out
+}
+
 #arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
 	allocation_pos: ^u8(align_up(int(arena.head), align))
 	
@@ -196,8 +210,7 @@ _temp_arena_tls_index: u32(0)
 	//if ENABLE_DEBUG_CHECKS {
 	//	_debug_clear_memory(allocation_pos, size)
 	//}
-	
-	ret []u8{allocation_pos, size}
+	ret form_slice[u8](allocation_pos, size)
 }
 
 // returns NULL if invalid

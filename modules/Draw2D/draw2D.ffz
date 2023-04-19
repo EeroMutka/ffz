@@ -10,27 +10,27 @@
 #Vec2: [2]f32
 
 #Rect: struct {
-	pos: Vec2
-	size: Vec2
+	min: Vec2
+	max: Vec2
 }
 
 #ScissorID: u32
 
-#DEFAULT_TEXCOORDS: Rect{Vec2{0., 0.}, Vec2{1., 1.}}
+#DEFAULT_UV_RECT: Rect{Vec2{0., 0.}, Vec2{1., 1.}}
 
 /* -- API ------------------------------------
 
 #init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas
 #deinit: proc(c: ^Canvas)
-#clear: proc(c: ^Canvas)
 
+#clear_lists: proc(c: ^Canvas)
 
-// NOTE: modifies OpenGL state
-#draw_to_backend: proc(c: ^Canvas)
+#backend_clear_color: proc(c: ^Canvas, color: Color)
+#backend_draw: proc(c: ^Canvas)
 
 #triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color)
 #rect:     proc(c: ^Canvas, rect: Rect, color: Color)
-#rect:     proc(c: ^Canvas, rect: Rect, color: Color, tex_coords: DEFAULT_TEXCOORDS, texture: ^Texture(0))
+#rect:     proc(c: ^Canvas, rect: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0))
 #circle:   proc(c: ^Canvas, p: Vec2, radius: f32, color: Color, edge_softness: f32(0.), border_thickness: f32)
 
 */

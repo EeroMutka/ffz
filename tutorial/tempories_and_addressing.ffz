@@ -1,0 +1,63 @@
+
+#BigStruct: struct {
+	x: int
+	y: int
+	z: int
+	w: int
+}
+
+#my_constant: BigStruct{1, 2, 3, 4}
+
+foo: proc {
+	
+	{
+		pipeline_desc: ...
+		
+		{
+			// I think a slice literal should be allocated at procedure scope instead of block scope, because
+			// otherwise this would be a footgun:
+			x: int(50)
+			pipeline_desc.targets = {5, 6, 7, 8, x, 50}
+		}
+		
+		build_pipeline(pipeline_desc)
+	}
+	
+	foo: &BigStruct{1, 2, 3}
+	
+	// If an expression is forced to be constant and address-of is used, the address will point to
+	// static read-only memory.
+	// But if it's not forced to be a constant, a modifiable stack copy is made.
+	
+	#address_of_constant: &my_constant
+	
+	bar: &my_constant        // points to a modifiable stack copy
+	baz: address_of_constant // points to a value in static read-only memory
+	
+	// What about taking address of a procedure? Maybe we should just disallow that.
+	
+	// this would also be really nice:
+	{
+		#make_canvas: proc() => Canvas {...}
+		
+		canvas: &make_canvas()
+	}
+	
+	#my_data: []int{1, 2, 4, 5, 6, 7, 80, 10, 20, 30, 500, 10, 40}
+	
+	things: my_data // this slice points to static read-only memory!
+	
+	numbers: []int{1, 2, 3} // local copy
+	
+	// NOTE: this would be a hidden bug if `my_data_structure` is returned to an outer procedure.
+	// Be careful with slices!
+	my_data_structure.values = []int{1, 2, 3}
+	
+	#MyValues: []int{1, 2, 3}
+	my_data_structure.values = MyValues // this would be safe
+	
+	// Unlike slices, strings are always read-only constants, even in expressions that aren't forced
+	// to be constants. The following is always safe:
+	my_data_structure.name = "Eero"
+	
+}

@@ -12,44 +12,41 @@
 }
 
 @*global
-globals: Globals(~~)
-
+g: Globals(~~)
 
 #draw: proc {
-	// build draw list
-	Draw2D.clear(&globals.canvas)
-	Draw2D.triangle(&globals.canvas, {-0.5, -0.5}, {0.5, -0.5}, {0., 0.5}, color: {255, 0, 0, 255})
+	Draw2D.clear_lists(&g.canvas)
 	
-	globals.gl.ClearColor(.3, .2, .4, 1.)
-	globals.gl.Clear(GL.COLOR_BUFFER_BIT)
+	Draw2D.triangle(&g.canvas, {-0.5, -0.5}, {0.5, -0.5}, {0., 0.5}, color: {20, 102, 222, 255})
+	Draw2D.rect(&g.canvas, {{-0.1, -0.1}, {0., 0.}}, color: {255, 102, 222, 255})
 	
-	Draw2D.draw_to_backend(&globals.canvas)
+	Draw2D.backend_clear_color(&g.canvas, {20, 40, 20, 255})
+	Draw2D.backend_draw(&g.canvas)
 	
-	if !GL.swap_buffers(globals.window) {dbgbreak}
+	if !GL.swap_buffers(g.window) {dbgbreak}
 }
 
 #resize_cb: Window.ResizeCallback {
-	//globals.gl.Viewport(0, 0, s32(in.width), s32(in.height))
-	//draw()
+	g.gl.Viewport(0, 0, s32(in.width), s32(in.height))
+	draw()
 }
 
 #entry: proc {
 	Basic.print("hello!\n")
-	globals.window = Window.create(512, 512, "My window")
+	g.window = Window.create(512, 512, "My window")
 	
-	gl: &globals.gl
-	GL.load(gl, globals.window, GL.Version._3_3)
+	gl: &g.gl
+	GL.load(gl, g.window, GL.Version._3_3)
 	
-	globals.canvas = Draw2D.init(gl, Basic.temp_arena())
+	g.canvas = Draw2D.init(gl, Basic.temp_arena())
 	
-	Window.show(globals.window)
+	Window.show(g.window)
 	
 	i: 0
 	
-	
 	quit: false
 	for, !quit {
-		events: Window.poll_events(globals.window, resize_cb, ^raw(gl))
+		events: Window.poll_events(g.window, resize_cb, ^raw(gl))
 		
 		if events.quit {
 			quit = true
