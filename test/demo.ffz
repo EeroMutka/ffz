@@ -1,19 +1,18 @@
-
 #Basic: import(":Basic")
-//#Array: import(":Array")
-//#str: import(":String")
+
 
 #Window: import(":Window")
 #GL: import(":OpenGL")
 #Draw2D: import(":Draw2D/OpenGL")
 
-
-@*global
-globals: struct {
+#Globals: struct {
 	window: Window.Window
 	gl: GL.API
 	canvas: Draw2D.Canvas
-}(~~)
+}
+
+@*global
+globals: Globals(~~)
 
 
 #draw: proc {

@@ -47,6 +47,11 @@ struct ProcInfo {
 	fArray(DebugInfoLocal) dbginfo_locals;
 };
 
+struct GlobalInfo {
+	ffzNode* node;
+	gmmcGlobal* gmmc_global;
+};
+
 struct Gen {
 	ffzProject* project;
 	ffzModule* root_module;
@@ -70,6 +75,8 @@ struct Gen {
 	fArray(ProcInfo*) procs_sorted;
 	fMap64(Value) value_from_definition; // key: ffzNode*
 	
+	fArray(GlobalInfo) globals;
+
 	// debug info
 	fArray(cviewType) cv_types;
 	fArray(cviewSourceFile) cv_file_from_parser_idx;
@@ -255,6 +262,7 @@ static void add_dbginfo_local(Gen* g, fString name, gmmcOpIdx addr, ffzType* typ
 	dbginfo_local.type_idx = get_debuginfo_type(g, type);
 	
 	if (ref) {
+		// hmm... we're not deduplicating these types
 		cviewType cv_type = {};
 		cv_type.size = type->size;
 		cv_type.tag = cviewTypeTag_Pointer;
@@ -1017,9 +1025,13 @@ static void gen_statement(Gen* g, ffzNode* node) {
 			ffzNode* rhs = node->Op.right;
 			Value val = {};
 			if (ffz_get_tag(g->project, node, ffzKeyword_global)) {
+				f_assert(rhs->checked.type == node->checked.type);
+
 				void* global_data;
 				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs->checked.type->size, rhs->checked.type->align, gmmcSection_Data, &global_data);
 
+				f_array_push(&g->globals, { node, global });
+				
 				if (rhs->checked.constant != NULL) { // Could be an undefined (~~) global
 					fill_global_constant_data(g, global, (u8*)global_data, 0, rhs->checked.type, rhs->checked.constant);
 				}
@@ -1329,11 +1341,14 @@ static bool build_x64(Gen* g, fString build_dir) {
 	build_x64_add_section_relocs(g, asm_module, gmmcSection_RData, &sections[2], first_external_symbol_index);
 
 	fArray(cviewFunction) cv_functions = f_array_make_cap<cviewFunction>(g->proc_from_hash.alive_count, g->alc);
+	fArray(cviewGlobal) cv_globals = f_array_make_cap<cviewGlobal>(g->globals.len, g->alc);
 
 	// the procs need to be sorted for debug info
 	for (uint i = 0; i < g->procs_sorted.len; i++) {
 		ProcInfo* proc_info = g->procs_sorted[i];
 		gmmcProc* proc = proc_info->gmmc_proc;
+
+		//gmmc_asm_global_get_offset(asm_module, 
 
 		u32 start_offset = gmmc_asm_proc_get_start_offset(asm_module, proc);
 
@@ -1394,6 +1409,25 @@ static bool build_x64(Gen* g, fString build_dir) {
 
 
 	if (INCLUDE_DEBUG_INFO) {
+		
+		// add globals as symbols
+		for (uint i = 0; i < g->globals.len; i++) {
+			GlobalInfo global_info = g->globals[i];
+			fString name = ffz_decl_get_name(global_info.node);
+
+			coffSymbol sym = {};
+			sym.name = name;
+			sym.section_number = SectionNum_Data;
+			sym.value = gmmc_asm_global_get_offset(asm_module, global_info.gmmc_global);
+			u32 sym_idx = (u32)f_array_push(&symbols, sym);
+			
+			cviewGlobal cv_global;
+			cv_global.name = name;
+			cv_global.type_idx = get_debuginfo_type(g, global_info.node->checked.type);
+			cv_global.sym_index = sym_idx;
+			f_array_push(&cv_globals, cv_global);
+		}
+
 		cviewGenerateDebugInfoDesc cv_desc = {};
 		cv_desc.obj_name = obj_filename;
 		cv_desc.files = g->cv_file_from_parser_idx.data;
@@ -1401,6 +1435,8 @@ static bool build_x64(Gen* g, fString build_dir) {
 		cv_desc.functions = cv_functions.data;
 		cv_desc.functions_count = (u32)cv_functions.len;
 		cv_desc.xdata_section_sym_index = build_x64_section_get_sym_idx(SectionNum_xdata);
+		cv_desc.globals = cv_globals.data;
+		cv_desc.globals_count = (u32)cv_globals.len;
 		cv_desc.types = g->cv_types.data;
 		cv_desc.types_count = (u32)g->cv_types.len;
 		codeview_generate_debug_info(&cv_desc, g->alc);
@@ -1576,6 +1612,7 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 	g.value_from_definition = f_map64_make<Value>(g.alc);
 	g.proc_from_hash = f_map64_make<ProcInfo*>(g.alc);
 	g.procs_sorted = f_array_make<ProcInfo*>(g.alc);
+	g.globals = f_array_make<GlobalInfo>(g.alc);
 	g.cv_file_from_parser_idx = f_array_make<cviewSourceFile>(g.alc);
 	g.cv_types = f_array_make<cviewType>(g.alc);
 

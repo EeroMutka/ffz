@@ -1,4 +1,5 @@
 // microsoft codeview debug information
+// I think if I ever get to doing drawf debug info, I should make a shared API to this for it
 
 struct cviewLine {
 	uint32_t line_num;
