@@ -305,10 +305,7 @@ _temp_arena_tls_index: u32(0)
 #temp_set_mark: proc(mark: ArenaMark) {}
 
 #thread_init_basic: proc() {
-	// initialize CRT manually since we're using our own entry point instead of the CRT "main"
-	//_CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_ATTACH, ^raw(0))
-	
-	//_stdout = GetStdHandle(STD_OUTPUT_HANDLE)
+	// _CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_ATTACH, ^raw(0))
 	
 	// Deterministic base-address. hmm... this won't work with multiple threads.
 	temp_arena_base: ^u8(TiB(2))
@@ -393,7 +390,7 @@ _temp_arena_tls_index: u32(0)
 
 #DLL_PROCESS_ATTACH: u32(1)
 #DLL_PROCESS_DETACH: u32(0)
-//@Kernel32 #_CRT_INIT: proc(hinstDLL: ^raw, fdwReason: u32, lpReserved: ^raw)
+@Kernel32 #_CRT_INIT: proc(hinstDLL: ^raw, fdwReason: u32, lpReserved: ^raw)
 @Kernel32 #GetModuleHandleW: proc(lpModuleName: ^raw) => ^raw
 
 #STD_OUTPUT_HANDLE: u32(0xfffffff5)

@@ -249,6 +249,8 @@ typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
 	ffzKeyword_bit_shl,
 	ffzKeyword_bit_shr,
 	ffzKeyword_bit_not,
+	
+	ffzKeyword_build_option,
 
 	// -- Extended keywords ------------------------------------------------
 	// I think we should just make these keywords into regular keywords. Decide on a set that we ship with the core language and any extensions
@@ -638,8 +640,8 @@ struct ffzModule {
 	fMap64(ffzPolymorphID) poly_from_hash; // key: ffz_hash_poly_inst
 	fArray(ffzPolymorph) polymorphs; // index into this using ffzPolymorphID
 	
-	// Contains a list of all tag instances, within this module, of each type.
-	// fMap64(fArray(ffzNodeInst)) all_tags_of_type; // key: TypeHash
+	// Contains a list of all tags, within this module, of each type.
+	fMap64(fArray(ffzNode*)) all_tags_of_type; // key: TypeHash
 	
 	fMap64(ffzTypeRecordFieldUse*) field_from_name_map; // key: FieldHash
 	

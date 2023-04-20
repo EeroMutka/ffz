@@ -1,4 +1,7 @@
 
+@build_option
+#link_against_libc: true
+
 #STBI: *extern{"lib/stb_image.lib"}
 
 // TODO: do not use malloc

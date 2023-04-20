@@ -114,46 +114,52 @@ static const fString ffzNodeKind_to_op_string[] = {
 #undef X
 };
 
-const static fString ffzKeyword_to_string[] = { // synced with `ffzKeyword`
-	{0},
-	F_LIT_COMP("_"),
-	F_LIT_COMP("?"),
-	F_LIT_COMP("~~"),
-	F_LIT_COMP("dbgbreak"),
-	F_LIT_COMP("size_of"),
-	F_LIT_COMP("align_of"),
-	F_LIT_COMP("import"),
-	F_LIT_COMP("true"),
-	F_LIT_COMP("false"),
-	F_LIT_COMP("u8"),
-	F_LIT_COMP("u16"),
-	F_LIT_COMP("u32"),
-	F_LIT_COMP("u64"),
-	F_LIT_COMP("s8"),
-	F_LIT_COMP("s16"),
-	F_LIT_COMP("s32"),
-	F_LIT_COMP("s64"),
-	F_LIT_COMP("f32"),
-	F_LIT_COMP("f64"),
-	F_LIT_COMP("int"),
-	F_LIT_COMP("uint"),
-	F_LIT_COMP("bool"),
-	F_LIT_COMP("raw"),
-	F_LIT_COMP("string"),
-	F_LIT_COMP("bit_and"),
-	F_LIT_COMP("bit_or"),
-	F_LIT_COMP("bit_xor"),
-	F_LIT_COMP("bit_shl"),
-	F_LIT_COMP("bit_shr"),
-	F_LIT_COMP("bit_not"),
-	F_LIT_COMP("extern"),
-	F_LIT_COMP("using"),
-	F_LIT_COMP("global"),
-	F_LIT_COMP("module_defined_entry"),
-};
+
+fString ffz_keyword_to_string(ffzKeyword keyword) {
+	switch (keyword) {
+	case ffzKeyword_Eater:                return F_LIT("_");
+	case ffzKeyword_QuestionMark:         return F_LIT("?");
+	case ffzKeyword_Undefined:            return F_LIT("~~");
+	case ffzKeyword_dbgbreak:             return F_LIT("dbgbreak");
+	case ffzKeyword_size_of:              return F_LIT("size_of");
+	case ffzKeyword_align_of:             return F_LIT("align_of");
+	case ffzKeyword_import:               return F_LIT("import");
+	case ffzKeyword_true:                 return F_LIT("true");
+	case ffzKeyword_false:                return F_LIT("false");
+	case ffzKeyword_u8:                   return F_LIT("u8");
+	case ffzKeyword_u16:                  return F_LIT("u16");
+	case ffzKeyword_u32:                  return F_LIT("u32");
+	case ffzKeyword_u64:                  return F_LIT("u64");
+	case ffzKeyword_s8:                   return F_LIT("s8");
+	case ffzKeyword_s16:                  return F_LIT("s16");
+	case ffzKeyword_s32:                  return F_LIT("s32");
+	case ffzKeyword_s64:                  return F_LIT("s64");
+	case ffzKeyword_f32:                  return F_LIT("f32");
+	case ffzKeyword_f64:                  return F_LIT("f64");
+	case ffzKeyword_int:                  return F_LIT("int");
+	case ffzKeyword_uint:                 return F_LIT("uint");
+	case ffzKeyword_bool:                 return F_LIT("bool");
+	case ffzKeyword_raw:                  return F_LIT("raw");
+	case ffzKeyword_string:               return F_LIT("string");
+	case ffzKeyword_bit_and:              return F_LIT("bit_and");
+	case ffzKeyword_bit_or:               return F_LIT("bit_or");
+	case ffzKeyword_bit_xor:              return F_LIT("bit_xor");
+	case ffzKeyword_bit_shl:              return F_LIT("bit_shl");
+	case ffzKeyword_bit_shr:              return F_LIT("bit_shr");
+	case ffzKeyword_bit_not:              return F_LIT("bit_not");
+	case ffzKeyword_build_option:         return F_LIT("build_option");
+	case ffzKeyword_extern:               return F_LIT("extern");
+	case ffzKeyword_using:                return F_LIT("using");
+	case ffzKeyword_global:               return F_LIT("global");
+	case ffzKeyword_module_defined_entry: return F_LIT("module_defined_entry");
+	default: f_trap();
+	}
+	return (fString){0};
+}
+
+char* ffz_keyword_to_cstring(ffzKeyword keyword) { return (char*)ffz_keyword_to_string(keyword).data; }
 
 F_STATIC_ASSERT(F_LEN(ffzNodeKind_to_name) == ffzNodeKind_COUNT);
-F_STATIC_ASSERT(F_LEN(ffzKeyword_to_string) == ffzKeyword_COUNT);
 
 fString ffz_node_kind_to_string(ffzNodeKind kind) { return ffzNodeKind_to_name[kind]; }
 char* ffz_node_kind_to_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_name[kind].data; }
@@ -161,8 +167,6 @@ char* ffz_node_kind_to_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_
 fString ffz_node_kind_to_op_string(ffzNodeKind kind) { return ffzNodeKind_to_op_string[kind]; }
 char* ffz_node_kind_to_op_cstring(ffzNodeKind kind) { return ffzNodeKind_to_op_string[kind].data;}
 
-fString ffz_keyword_to_string(ffzKeyword keyword) { return ffzKeyword_to_string[keyword]; }
-char* ffz_keyword_to_cstring(ffzKeyword keyword) { return (char*)ffzKeyword_to_string[keyword].data; }
 
 // NOTE: The operators that exist in C have the same precedence as in C
 // https://en.cppreference.com/w/c/language/operator_precedence
@@ -249,7 +253,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 
 	case ffzNodeKind_Keyword: {
 		if (ffz_keyword_is_extended(node->Keyword.keyword)) f_print(w, "*");
-		f_prints(w, ffzKeyword_to_string[node->Keyword.keyword]);
+		f_prints(w, ffz_keyword_to_string(node->Keyword.keyword));
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: // fallthrough

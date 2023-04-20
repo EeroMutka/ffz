@@ -69,6 +69,8 @@ struct Gen {
 		fOpt(u32*) override_line_num;
 	};
 
+	bool link_against_libc;
+
 	uint dummy_name_counter;
 	
 	fMap64(ProcInfo*) proc_from_hash;
@@ -1486,9 +1488,19 @@ static bool build_x64(Gen* g, fString build_dir) {
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), vs_library_path));
 
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
-	f_array_push(&ms_linker_args, F_LIT("/ENTRY:main"));
+	
+	// We should have an option to link against CRT (that the program specifies, since cmd options are bad).
+	// If we're linking against CRT, we want to use the crt startup main.
+	// 
+	// hmm... When we're using the C backend and the "main" entry point, we don't want to explicitly 
+
 	f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
-	f_array_push(&ms_linker_args, F_LIT("/NODEFAULTLIB")); // disable CRT
+	
+	if (!g->link_against_libc) {
+		f_array_push(&ms_linker_args, F_LIT("/ENTRY:main"));
+		f_array_push(&ms_linker_args, F_LIT("/NODEFAULTLIB"));
+	}
+
 	f_array_push(&ms_linker_args, F_LIT("/DEBUG"));
 	f_array_push(&ms_linker_args, F_LIT("/DYNAMICBASE:NO")); // to get deterministic pointers
 
@@ -1633,6 +1645,24 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 	for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
 		ffzModule* checker = project->checkers_dependency_sorted[i];
 		g.checker = checker;
+
+		// check for the "link_against_libc" build option
+		ffzType* build_option_type = ffz_builtin_type(checker, ffzKeyword_build_option);
+		fArray(ffzNode*)* build_opts = f_map64_get(&checker->all_tags_of_type, build_option_type->hash);
+		if (build_opts) {
+			for (uint i = 0; i < build_opts->len; i++) {
+				ffzNode* decl = (*build_opts)[i]->parent;
+				
+				// TODO: error reporting. The question is, is this a valid FFZ program if this fails? If it's a valid FFZ program,
+				// then it should be catched in the checker phase. But should we allow passing isolated flags to the backend?
+				f_assert(decl->kind == ffzNodeKind_Declare);
+				
+				if (ffz_decl_get_name(decl) == F_LIT("link_against_libc")) {
+					g.link_against_libc = true;
+					break;
+				}
+			}
+		}
 		
 		for FFZ_EACH_CHILD(n, checker->root) {
 			gen_statement(&g, n);

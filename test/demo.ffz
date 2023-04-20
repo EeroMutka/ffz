@@ -6,6 +6,7 @@
 #Draw2D: import(":Draw2D/OpenGL")
 
 #Files: import(":Files")
+#stbi: import(":vendor/stb/stb_image")
 
 #Globals: struct {
 	window: Window.Window
@@ -44,7 +45,20 @@ g: Globals(~~)
 	
 	// load images
 	// we need a read-entire-file procedure
-	my_image_data: Files.read_entire_file("C:/Users/Eero/Pictures/avatar.png", Basic.temp_alc())
+	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/avatar.png", Basic.temp_alc())
+	Basic.assert(image_file.ok)
+	
+	
+	width: s32(~~), height: s32(~~), channels_in_file: s32(~~)
+	
+	img_data: stbi.stbi_load_from_memory(image_file.data.ptr, s32(image_file.data.len),
+		&width, &height, &channels_in_file, desired_channels: 0)
+	// stbi.stbi_image_free(img_data)
+	
+	if img_data == ^u8(0) {
+		dbgbreak
+	}
+	
 	
 	
 	Window.show(g.window)

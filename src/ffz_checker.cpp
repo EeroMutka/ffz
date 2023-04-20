@@ -1425,9 +1425,9 @@ static ffzOk check_tag(ffzModule* c, ffzNode* tag) {
 		f_map64_insert(&c->extern_libraries, f_hash64_str(library), library, fMapInsert_DoNotOverride);
 	}
 	
-	//auto tags = f_map64_insert(&c->all_tags_of_type, chk.type->hash, {}, fMapInsert_DoNotOverride);
-	//if (tags.added) *tags._unstable_ptr = f_array_make<ffzNodeInst>(c->alc);
-	//f_array_push(tags._unstable_ptr, tag);
+	auto tags = f_map64_insert(&c->all_tags_of_type, tag->checked.type->hash, {}, fMapInsert_DoNotOverride);
+	if (tags.added) *tags._unstable_ptr = f_array_make<ffzNode*>(c->alc);
+	f_array_push(tags._unstable_ptr, tag);
 	return FFZ_OK;
 }
 
@@ -1453,7 +1453,7 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
 	c->module_from_import_decl = f_map64_make<ffzModule*>(c->alc);
 	c->type_from_hash = f_map64_make<ffzType*>(c->alc);
 	c->pending_import_keywords = f_array_make<ffzNode*>(c->alc);
-	//c->all_tags_of_type = f_map64_make<fArray(ffzNodeInst)>(c->alc);
+	c->all_tags_of_type = f_map64_make<fArray(ffzNode*)>(c->alc);
 	c->poly_from_hash = f_map64_make<ffzPolymorphID>(c->alc);
 	c->polymorphs = f_array_make<ffzPolymorph>(c->alc);
 	c->extern_libraries = f_map64_make<fString>(c->alc);
@@ -1507,6 +1507,7 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
 		c->builtin_types[ffzKeyword_using] = ffz_make_pseudo_record_type(c);
 		c->builtin_types[ffzKeyword_global] = ffz_make_pseudo_record_type(c);
 		c->builtin_types[ffzKeyword_module_defined_entry] = ffz_make_pseudo_record_type(c);
+		c->builtin_types[ffzKeyword_build_option] = ffz_make_pseudo_record_type(c);
 	}
 
 	return c;
@@ -2248,7 +2249,7 @@ ffzProject* ffz_init_project(fArena* arena, fString modules_directory) {
 		// initialize constant lookup tables
 
 		p->keyword_from_string = f_map64_make<ffzKeyword>(p->persistent_allocator);
-		for (uint i = 0; i < ffzKeyword_COUNT; i++) {
+		for (uint i = 1; i < ffzKeyword_COUNT; i++) {
 			f_map64_insert(&p->keyword_from_string,
 				f_hash64_str(ffz_keyword_to_string((ffzKeyword)i)), (ffzKeyword)i, fMapInsert_DoNotOverride);
 		}
@@ -2327,9 +2328,7 @@ ffzOk ffz_module_check_single_(ffzModule* m) {
 		// This is a bit dumb way to do this, but right now standalone tags are only checked at top-level. We should
 		// probably check them recursively in instanceless_check() or something. :StandaloneTagTopLevel
 		if (n->flags & ffzNodeFlag_IsStandaloneTag) {
-			f_trap(); //if (!check_tag(module, inst).ok) {
-			//	return false;
-			//}
+			TRY(check_tag(m, n));
 			continue;
 		}
 		
