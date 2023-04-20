@@ -25,8 +25,7 @@
 
 #clear_lists: proc(c: ^Canvas)
 
-#backend_clear_color: proc(c: ^Canvas, color: Color)
-#backend_draw: proc(c: ^Canvas)
+#draw_to_backend: proc(c: ^Canvas, background: Color)
 
 #triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color)
 #rect:     proc(c: ^Canvas, rect: Rect, color: Color)

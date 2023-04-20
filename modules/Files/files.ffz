@@ -1,62 +1,55 @@
 #Basic: import(":Basic")
 
-#OpenMode: struct {
-	Read,
-	Write,
-	Append,
+#OpenMode: enum, u32 {
+	Read: 0
+	Write: 1
+	Append: 2
 }
 
 #File: struct {
 	os_handle: ^raw
 }
 
-#MaybeData: struct {
-	ok: bool
-	data: []u8
-}
-
-#read_entire_file: proc(filepath: string, alc: ^Basic.Allocator) => MaybeData {
-	file: File
-	if !open(&file, filepath, OpenMode.Read) {
-		ret MaybeData{false, []u8{}}
+#read_entire_file: proc(filepath: string, alc: ^Basic.Allocator) => struct{ok: bool, data: []u8} {
+	f: open(filepath, OpenMode.Read)
+	if !f.ok {
+		ret {false, {}}
 	}
 	
-	size: get_size(&file)
-	data: Basic.make_slice[u8](size, alc)
-	ok: read(&file, data) == size
+	size: uint(get_size(f.file))
+	data: Basic.make_slice_undef[u8](size, alc)
+	ok: read(f.file, data) == size
 	
-	close(&file)
+	close(f.file)
 	
-	ret MaybeData{true, data}
+	ret {ok, data}
 }
 
 // #write_entire_file: proc(filepath: string, data: []u8) => bool
 
-/*
-#get_file_size: proc(filepath: string, out_size: ^uint) => bool {
-	file: File
-	if !open(&file, filepath, OpenMode.Read) { ret false }
+#get_size_by_filepath: proc(filepath: string) => struct{ok: bool, size: u64} {
+	f: open(filepath, OpenMode.Read)
+	if !f.ok {
+		ret {false, 0}
+	}
 	
-	out_size^ = get_size(&file)
-	close(&file)
-	ret true
+	size: get_size(f.file)
+	close(f.file)
+	ret {true, size}
 }
-*/
 
-// 
 
 // OS-specific API:
 
-// #open: proc(file: ^File, filepath: string, mode: OpenMode) => bool
-// #close: proc(file: ^File)
+// #open: proc(filepath: string, mode: OpenMode) => struct{ok: bool, file: File}
+// #close: proc(file: File)
 
-// #get_size: proc(file: ^File) => uint
+// #get_size: proc(file: File) => u64
 
-// #read: proc(file: ^File, dest: []u8) => uint
+// #read: proc(file: File, dest: []u8) => uint
 
-// hmm... can these ever fail?
-// #write_unbuffered: proc(file: ^File, data: []u8)
-// #write_buffered: proc(file: ^File, data: []u8)
+// #write_unbuffered: proc(file: File, data: []u8)
+// #write_buffered: proc(file: File, data: []u8)
 
-// #get_cursor: proc(file: ^File) => uint
-// #set_cursor: proc(file: ^File, cursor: uint)
+// #get_cursor: proc(file: File) => uint
+// #set_cursor: proc(file: File, cursor: uint)

@@ -1,0 +1,41 @@
+
+#STBRP: @*extern{"lib/stb_rect_pack.lib"}
+
+#context: struct {
+	width: s32
+	height: s32
+	align: s32
+	init_mode: s32
+	heuristic: s32
+	num_nodes: s32
+	active_head: ^node
+	free_head: ^node
+	extra: [2]node
+}
+
+#node: struct {
+	x: coord
+	y: coord
+	next: ^node
+}
+
+#rect: struct {
+	id: s32
+	w: coord
+	h: coord
+	x: coord
+	y: coord
+	was_packed: s32
+}
+
+#coord: s32
+
+
+@STBRP #stbrp_pack_rects: proc(ctx: ^context, rects: ^rect, num_rects: s32) => s32
+
+@STBRP #stbrp_init_target: proc(ctx: ^context, width: s32, height: s32, nodes: ^node, num_nodes: s32)
+
+@STBRP #stbrp_setup_allow_out_of_mem: proc(ctx: ^context, allow_out_of_mem: s32)
+
+@STBRP #stbrp_setup_heuristic: proc(ctx: ^context, heuristic: s32)
+

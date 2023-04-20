@@ -181,8 +181,12 @@ void main() {
 	gl.DeleteProgram(c.shader_program)
 }
 
-#backend_draw: proc(c: ^Canvas) {
+#draw_to_backend: proc(c: ^Canvas, background: Color) {
 	gl: c.gl
+	
+	gl.ClearColor(f32(background.r) / 255., f32(background.g) / 255., f32(background.b) / 255., f32(background.a) / 255.)
+	gl.Clear(GL.COLOR_BUFFER_BIT)
+	
 	gl.UseProgram(c.shader_program)
 	gl.BindVertexArray(c.vao)
 	
@@ -223,11 +227,6 @@ void main() {
 	Array.push[Index](&c.indices, first_vertex)
 	Array.push[Index](&c.indices, first_vertex + 1)
 	Array.push[Index](&c.indices, first_vertex + 2)
-}
-
-#backend_clear_color: proc(c: ^Canvas, color: Color) {
-	c.gl.ClearColor(f32(color.r) / 255., f32(color.g) / 255., f32(color.b) / 255., f32(color.a) / 255.)
-	c.gl.Clear(GL.COLOR_BUFFER_BIT)
 }
 
 #clear_lists: proc(c: ^Canvas) {

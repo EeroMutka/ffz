@@ -1,0 +1,113 @@
+
+// TODO: we need a compile time switch to be able to switch compiled code based on the target OS
+
+//#if OS_WINDOWS {
+//	
+//}
+
+#str_to_utf16_temp: proc(str: string) => []u16 {
+	if str.len == 0 { ret []u16{} }
+	
+	#MB_ERR_INVALID_CHARS: u32(0x00000008)
+	#CP_UTF8: u32(65001)
+	
+	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
+	Basic.assert(len != 0)
+	
+	out: Basic.make_slice_undef[u16](uint(len) + 1, Basic.temp_alc())
+	
+	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
+	
+	// null terminator
+	out[len] = 0
+	ret out
+}
+
+#open: proc(filepath: string, mode: OpenMode) => struct{ok: bool, file: File} {
+	handle: HANDLE(~~)
+	
+	#FILE_GENERIC_READ: u32(0x00120089)
+	#FILE_SHARE_READ: u32(0x00000001)
+	#OPEN_EXISTING: u32(3)
+	INVALID_HANDLE_VALUE: ^raw(0xFFFFFFFFFFFFFFFF) // @compiler_bug: this should be able to be constant
+	
+	filepath_utf16: str_to_utf16_temp(filepath)
+	if mode == OpenMode.Read {
+		handle = CreateFileW(filepath_utf16.ptr, FILE_GENERIC_READ, FILE_SHARE_READ, ^raw(0), OPEN_EXISTING, 0, HANDLE(0))
+	}
+	else {
+		Basic.assert(false)
+	}
+	
+	if handle == INVALID_HANDLE_VALUE {
+		ret {false, {^raw(0)}}
+	}
+	
+	ret {true, {handle}}
+}
+
+#close: proc(file: File) {
+	Basic.assert(CloseHandle(file.os_handle) == 1)
+}
+
+#get_size: proc(file: File) => u64 {
+	size: u64(~~)
+	if GetFileSizeEx(file.os_handle, &size) != 1 {
+		Basic.assert(false)
+	}
+	ret size
+}
+
+#read: proc(file: File, dest: []u8) => uint {
+	// ReadFile takes in an u32 to specify the size, which won't be enough 
+	// to hold the size if you're reading >4GB of data at once. To get around this,
+	// we must call ReadFile in a loop:
+	
+	for read_so_far: 0, read_so_far < dest.len, {
+		remaining: dest.len - read_so_far
+		
+		to_read: u32(0xFFFFFFFF)
+		if remaining < uint(to_read) {
+			to_read = u32(remaining)
+		}
+		
+		bytes_read: u32(~~)
+		ok: ReadFile(file.os_handle, ^raw(uint(dest.ptr) + read_so_far), to_read, &bytes_read, ^raw(0))
+		read_so_far = .+ uint(bytes_read)
+		
+		if ok != 1 || bytes_read < to_read {
+			ret read_so_far
+		}
+	}
+	
+	ret dest.len
+}
+
+// hmm... can these ever fail?
+// #write_unbuffered: proc(file: File, data: []u8)
+// #write_buffered: proc(file: File, data: []u8)
+
+// #get_cursor: proc(file: File) => uint
+// #set_cursor: proc(file: File, cursor: uint)
+
+#HANDLE: ^raw
+
+#Kernel32: *extern{":Kernel32.lib"}
+
+@Kernel32
+#CreateFileW: proc(lpFileName: ^u16, dwDesiredAccess: u32, dwShareMode: u32, lpSecurityAttributes: ^raw,
+	dwCreationDisposition: u32, dwFlagsAndAttributes: u32, hTemplateFile: HANDLE) => HANDLE
+
+@Kernel32
+#ReadFile: proc(hFile: HANDLE, lpBuffer: ^raw, nNumberOfBytesToRead: u32,
+	lpNumberOfBytesRead: ^u32, lpOverlapped: ^raw) => s32
+
+@Kernel32
+#GetFileSizeEx: proc(hFile: HANDLE, lpFileSize: ^u64) => s32
+
+@Kernel32
+#MultiByteToWideChar: proc(CodePage: u32, dwFlags: u32, lpMultiByteStr: ^u8,
+	cbMultiByte: s32, lpWideCharStr: ^u16, cchWideChar: s32) => s32
+
+@Kernel32
+#CloseHandle: proc(hObject: HANDLE) => s32

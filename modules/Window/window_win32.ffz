@@ -9,6 +9,9 @@
 #str_to_utf16_temp: proc(str: string) => []u16 {
 	if str.len == 0 { ret []u16{} }
 	
+	#MB_ERR_INVALID_CHARS: u32(0x00000008)
+	#CP_UTF8: u32(65001)
+	
 	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
 	assert(len != 0)
 	
@@ -18,7 +21,6 @@
 	
 	// null terminator
 	out[len] = 0
-	
 	ret out
 }
 
@@ -178,8 +180,6 @@
 
 #ATOM: u16
 
-#CP_UTF8: u32(65001)
-#MB_ERR_INVALID_CHARS: u32(0x00000008)
 #PM_REMOVE: u32(0x0001)
 #WS_OVERLAPPEDWINDOW: u32(0x00cf0000)
 #SW_SHOW: s32(5)

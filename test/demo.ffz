@@ -5,6 +5,8 @@
 #GL: import(":OpenGL")
 #Draw2D: import(":Draw2D/OpenGL")
 
+#Files: import(":Files")
+
 #Globals: struct {
 	window: Window.Window
 	gl: GL.API
@@ -20,8 +22,7 @@ g: Globals(~~)
 	Draw2D.triangle(&g.canvas, {-0.5, -0.5}, {0.5, -0.5}, {0., 0.5}, color: {20, 102, 222, 255})
 	Draw2D.rect(&g.canvas, {{-0.1, -0.1}, {0., 0.}}, color: {255, 102, 222, 255})
 	
-	Draw2D.backend_clear_color(&g.canvas, {20, 40, 20, 255})
-	Draw2D.backend_draw(&g.canvas)
+	Draw2D.draw_to_backend(&g.canvas, background: {20, 40, 20, 255})
 	
 	if !GL.swap_buffers(g.window) {dbgbreak}
 }
@@ -39,6 +40,12 @@ g: Globals(~~)
 	GL.load(gl, g.window, GL.Version._3_3)
 	
 	g.canvas = Draw2D.init(gl, Basic.temp_arena())
+	
+	
+	// load images
+	// we need a read-entire-file procedure
+	my_image_data: Files.read_entire_file("C:/Users/Eero/Pictures/avatar.png", Basic.temp_alc())
+	
 	
 	Window.show(g.window)
 	

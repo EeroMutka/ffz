@@ -12,6 +12,9 @@
 - keyboard / mouse input
 [] HMM-like math library with stuff like sqrt and vectors to start with until we implement array math
 
+[] stbi
+[] stbtt
+
 - Goal #1: Basic 2D drawing library + demo app for it
 
 [] @module_struct
@@ -24,6 +27,7 @@
 - Goal #2: 3D chess game with OpenGL with no third-party dependencies, except
 - cgltf, miniaudio, stbi, stbtt
 - this game should include cool PBR graphics and sounds
+	vxgi would be awesome. Could we make a game in sponza?
 
 - towards a 3D level editor / engine!!
 
