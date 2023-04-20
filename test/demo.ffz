@@ -3,7 +3,7 @@
 
 #Window: import(":Window")
 #GL: import(":OpenGL")
-#Draw2D: import(":Draw2D/OpenGL")
+#Draw2D: import(":Draw2D")
 
 #Files: import(":Files")
 #stbi: import(":vendor/stb/stb_image")
@@ -18,12 +18,12 @@
 g: Globals(~~)
 
 #draw: proc {
-	Draw2D.clear_lists(&g.canvas)
+	Draw2D.begin_drawing(&g.canvas, background: {20, 40, 20, 255})
 	
-	Draw2D.triangle(&g.canvas, {-0.5, -0.5}, {0.5, -0.5}, {0., 0.5}, color: {20, 102, 222, 255})
+	//Draw2D.triangle(&g.canvas, {-0.5, -0.5}, {0.5, -0.5}, {0., 0.5}, color: {20, 102, 222, 255})
 	Draw2D.rect(&g.canvas, {{-0.1, -0.1}, {0., 0.}}, color: {255, 102, 222, 255})
 	
-	Draw2D.draw_to_backend(&g.canvas, background: {20, 40, 20, 255})
+	Draw2D.end_drawing(&g.canvas)
 	
 	if !GL.swap_buffers(g.window) {dbgbreak}
 }
@@ -59,7 +59,12 @@ g: Globals(~~)
 		dbgbreak
 	}
 	
-	texture: GL.GLuint(0)
+	//my_tex_slot: Draw2D.TextureSlot(0)
+	
+	texture: Draw2D.make_texture_ex(&g.canvas, Draw2D.TextureFormat.RGBA8, u32(width), u32(height), img_data)
+	
+	
+	/*texture: GL.GLuint(0)
 	gl.GenTextures(1, &texture)
 	gl.BindTexture(GL.TEXTURE_2D, texture)
 	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.REPEAT)
@@ -78,11 +83,9 @@ g: Globals(~~)
 		gl.BindTexture(GL.TEXTURE_2D, texture)
 		
 		gl.UseProgram(g.canvas.shader_program) // shader must be bound for setting uniforms
-		sampler_loc: gl.GetUniformLocation(g.canvas.shader_program, "my_sampler".ptr)
-		if sampler_loc == -1 { dbgbreak }
-		gl.Uniform1i(sampler_loc, 0)
+		
 	}
-	
+	*/
 	Window.show(g.window)
 	
 	i: 0

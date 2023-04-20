@@ -1,0 +1,288 @@
+// OpenGL drawing backend
+
+// hmm.. to easily allow for different backends, we would either need to implement module parameters + #if
+// OR @using import().
+
+#TEXTURE_SLOT: u32(0)
+#VERTEX_BUFFER_CAPACITY: 32768
+#INDEX_BUFFER_CAPACITY: 65536
+
+
+#Vertex: struct {
+	position: Vec2
+	uv: Vec2
+	color: Color
+}
+
+#Index: u32
+
+#Canvas: struct {
+	gl: ^GL.API
+	arena: ^Basic.Arena
+	
+	vertex_buf: []Vertex
+	vertex_count: uint
+	
+	index_buf: []Index
+	index_count: uint
+	
+	shader_program: GL.GLuint
+	
+	vbo: GL.GLuint
+	ebo: GL.GLuint
+	vao: GL.GLuint
+}
+
+#vertex_shader_src: "
+#version 330
+
+layout (location = 0) in vec2 a_position;
+layout (location = 1) in vec2 a_uv;
+layout (location = 3) in vec4 a_color;
+
+out vec4 vert_color;
+out vec2 vert_uv;
+
+void main() {
+	vert_color = a_color;
+	vert_uv = a_uv;
+	gl_Position = vec4(a_position, 0, 1.0);
+}
+"
+
+#fragment_shader_src: "
+#version 330
+
+in vec4 vert_color;
+in vec2 vert_uv;
+
+out vec4 frag_color;
+
+uniform sampler2D u_texture;
+
+void main() {
+	frag_color = texture(u_texture, vert_uv);
+	
+	//  vert_color;
+}
+"
+
+#_check_gl_error: proc(gl: ^GL.API) {
+	for, true, {
+		err: gl.GetError()
+		if err == GL.NO_ERROR {
+			ret
+		}
+		dbgbreak
+	}
+}
+
+#compile_shader: proc(gl: ^GL.API, shader_type: GL.GLenum, src: ^u8) => GL.GLuint {
+	shader: gl.CreateShader(shader_type)
+	gl.ShaderSource(shader, 1, &src, ^GL.GLint(0))
+	gl.CompileShader(shader)
+	
+	success: GL.GLint(0)
+	gl.GetShaderiv(shader, GL.COMPILE_STATUS, &success)
+	if success == 0 {
+		vs_log: [512]GL.GLchar(~~)
+		gl.GetShaderInfoLog(shader, 512, ^GL.GLsizei(0), &vs_log[0])
+		dbgbreak
+	}
+	ret shader
+}
+
+
+#init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas {
+	alc: Basic.arena_alc(arena)
+	
+	vs: compile_shader(gl, GL.VERTEX_SHADER, vertex_shader_src.ptr)
+	fs: compile_shader(gl, GL.FRAGMENT_SHADER, fragment_shader_src.ptr)
+	
+	// Link the shaders together into a shader program
+	shader_program: gl.CreateProgram()
+	gl.AttachShader(shader_program, vs)
+	gl.AttachShader(shader_program, fs)
+	gl.LinkProgram(shader_program)
+	
+	link_success: GL.GLint(0)
+	gl.GetProgramiv(shader_program, GL.LINK_STATUS, &link_success)
+	if link_success == 0 {
+		log: [512]u8(~~)
+		gl.GetProgramInfoLog(shader_program, 512, ^GL.GLsizei(0), &log[0])
+		dbgbreak
+	}
+	
+	// We can safely delete the shaders now that we have the shader program ready
+	gl.DeleteShader(vs)
+	gl.DeleteShader(fs)
+	
+	// Create the vertex array object
+	vao: GL.GLuint(0)
+	gl.GenVertexArrays(1, &vao)
+	gl.BindVertexArray(vao)
+	
+	// Create the vertex buffer object
+	vbo: GL.GLuint(0)
+	gl.GenBuffers(1, &vbo)
+	
+	// Create the element buffer object
+	ebo: GL.GLuint(0)
+	gl.GenBuffers(1, &ebo)
+	
+	// Specify the vertex layout
+	{
+		/*
+			position: Vec2     | offset: 0
+			uv:            | offset: 8
+			color: Color       | offset: 16
+		*/
+		gl.BindBuffer(GL.ARRAY_BUFFER, vbo)
+		
+		gl.VertexAttribPointer (0, 2, GL.FLOAT,        false, size_of(Vertex), ^raw(0))   // position
+		gl.VertexAttribPointer (1, 2, GL.FLOAT,        false, size_of(Vertex), ^raw(8))   // uv
+		gl.VertexAttribPointer (2, 4, GL.UNSIGNED_BYTE, true, size_of(Vertex), ^raw(16))  // color
+		gl.EnableVertexAttribArray(0)
+		gl.EnableVertexAttribArray(1)
+		gl.EnableVertexAttribArray(2)
+	}
+	
+	ret {
+		gl: gl
+		arena: arena
+		vertex_buf: Basic.make_slice_undef[Vertex](VERTEX_BUFFER_CAPACITY, alc)
+		vertex_count: 0
+		index_buf: Basic.make_slice_undef[Index](INDEX_BUFFER_CAPACITY, alc)
+		index_count: 0
+		shader_program: shader_program
+		vbo: vbo
+		ebo: ebo
+		vao: vao
+	}
+}
+
+#deinit: proc(c: ^Canvas) {
+	c.gl.DeleteBuffers(1, &c.ebo)
+	c.gl.DeleteBuffers(1, &c.vbo)
+	c.gl.DeleteVertexArrays(1, &c.vao)
+	c.gl.DeleteProgram(c.shader_program)
+}
+
+#make_texture: proc(c: ^Canvas) => Texture {
+	id: GL.GLuint(0)
+	c.gl.GenTextures(1, &id)
+	Basic.assert(id != 0) // maybe we shouldn't assert here...
+	
+	c.gl.ActiveTexture(GL.TEXTURE0 + TEXTURE_SLOT)
+	c.gl.BindTexture(GL.TEXTURE_2D, id)
+	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.REPEAT)
+	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.REPEAT)
+	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.LINEAR)
+	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.LINEAR)
+	ret Texture{uint(id)}
+}
+
+#update_texture: proc(c: ^Canvas, texture: ^Texture, format: TextureFormat, width: u32, height: u32, data: ^raw) {
+	Basic.assert(format == TextureFormat.RGBA8)
+	
+	c.gl.ActiveTexture(GL.TEXTURE0 + TEXTURE_SLOT)
+	c.gl.BindTexture(GL.TEXTURE_2D, GL.GLuint(texture.backend_handle))
+	c.gl.TexImage2D(GL.TEXTURE_2D, 0, GL.RGBA8, s32(width), s32(height), 0, GL.RGBA, GL.UNSIGNED_BYTE, data)
+}
+
+#make_texture_ex: proc(c: ^Canvas, format: TextureFormat, width: u32, height: u32, data: ^raw) => Texture {
+	texture: make_texture(c)
+	update_texture(c, &texture, format, width, height, data)
+	ret texture
+}
+
+#free_texture: proc(texture: ^Texture) {
+	dbgbreak
+}
+
+#begin_drawing: proc(c: ^Canvas, background: Color) {
+	c.vertex_count = 0
+	c.index_count = 0
+	
+	gl: c.gl
+	gl.ClearColor(f32(background.r) / 255., f32(background.g) / 255., f32(background.b) / 255., f32(background.a) / 255.)
+	gl.Clear(GL.COLOR_BUFFER_BIT)
+	
+	gl.UseProgram(c.shader_program)
+	gl.BindVertexArray(c.vao)
+	
+	sampler_loc: gl.GetUniformLocation(c.shader_program, "u_texture".ptr)
+	if sampler_loc == -1 { dbgbreak }
+	gl.Uniform1i(sampler_loc, TEXTURE_SLOT) // NOTE: shader must be bound
+	
+	gl.BindBuffer(GL.ARRAY_BUFFER, c.vbo)
+	gl.BindBuffer(GL.ELEMENT_ARRAY_BUFFER, c.ebo)
+}
+
+#end_drawing: proc(c: ^Canvas) {
+	draw_and_flush_batch(c)
+	_check_gl_error(c.gl)
+}
+
+// -- Primitive drawing procedures --
+
+//#add_vertex: proc(c: ^Canvas, vert: Vertex) {
+//	c.vertex_buf[c.vertex_count] = vert
+//	c.vertex_count = .+1
+//}
+
+#draw_and_flush_batch: proc(c: ^Canvas) {
+	// TODO: use glBufferSubData or whatever, I think BufferData resizes the buffer?
+	c.gl.BufferData(GL.ARRAY_BUFFER, s64(c.vertex_count * size_of(Vertex)), c.vertex_buf.ptr, GL.DYNAMIC_DRAW)
+	c.gl.BufferData(GL.ELEMENT_ARRAY_BUFFER, s64(c.index_count * size_of(Index)), c.index_buf.ptr, GL.DYNAMIC_DRAW)
+	
+	// We could even trivially use 16-bit indices by limiting the index buffer batch size! That'd be pretty neat.
+	c.gl.DrawElements(GL.TRIANGLES, s32(c.index_count), GL.UNSIGNED_INT, ^raw(0))
+	
+	c.vertex_count = 0
+	c.index_count = 0
+}
+
+#reserve_vertices: proc(c: ^Canvas, num_vertices: uint, num_indices: uint) {
+	Basic.assert(num_vertices < c.vertex_buf.len)
+	Basic.assert(num_indices < c.index_buf.len)
+	
+	if c.vertex_count + num_vertices > c.vertex_buf.len || c.index_count + num_indices > c.index_buf.len {
+		// buffer is full, draw and flush
+		draw_and_flush_batch(c)
+	}
+	
+	c.vertex_count = .+ num_vertices
+	c.index_count = .+ num_indices
+}
+
+#rect: proc(c: ^Canvas, r: Rect, color: Color) {
+	v: u32(c.vertex_count), i: c.index_count
+	reserve_vertices(c, 4, 6)
+	
+	// @ffzUndefinedValueUsecase - for UVs
+	c.vertex_buf[v]   = {r.min             , /*uv: uv.min              ,*/ uv: {0., 0.}, color: color}
+	c.vertex_buf[v+1] = {{r.max.x, r.min.y}, /*uv: {uv.max.x, uv.min.y},*/ uv: {0., 0.}, color: color}
+	c.vertex_buf[v+2] = {r.max             , /*uv: uv.max              ,*/ uv: {0., 0.}, color: color}
+	c.vertex_buf[v+3] = {{r.min.x, r.max.y}, /*uv: {uv.min.x, uv.max.y},*/ uv: {0., 0.}, color: color}
+	
+	c.index_buf[i]    = v
+	c.index_buf[i+1]  = v+1
+	c.index_buf[i+2]  = v+2
+	c.index_buf[i+3]  = v
+	c.index_buf[i+4]  = v+2
+	c.index_buf[i+5]  = v+3
+}
+
+//#triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color) {
+//	first_vertex: Index(c.vertices.len)
+//	
+//	Array.push[Vertex](&c.vertices, {p1, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
+//	Array.push[Vertex](&c.vertices, {p2, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
+//	Array.push[Vertex](&c.vertices, {p3, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
+//	
+//	Array.push[Index](&c.indices, first_vertex)
+//	Array.push[Index](&c.indices, first_vertex + 1)
+//	Array.push[Index](&c.indices, first_vertex + 2)
+//}
+

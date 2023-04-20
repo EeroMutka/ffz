@@ -40,7 +40,7 @@
 	}
 	
 	if handle == INVALID_HANDLE_VALUE {
-		ret {false, {^raw(0)}}
+		ret {false, {^raw(0)}} // @ffzUndefinedValueUsecase - the second field
 	}
 	
 	ret {true, {handle}}

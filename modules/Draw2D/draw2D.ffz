@@ -14,23 +14,51 @@
 	max: Vec2
 }
 
-#ScissorID: u32
+#DEFAULT_TEXCOORD_RECT: Rect{{0., 0.}, {1., 1.}}
 
-#DEFAULT_UV_RECT: Rect{Vec2{0., 0.}, Vec2{1., 1.}}
+#Texture: struct {
+	backend_handle: uint
+	width: u32(0)
+	height: u32(0)
+	format: TextureFormat.Invalid
+}
+
+#TextureFormat: enum, u32 {
+	Invalid: 0
+	RGBA8: 1
+}
 
 /* -- API ------------------------------------
 
 #init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas
 #deinit: proc(c: ^Canvas)
 
-#clear_lists: proc(c: ^Canvas)
+// NOTE: between `begin_drawing` and `end_drawing`, you shouldn't manually modify any OpenGL state yourself.
+#begin_drawing: proc(c: ^Canvas, background: Color)
 
-#draw_to_backend: proc(c: ^Canvas, background: Color)
+#end_drawing: proc(c: ^Canvas)
 
-#triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color)
-#rect:     proc(c: ^Canvas, rect: Rect, color: Color)
-#rect:     proc(c: ^Canvas, rect: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0))
-#circle:   proc(c: ^Canvas, p: Vec2, radius: f32, color: Color, edge_softness: f32(0.), border_thickness: f32)
+
+// -- Textures --
+
+#make_texture: proc() => Texture
+#make_texture_ex: proc(format: TextureFormat, width: u32, height: u32, data: ^raw) => Texture
+#free_texture(texture: ^Texture)
+
+#update_texture(texture: ^Texture, format: TextureFormat, width: u32, height: u32, data: ^raw)
+
+// -- Primitives --
+
+#triangle: proc(c: ^Canvas, points: [3]Vec2, color: Color)
+#triangle_ex: proc(c: ^Canvas, points: [3]Vec2, colors: [3]Color)
+
+#rect: proc(c: ^Canvas, r: Rect, color: Color)
+#rect_ex: proc(c: ^Canvas, r: Rect, color: Color, tex_coords: DEFAULT_TEXCOORD_RECT, texture: ^Texture(0))
+
+#quad: proc(c: ^Canvas, points: [4]Vec2, colors: [4]Color, tex_coords: [4]Vec2, texture: ^Texture(0))
+
+
+// #circle: proc(c: ^Canvas, p: Vec2, radius: f32, color: Color, edge_softness: f32(0.), border_thickness: f32)
 
 */
 

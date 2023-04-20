@@ -18,8 +18,10 @@
 - Goal #1: Basic 2D drawing library + demo app for it
 
 [] @module_struct
+[] struct and array ==, != comparison
 
 --------------- Keith release candidate ---------------
+[] optionals
 [] hash procedure type based on its contents, not its unique node
 [] break, continue, to_else, named scopes
 [] module ' declaration
