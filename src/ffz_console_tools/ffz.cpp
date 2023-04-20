@@ -167,7 +167,6 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	//};
 
 	//module->parsers = f_make_slice_garbage<ffzParser*>(visit.files.len, module->alc);
-	
 }
 
 int main(int argc, const char* argv[]) {

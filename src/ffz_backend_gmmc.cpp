@@ -93,6 +93,11 @@ static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 	f_init_string_builder(&name, f_temp_alc());
 
 	if (node) {
+		fOpt(ffzConstantData*) extern_tag = ffz_get_tag(g->project, node->parent, ffzKeyword_extern);
+		if (extern_tag) {
+			f_prints(name.w, extern_tag->record_fields[1].string_zero_terminated); // name_prefix
+		}
+
 		f_prints(name.w, ffz_get_parent_decl_name(node));
 		
 		if (node->_module != g->root_module) {
@@ -100,9 +105,8 @@ static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 			// Currently, we're giving these symbols unique ids and exporting them anyway, because
 			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 			
-			bool is_extern = ffz_get_tag(g->project, node->parent, ffzKeyword_extern);
 			bool is_module_defined_entry = ffz_get_tag(g->project, node->parent, ffzKeyword_module_defined_entry);
-			if (!is_extern && !is_module_defined_entry) {
+			if (extern_tag == NULL && !is_module_defined_entry) {
 				f_print(name.w, "$$~u32", node->_module->self_id);
 				//f_prints(name.w, g->checker->_dbg_module_import_name);
 			}
@@ -1488,12 +1492,6 @@ static bool build_x64(Gen* g, fString build_dir) {
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), vs_library_path));
 
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
-	
-	// We should have an option to link against CRT (that the program specifies, since cmd options are bad).
-	// If we're linking against CRT, we want to use the crt startup main.
-	// 
-	// hmm... When we're using the C backend and the "main" entry point, we don't want to explicitly 
-
 	f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
 	
 	if (!g->link_against_libc) {

@@ -2,9 +2,9 @@
 @build_option
 #link_against_libc: true
 
-#STBI: *extern{"lib/stb_image.lib"}
+// TODO: do not use malloc. I think we could completely remove the dependency on libc.
 
-// TODO: do not use malloc
+#STBI: *extern{"lib/stb_image.lib", name_prefix: "stbi_"}
 
 #stbi_io_callbacks: struct {
 	read: proc(user: ^raw, data: ^u8, size: s32) => s32
@@ -12,65 +12,65 @@
 	eof: proc(user: ^raw) => s32
 }
 
-@STBI #stbi_load_from_memory: proc(buffer: ^u8, len: s32, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^u8
+@STBI #load_from_memory: proc(buffer: ^u8, len: s32, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^u8
 
-@STBI #stbi_load_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^u8
+@STBI #load_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^u8
 
-@STBI #stbi_load_gif_from_memory: proc(buffer: ^u8, len: s32, delays: ^^s32, x: ^s32, y: ^s32, z: ^s32, comp: ^s32, req_comp: s32) => ^u8
+@STBI #load_gif_from_memory: proc(buffer: ^u8, len: s32, delays: ^^s32, x: ^s32, y: ^s32, z: ^s32, comp: ^s32, req_comp: s32) => ^u8
 
-@STBI #stbi_load_16_from_memory: proc(buffer: ^u8, len: s32, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^u16
+@STBI #load_16_from_memory: proc(buffer: ^u8, len: s32, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^u16
 
-@STBI #stbi_load_16_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^u16
+@STBI #load_16_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^u16
 
-@STBI #stbi_loadf_from_memory: proc(buffer: ^u8, len: s32, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^f32
+@STBI #loadf_from_memory: proc(buffer: ^u8, len: s32, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^f32
 
-@STBI #stbi_loadf_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^f32
+@STBI #loadf_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw, x: ^s32, y: ^s32, channels_in_file: ^s32, desired_channels: s32) => ^f32
 
-@STBI #stbi_hdr_to_ldr_gamma: proc(gamma: f32)
+@STBI #hdr_to_ldr_gamma: proc(gamma: f32)
 
-@STBI #stbi_hdr_to_ldr_scale: proc(scale: f32)
+@STBI #hdr_to_ldr_scale: proc(scale: f32)
 
-@STBI #stbi_ldr_to_hdr_gamma: proc(gamma: f32)
+@STBI #ldr_to_hdr_gamma: proc(gamma: f32)
 
-@STBI #stbi_ldr_to_hdr_scale: proc(scale: f32)
+@STBI #ldr_to_hdr_scale: proc(scale: f32)
 
-@STBI #stbi_is_hdr_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw) => s32
+@STBI #is_hdr_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw) => s32
 
-@STBI #stbi_is_hdr_from_memory: proc(buffer: ^u8, len: s32) => s32
+@STBI #is_hdr_from_memory: proc(buffer: ^u8, len: s32) => s32
 
-@STBI #stbi_failure_reason: proc => ^u8
+@STBI #failure_reason: proc => ^u8
 
-@STBI #stbi_image_free: proc(retval_from_stbi_load: ^raw)
+@STBI #image_free: proc(retval_from_stbi_load: ^raw)
 
-@STBI #stbi_info_from_memory: proc(buffer: ^u8, len: s32, x: ^s32, y: ^s32, comp: ^s32) => s32
+@STBI #info_from_memory: proc(buffer: ^u8, len: s32, x: ^s32, y: ^s32, comp: ^s32) => s32
 
-@STBI #stbi_info_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw, x: ^s32, y: ^s32, comp: ^s32) => s32
+@STBI #info_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw, x: ^s32, y: ^s32, comp: ^s32) => s32
 
-@STBI #stbi_is_16_bit_from_memory: proc(buffer: ^u8, len: s32) => s32
+@STBI #is_16_bit_from_memory: proc(buffer: ^u8, len: s32) => s32
 
-@STBI #stbi_is_16_bit_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw) => s32
+@STBI #is_16_bit_from_callbacks: proc(clbk: ^stbi_io_callbacks, user: ^raw) => s32
 
-@STBI #stbi_set_unpremultiply_on_load: proc(flag_true_if_should_unpremultiply: s32)
+@STBI #set_unpremultiply_on_load: proc(flag_true_if_should_unpremultiply: s32)
 
-@STBI #stbi_convert_iphone_png_to_rgb: proc(flag_true_if_should_convert: s32)
+@STBI #convert_iphone_png_to_rgb: proc(flag_true_if_should_convert: s32)
 
-@STBI #stbi_set_flip_vertically_on_load: proc(flag_true_if_should_flip: s32)
+@STBI #set_flip_vertically_on_load: proc(flag_true_if_should_flip: s32)
 
-@STBI #stbi_set_unpremultiply_on_load_thread: proc(flag_true_if_should_unpremultiply: s32)
+@STBI #set_unpremultiply_on_load_thread: proc(flag_true_if_should_unpremultiply: s32)
 
-@STBI #stbi_convert_iphone_png_to_rgb_thread: proc(flag_true_if_should_convert: s32)
+@STBI #convert_iphone_png_to_rgb_thread: proc(flag_true_if_should_convert: s32)
 
-@STBI #stbi_set_flip_vertically_on_load_thread: proc(flag_true_if_should_flip: s32)
+@STBI #set_flip_vertically_on_load_thread: proc(flag_true_if_should_flip: s32)
 
-@STBI #stbi_zlib_decode_malloc_guesssize: proc(buffer: ^u8, len: s32, initial_size: s32, outlen: ^s32) => ^u8
+@STBI #zlib_decode_malloc_guesssize: proc(buffer: ^u8, len: s32, initial_size: s32, outlen: ^s32) => ^u8
 
-@STBI #stbi_zlib_decode_malloc_guesssize_headerflag: proc(buffer: ^u8, len: s32, initial_size: s32, outlen: ^s32, parse_header: s32) => ^u8
+@STBI #zlib_decode_malloc_guesssize_headerflag: proc(buffer: ^u8, len: s32, initial_size: s32, outlen: ^s32, parse_header: s32) => ^u8
 
-@STBI #stbi_zlib_decode_malloc: proc(buffer: ^u8, len: s32, outlen: ^s32) => ^u8
+@STBI #zlib_decode_malloc: proc(buffer: ^u8, len: s32, outlen: ^s32) => ^u8
 
-@STBI #stbi_zlib_decode_buffer: proc(obuffer: ^u8, olen: s32, ibuffer: ^u8, ilen: s32) => s32
+@STBI #zlib_decode_buffer: proc(obuffer: ^u8, olen: s32, ibuffer: ^u8, ilen: s32) => s32
 
-@STBI #stbi_zlib_decode_noheader_malloc: proc(buffer: ^u8, len: s32, outlen: ^s32) => ^u8
+@STBI #zlib_decode_noheader_malloc: proc(buffer: ^u8, len: s32, outlen: ^s32) => ^u8
 
-@STBI #stbi_zlib_decode_noheader_buffer: proc(obuffer: ^u8, olen: s32, ibuffer: ^u8, ilen: s32) => s32
+@STBI #zlib_decode_noheader_buffer: proc(obuffer: ^u8, olen: s32, ibuffer: ^u8, ilen: s32) => s32
 

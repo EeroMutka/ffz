@@ -56,9 +56,11 @@ layout (location = 3) in unsigned int a_scissor_rect;
 layout (location = 4) in vec4 a_color;
 
 out vec4 vert_color;
+out vec2 vert_uv;
 
 void main() {
 	vert_color = a_color;
+	vert_uv = a_uv;
 	gl_Position = vec4(a_position, 0, 1.0);
 }
 "
@@ -67,11 +69,16 @@ void main() {
 #version 330
 
 in vec4 vert_color;
+in vec2 vert_uv;
 
 out vec4 frag_color;
 
+uniform sampler2D my_sampler;
+
 void main() {
-	frag_color = vert_color;
+	frag_color = texture(my_sampler, vert_uv);
+	
+	//  vert_color;
 }
 "
 

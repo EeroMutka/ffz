@@ -771,6 +771,7 @@ static ffzRecordBuilder ffz_record_builder_init(ffzModule* c, ffzType* record, u
 	return { c, record, f_array_make_cap<ffzField>(fields_cap, c->alc) };
 }
 
+// NOTE: default_value is copied
 static void ffz_record_builder_add_field(ffzRecordBuilder* b, fString name, ffzType* field_type,
 	fOpt(ffzConstantData*) default_value, fOpt(ffzNodeOpDeclare*) decl)
 {
@@ -1486,11 +1487,11 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
 		c->module_type = ffz_make_type(c, { ffzTypeTag_Module });
 		c->type_type = ffz_make_type(c, { ffzTypeTag_Type });
 
+		ffzConstantData zero = {};
 		{
 			ffzType* string = ffz_make_type(c, { ffzTypeTag_String });
 			c->builtin_types[ffzKeyword_string] = string;
 
-			ffzConstantData zero = {};
 			ffzRecordBuilder b = ffz_record_builder_init(c, c->builtin_types[ffzKeyword_string], 2);
 			ffz_record_builder_add_field(&b, F_LIT("ptr"), ffz_make_type_ptr(c, ffz_builtin_type(c, ffzKeyword_u8)), &zero, {});
 			ffz_record_builder_add_field(&b, F_LIT("len"), ffz_builtin_type(c, ffzKeyword_uint), &zero, {});
@@ -1501,6 +1502,7 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
 			c->builtin_types[ffzKeyword_extern] = ffz_make_pseudo_record_type(c);
 			ffzRecordBuilder b = ffz_record_builder_init(c, c->builtin_types[ffzKeyword_extern], 1);
 			ffz_record_builder_add_field(&b, F_LIT("library"), ffz_builtin_type(c, ffzKeyword_string), NULL, {});
+			ffz_record_builder_add_field(&b, F_LIT("name_prefix"), ffz_builtin_type(c, ffzKeyword_string), &zero, {});
 			ffz_record_builder_finish(&b);
 		}
 		
@@ -1956,10 +1958,13 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	case ffzNodeKind_UnaryPlus: {
 		ffzNode* rhs = node->Op.right;
 		TRY(check_node(c, rhs, require_type, flags));
-		
-		if (!ffz_type_is_integer(rhs->checked.type->tag) && !ffz_type_is_float(rhs->checked.type->tag)) {
-			ERR(rhs, "Incorrect arithmetic type; should be an integer or a float.\n    received: ~s",
-				ffz_type_to_string(c->project, rhs->checked.type));
+
+		// hmm... the TypeIsNotRequired flag is a bit weird. It makes us not trust that we got a type.
+		if (rhs->checked.type) {
+			if (!ffz_type_is_integer(rhs->checked.type->tag) && !ffz_type_is_float(rhs->checked.type->tag)) {
+				ERR(rhs, "Incorrect arithmetic type; should be an integer or a float.\n    received: ~s",
+					ffz_type_to_string(c->project, rhs->checked.type));
+			}
 		}
 		result.type = rhs->checked.type;
 	} break;

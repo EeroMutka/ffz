@@ -45,21 +45,43 @@ g: Globals(~~)
 	
 	// load images
 	// we need a read-entire-file procedure
-	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/avatar.png", Basic.temp_alc())
+	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", Basic.temp_alc())
 	Basic.assert(image_file.ok)
 	
 	
 	width: s32(~~), height: s32(~~), channels_in_file: s32(~~)
 	
-	img_data: stbi.stbi_load_from_memory(image_file.data.ptr, s32(image_file.data.len),
-		&width, &height, &channels_in_file, desired_channels: 0)
-	// stbi.stbi_image_free(img_data)
+	stbi.set_flip_vertically_on_load(1)
+	img_data: stbi.load_from_memory(image_file.data.ptr, s32(image_file.data.len),
+		&width, &height, &channels_in_file, desired_channels: 4)
 	
 	if img_data == ^u8(0) {
 		dbgbreak
 	}
 	
+	texture: GL.GLuint(0)
+	gl.GenTextures(1, &texture)
+	gl.BindTexture(GL.TEXTURE_2D, texture)
+	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.REPEAT)
+	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.REPEAT)
+	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.LINEAR)
+	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.LINEAR)
+
+	gl.TexImage2D(GL.TEXTURE_2D, 0, GL.RGBA8, width, height, 0, GL.RGBA, GL.UNSIGNED_BYTE, img_data)
 	
+	// stbi.image_free(img_data)
+	
+	{ // set active texture
+		// learnopengl.com says there should be always at least 16 texture slots available to use.
+		
+		gl.ActiveTexture(GL.TEXTURE0)
+		gl.BindTexture(GL.TEXTURE_2D, texture)
+		
+		gl.UseProgram(g.canvas.shader_program) // shader must be bound for setting uniforms
+		sampler_loc: gl.GetUniformLocation(g.canvas.shader_program, "my_sampler".ptr)
+		if sampler_loc == -1 { dbgbreak }
+		gl.Uniform1i(sampler_loc, 0)
+	}
 	
 	Window.show(g.window)
 	
