@@ -7,10 +7,10 @@
 #VERTEX_BUFFER_CAPACITY: 32768
 #INDEX_BUFFER_CAPACITY: 65536
 
-
 #Vertex: struct {
 	position: Vec2
 	uv: Vec2
+	enable_texture: f32
 	color: Color
 }
 
@@ -21,10 +21,12 @@
 	arena: ^Basic.Arena
 	
 	vertex_buf: []Vertex
-	vertex_count: uint
+	vertex_count: uint(0)
 	
 	index_buf: []Index
-	index_count: uint
+	index_count: uint(0)
+	
+	current_tex: ^Texture
 	
 	shader_program: GL.GLuint
 	
@@ -38,14 +40,17 @@
 
 layout (location = 0) in vec2 a_position;
 layout (location = 1) in vec2 a_uv;
+layout (location = 2) in float a_enable_texture;
 layout (location = 3) in vec4 a_color;
 
 out vec4 vert_color;
 out vec2 vert_uv;
+out float vert_enable_texture;
 
 void main() {
 	vert_color = a_color;
 	vert_uv = a_uv;
+	vert_enable_texture = a_enable_texture;
 	gl_Position = vec4(a_position, 0, 1.0);
 }
 "
@@ -55,15 +60,14 @@ void main() {
 
 in vec4 vert_color;
 in vec2 vert_uv;
+in float vert_enable_texture;
 
 out vec4 frag_color;
 
 uniform sampler2D u_texture;
 
 void main() {
-	frag_color = texture(u_texture, vert_uv);
-	
-	//  vert_color;
+	frag_color = vert_color * mix(vec4(1), texture(u_texture, vert_uv), vert_enable_texture);
 }
 "
 
@@ -132,33 +136,35 @@ void main() {
 	
 	// Specify the vertex layout
 	{
-		/*
-			position: Vec2     | offset: 0
-			uv:            | offset: 8
-			color: Color       | offset: 16
-		*/
 		gl.BindBuffer(GL.ARRAY_BUFFER, vbo)
 		
 		gl.VertexAttribPointer (0, 2, GL.FLOAT,        false, size_of(Vertex), ^raw(0))   // position
 		gl.VertexAttribPointer (1, 2, GL.FLOAT,        false, size_of(Vertex), ^raw(8))   // uv
-		gl.VertexAttribPointer (2, 4, GL.UNSIGNED_BYTE, true, size_of(Vertex), ^raw(16))  // color
+		gl.VertexAttribPointer (2, 1, GL.FLOAT,        false, size_of(Vertex), ^raw(16))  // enable_texture
+		gl.VertexAttribPointer (3, 4, GL.UNSIGNED_BYTE, true, size_of(Vertex), ^raw(20))  // color
 		gl.EnableVertexAttribArray(0)
 		gl.EnableVertexAttribArray(1)
 		gl.EnableVertexAttribArray(2)
+		gl.EnableVertexAttribArray(3)
 	}
 	
-	ret {
+	canvas: Canvas{
 		gl: gl
 		arena: arena
 		vertex_buf: Basic.make_slice_undef[Vertex](VERTEX_BUFFER_CAPACITY, alc)
-		vertex_count: 0
 		index_buf: Basic.make_slice_undef[Index](INDEX_BUFFER_CAPACITY, alc)
-		index_count: 0
 		shader_program: shader_program
+		current_tex: ^Texture(0)
 		vbo: vbo
 		ebo: ebo
 		vao: vao
 	}
+	
+	//white_pixel: u32(0xFFFFFFFF)
+	//canvas.blank_texture = make_texture_ex(&canvas, TextureFormat.RGBA8, 1, 1, &white_pixel)
+	//canvas.current_tex = &canvas.blank_texture
+	
+	ret canvas
 }
 
 #deinit: proc(c: ^Canvas) {
@@ -211,9 +217,9 @@ void main() {
 	gl.UseProgram(c.shader_program)
 	gl.BindVertexArray(c.vao)
 	
-	sampler_loc: gl.GetUniformLocation(c.shader_program, "u_texture".ptr)
-	if sampler_loc == -1 { dbgbreak }
-	gl.Uniform1i(sampler_loc, TEXTURE_SLOT) // NOTE: shader must be bound
+	//sampler_loc: gl.GetUniformLocation(c.shader_program, "u_texture".ptr)
+	//if sampler_loc == -1 { dbgbreak }
+	//gl.Uniform1i(sampler_loc, TEXTURE_SLOT) // NOTE: shader must be bound
 	
 	gl.BindBuffer(GL.ARRAY_BUFFER, c.vbo)
 	gl.BindBuffer(GL.ELEMENT_ARRAY_BUFFER, c.ebo)
@@ -232,18 +238,20 @@ void main() {
 //}
 
 #draw_and_flush_batch: proc(c: ^Canvas) {
-	// TODO: use glBufferSubData or whatever, I think BufferData resizes the buffer?
-	c.gl.BufferData(GL.ARRAY_BUFFER, s64(c.vertex_count * size_of(Vertex)), c.vertex_buf.ptr, GL.DYNAMIC_DRAW)
-	c.gl.BufferData(GL.ELEMENT_ARRAY_BUFFER, s64(c.index_count * size_of(Index)), c.index_buf.ptr, GL.DYNAMIC_DRAW)
-	
-	// We could even trivially use 16-bit indices by limiting the index buffer batch size! That'd be pretty neat.
-	c.gl.DrawElements(GL.TRIANGLES, s32(c.index_count), GL.UNSIGNED_INT, ^raw(0))
+	if c.index_count > 0 {
+		// TODO: use glBufferSubData or whatever, I think BufferData resizes the buffer?
+		c.gl.BufferData(GL.ARRAY_BUFFER, s64(c.vertex_count * size_of(Vertex)), c.vertex_buf.ptr, GL.DYNAMIC_DRAW)
+		c.gl.BufferData(GL.ELEMENT_ARRAY_BUFFER, s64(c.index_count * size_of(Index)), c.index_buf.ptr, GL.DYNAMIC_DRAW)
+		
+		// We could even trivially use 16-bit indices by limiting the index buffer batch size! That'd be pretty neat.
+		c.gl.DrawElements(GL.TRIANGLES, s32(c.index_count), GL.UNSIGNED_INT, ^raw(0))
+	}
 	
 	c.vertex_count = 0
 	c.index_count = 0
 }
 
-#reserve_vertices: proc(c: ^Canvas, num_vertices: uint, num_indices: uint) {
+#reserve_vertices: proc(c: ^Canvas, num_vertices: uint, num_indices: uint) => struct {v: u32, i: u32} {
 	Basic.assert(num_vertices < c.vertex_buf.len)
 	Basic.assert(num_indices < c.index_buf.len)
 	
@@ -252,26 +260,41 @@ void main() {
 		draw_and_flush_batch(c)
 	}
 	
+	v: u32(c.vertex_count), i: u32(c.index_count)
 	c.vertex_count = .+ num_vertices
 	c.index_count = .+ num_indices
+	ret {v, i}
 }
 
-#rect: proc(c: ^Canvas, r: Rect, color: Color) {
-	v: u32(c.vertex_count), i: c.index_count
-	reserve_vertices(c, 4, 6)
+#set_texture: proc(c: ^Canvas, texture: ^Texture(0)) {
+	if c.current_tex != texture && texture != ^Texture(0) {
+		if c.current_tex != ^Texture(0) {
+			draw_and_flush_batch(c)
+		}
+		
+		c.gl.ActiveTexture(GL.TEXTURE0 + TEXTURE_SLOT)
+		c.gl.BindTexture(GL.TEXTURE_2D, GL.GLuint(texture.backend_handle))
+	}
+	c.current_tex = texture
+}
+
+#rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
+	set_texture(c, texture)
+	v: reserve_vertices(c, 4, 6)
 	
-	// @ffzUndefinedValueUsecase - for UVs
-	c.vertex_buf[v]   = {r.min             , /*uv: uv.min              ,*/ uv: {0., 0.}, color: color}
-	c.vertex_buf[v+1] = {{r.max.x, r.min.y}, /*uv: {uv.max.x, uv.min.y},*/ uv: {0., 0.}, color: color}
-	c.vertex_buf[v+2] = {r.max             , /*uv: uv.max              ,*/ uv: {0., 0.}, color: color}
-	c.vertex_buf[v+3] = {{r.min.x, r.max.y}, /*uv: {uv.min.x, uv.max.y},*/ uv: {0., 0.}, color: color}
+	enable_texture: Basic.select[f32](texture == ^Texture(0), 0., 1.)
 	
-	c.index_buf[i]    = v
-	c.index_buf[i+1]  = v+1
-	c.index_buf[i+2]  = v+2
-	c.index_buf[i+3]  = v
-	c.index_buf[i+4]  = v+2
-	c.index_buf[i+5]  = v+3
+	c.vertex_buf[v.v]   = {r.min             , uv.min              , enable_texture, color}
+	c.vertex_buf[v.v+1] = {{r.max.x, r.min.y}, {uv.max.x, uv.min.y}, enable_texture, color}
+	c.vertex_buf[v.v+2] = {r.max             , uv.max              , enable_texture, color}
+	c.vertex_buf[v.v+3] = {{r.min.x, r.max.y}, {uv.min.x, uv.max.y}, enable_texture, color}
+	
+	c.index_buf[v.i]    = v.v
+	c.index_buf[v.i+1]  = v.v+1
+	c.index_buf[v.i+2]  = v.v+2
+	c.index_buf[v.i+3]  = v.v
+	c.index_buf[v.i+4]  = v.v+2
+	c.index_buf[v.i+5]  = v.v+3
 }
 
 //#triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color) {

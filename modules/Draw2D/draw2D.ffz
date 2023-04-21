@@ -14,10 +14,10 @@
 	max: Vec2
 }
 
-#DEFAULT_TEXCOORD_RECT: Rect{{0., 0.}, {1., 1.}}
+#DEFAULT_UV_RECT: Rect{{0., 0.}, {1., 1.}}
 
 #Texture: struct {
-	backend_handle: uint
+	backend_handle: uint(0)
 	width: u32(0)
 	height: u32(0)
 	format: TextureFormat.Invalid
@@ -47,13 +47,12 @@
 
 #update_texture(texture: ^Texture, format: TextureFormat, width: u32, height: u32, data: ^raw)
 
-// -- Primitives --
+// -- Drawing --
 
 #triangle: proc(c: ^Canvas, points: [3]Vec2, color: Color)
 #triangle_ex: proc(c: ^Canvas, points: [3]Vec2, colors: [3]Color)
 
-#rect: proc(c: ^Canvas, r: Rect, color: Color)
-#rect_ex: proc(c: ^Canvas, r: Rect, color: Color, tex_coords: DEFAULT_TEXCOORD_RECT, texture: ^Texture(0))
+#rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0))
 
 #quad: proc(c: ^Canvas, points: [4]Vec2, colors: [4]Color, tex_coords: [4]Vec2, texture: ^Texture(0))
 

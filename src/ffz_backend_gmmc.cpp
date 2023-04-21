@@ -416,8 +416,8 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 	} break;
 
 	case ffzTypeTag_Pointer: {
-		if (data->ptr) todo;
-		memset(base + offset, 0, 8);
+		if (data->ptr.as_ptr_to_constant) todo;
+		memcpy(base + offset, &data->ptr.as_integer, 8);
 	} break;
 
 	case ffzTypeTag_String: {

@@ -211,7 +211,7 @@ GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasic
 }
 
 GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index) {
-	return proc->params[index];
+	return proc->addr_of_params[index];
 }
 
 GMMC_API u32 gmmc_type_size(gmmcType type) {
@@ -401,13 +401,13 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 	proc->basic_blocks = f_array_make<gmmcBasicBlock*>(m->allocator);
 	proc->entry_bb = gmmc_make_basic_block(proc);
 
-	proc->params = f_make_slice_garbage<gmmcOpIdx>(signature->params.len, m->allocator);
+	proc->addr_of_params = f_make_slice_garbage<gmmcOpIdx>(signature->params.len, m->allocator);
 	for (uint i = 0; i < signature->params.len; i++) {
 		gmmcOpData op = { gmmcOpKind_addr_of_param };
 		op.bb_idx = GMMC_BB_INDEX_NONE;
 		op.type = gmmcType_ptr; //signature->params[i];
 		op.imm_bits = i;
-		proc->params[i] = (gmmcOpIdx)f_array_push(&proc->ops, op);
+		proc->addr_of_params[i] = (gmmcOpIdx)f_array_push(&proc->ops, op);
 	}
 	
 	*out_entry_bb = proc->entry_bb;

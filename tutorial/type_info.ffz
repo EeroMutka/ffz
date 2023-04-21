@@ -1,0 +1,32 @@
+
+
+// so the biggest thing we would like type info for is easy printing.
+// ALTERNATIVE IDEA:
+
+FmtValueKind: enum, u32 {
+	Int,
+	String,
+	...
+}
+
+#FmtValue: struct {
+	kind: FmtValueKind
+	
+	value_int: int
+	value_float: f32
+	
+	num_digits: int
+}
+
+#print: proc(fmt: string, args: []FmtValue) {
+}
+
+#fmt_int: proc(value: int, num_digits: uint(10)) => FmtValue {
+}
+
+
+// 
+print("hello, world!")
+print("My name is: % and I am % years old.", {fmt_string("nope..."), fmt_int(50)})
+
+

@@ -470,8 +470,11 @@ typedef struct ffzConstantData {
 		double     _f64;
 		bool      _bool;
 		
-		//fOpt(ffzConstantData*) ptr; // hmm... why is this optional?
-		ffzConstantData* ptr;
+		// A constant pointer value can be either a pointer to another constant, or a literal integer value.
+		struct {
+			uint64_t as_integer; // :ReinterpretIntegerConstantAsPointer
+			fOpt(ffzConstantData*) as_ptr_to_constant; // if NULL, `as_integer` is used instead
+		} ptr;
 
 		ffzType* type;
 		ffzModule* module;

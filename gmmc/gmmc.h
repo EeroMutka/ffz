@@ -268,7 +268,7 @@ typedef struct gmmcProc {
 	fArray(gmmcBasicBlock*) basic_blocks;
 	fArray(gmmcOpData) ops; // 0 is invalid!
 
-	fSlice(gmmcOpIdx) params;
+	fSlice(gmmcOpIdx) addr_of_params;
 	fArray(gmmcLocal) locals; // gmmcLocalIdx, 0 is invalid!
 } gmmcProc;
 

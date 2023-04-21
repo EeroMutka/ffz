@@ -279,8 +279,8 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 	// clang is very strict about the definition of main, it will give errors if the types don't match exactly
 	bool is_main = f_str_equals(name, F_LIT("main"));
 	if (is_main) {
-		f_assert(proc->params.len == 2);
-		f_print(f, "int main(int _$~u32, char** _$~u32) {\n", proc->params[0], proc->params[1]);
+		f_assert(proc->addr_of_params.len == 2);
+		f_print(f, "int main(int _$~u32, char** _$~u32) {\n", proc->addr_of_params[0], proc->addr_of_params[1]);
 	}
 	else {
 		f_print(f, "~s ~s(", (proc->signature->return_type ?
@@ -289,7 +289,7 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 		for (uint i = 0; i < proc->signature->params.len; i++) {
 			if (i > 0) f_print(f, ", ");
 			gmmcType type = proc->signature->params[i];
-			f_print(f, "~s _$~u32", gmmc_type_get_string(type), proc->params[i]);
+			f_print(f, "~s _$~u32", gmmc_type_get_string(type), proc->addr_of_params[i]);
 		}
 		f_print(f, ") {\n");
 	}

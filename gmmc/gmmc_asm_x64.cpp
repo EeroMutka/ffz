@@ -1358,25 +1358,6 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		result->local_frame_rel_offset[i] = result->rsp_offset;
 	}
 
-	// reserve spill-space for all the ops
-	// hmm... we should only reserve it for those ops that need to spill
-
-	/*for (gmmcOpIdx i = 0; i < proc->ops.len; i++) {
-		// TODO: for `op_param`, we should put the spill rsp rel offset to the shadow-space of the parameter.
-		gmmcOpData* op = &proc->ops[i];
-		u32 size = gmmc_type_size(op->type);
-		if (size == 0) continue;
-		
-		if (gmmc_is_op_instant(proc, i)) continue; // immediates can't get spilled
-		
-		offset -= size;
-
-		f_assert(size <= 8);
-		offset = F_ALIGN_DOWN_POW2(offset, size);
-
-		p->ops[i].spill_offset_frame_rel = offset;
-	}*/
-
 	{
 		p->stage = Stage_Initial;
 		memset(p->bbs_offset.data, 0xff, p->bbs_offset.len * sizeof(u32));
@@ -1393,6 +1374,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 	}
 	
 	// Now that we know which callee-saved work registers were used, let's reserve stack space so that we can save them
+
 	for (uint rset = 0; rset < RegisterSet_COUNT; rset++) {
 		fSlice(GPR) work_regs = get_work_registers((RegisterSet)rset);
 
@@ -1415,7 +1397,6 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 
 	{
 		Section* code_section = &p->module->sections[gmmcSection_Code];
-		
 		
 		p->stage = Stage_Emit;
 		p->cached_rsel = p->rsel;
@@ -1468,14 +1449,16 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 				req.operands[0].mem.size = rset == RegisterSet_XMM ? 16 : 8;
 				req.operands[1] = make_reg_operand(reg, 8);
 				emit(p, req, " ; store callee-saved register");
+				int _ = 50;
 			}
 		}
 		
-		// immediately spill the register-parameters onto the stack, so that addr_of_param will work on them
+		// immediately spill the register-parameters onto the stack, so that addr_of_param will work on them (and inspecting
+		// their values in the debugger)
 
-		uint register_params_n = F_MIN(4, p->proc->params.len);
+		uint register_params_n = F_MIN(4, p->proc->signature->params.len);
 		for (uint i = 0; i < register_params_n; i++) {
-			gmmcType type = gmmc_get_op_type(p->proc, p->proc->params[i]);
+			gmmcType type = p->proc->signature->params[i];
 			bool is_float = gmmc_type_is_float(type);
 			
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };

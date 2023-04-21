@@ -918,11 +918,16 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 				ERR(arg, "Invalid place for an undefined value. Undefined values are only allowed in variable declarations.");
 			}
 			
-			if (!result->is_undefined && !ffz_type_is_pointer_ish(result->type->tag) && !ffz_type_is_pointer_ish(arg->checked.type->tag)) {
+			if (!result->is_undefined && /*!ffz_type_is_pointer_ish(result->type->tag) && */
+				!ffz_type_is_pointer_ish(arg->checked.type->tag)) {
 				// the following shouldn't be allowed:
 				// #foo: false
 				// #bar: uint(&foo)
 				// This is because given a constant integer, we want to be able to trivially ask what its value is.
+				// However, the other way is allowed (i.e. ^int(0))
+				
+				// NOTE: when casting integer constants to pointer constants, we use the integer constant directly. This is ok,
+				// because their layouts are identical. :ReinterpretIntegerConstantAsPointer
 				result->constant = arg->checked.constant;
 			}
 
