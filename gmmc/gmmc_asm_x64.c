@@ -99,10 +99,10 @@ typedef enum Stage {
 typedef struct ProcGenSelectRegs {
 	u32 work_registers_used_count[RegisterSet_COUNT];
 	
-	// this is cleared when beginning to generate a new basic block
+	// this is cleared to GMMC_OP_IDX_INVALID when beginning to generate a new basic block
 	gmmcOpIdx work_reg_taken_by_op[GPR_COUNT];
 	
-	fSlice(GPR) ops_currently_in_register; // GPR_INVALID means it's on the stack / not inside a register
+	fSlice(GPR) ops_currently_in_register; // GPR_NONE means it's on the stack / not inside a register
 	
 	fArray(GPR) debug_allocate_gpr_order;
 } ProcGenSelectRegs;
@@ -354,7 +354,7 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 	GPR gpr = GPR_NONE;
 	f_assert(p->stage > Stage_Initial);
 
-	F_HITS(_c, 0);
+	//F_HITS(_c, 51);
 
 	gmmcType type = f_array_get(gmmcOpData, p->proc->ops, for_op).type;
 	RegisterSet rset = get_register_set_from_type(type);
@@ -362,10 +362,17 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 
 	for (u32 i = 0; i < p->rsel.work_registers_used_count[rset]; i++) {
 		GPR work_reg = f_array_get(GPR, work_regs, i);
-		gmmcOpIdx taken_by_op = p->rsel.work_reg_taken_by_op[work_reg];
+		gmmcOpIdx work_reg_owner = p->rsel.work_reg_taken_by_op[work_reg];
 		
-		if (p->current_op > f_array_get(gmmcOpIdx, p->ops_last_use_time, taken_by_op)) { // this op value will never be used later
-			f_array_set(GPR, p->rsel.ops_currently_in_register, taken_by_op, GPR_NONE);
+		if (work_reg_owner == GMMC_OP_IDX_INVALID) {
+			// Register is in the open market
+			gpr = work_reg;
+			break;
+		}
+		
+		if (p->current_op > f_array_get(gmmcOpIdx, p->ops_last_use_time, work_reg_owner)) {
+			// `work_reg_owner` will never be used later
+			f_array_set(GPR, p->rsel.ops_currently_in_register, work_reg_owner, GPR_NONE);
 			gpr = work_reg;
 			break;
 		}
@@ -939,7 +946,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 
 #ifdef _DEBUG
 		for (uint i = 0; i < p->rsel.ops_currently_in_register.len; i++) {
-			f_assert(f_array_get(GPR, p->rsel.ops_currently_in_register, i) == GMMC_OP_IDX_INVALID);
+			f_assert(f_array_get(GPR, p->rsel.ops_currently_in_register, i) == GPR_NONE);
 		}
 #endif
 	}
@@ -1330,6 +1337,16 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 	return bb_offset;
 }
 
+static void default_rsel(ProcGenSelectRegs* rsel, gmmcProc* proc) {
+	*rsel = (ProcGenSelectRegs){0};
+	rsel->debug_allocate_gpr_order = f_array_make(f_temp_alc());
+	rsel->ops_currently_in_register = f_make_slice(GPR, proc->ops.len, (GPR){GPR_NONE}, f_temp_alc()); // @memory: we don't need to reallocate this slice on the second round of default_rsel()
+	
+	for (uint i = 0; i < F_LEN(rsel->work_reg_taken_by_op); i++) {
+		rsel->work_reg_taken_by_op[i] = GMMC_OP_IDX_INVALID;
+	}
+}
+
 GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmcProc* proc) {
 	fWriter* w = f_get_stdout();
 	bool buffered = true;
@@ -1377,9 +1394,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 	
 	{
 		p->stage = Stage_SelectRegs;
-		p->rsel = (ProcGenSelectRegs){0};
-		p->rsel.debug_allocate_gpr_order = f_array_make(f_temp_alc());
-		p->rsel.ops_currently_in_register = f_make_slice(GPR, proc->ops.len, (GPR){GPR_NONE}, f_temp_alc());
+		default_rsel(&p->rsel, proc);
 		memset(p->bbs_offset.data, 0xff, p->bbs_offset.len * sizeof(u32));
 		gen_bb(p, 0);
 	}
@@ -1411,9 +1426,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		
 		p->stage = Stage_Emit;
 		p->cached_rsel = p->rsel;
-		p->rsel = (ProcGenSelectRegs){0};
-		p->rsel.debug_allocate_gpr_order = f_array_make(f_temp_alc());
-		p->rsel.ops_currently_in_register = f_make_slice(GPR, proc->ops.len, (GPR){GPR_NONE}, f_temp_alc()); // @memory: we don't need to reallocate this slice
+		default_rsel(&p->rsel, proc);
 		memset(p->bbs_offset.data, 0xff, p->bbs_offset.len * sizeof(u32));
 		
 		for (uint i = 0; i < proc->ops.len; i++) {
