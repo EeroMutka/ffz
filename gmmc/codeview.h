@@ -1,10 +1,10 @@
 // microsoft codeview debug information
 // I think if I ever get to doing drawf debug info, I should make a shared API to this for it
 
-struct cviewLine {
+typedef struct cviewLine {
 	uint32_t line_num;
 	uint32_t offset; // offset into the .text section
-};
+} cviewLine;
 
 typedef uint32_t cviewTypeIdx; // index into the `types` array
 
@@ -113,7 +113,7 @@ typedef struct cviewSourceFile {
 	coffHashSHA256 hash;
 } cviewSourceFile;
 
-struct cviewGenerateDebugInfoDesc {
+typedef struct cviewGenerateDebugInfoDesc {
 	coffString obj_name; // path to the obj file. NOTE: path separators must be backslashes!!
 
 	cviewSourceFile* files;
@@ -145,7 +145,7 @@ struct cviewGenerateDebugInfoDesc {
 
 		fSlice(u8) debugT;
 	} result;
-};
+} cviewGenerateDebugInfoDesc;
 
 // The pdata and xdata sections in a COFF file describe how to deal with runtime exceptions, but
 // they are also required to make walking the callstack possible (StackWalk64). Without them,

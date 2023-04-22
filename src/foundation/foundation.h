@@ -568,7 +568,7 @@ fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key);
 
 void f_mem_copy(void* dst, const void* src, uint size); // TODO: make this an inline call?
 
-fArrayRaw f_array_make_raw(fAllocator* a);
+fArrayRaw f_array_make(fAllocator* a);
 fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_value, fAllocator* a);
 fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fAllocator* a);
 fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a);
@@ -866,7 +866,7 @@ inline fWriter* f_get_stdout() {
 }
 
 inline void f_init_string_builder(fStringBuilder* builder, fAllocator* alc) {
-	fArrayRaw buffer = f_array_make_raw(alc);
+	fArrayRaw buffer = f_array_make(alc);
 	memcpy(&builder->buffer, &buffer, sizeof(fArrayRaw)); // memcpy because of C++ semantics and templated fArray
 	builder->writer.proc = f_string_builder_writer_proc;
 	builder->writer.userdata = &builder->buffer;

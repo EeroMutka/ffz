@@ -605,7 +605,7 @@ void f_leak_tracker_begin_entry(void* address, uint skip_stackframes_count) {
 	_f_leak_tracker.active = true;
 }
 
-fArrayRaw f_array_make_raw(fAllocator* a) { return (fArrayRaw) { .alc = a }; }
+fArrayRaw f_array_make(fAllocator* a) { return (fArrayRaw) { .alc = a }; }
 
 fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_value, fAllocator* a) {
 	fArrayRaw array = f_array_make_len_garbage_raw(elem_size, len, a);

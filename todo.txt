@@ -20,7 +20,8 @@
 [] @module_struct
 [] struct and array ==, != comparison
 
-[] translate the codebase to C
+[] translate the codebase to C & use clang. I think C99 seems like a good choice?
+   Or is there anything in C11 that is good? Atomics seem like the biggest winner, but idk. Maybe just stick to C99 for now.
 [] profiling macros - we can use an uninitialized variable error trick to remind us to have the profiling end scope
 
 --------------- Keith release candidate ---------------

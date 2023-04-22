@@ -969,7 +969,7 @@ static ffzOk parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRang
 }
 
 static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out) {
-	fArray(ffzNodeOp*) operator_chain = f_array_make_raw(parser_allocator(p));
+	fArray(ffzNodeOp*) operator_chain = f_array_make(parser_allocator(p));
 	//F_HITS(_c, 4);
 	
 	//if (loc->line_num == 333) f_trap();
@@ -1334,7 +1334,7 @@ ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
 	parser.alc = m->alc;
-	parser.import_keywords = f_array_make_raw(parser.alc);
+	parser.import_keywords = f_array_make(parser.alc);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
 	
@@ -1351,7 +1351,7 @@ ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
 	parser.alc = m->alc;
-	parser.import_keywords = f_array_make_raw(parser.alc);
+	parser.import_keywords = f_array_make(parser.alc);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
 	ffzNode* root = new_node(&parser, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);

@@ -180,7 +180,7 @@ template<typename T>
 inline fOpt(T*) f_map64_get(fMap64(T)* map, u64 key) { return (T*)f_map64_get_raw((fMap64Raw*)map, key); }
 
 template<typename T>
-inline fArray(T) f_array_make(fAllocator* alc) { return F_BITCAST(fArray(T), f_array_make_raw(alc)); }
+inline fArray(T) f_array_make(fAllocator* alc) { return F_BITCAST(fArray(T), f_array_make(alc)); }
 
 template<typename T>
 inline fArray(T) f_array_make_len(uint len, const T& initial_value, fAllocator* alc) {

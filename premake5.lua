@@ -1,6 +1,6 @@
 
 function import_ffz()
-	cdialect "C11"
+	cdialect "C99"
 	
 	debugdir "%{cfg.linktarget.directory}"
 	flags {"FatalWarnings"}
