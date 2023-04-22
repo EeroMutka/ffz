@@ -349,7 +349,7 @@ void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)*
 
 	fRangeUint range = { prev, str.len };
 	f_array_push(&splits, range);
-	*out = F_BITCAST(fSlice(fRangeUint), splits);
+	*out = splits.slice;
 }
 
 //void* slot_array_subscript_raw(SlotArrayRaw* arr, SlotArrayHandle handle, usize elem_size) {
@@ -1027,7 +1027,7 @@ uint log2_uint(uint_pow2 value) {
 
 #define slice_get(T, slice, index) ((T*)slice.data)[index]
 
-fString f_str_join(fAllocator* a, fSliceRaw args) {
+fString f_str_join_n(fAllocator* a, fSliceRaw args) {
 	uint offset = 0;
 	for (uint i = 0; i < args.len; i++) {
 		offset += slice_get(fString, args, i).len;
@@ -1312,7 +1312,7 @@ static void* arena_allocator_proc(fAllocator* a, fOpt(void*) old_ptr, size_t old
 		return new_allocation;
 	}
 	else {
-		f_debug_fill_garbage(old_ptr + new_size, old_size - new_size); // erase the top
+		f_debug_fill_garbage((u8*)old_ptr + new_size, old_size - new_size); // erase the top
 		//int a = 11111;
 	}
 
@@ -1612,7 +1612,7 @@ fString f_str_replace(fString str, fString search_for, fString replace_with, fAl
 			i++;
 		}
 	}
-	return F_BITCAST(fString, result);
+	return (fString){result.data, result.len};
 }
 
 fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fString) replace_with, fAllocator* a) {
@@ -1638,7 +1638,7 @@ fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fStr
 		i++;
 	continue_outer:;
 	}
-	return F_BITCAST(fString, result);
+	return (fString){result.data, result.len};
 }
 
 fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
@@ -1729,12 +1729,12 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		HANDLE h = CreateFileA(f_str_t_to_cstr(filepath), 0, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY | FILE_FLAG_BACKUP_SEMANTICS, NULL);
 		if (h == INVALID_HANDLE_VALUE) return 0;
 
-		FILETIME write_time;
-		GetFileTime(h, NULL, NULL, &write_time);
+		u64 write_time;
+		GetFileTime(h, NULL, NULL, (FILETIME*)&write_time);
 
 		CloseHandle(h);
 		f_temp_set_mark(mark);
-		return F_BITCAST(u64, write_time);
+		return write_time;
 	}
 
 	bool f_files_clone(fString src_filepath, fString dst_filepath) {

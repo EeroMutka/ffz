@@ -177,7 +177,10 @@ extern "C" {
 //#endif
 
 // Useful for surpressing compiler warnings
-#define F_UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
+// https://stackoverflow.com/questions/12198449/cross-platform-macro-for-silencing-unused-variables-warning/12199209#12199209
+#define F_UNUSED(x) (void)(x)
+//#define F_UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
+
 
 #define f_trap() do {__debugbreak();} while(0) //void f_trap();
 #define f_nocheckin() f_trap()
@@ -235,9 +238,6 @@ inline f32 _get_f32_neg_infinity() { u32 x = 0xFF800000; return *(f32*)&x; }
 #define F_LERP(a, b, alpha) ((alpha)*(b) + (1.f - (alpha))*(a))
 
 #define F_PEEK(x) (x)[(x).len - 1]
-
-// TODO: fix this to not be UB
-#define F_BITCAST(T, x) (*(T*)&x)
 
 #define F_AS_BYTES(x) F_STRUCT_INIT(fString){ (u8*)&x, sizeof(x) }
 #define F_SLICE_AS_BYTES(x) F_STRUCT_INIT(fString){ (u8*)(x).data, (x).len * sizeof((x).data[0]) }
@@ -394,6 +394,7 @@ inline fSliceRaw f_make_slice_raw(uint len, const void* initial_elem_value, fAll
 #define f_clone_to_slice(ptr, len, alc) f_clone_slice_raw(f_to_slice(ptr, len), alc, sizeof(*ptr))
 #define f_clone_slice(T, slice, alc) f_clone_slice_raw(slice, alc, sizeof(T))
 
+#define f_slice_lit(T, ...) (fSliceRaw){(T[]){__VA_ARGS__}, F_LEN((T[]){__VA_ARGS__})}
 #endif
 
 typedef struct fTick { s64 nsec; } fTick;
@@ -756,7 +757,12 @@ bool f_str_cut_start(fString* str, fString start);
 
 void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)* out);
 
-fString f_str_join(fAllocator* a, fSlice(fString) args);
+fString f_str_join_n(fAllocator* a, fSlice(fString) args);
+
+#ifndef __cplusplus
+#define f_str_join(alc, ...) f_str_join_n(alc, f_slice_lit(fString, __VA_ARGS__))
+#define f_str_join_tmp(...) f_str_join_n(f_temp_alc(), f_slice_lit(fString, __VA_ARGS__))
+#endif
 
 bool f_str_equals(fString a, fString b);
 bool f_str_equals_nocase(fString a, fString b); // case-insensitive version of str_equals

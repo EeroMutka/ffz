@@ -1,4 +1,4 @@
-
+#if 0
 // The checker checks if the program is correct, and in doing so,
 // computes and caches information about the program, such as which declarations
 // identifiers are pointing to, what types do expressions have, constant evaluation, and so on.
@@ -138,7 +138,7 @@ ffzPolymorphHash ffz_hash_polymorph(ffzPolymorph poly) {
 	return f_hasher_end(&h);
 }
 
-ffzExpressionHash ffz_hash_expression(ffzNode* node) {
+FFZ_CAPI ffzExpressionHash ffz_hash_expression(ffzNode* node) {
 	if (node->is_instantiation_root_of_poly != FFZ_POLYMORPH_ID_NONE) {
 		ffzPolymorph polymorph = ffz_module_of_node(node)->polymorphs[node->is_instantiation_root_of_poly];
 		return ffz_hash_polymorph(polymorph); // @speed: store the hash this in ffzPolymorph itself
@@ -1130,7 +1130,7 @@ static void instantiate_deep_copy_poly(InstantiateDeepCopyPolyContext* ctx, ffzC
 }
 
 
-ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constant) {
+FFZ_CAPI ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constant) {
 	// For simplicity, let's print the constant and parse it. I think we should change this to a direct translation. @speed
 	fString constant_string = ffz_constant_to_string(m->project, constant);
 	
@@ -1443,7 +1443,7 @@ static ffzType* ffz_make_pseudo_record_type(ffzModule* c) {
 	return ffz_make_type(c, t);
 }
 
-ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
+FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) {
 	fAllocator* alc = &module_arena->alc;
 
 	ffzModule* c = f_mem_clone(ffzModule{}, alc);	
@@ -2235,7 +2235,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 }
 
 
-ffzProject* ffz_init_project(fArena* arena, fString modules_directory) {
+FFZ_CAPI ffzProject* ffz_init_project(fArena* arena, fString modules_directory) {
 	ffzProject* p = f_mem_clone(ffzProject{}, &arena->alc);
 	p->persistent_allocator = &arena->alc;
 
@@ -2295,7 +2295,7 @@ ffzOk ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node) {
 //	return true;
 //}
 
-ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata) {
+FFZ_CAPI ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata) {
 	VALIDATE(!m->checked);
 
 	for (uint i = 0; i < m->pending_import_keywords.len; i++) {
@@ -2324,7 +2324,7 @@ ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from_path)(fS
 	return FFZ_OK;
 }
 
-ffzOk ffz_module_check_single_(ffzModule* m) {
+FFZ_CAPI ffzOk ffz_module_check_single_(ffzModule* m) {
 	VALIDATE(!m->checked);
 	//m->error_cb = error_cb;
 	m->error = {};
@@ -2444,3 +2444,5 @@ fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString d
 	
 	return module;
 }
+
+#endif

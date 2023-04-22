@@ -203,7 +203,7 @@ static bool WinSDK_visit_files_w(wchar_t *dir_name, WinSDK_Version_Data *data, V
     // that doesn't start with ".", call the visit proc on it. The visit proc
     // will see if the filename conforms to the expected versioning pattern.
  
-    auto wildcard_name = WinSDK_concat(dir_name, L"\\*");
+    auto wildcard_name = WinSDK_concat(dir_name, (wchar_t*)L"\\*");
     F_DEFER(free(wildcard_name));
  
     WIN32_FIND_DATAW find_data;
@@ -212,7 +212,7 @@ static bool WinSDK_visit_files_w(wchar_t *dir_name, WinSDK_Version_Data *data, V
  
     while (true) {
         if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && (find_data.cFileName[0] != '.')) {
-            auto full_name = WinSDK_concat(dir_name, L"\\", find_data.cFileName);
+            auto full_name = WinSDK_concat(dir_name, (wchar_t*)L"\\", find_data.cFileName);
             F_DEFER(free(full_name));
  
             _proc(find_data.cFileName, full_name, data);
@@ -342,16 +342,16 @@ static void WinSDK_find_windows_kit_root(WinSDK_Find_Result *result) {
     F_DEFER(RegCloseKey(main_key));
  
     // Look for a Windows 10 entry.
-    auto windows10_root = WinSDK_read_from_the_registry(main_key, L"KitsRoot10");
+    auto windows10_root = WinSDK_read_from_the_registry(main_key, (wchar_t*)L"KitsRoot10");
     if (windows10_root) {
         F_DEFER(free(windows10_root));
         
-        WinSDK_Version_Data lib_data = {0};
-        auto lib_base_path = WinSDK_concat(windows10_root, L"Lib");
+        WinSDK_Version_Data lib_data = {};
+        auto lib_base_path = WinSDK_concat(windows10_root, (wchar_t*)L"Lib");
         F_DEFER(free(lib_base_path));
 
-        WinSDK_Version_Data include_data = {0};
-        auto include_base_path = WinSDK_concat(windows10_root, L"include");
+        WinSDK_Version_Data include_data = {};
+        auto include_base_path = WinSDK_concat(windows10_root, (wchar_t*)L"include");
         F_DEFER(free(include_base_path));
 
         //windows_sdk_include
@@ -367,7 +367,7 @@ static void WinSDK_find_windows_kit_root(WinSDK_Find_Result *result) {
     }
  
     // Look for a Windows 8 entry.
-    auto windows8_root = WinSDK_read_from_the_registry(main_key, L"KitsRoot81");
+    auto windows8_root = WinSDK_read_from_the_registry(main_key, (wchar_t*)L"KitsRoot81");
  
     if (windows8_root) {
         __debugbreak();
@@ -405,7 +405,8 @@ static bool WinSDK_find_visual_studio_2017_by_fighting_through_microsoft_crazine
     // If all this COM object instantiation, enumeration, and querying doesn't give us
     // a useful result, we drop back to the registry-checking method.
  
-    auto rc = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    // @leak - we're never releasing com, I think... @em
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
     // "Subsequent valid calls return false." So ignore false.
     // if rc != S_OK  return false;
  
@@ -436,7 +437,7 @@ static bool WinSDK_find_visual_studio_2017_by_fighting_through_microsoft_crazine
         if (hr != S_OK)  continue;
         F_DEFER(SysFreeString(bstr_inst_path));
  
-        auto tools_filename = WinSDK_concat(bstr_inst_path, L"\\VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
+        auto tools_filename = WinSDK_concat(bstr_inst_path, (wchar_t*)L"\\VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
         F_DEFER(free(tools_filename));
  
         FILE *f = nullptr;
@@ -460,15 +461,15 @@ static bool WinSDK_find_visual_studio_2017_by_fighting_through_microsoft_crazine
         auto version_tail = wcschr(version, '\n');
         if (version_tail)  *version_tail = 0;  // Stomp the data, because nobody cares about it.
  
-        auto library_path = WinSDK_concat(bstr_inst_path, L"\\VC\\Tools\\MSVC\\", version, L"\\lib\\x64");
-        auto library_file = WinSDK_concat(library_path, L"\\vcruntime.lib");  // @Speed: Could have library_path point to this string, with a smaller count, to save on memory flailing!
+        auto library_path = WinSDK_concat(bstr_inst_path, (wchar_t*)L"\\VC\\Tools\\MSVC\\", version, (wchar_t*)L"\\lib\\x64");
+        auto library_file = WinSDK_concat(library_path, (wchar_t*)L"\\vcruntime.lib");  // @Speed: Could have library_path point to this string, with a smaller count, to save on memory flailing!
  
         if (WinSDK_os_file_exists(library_file)) {
-            auto link_exe_path = WinSDK_concat(bstr_inst_path, L"\\VC\\Tools\\MSVC\\", version, L"\\bin\\Hostx64\\x64");
+            auto link_exe_path = WinSDK_concat(bstr_inst_path, (wchar_t*)L"\\VC\\Tools\\MSVC\\", version, (wchar_t*)L"\\bin\\Hostx64\\x64");
             result->vs_base_path = _wcsdup(bstr_inst_path);
             result->vs_exe_path     = link_exe_path;
             result->vs_library_path = library_path;
-            result->vs_include_path = WinSDK_concat(bstr_inst_path, L"\\VC\\Tools\\MSVC\\", version, L"\\include");
+            result->vs_include_path = WinSDK_concat(bstr_inst_path, (wchar_t*)L"\\VC\\Tools\\MSVC\\", version, (wchar_t*)L"\\include");
             return true;
         }
  
@@ -496,7 +497,7 @@ static void WinSDK_find_visual_studio_by_fighting_through_microsoft_craziness(Wi
     F_DEFER(RegCloseKey(vs7_key););
  
     // Hardcoded search for 4 prior Visual Studio versions. Is there something better to do here?
-    wchar_t *versions[] = { L"14.0", L"12.0", L"11.0", L"10.0" };
+    wchar_t *versions[] = { (wchar_t*)L"14.0", (wchar_t*)L"12.0", (wchar_t*)L"11.0", (wchar_t*)L"10.0" };
     const int NUM_VERSIONS = sizeof(versions) / sizeof(versions[0]);
  
     for (int i = 0; i < NUM_VERSIONS; i++) {
@@ -507,14 +508,14 @@ static void WinSDK_find_visual_studio_by_fighting_through_microsoft_craziness(Wi
  
         F_DEFER(free(buffer););
  
-        auto lib_path = WinSDK_concat(buffer, L"VC\\Lib\\amd64");
+        auto lib_path = WinSDK_concat(buffer, (wchar_t*)L"VC\\Lib\\amd64");
  
         // Check to see whether a vcruntime.lib actually exists here.
-        auto vcruntime_filename = WinSDK_concat(lib_path, L"\\vcruntime.lib");
+        auto vcruntime_filename = WinSDK_concat(lib_path, (wchar_t*)L"\\vcruntime.lib");
         F_DEFER(free(vcruntime_filename););
  
         if (WinSDK_os_file_exists(vcruntime_filename)) {
-            result->vs_exe_path     = WinSDK_concat(buffer, L"VC\\bin\\amd64");
+            result->vs_exe_path     = WinSDK_concat(buffer, (wchar_t*)L"VC\\bin\\amd64");
             result->vs_library_path = lib_path;
             __debugbreak(); // @em: vs_include_path
             return;
@@ -532,8 +533,8 @@ static WinSDK_Find_Result WinSDK_find_visual_studio_and_windows_sdk() {
     WinSDK_find_windows_kit_root(&result);
  
     if (result.windows_sdk_root) {
-        result.windows_sdk_um_library_path   = WinSDK_concat(result.windows_sdk_root, L"\\um\\x64");
-        result.windows_sdk_ucrt_library_path = WinSDK_concat(result.windows_sdk_root, L"\\ucrt\\x64");
+        result.windows_sdk_um_library_path   = WinSDK_concat(result.windows_sdk_root, (wchar_t*)L"\\um\\x64");
+        result.windows_sdk_ucrt_library_path = WinSDK_concat(result.windows_sdk_root, (wchar_t*)L"\\ucrt\\x64");
     }
 
     WinSDK_find_visual_studio_by_fighting_through_microsoft_craziness(&result);

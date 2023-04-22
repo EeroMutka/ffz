@@ -154,7 +154,12 @@ inline void f_slice_copy(fSlice(T) dst, fSlice(T) src) {
 #define MAP64_EACH(map, key, value_ptr) f_map64_each_raw((fMap64Raw*)map, key, (void**)value_ptr)
 
 template<typename T>
-inline fMap64(T) f_map64_make(fAllocator* alc) { return F_BITCAST(fMap64(T), f_map64_make_raw(sizeof(T), alc)); }
+inline fMap64(T) f_map64_make(fAllocator* alc) {
+	fMap64(T) result;
+	fMap64Raw result_raw = f_map64_make_raw(sizeof(T), alc);
+	memcpy(&result, &result_raw, sizeof(result));
+	return result;
+}
 
 template<typename T>
 inline fMap64(T) f_map64_make_cap(uint capacity, fAllocator* alc) { return F_BITCAST(fMap64(T), f_make_map64_cap_raw(sizeof(T), capacity, alc)); }
@@ -170,7 +175,10 @@ struct MapInsertResult_cpp { T* _unstable_ptr; bool added; };
 
 template<typename T>
 inline MapInsertResult_cpp<T> f_map64_insert(fMap64(T)* map, u64 key, const T& value, fMapInsert mode = fMapInsert_AssertUnique) {
-	return F_BITCAST(MapInsertResult_cpp<T>, f_map64_insert_raw((fMap64Raw*)map, key, &value, mode));
+	MapInsertResult_cpp<T> result;
+	fMapInsertResult result_raw = f_map64_insert_raw((fMap64Raw*)map, key, &value, mode);
+	memcpy(&result, &result_raw, sizeof(result));
+	return result;
 }
 
 template<typename T>
@@ -180,7 +188,12 @@ template<typename T>
 inline fOpt(T*) f_map64_get(fMap64(T)* map, u64 key) { return (T*)f_map64_get_raw((fMap64Raw*)map, key); }
 
 template<typename T>
-inline fArray(T) f_array_make(fAllocator* alc) { return F_BITCAST(fArray(T), f_array_make(alc)); }
+inline fArray(T) f_array_make(fAllocator* alc) {
+	fArray(T) result;
+	fArrayRaw result_raw = f_array_make(alc);
+	memcpy(&result, &result_raw, sizeof(result));
+	return result;
+}
 
 template<typename T>
 inline fArray(T) f_array_make_len(uint len, const T& initial_value, fAllocator* alc) {
@@ -194,7 +207,10 @@ inline fArray(T) f_array_make_len_garbage(uint len, fAllocator* alc) {
 
 template<typename T>
 inline fArray(T) f_array_make_cap(uint capacity, fAllocator* alc) {
-	return F_BITCAST(fArray(T), f_array_make_cap_raw(sizeof(T), capacity, alc));
+	fArray(T) result;
+	fArrayRaw result_raw = f_array_make_cap_raw(sizeof(T), capacity, alc);
+	memcpy(&result, &result_raw, sizeof(result));
+	return result;
 }
 
 template<typename T>
@@ -227,13 +243,12 @@ inline T& f_array_peek(fArray(T)* array) {
 	return array->data[array->len - 1];
 }
 
-#include <initializer_list>
-
-#define F_STR_JOIN(alc, ...) f_str_join_il(alc, {__VA_ARGS__})
-#define F_STR_T_JOIN(...) f_str_join_il(f_temp_alc(), {__VA_ARGS__})
-inline fString f_str_join_il(fAllocator* alc, std::initializer_list<fString> args) {
-	return f_str_join(alc, { (fString*)args.begin(), args.size() });
-}
+//#include <initializer_list>
+//#define F_STR_JOIN(alc, ...) f_str_join_il(alc, {__VA_ARGS__})
+//#define F_STR_T_JOIN(...) f_str_join_il(f_temp_alc(), {__VA_ARGS__})
+//inline fString f_str_join_il(fAllocator* alc, std::initializer_list<fString> args) {
+//	return f_str_join(alc, { (fString*)args.begin(), args.size() });
+//}
 
 //inline void f_str_print_il(fArray(u8)* buffer, std::initializer_list<fString> args) {
 //	for (auto arg : args) f_write(buffer, arg);

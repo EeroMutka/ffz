@@ -1,3 +1,4 @@
+#if 0
 #ifdef FFZ_BUILD_INCLUDE_GMMC
 
 #define F_INCLUDE_OS
@@ -157,8 +158,8 @@ gmmcType get_gmmc_type(Gen* g, ffzType* type) {
 		else f_trap();
 	} break;
 		//case ffzTypeTag_Enum: {} break;
+	default: f_trap();
 	}
-	f_trap();
 	return {};
 }
 
@@ -978,6 +979,8 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 			ffzNode* assignee = ffz_this_dot_get_assignee(node);
 			out = gen_expr(g, assignee, address_of);
 		} break;
+
+		default: break;
 		}
 	}
 
@@ -1204,8 +1207,9 @@ static SectionNum build_x64_section_num_from_gmmc_section(gmmcSection section) {
 	case gmmcSection_Code: return SectionNum_Code;
 	case gmmcSection_Data: return SectionNum_Data;
 	case gmmcSection_RData: return SectionNum_RData;
+	default: f_trap();
 	}
-	f_trap(); return {};
+	return {};
 }
 
 static void build_x64_add_section_relocs(Gen* g, gmmcAsmModule* asm_mod, gmmcSection gmmc_section,
@@ -1477,11 +1481,11 @@ static bool build_x64(Gen* g, fString build_dir) {
 
 	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
 	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, g->alc); // contains cl.exe, link.exe
-	fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, g->alc); // contains <string.h>, etc
+	//fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, g->alc); // contains <string.h>, etc
 	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, g->alc); // contains kernel32.lib, etc
 	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, g->alc); // contains libucrt.lib, etc
 	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, g->alc); // contains MSVCRT.lib etc
-	fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, g->alc); // contains vcruntime.h
+	//fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, g->alc); // contains vcruntime.h
 
 	fArray(fString) ms_linker_args = f_array_make<fString>(g->alc);
 	f_array_push(&ms_linker_args, F_STR_T_JOIN(msvc_directory, F_LIT("\\link.exe")));
@@ -1611,7 +1615,7 @@ static bool build_c(Gen* g, fString build_dir) {
 bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name) {
 	ffzProject* project = root_module->project;
 
-	fArenaMark temp_base = f_temp_get_mark();
+	//fArenaMark temp_base = f_temp_get_mark();
 	gmmcModule* gmmc = gmmc_init(f_temp_alc());
 
 	Gen g = {};
@@ -1679,3 +1683,4 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 }
 
 #endif // FFZ_BUILD_INCLUDE_GMMC
+#endif

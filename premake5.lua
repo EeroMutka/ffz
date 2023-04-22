@@ -92,7 +92,7 @@ project "ffz"
 	files {
 		"src/*",
 		"src/foundation/*",
-		"src/ffz_console_tools/ffz.cpp",
+		"src/ffz_console_tools/ffz.c",
 	}
 
 project "ffz_test_runner"

@@ -808,18 +808,18 @@ fString ffz_type_to_string(ffzProject* p, ffzType* type);
 fString ffz_constant_to_string(ffzProject* p, ffzConstantData* constant, ffzType* type);
 //char* ffz_constant_to_cstring(ffzProject* p, ffzConstantData* constant, ffzType* type);
 
-ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constant);
+FFZ_CAPI ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constant);
 
 //ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
 //ffzNodeHash ffz_hash_node(ffzNode* node);
-ffzExpressionHash ffz_hash_expression(ffzNode* node);
+FFZ_CAPI ffzExpressionHash ffz_hash_expression(ffzNode* node);
 //u64 ffz_hash_declaration_path(ffzDefinitionPath path);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
 //ffzConstantHash ffz_hash_constant(ffzCheckedInst constant);
 
 // -- High level compiler API --------------------------------------------------------------
 
-ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
+FFZ_CAPI ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
 
 // So metaprogramming - I'd like to
 // 
@@ -842,7 +842,7 @@ ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
 // 
 //
 
-ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
+FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
 
 //ffzParser* ffz_module_add_parser(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb);
 
@@ -853,10 +853,10 @@ ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
 // The node must be a top-level node and have it's parent field set to NULL.
 ffzOk ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 
-ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata);
+FFZ_CAPI ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata);
 
 // When you call ffz_module_check_single, all imported modules must have already been checked.
-ffzOk ffz_module_check_single_(ffzModule* m);
+FFZ_CAPI ffzOk ffz_module_check_single_(ffzModule* m);
 
 
 // --- OS layer helpers ---

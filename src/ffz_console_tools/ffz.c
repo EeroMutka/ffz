@@ -1,7 +1,8 @@
+
 // Command line ffz compiler
 
 #define F_INCLUDE_OS
-#include "../foundation/foundation.hpp"
+#include "../foundation/foundation.h"
 
 #include "../ffz_ast.h"
 #include "../ffz_checker.h"
@@ -13,6 +14,7 @@
 
 bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name);
 
+static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString directory);
 
 //struct ErrorCallbackPassed {
 //	fString error_kind;
@@ -53,7 +55,9 @@ void log_pretty_error(ffzError error, fString kind) {
 	fString src_line_separator = F_LIT(":    ");
 	f_os_print_color(line_num_str, fConsoleAttribute_Intensify);
 	f_os_print_color(src_line_separator, fConsoleAttribute_Intensify);
-	fString start_str = f_str_replace(f_slice(error.source->source_code, line_start_offset, error.location.start.offset), F_LIT("\t"), F_LIT("    "), f_temp_alc());
+	
+	fString start_str = f_str_slice(error.source->source_code, line_start_offset, error.location.start.offset);
+	start_str = f_str_replace(start_str, F_LIT("\t"), F_LIT("    "), f_temp_alc());
 	f_os_print_color(start_str, code_color);
 
 	{
@@ -103,7 +107,25 @@ static void dump_module_ast(ffzModule* m, fString dir) {
 
 	f_print(w, "====================================================================\n\n");
 	f_flush_buffered_writer(&console_writer);
+}
 
+static fOpt(ffzModule*) resolve_import(fString path, void* userdata) {
+	ffzModule* module = (ffzModule*)userdata;
+
+	// `:` means that the path is relative to the modules directory shipped with the compiler
+	if (f_str_starts_with(path, F_LIT(":"))) {
+		path = f_str_join_tmp(module->project->modules_directory, F_LIT("/"), f_str_slice_after(path, 1));
+	}
+	else {
+		// let's make the import path absolute
+		if (!f_files_path_to_canonical(module->directory, path, f_temp_alc(), &path)) {
+			f_trap();
+		}
+	}
+
+	fOpt(ffzModule*) imported = parse_and_check_directory(module->project, path);
+	int _ = 50;
+	return imported;
 }
 
 static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString directory) {
@@ -122,25 +144,7 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 
 	if (!module->checked) {
 		//F_HITS(__c, 2);
-		if (!ffz_module_resolve_imports_(module,
-			[](fString path, void* userdata) -> fOpt(ffzModule*) {
-				ffzModule* module = (ffzModule*)userdata;
-
-				// `:` means that the path is relative to the modules directory shipped with the compiler
-				if (f_str_starts_with(path, F_LIT(":"))) {
-					path = F_STR_T_JOIN(module->project->modules_directory, F_LIT("/"), f_str_slice_after(path, 1));
-				}
-				else {
-					// let's make the import path absolute
-					if (!f_files_path_to_canonical(module->directory, path, f_temp_alc(), &path)) {
-						f_trap();
-					}
-				}
-
-				fOpt(ffzModule*) imported = parse_and_check_directory(module->project, path);
-				int _ = 50;
-				return imported;
-			}, module).ok)
+		if (!ffz_module_resolve_imports_(module, resolve_import, module).ok)
 		{
 			log_pretty_semantic_error(module->error);
 			return NULL;
@@ -185,10 +189,13 @@ int main(int argc, const char* argv[]) {
 		return 1;
 	}
 	
+	fSliceRaw my_strings = f_slice_lit(fString, F_LIT("heyy"), F_LIT("sailor"));
+	F_UNUSED(my_strings);
+	
 	fString dir = f_str_from_cstr(argv[1]);
 	fString exe_path = f_os_get_executable_path(f_temp_alc());
 	fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
-	fString modules_dir = F_STR_T_JOIN(ffz_dir, F_LIT("/modules"));
+	fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
 
 	fArena* arena = _f_temp_arena;
 	ffzProject* p = ffz_init_project(arena, modules_dir);
@@ -197,7 +204,7 @@ int main(int argc, const char* argv[]) {
 	if (root_module == NULL) return false;
 
 	fString project_name = f_str_path_tail(dir);
-	fString build_dir = F_STR_T_JOIN(dir, F_LIT("\\.build"));
+	fString build_dir = f_str_join_tmp(dir, F_LIT("\\.build"));
 	f_assert(f_files_make_directory(build_dir));
 	
 #if defined(FFZ_BUILD_INCLUDE_TB)
