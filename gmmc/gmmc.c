@@ -200,7 +200,7 @@ GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasic
 }
 
 GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index) {
-	return proc->addr_of_params[index];
+	return f_array_get(gmmcOpIdx, proc->addr_of_params, index);
 }
 
 GMMC_API u32 gmmc_type_size(gmmcType type) {
@@ -384,20 +384,19 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 	
 	proc->locals = f_array_make(m->allocator);
 	proc->ops = f_array_make(m->allocator);
-	f_array_push(&proc->ops, (gmmcOpData){0});        // op 0 is invalid. TODO: make it start from 1 and have the invalid be something like 0xFFFFF
 	f_array_push(&proc->locals, (gmmcLocal){0});      // local 0 is invalid
 
 	proc->basic_blocks = f_array_make(m->allocator);
 	proc->entry_bb = gmmc_make_basic_block(proc);
 
-	proc->addr_of_params = f_mem_alloc_n(gmmcOpIdx, signature->params.len, m->allocator);
+	proc->addr_of_params = f_make_slice_undef(gmmcOpIdx, signature->params.len, m->allocator);
 
 	for (uint i = 0; i < signature->params.len; i++) {
 		gmmcOpData op = { gmmcOpKind_addr_of_param };
 		op.bb_idx = GMMC_BB_INDEX_NONE;
-		op.type = gmmcType_ptr; //signature->params[i];
+		op.type = gmmcType_ptr;
 		op.imm_bits = i;
-		proc->addr_of_params[i] = (gmmcOpIdx)f_array_push(&proc->ops, op);
+		f_array_set(gmmcOpIdx, proc->addr_of_params, i, (gmmcOpIdx)f_array_push(&proc->ops, op));
 	}
 	
 	*out_entry_bb = proc->entry_bb;

@@ -1,4 +1,4 @@
-#include "src/foundation/foundation.hpp"
+#include "src/foundation/foundation.h"
 
 #define coffString fString
 #include "coff.h"
@@ -12,7 +12,7 @@
 #define VALIDATE(x) f_assert(x)
 
 COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_result_userptr, coffDesc* desc) {
-	fArray(u8) string_table = f_array_make_cap<u8>(512, f_temp_alc());
+	fArray(u8) string_table = f_array_make(f_temp_alc());
 	
 	fArena* arena = f_arena_make_virtual_reserve_fixed(F_GIB(2), NULL);
 	
@@ -76,9 +76,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 	VALIDATE(desc->sections_count < 16);
 
 	for (u32 i = 0; i < desc->sections_count; i++) {
-		coffSection& section = desc->sections[i];
-
-		//if (section.name == F_LIT(".drectve")) f_trap();
+		coffSection section = desc->sections[i];
 
 		IMAGE_SECTION_HEADER* s_header = (IMAGE_SECTION_HEADER*)f_arena_push_zero(arena, sizeof(IMAGE_SECTION_HEADER), 1);
 
@@ -110,10 +108,10 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 	// section 2 raw data
 	// ...
 
-	fArray(DWORD*) patch_symbol_index_with_real_index = f_array_make_cap<DWORD*>(32, f_temp_alc());
+	fArray(DWORD*) patch_symbol_index_with_real_index = f_array_make(f_temp_alc());
 
 	for (u32 i = 0; i < desc->sections_count; i++) {
-		coffSection& section = desc->sections[i];
+		coffSection section = desc->sections[i];
 
 		sections[i]->SizeOfRawData = (u32)section.data.len;
 		if (section.Characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA) {
@@ -135,13 +133,14 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 			sections[i]->NumberOfRelocations = (u16)section.relocations_count;
 
 			for (u32 i = 0; i < section.relocations_count; i++) {
-				coffRelocation& r = section.relocations[i];
+				coffRelocation r = section.relocations[i];
 				VALIDATE(r.sym_idx < desc->symbols_count);
 
 				IMAGE_RELOCATION* reloc = (IMAGE_RELOCATION*)f_arena_push_zero(arena, sizeof(IMAGE_RELOCATION), 1);
 				reloc->VirtualAddress = r.offset;
 
-				f_array_push(&patch_symbol_index_with_real_index, &reloc->SymbolTableIndex);
+				DWORD* patch_sym_idx = &reloc->SymbolTableIndex;
+				f_array_push(&patch_symbol_index_with_real_index, patch_sym_idx);
 				reloc->SymbolTableIndex = r.sym_idx;
 
 				reloc->Type = r.type;
@@ -155,13 +154,12 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 		// Warning: header ptr must still be valid! Since this is an arena, it is.
 		header->PointerToSymbolTable = (u32)f_arena_get_contiguous_cursor(arena);
 
-		fSlice(u32) symbol_index_to_real_index = f_make_slice_garbage<u32>(desc->symbols_count, f_temp_alc());
+		u32* symbol_index_to_real_index = f_mem_alloc_n(u32, desc->symbols_count, f_temp_alc());
 
 		u32 real_symbol_index = 0;
 		for (u32 i = 0; i < desc->symbols_count; i++) {
-			coffSymbol& symbol = desc->symbols[i];
+			coffSymbol symbol = desc->symbols[i];
 			symbol_index_to_real_index[i] = real_symbol_index;
-
 
 			//if (symbol.name == F_LIT(".debug$S")) f_trap();
 
@@ -180,8 +178,9 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 
 				s->N.Name.Long = 4 + (u32)string_table.len;
 
-				f_array_push_n(&string_table, { symbol.name.data, symbol.name.len });
-				f_array_push(&string_table, (u8)0); // Strings in the string table must be null-terminated
+				f_array_push_n_raw(&string_table, symbol.name.data, symbol.name.len, 1);
+				u8 zero = 0;
+				f_array_push(&string_table, zero); // Strings in the string table must be null-terminated
 			}
 
 			s->SectionNumber = symbol.section_number;  // special values: IMAGE_SYM_ABSOLUTE, IMAGE_SYM_UNDEFINED, IMAGE_SYM_DEBUG
@@ -211,7 +210,7 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 		}
 
 		for (uint i = 0; i < patch_symbol_index_with_real_index.len; i++) {
-			DWORD* idx = patch_symbol_index_with_real_index[i];
+			DWORD* idx = f_array_get(DWORD*, patch_symbol_index_with_real_index, i);
 			*idx = symbol_index_to_real_index[*idx];
 		}
 
@@ -226,11 +225,11 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 	{
 		u32 s = 4 + (u32)string_table.len; // string table size, including the field itself
 		f_arena_push(arena, F_AS_BYTES(s), 1);
-		f_arena_push(arena, string_table.slice, 1);
+		f_arena_push(arena, (fString){string_table.data, string_table.len}, 1);
 	}
 
 	// We're done!
-	store_result(coffString{ f_arena_get_contiguous_base(arena), f_arena_get_contiguous_cursor(arena) }, store_result_userptr);
+	store_result((coffString){ f_arena_get_contiguous_base(arena), f_arena_get_contiguous_cursor(arena) }, store_result_userptr);
 
 	f_arena_free(arena);
 	//f_temp_pop();

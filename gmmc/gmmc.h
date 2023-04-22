@@ -79,7 +79,9 @@ typedef struct { uint8_t* ptr; uint64_t len; } gmmcString;
 #define gmmcString gmmcString
 #endif
 
-typedef uint32_t gmmcOpIdx; // Each procedure has its own array of ops, where 1 is the first valid index.
+#define GMMC_OP_IDX_INVALID 0xFFFFFFFF
+
+typedef uint32_t gmmcOpIdx;
 typedef uint32_t gmmcProcIdx;
 typedef uint32_t gmmcGlobalIdx; // starts from 1
 typedef uint32_t gmmcExternIdx;
@@ -92,7 +94,6 @@ typedef struct gmmcProcSignature gmmcProcSignature;
 typedef struct gmmcBasicBlock gmmcBasicBlock;
 typedef struct gmmcSymbol gmmcSymbol;
 
-enum { GMMC_OP_IDX_INVALID = 0 };
 
 typedef enum gmmcOpKind {
 	gmmcOpKind_Invalid = 0,
@@ -268,7 +269,7 @@ typedef struct gmmcProc {
 	fArray(gmmcBasicBlock*) basic_blocks;
 	fArray(gmmcOpData) ops; // 0 is invalid!
 
-	gmmcOpIdx* addr_of_params;
+	fSlice(gmmcOpIdx) addr_of_params;
 	fArray(gmmcLocal) locals; // gmmcLocalIdx, 0 is invalid!
 } gmmcProc;
 

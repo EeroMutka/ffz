@@ -1,4 +1,4 @@
-#include "src/foundation/foundation.hpp"
+#include "src/foundation/foundation.h"
 
 #define gmmcString fString
 #include "gmmc.h"
@@ -12,7 +12,6 @@ static int reloc_compare_fn(const void* a, const void* b) {
 static u32 operand_bits(gmmcBasicBlock* bb, gmmcOpData* op) {
 	return 8 * gmmc_type_size(gmmc_get_op_type(bb->proc, op->operands[0]));
 }
-
 
 static fString gmmc_type_get_string(gmmcType type) {
 	switch (type) {
@@ -28,13 +27,13 @@ static fString gmmc_type_get_string(gmmcType type) {
 	case gmmcType_f64: return F_LIT("$f64");
 	default: f_trap();
 	}
-	return {};
+	return (fString){0};
 }
 
 static char* gmmc_type_get_cstr(gmmcType type) { return (char*)gmmc_type_get_string(type).data; }
 
 static fString operand_to_str(gmmcBasicBlock* bb, gmmcOpIdx op_idx) {
-	gmmcOpData* op = &bb->proc->ops[op_idx];
+	gmmcOpData* op = f_array_get_ptr(gmmcOpData, bb->proc->ops, op_idx);
 	switch (op->kind) {
 		case gmmcOpKind_bool: return f_tprint(op->imm_bits ? "1" : "0");
 		case gmmcOpKind_i8: return f_tprint("~u8", (u8)op->imm_bits);
@@ -75,8 +74,8 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 	fArenaMark mark = f_temp_get_mark();
 
 	for (uint i = 0; i < bb->ops.len; i++) {
-		gmmcOpIdx op_idx = bb->ops[i];
-		gmmcOpData* op = &bb->proc->ops[op_idx];
+		gmmcOpIdx op_idx = f_array_get(gmmcOpIdx, bb->ops, i);
+		gmmcOpData* op = f_array_get_ptr(gmmcOpData, bb->proc->ops, op_idx);
 
 		if (op->kind != gmmcOpKind_comment) {
 			f_print(f, "    ");
@@ -218,7 +217,7 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 		case gmmcOpKind_vcall: {
 			//gmmcType ret_type = gmmc_get_op_type(bb->proc, op_idx);
 			
-			gmmcOpData* call_target = &bb->proc->ops[op->call.target];
+			gmmcOpData* call_target = f_array_get_ptr(gmmcOpData, bb->proc->ops, op->call.target);
 			if (call_target->kind == gmmcOpKind_addr_of_symbol && call_target->symbol->kind == gmmcSymbolKind_Proc) {
 				f_print(f, "~s(", call_target->symbol->name);
 			}
@@ -228,16 +227,16 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 				for (uint i = 0; i < op->call.arguments.len; i++) {
 					if (i > 0) f_print(f, ", ");
 
-					gmmcType arg_type = gmmc_get_op_type(bb->proc, op->call.arguments[i]);
+					gmmcType arg_type = gmmc_get_op_type(bb->proc, f_array_get(gmmcOpIdx, op->call.arguments, i));
 					f_prints(f, gmmc_type_get_string(arg_type));
 				}
 				f_print(f, ")) ~s ) (", OTOS_(op->call.target));
 			}
 			
 			// args
-			for (uint i = 0; i < op->call.arguments.len; i++) {
+			for f_array_each(gmmcOpIdx, op->call.arguments, arg) {
 				if (i > 0) f_print(f, ", ");
-				f_prints(f, OTOS_(op->call.arguments[i]));
+				f_prints(f, OTOS_(arg.elem));
 			}
 			f_print(f, ")");
 		} break;
@@ -246,9 +245,9 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 			if (op->comment.len > 0) {
 				fSlice(fRangeUint) lines;
 				f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
-				for (uint i = 0; i < lines.len; i++) {
-					fString line = f_str_slice(op->comment, lines[i].lo, lines[i].hi);
-					f_print(f, "    // ~s\n", line);
+				for f_array_each(fRangeUint, lines, line) {
+					fString line_str = f_str_slice(op->comment, line.elem.lo, line.elem.hi);
+					f_print(f, "    // ~s\n", line_str);
 				}
 			} else {
 				f_print(f, "\n");
@@ -280,28 +279,27 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 	bool is_main = f_str_equals(name, F_LIT("main"));
 	if (is_main) {
 		f_assert(proc->signature->params.len == 2);
-		f_print(f, "int main(int _$~u32, char** _$~u32) {\n", proc->addr_of_params[0], proc->addr_of_params[1]);
+		f_print(f, "int main(int _$~u32, char** _$~u32) {\n",
+			f_array_get(gmmcOpIdx, proc->addr_of_params, 0), f_array_get(gmmcOpIdx, proc->addr_of_params, 1));
 	}
 	else {
 		f_print(f, "~s ~s(", (proc->signature->return_type ?
 			gmmc_type_get_string(proc->signature->return_type) : F_LIT("void")), name);
 
-		for (uint i = 0; i < proc->signature->params.len; i++) {
-			if (i > 0) f_print(f, ", ");
-			gmmcType type = proc->signature->params[i];
-			f_print(f, "~s _$~u32", gmmc_type_get_string(type), proc->addr_of_params[i]);
+		for f_array_each(gmmcType, proc->signature->params, it) {
+			if (it.i > 0) f_print(f, ", ");
+			f_print(f, "~s _$~u32", gmmc_type_get_string(it.elem), f_array_get(gmmcOpIdx, proc->addr_of_params, it.i));
 		}
 		f_print(f, ") {\n");
 	}
 	
 	// locals / regs!
-	u32 first_nonparam_reg = 1 + (u32)proc->signature->params.len;
-	//u32 counter = 1;
+	u32 first_nonparam_reg = (u32)proc->signature->params.len;
 	for (u32 i = first_nonparam_reg; i < proc->ops.len; i++) {
-		gmmcOpData* op = &proc->ops[i];
+		gmmcOpData* op = f_array_get_ptr(gmmcOpData, proc->ops, i);
 		
 		if (op->kind == gmmcOpKind_local) {
-			gmmcLocal local = proc->locals[op->local_idx];
+			gmmcLocal local = f_array_get(gmmcLocal, proc->locals, op->local_idx);
 			f_print(f, "_Alignas(~u32) $i8 _$~u32[~u32]; ", local.align, i, local.size);
 			
 			//if (counter % 8 == 0) f_writef(f, "\n    ");
@@ -314,8 +312,8 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 	//f_writef(f, "    ");
 	if (proc->locals.len > 0) f_print(f, "\n");
 
-	for (uint i = 0; i < proc->basic_blocks.len; i++) {
-		print_bb(f, proc->basic_blocks[i]);
+	for f_array_each(gmmcBasicBlock*, proc->basic_blocks, it) {
+		print_bb(f, it.elem);
 	}
 	//f_writef(f, "char _;\n"); // goto: at the end with nothing after it is illegal, this is just a dumb fix for it
 
@@ -323,108 +321,107 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 }
 
 GMMC_API void gmmc_module_print_c(fWriter* f, gmmcModule* m) {
-	f_printc(f, R"(
-// ------------------ GMMC prelude for C11 ----------------------------------
-
-typedef _Bool             $bool;
-typedef void*              $ptr;
-typedef unsigned char       $i8;
-typedef unsigned short     $i16;
-typedef unsigned int       $i32;
-typedef unsigned long long $i64;
-typedef float              $f32;
-typedef double             $f64;
-
-#include <stdint.h> // for uintptr_t and INT*_MAX, INT*_MIN
-
-// Unaligned primitive types.
-// This is required to get rid of the UB around unaligned accesses in C.
-#pragma pack(push, 1)
-typedef struct { $bool _value; } $boolua;
-typedef struct { $ptr  _value; }  $ptrua;
-typedef struct { $i8   _value; }   $i8ua;
-typedef struct { $i16  _value; }  $i16ua;
-typedef struct { $i32  _value; }  $i32ua;
-typedef struct { $i64  _value; }  $i64ua;
-typedef struct { $f32  _value; }  $f32ua;
-typedef struct { $f64  _value; }  $f64ua;
-#pragma pack(pop)
-
-// Required CRT magic definitions
-void __chkstk() {}
-int _fltused = 0x9875;
-
-#define $INLINE __forceinline
-
-$INLINE void $debugbreak() {
-	// https://github.com/scottt/debugbreak/
-	__asm__ volatile("int $0x03");
-}
-
-#define $store(T, ptr, value)  ((T*)ptr)->_value = value
-#define $load(T, ptr)          ((T*)ptr)->_value
-
-//#define $array_access(base, index, stride) ($i8*)base + index * stride
-//#define $member_access(base, offset) ($i8*)base + offset
-#define $array_access(base, index, stride) ($ptr)((uintptr_t)base + (uintptr_t)(index * stride))
-#define $member_access(base, offset) ($ptr)((uintptr_t)base + (uintptr_t)offset)
-
-// signed types
-typedef char               $s8;
-typedef short             $s16;
-typedef int               $s32;
-typedef long long         $s64;
-
-#define $op_unsigned(bits, op, a, b) a op b
-#define $op_signed(bits, op, a, b) ($i##bits) (($s##bits)a op ($s##bits)b)
-
-// We define division and modulo by zero to trap.
-
-$INLINE  $i8 $div_u8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return a / b; }
-$INLINE  $i8 $div_s8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return ($i8)(($s8)a / ($s8)b); }
-$INLINE $i16 $div_u16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }
-$INLINE $i16 $div_s16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return ($i16)(($s16)a / ($s16)b); }
-$INLINE $i32 $div_u32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }
-$INLINE $i32 $div_s32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return ($i32)(($s32)a / ($s32)b); }
-$INLINE $i64 $div_u64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }
-$INLINE $i64 $div_s64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return ($i64)(($s64)a / ($s64)b); }
-
-$INLINE  $i8 $mod_u8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return a % b; }
-$INLINE  $i8 $mod_s8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return ($i8)(($s8)a % ($s8)b); }
-$INLINE $i16 $mod_u16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }
-$INLINE $i16 $mod_s16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return ($i16)(($s16)a % ($s16)b); }
-$INLINE $i32 $mod_u32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }
-$INLINE $i32 $mod_s32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return ($i32)(($s32)a % ($s32)b); }
-$INLINE $i64 $mod_u64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }
-$INLINE $i64 $mod_s64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return ($i64)(($s64)a % ($s64)b); }
-
-#define $sxt(from, to, value) ($i##to)(($s##to)(($s##from)value))
-#define $zxt(from, to, value) ($i##to)value
-
-//
-// float -> integer overflow is undefined in C, but we define it to clamp.
-// https://stackoverflow.com/questions/526070/handling-overflow-when-casting-doubles-to-integers-in-c
-//
-#define $f2s8(value) ($i8)($s8)value
-#define $f2s16(value) ($i16)($s16)value
-#define $f2s32(value) ($i32)($s32)value
-#define $f2s64(value) ($i64)($s64)value
-
-//#define $f2s8(value) ($i8)(value > INT8_MIN ? (value < INT8_MAX ? ($s8)value : INT8_MAX) : INT8_MIN)
-//#define $f2s16(value) ($i16)(value > INT16_MIN ? (value < INT16_MAX ? ($s16)value : INT16_MAX) : INT16_MIN)
-//#define $f2s32(value) ($i32)(value > INT32_MIN ? (value < INT32_MAX ? ($s32)value : INT32_MAX) : INT32_MIN)
-//#define $f2s64(value) ($i64)(value > INT64_MIN ? (value < INT64_MAX ? ($s64)value : INT64_MAX) : INT64_MIN)
-//#define $f2u8(value) (value > 0 ? (value < UINT8_MAX ? ($i8)value : UINT8_MAX) : 0)
-//#define $f2u16(value) (value > 0 ? (value < UINT16_MAX ? ($i16)value : UINT16_MAX) : 0)
-//#define $f2u32(value) (value > 0 ? (value < UINT32_MAX ? ($i32)value : UINT32_MAX) : 0)
-//#define $f2u64(value) (value > 0 ? (value < UINT64_MAX ? ($i64)value : UINT64_MAX) : 0)
-
-
-void* memcpy(void* dst, const void* src, size_t n);
-void* memset(void* str, int c, size_t n);
-
-// --------------------------------------------------------------------------
-)");
+	f_printc(f, "\n"
+"// ------------------ GMMC prelude for C11 ----------------------------------\n"
+"\n"
+"typedef _Bool             $bool;\n"
+"typedef void*              $ptr;\n"
+"typedef unsigned char       $i8;\n"
+"typedef unsigned short     $i16;\n"
+"typedef unsigned int       $i32;\n"
+"typedef unsigned long long $i64;\n"
+"typedef float              $f32;\n"
+"typedef double             $f64;\n"
+"\n"
+"#include <stdint.h> // for uintptr_t and INT*_MAX, INT*_MIN\n"
+"\n"
+"// Unaligned primitive types.\n"
+"// This is required to get rid of the UB around unaligned accesses in C.\n"
+"#pragma pack(push, 1)\n"
+"typedef struct { $bool _value; } $boolua;\n"
+"typedef struct { $ptr  _value; }  $ptrua;\n"
+"typedef struct { $i8   _value; }   $i8ua;\n"
+"typedef struct { $i16  _value; }  $i16ua;\n"
+"typedef struct { $i32  _value; }  $i32ua;\n"
+"typedef struct { $i64  _value; }  $i64ua;\n"
+"typedef struct { $f32  _value; }  $f32ua;\n"
+"typedef struct { $f64  _value; }  $f64ua;\n"
+"#pragma pack(pop)\n"
+"\n"
+"// Required CRT magic definitions\n"
+"void __chkstk() {}\n"
+"int _fltused = 0x9875;\n"
+"\n"
+"#define $INLINE __forceinline\n"
+"\n"
+"$INLINE void $debugbreak() {\n"
+"	// https://github.com/scottt/debugbreak/\n"
+"	__asm__ volatile(\"int $0x03\");\n"
+"}\n"
+"\n"
+"#define $store(T, ptr, value)  ((T*)ptr)->_value = value\n"
+"#define $load(T, ptr)          ((T*)ptr)->_value\n"
+"\n"
+"//#define $array_access(base, index, stride) ($i8*)base + index * stride\n"
+"//#define $member_access(base, offset) ($i8*)base + offset\n"
+"#define $array_access(base, index, stride) ($ptr)((uintptr_t)base + (uintptr_t)(index * stride))\n"
+"#define $member_access(base, offset) ($ptr)((uintptr_t)base + (uintptr_t)offset)\n"
+"\n"
+"// signed types\n"
+"typedef char               $s8;\n"
+"typedef short             $s16;\n"
+"typedef int               $s32;\n"
+"typedef long long         $s64;\n"
+"\n"
+"#define $op_unsigned(bits, op, a, b) a op b\n"
+"#define $op_signed(bits, op, a, b) ($i##bits) (($s##bits)a op ($s##bits)b)\n"
+"\n"
+"// We define division and modulo by zero to trap.\n"
+"\n"
+"$INLINE  $i8 $div_u8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return a / b; }\n"
+"$INLINE  $i8 $div_s8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return ($i8)(($s8)a / ($s8)b); }\n"
+"$INLINE $i16 $div_u16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }\n"
+"$INLINE $i16 $div_s16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return ($i16)(($s16)a / ($s16)b); }\n"
+"$INLINE $i32 $div_u32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }\n"
+"$INLINE $i32 $div_s32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return ($i32)(($s32)a / ($s32)b); }\n"
+"$INLINE $i64 $div_u64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return a / b; }\n"
+"$INLINE $i64 $div_s64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return ($i64)(($s64)a / ($s64)b); }\n"
+"\n"
+"$INLINE  $i8 $mod_u8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return a % b; }\n"
+"$INLINE  $i8 $mod_s8($i8 a, $i8 b)    { if (b == 0) { $debugbreak(); return 0; } return ($i8)(($s8)a % ($s8)b); }\n"
+"$INLINE $i16 $mod_u16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }\n"
+"$INLINE $i16 $mod_s16($i16 a, $i16 b) { if (b == 0) { $debugbreak(); return 0; } return ($i16)(($s16)a % ($s16)b); }\n"
+"$INLINE $i32 $mod_u32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }\n"
+"$INLINE $i32 $mod_s32($i32 a, $i32 b) { if (b == 0) { $debugbreak(); return 0; } return ($i32)(($s32)a % ($s32)b); }\n"
+"$INLINE $i64 $mod_u64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return a % b; }\n"
+"$INLINE $i64 $mod_s64($i64 a, $i64 b) { if (b == 0) { $debugbreak(); return 0; } return ($i64)(($s64)a % ($s64)b); }\n"
+"\n"
+"#define $sxt(from, to, value) ($i##to)(($s##to)(($s##from)value))\n"
+"#define $zxt(from, to, value) ($i##to)value\n"
+"\n"
+"//\n"
+"// float -> integer overflow is undefined in C, but we define it to clamp.\n"
+"// https://stackoverflow.com/questions/526070/handling-overflow-when-casting-doubles-to-integers-in-c\n"
+"//\n"
+"#define $f2s8(value) ($i8)($s8)value\n"
+"#define $f2s16(value) ($i16)($s16)value\n"
+"#define $f2s32(value) ($i32)($s32)value\n"
+"#define $f2s64(value) ($i64)($s64)value\n"
+"\n"
+"//#define $f2s8(value) ($i8)(value > INT8_MIN ? (value < INT8_MAX ? ($s8)value : INT8_MAX) : INT8_MIN)\n"
+"//#define $f2s16(value) ($i16)(value > INT16_MIN ? (value < INT16_MAX ? ($s16)value : INT16_MAX) : INT16_MIN)\n"
+"//#define $f2s32(value) ($i32)(value > INT32_MIN ? (value < INT32_MAX ? ($s32)value : INT32_MAX) : INT32_MIN)\n"
+"//#define $f2s64(value) ($i64)(value > INT64_MIN ? (value < INT64_MAX ? ($s64)value : INT64_MAX) : INT64_MIN)\n"
+"//#define $f2u8(value) (value > 0 ? (value < UINT8_MAX ? ($i8)value : UINT8_MAX) : 0)\n"
+"//#define $f2u16(value) (value > 0 ? (value < UINT16_MAX ? ($i16)value : UINT16_MAX) : 0)\n"
+"//#define $f2u32(value) (value > 0 ? (value < UINT32_MAX ? ($i32)value : UINT32_MAX) : 0)\n"
+"//#define $f2u64(value) (value > 0 ? (value < UINT64_MAX ? ($i64)value : UINT64_MAX) : 0)\n"
+"\n"
+"\n"
+"void* memcpy(void* dst, const void* src, size_t n);\n"
+"void* memset(void* str, int c, size_t n);\n"
+"\n"
+"// --------------------------------------------------------------------------\n");
 
 	//f_writef(f, "// -- globals -------------\n\n");
 	
@@ -435,34 +432,33 @@ void* memset(void* str, int c, size_t n);
 	// forward declare symbols
 
 	f_print(f, "\n");
-	for (uint i = 0; i < m->procs.len; i++) {
+	for f_array_each(gmmcProc*, m->procs, it) {
 		// hmm... do we need to declare procs with the right type?
-		gmmcProc* proc = m->procs[i];
-		fString name = m->procs[i]->sym.name;
+		fString name = it.elem->sym.name;
 		if (f_str_equals(name, F_LIT("main"))) continue; // :MainSpecialHandling
 
-		gmmcType ret_type = proc->signature->return_type;
+		gmmcType ret_type = it.elem->signature->return_type;
 		f_print(f, "~s ~s(", ret_type ? gmmc_type_get_string(ret_type) : F_LIT("void"), name);
 
-		for (uint i = 0; i < proc->signature->params.len; i++) {
-			if (i > 0) f_print(f, ", ");
-			f_prints(f, gmmc_type_get_string(proc->signature->params[i]));
+		for f_array_each(gmmcType, it.elem->signature->params, param) {
+			if (param.i > 0) f_print(f, ", ");
+			f_prints(f, gmmc_type_get_string(param.elem));
 		}
 		f_print(f, ");\n");
 	}
 
-	for (uint i = 0; i < m->external_symbols.len; i++) {
-		fString name = m->external_symbols[i]->sym.name;
-		if (name == F_LIT("memset")) continue; // already defined in the prelude
-		if (name == F_LIT("memcpy")) continue; // already defined in the prelude
+	for f_array_each(gmmcExtern*, m->external_symbols, it) {
+		fString name = it.elem->sym.name;
+		if (f_str_equals(name, F_LIT("memset"))) continue; // already defined in the prelude
+		if (f_str_equals(name, F_LIT("memcpy"))) continue; // already defined in the prelude
 
 		// pretend all external symbols are functions - I'm not sure if this works on non-functions. TODO!
 		f_print(f, "void ~s();\n", name);
 	}
 	f_print(f, "\n");
 
-	for (uint i = 1; i < m->globals.len; i++) {
-		gmmcGlobal* global = m->globals[i];
+	for (uint i = 1; i < m->globals.len; i++) { // TODO: 0-based
+		gmmcGlobal* global = f_array_get(gmmcGlobal*, m->globals, i);
 		fString name = global->sym.name;
 
 		// sort the relocations
@@ -476,7 +472,7 @@ void* memset(void* str, int c, size_t n);
 			u32 offset = 0;
 			for (;;) {
 				u32 bytes_end = next_reloc_idx < global->relocations.len ?
-					global->relocations[next_reloc_idx].offset :
+					f_array_get(gmmcRelocation, global->relocations, next_reloc_idx).offset :
 					global->size;
 
 				if (bytes_end > offset) {
@@ -501,7 +497,7 @@ void* memset(void* str, int c, size_t n);
 	f_print(f, "\n");
 
 	for (uint i = 1; i < m->globals.len; i++) {
-		gmmcGlobal* global = m->globals[i];
+		gmmcGlobal* global = f_array_get(gmmcGlobal*, m->globals, i);
 		fString name = global->sym.name;
 
 		//if (global->section == gmmcSection_Threadlocal) f_writef(f, "_Thread_local ");
@@ -526,7 +522,7 @@ void* memset(void* str, int c, size_t n);
 			u32 offset = 0;
 			for (;;) {
 				u32 bytes_end = next_reloc_idx < global->relocations.len ?
-					global->relocations[next_reloc_idx].offset :
+					f_array_get(gmmcRelocation, global->relocations, next_reloc_idx).offset :
 					global->size;
 
 				if (bytes_end > offset) {
@@ -540,7 +536,7 @@ void* memset(void* str, int c, size_t n);
 
 				if (next_reloc_idx >= global->relocations.len) break;
 
-				gmmcRelocation reloc = global->relocations[next_reloc_idx];
+				gmmcRelocation reloc = f_array_get(gmmcRelocation, global->relocations, next_reloc_idx);
 				u64 reloc_offset = *(u64*)((u8*)global->data + offset);
 
 				f_print(f, "($i64)(");
@@ -560,8 +556,8 @@ void* memset(void* str, int c, size_t n);
 	f_print(f, "#pragma pack(pop)\n"); // TODO: use alignas instead! for relocations
 	f_print(f, "\n// ------------------------\n\n");
 
-	for (uint i = 0; i < m->procs.len; i++) {
-		gmmc_proc_print_c(f, m->procs[i]);
+	for f_array_each(gmmcProc*, m->procs, it) {
+		gmmc_proc_print_c(f, it.elem);
 		f_print(f, "\n");
 	}
 }

@@ -1,4 +1,4 @@
-#include "src/foundation/foundation.hpp"
+#include "src/foundation/foundation.h"
 
 #define gmmcString fString
 #include "gmmc.h"
@@ -10,41 +10,32 @@
 #define VALIDATE(x) f_assert(x)
 
 typedef u16 RegSize;
+typedef struct gmmcAsmProc gmmcAsmProc;
 
-struct gmmcAsmProc;
-
-struct gmmcAsmGlobal {
+typedef struct gmmcAsmGlobal {
 	gmmcGlobal* global; // hmm... why do we store this? its accessible by the index
 	u32 offset;
-};
+} gmmcAsmGlobal;
 
-struct Section {
+typedef struct Section {
 	fArray(u8) data;
 	fArray(gmmcRelocation) relocs;
-};
+} Section;
 
-struct gmmcAsmModule {
+typedef struct gmmcAsmModule {
 	Section sections[gmmcSection_COUNT];
 	fSlice(gmmcAsmProc) procs;
 	fSlice(gmmcAsmGlobal) globals;
-};
+} gmmcAsmModule;
 
-GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection section) {
-	return { m->sections[section].data.data, m->sections[section].data.len };
-}
-
-GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcRelocation)* out_relocs) {
-	*out_relocs = m->sections[section].relocs.slice;
-}
-
-enum RegisterSet {
+typedef enum RegisterSet {
 	RegisterSet_Normal,
 	RegisterSet_XMM,
 	RegisterSet_COUNT,
-};
+} RegisterSet;
 
-enum GPR {
-	GPR_INVALID,
+typedef enum GPR {
+	GPR_NONE,
 	
 	// RegisterSet = 0
 	GPR_AX,
@@ -84,9 +75,9 @@ enum GPR {
 	GPR_XMM15,
 
 	GPR_COUNT,
-};
+} GPR;
 
-enum Stage {
+typedef enum Stage {
 	// The idea is to do generation in 3 stages:
 	
 	// 1st stage:
@@ -103,9 +94,9 @@ enum Stage {
 	// 3rd stage:
 	// Emit the actual instructions.
 	Stage_Emit,
-};
+} Stage;
 
-struct ProcGenSelectRegs {
+typedef struct ProcGenSelectRegs {
 	u32 work_registers_used_count[RegisterSet_COUNT];
 	
 	// this is cleared when beginning to generate a new basic block
@@ -114,9 +105,9 @@ struct ProcGenSelectRegs {
 	fSlice(GPR) ops_currently_in_register; // GPR_INVALID means it's on the stack / not inside a register
 	
 	fArray(GPR) debug_allocate_gpr_order;
-};
+} ProcGenSelectRegs;
 
-struct ProcGen {
+typedef struct ProcGen {
 	gmmcAsmModule* module;
 	fOpt(fWriter*) console;
 	gmmcProc* proc;
@@ -148,9 +139,9 @@ struct ProcGen {
 
 	// available in the _Emit stage
 	ProcGenSelectRegs cached_rsel;
-};
+} ProcGen;
 
-struct gmmcAsmProc {
+typedef struct gmmcAsmProc {
 	fSlice(s32) local_frame_rel_offset; // [gmmcLocalIdx]
 
 	// offset that is added to RSP when entering the procedure;
@@ -164,51 +155,9 @@ struct gmmcAsmProc {
 	u32 code_section_start_offset;
 	u32 code_section_end_offset;
 	u32 prolog_size;
-};
-
-//s32 frame_rel_to_rsp_rel_offset(ProcGen* gen, s32 offset) { return gen->stack_frame_size + offset; }
+} gmmcAsmProc;
 
 
-// https://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
-// NOTE: high bits of 'x' must be set to 0
-static u64 sign_extend(u64 x, u32 num_bits) {
-	u64 m = 1llu << (num_bits - 1);
-	return (x ^ m) - m;
-}
-
-static uint get_zydis_instruction_len(const ZydisEncoderRequest& req) {
-	u8 instr[ZYDIS_MAX_INSTRUCTION_LENGTH];
-	uint instr_len = sizeof(instr);
-	bool ok = ZYAN_SUCCESS(ZydisEncoderEncodeInstruction(&req, instr, &instr_len));
-	VALIDATE(ok);
-	return instr_len;
-}
-
-static void emit(ProcGen* p, const ZydisEncoderRequest& req, const char* comment = "") {
-	f_assert(p->stage == Stage_Emit);
-	
-	u8 instr[ZYDIS_MAX_INSTRUCTION_LENGTH];
-	uint instr_len = sizeof(instr);
-	bool ok = ZYAN_SUCCESS(ZydisEncoderEncodeInstruction(&req, instr, &instr_len));
-	VALIDATE(ok);
-	
-	Section* code_section = &p->module->sections[gmmcSection_Code];
-	f_array_push_n(&code_section->data, { instr, instr_len });
-
-	// print disassembly
-	if (p->console) {
-		uint sect_rel_offset = code_section->data.len - instr_len;
-		uint proc_rel_offset = sect_rel_offset - p->result->code_section_start_offset;
-
-		u8* data = code_section->data.data + proc_rel_offset;
-	//	if (proc_rel_offset == 0x3c) f_trap();
-
-		ZydisDisassembledInstruction instruction;
-		if (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, proc_rel_offset, instr, instr_len, &instruction))) {
-			f_print(p->console, "(~u32)  0x~x32:   ~c~c\n", p->current_op, proc_rel_offset, instruction.text, comment);
-		}
-	}
-}
 
 // General-purpose registers. Prefer non-volatile registers for now
 // https://learn.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170
@@ -237,30 +186,84 @@ const static GPR float_work_registers[] = {
 	//GPR_XMM15,
 };
 
+typedef enum ExtendBits {
+	ExtendBits_None,
+	ExtendBits_Zero,
+	ExtendBits_Sign,
+} ExtendBits;
+
+GMMC_API gmmcString gmmc_asm_get_section_data(gmmcAsmModule* m, gmmcSection section) {
+	return (gmmcString) { m->sections[section].data.data, m->sections[section].data.len };
+}
+
+GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection section, fSlice(gmmcRelocation)* out_relocs) {
+	*out_relocs = m->sections[section].relocs.slice;
+}
+
+
+// https://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
+// NOTE: high bits of 'x' must be set to 0
+static u64 sign_extend(u64 x, u32 num_bits) {
+	u64 m = 1llu << (num_bits - 1);
+	return (x ^ m) - m;
+}
+
+static uint get_zydis_instruction_len(const ZydisEncoderRequest* req) {
+	u8 instr[ZYDIS_MAX_INSTRUCTION_LENGTH];
+	uint instr_len = sizeof(instr);
+	bool ok = ZYAN_SUCCESS(ZydisEncoderEncodeInstruction(req, instr, &instr_len));
+	VALIDATE(ok);
+	return instr_len;
+}
+
+static void emit(ProcGen* p, const ZydisEncoderRequest* req, const char* comment) {
+	f_assert(p->stage == Stage_Emit);
+	
+	u8 instr[ZYDIS_MAX_INSTRUCTION_LENGTH];
+	uint instr_len = sizeof(instr);
+	bool ok = ZYAN_SUCCESS(ZydisEncoderEncodeInstruction(req, instr, &instr_len));
+	VALIDATE(ok);
+	
+	Section* code_section = &p->module->sections[gmmcSection_Code];
+	f_array_push_n_raw(&code_section->data, instr, instr_len, 1);
+
+	// print disassembly
+	if (p->console) {
+		uint sect_rel_offset = code_section->data.len - instr_len;
+		uint proc_rel_offset = sect_rel_offset - p->result->code_section_start_offset;
+
+		ZydisDisassembledInstruction instruction;
+		if (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, proc_rel_offset, instr, instr_len, &instruction))) {
+			f_print(p->console, "(~u32)  0x~x32:   ~c~c\n", p->current_op, proc_rel_offset, instruction.text, comment);
+		}
+	}
+}
+
+
 static void reserve_stack_space(s32* rsp_offset, u32 amount, u32 align) {
 	// NOTE: the stack is misaligned by 8 bytes when entering a procedure.
 	// That's why we need to do the + 8 - 8 shuffle
 	*rsp_offset = F_ALIGN_DOWN_POW2(*rsp_offset - (s32)amount + 8, (s32)align) - 8;
 }
 
-RegisterSet get_register_set_from_type(gmmcType type) {
+static RegisterSet get_register_set_from_type(gmmcType type) {
 	return gmmc_type_is_float(type) ? RegisterSet_XMM : RegisterSet_Normal;
 }
 
-RegisterSet get_register_set(GPR reg) {
+static RegisterSet get_register_set(GPR reg) {
 	return reg >= GPR_XMM0 && reg <= GPR_XMM15 ? RegisterSet_XMM : RegisterSet_Normal;
 }
 
 static fSlice(GPR) get_work_registers(RegisterSet reg_set) {
 	switch (reg_set) {
-	case RegisterSet_Normal: return fSlice(GPR) { (GPR*)&int_work_registers, F_LEN(int_work_registers) };
-	case RegisterSet_XMM: return fSlice(GPR) { (GPR*)&float_work_registers, F_LEN(float_work_registers) };
+	case RegisterSet_Normal: return (fSliceRaw){(void*)&int_work_registers, F_LEN(int_work_registers)};
+	case RegisterSet_XMM: return (fSliceRaw){(void*)&float_work_registers, F_LEN(float_work_registers)};
 	}
-	f_trap(); return {};
+	f_trap(); return (fSliceRaw){0};
 }
 
 // `size` is ignored for XMM registers
-ZydisRegister get_x64_reg(GPR reg, RegSize size) {
+static ZydisRegister get_x64_reg(GPR reg, RegSize size) {
 	if (get_register_set(reg) == RegisterSet_XMM) {
 		return (ZydisRegister)(ZYDIS_REGISTER_XMM0 + (reg - GPR_XMM0));
 	}
@@ -297,20 +300,20 @@ ZydisRegister get_x64_reg(GPR reg, RegSize size) {
 }
 
 // `size` is ignored for XMM registers
-ZydisEncoderOperand make_reg_operand(GPR gpr, RegSize size) {
+static ZydisEncoderOperand make_reg_operand(GPR gpr, RegSize size) {
 	ZydisEncoderOperand operand = { ZYDIS_OPERAND_TYPE_REGISTER };
 	operand.reg.value = get_x64_reg(gpr, size);
 	return operand;
 }
 
 // TODO: get rid of this garbage
-struct LooseReg { gmmcOpIdx source_op; };
+typedef struct LooseReg { gmmcOpIdx source_op; } LooseReg;
 
 static void spill(ProcGen* p, gmmcOpIdx op_idx) {
-	GPR reg = p->rsel.ops_currently_in_register[op_idx];
+	GPR reg = f_array_get(GPR, p->rsel.ops_currently_in_register, op_idx);
 	f_assert(p->rsel.work_reg_taken_by_op[reg] == op_idx);
 
-	gmmcOpData* op = &p->proc->ops[op_idx];
+	gmmcOpData* op = f_array_get_ptr(gmmcOpData, p->proc->ops, op_idx);
 	u32 size = gmmc_type_size(op->type);
 	
 	//if (op_idx == 22) f_trap();
@@ -318,13 +321,13 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 		// if computation is required to find out the value of the op, store it on the stack.
 		// locals, immediates and addr_of_symbol don't need to be stored on the stack.
 
-		if (p->stage == Stage_SelectRegs && p->ops_spill_offset_frame_rel[op_idx] == 0) {
+		if (p->stage == Stage_SelectRegs && f_array_get(u32, p->ops_spill_offset_frame_rel, op_idx) == 0) {
 			reserve_stack_space(&p->result->rsp_offset, size, size);
-			p->ops_spill_offset_frame_rel[op_idx] = p->result->rsp_offset;
+			f_array_set(u32, p->ops_spill_offset_frame_rel, op_idx, p->result->rsp_offset);
 		}
 
 		if (p->stage == Stage_Emit) {
-			f_assert(p->ops_spill_offset_frame_rel[op_idx] != 0);
+			f_assert(f_array_get(u32, p->ops_spill_offset_frame_rel, op_idx) != 0);
 
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 			req.mnemonic =	op->type == gmmcType_f64 ? ZYDIS_MNEMONIC_MOVSD :
@@ -333,37 +336,36 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 			req.operand_count = 2;
 			req.operands[0].type = ZYDIS_OPERAND_TYPE_MEMORY;
 			req.operands[0].mem.base = ZYDIS_REGISTER_RSP;
-			req.operands[0].mem.displacement = p->ops_spill_offset_frame_rel[op_idx] - p->result->rsp_offset;
-			//if (reg == GPR_14 && req.operands[0].mem.displacement == 104) f_trap();
+			req.operands[0].mem.displacement = f_array_get(u32, p->ops_spill_offset_frame_rel, op_idx) - p->result->rsp_offset;
 			req.operands[0].mem.size = size;
 			req.operands[1] = make_reg_operand(reg, size);
-			emit(p, req, " ; spill the op value");
+			emit(p, &req, " ; spill the op value");
 			int a = 50;
 		}
 	}
-	p->rsel.ops_currently_in_register[op_idx] = GPR_INVALID;
-	p->rsel.work_reg_taken_by_op[reg] = GMMC_OP_IDX_INVALID;
+	f_array_set(GPR, p->rsel.ops_currently_in_register, op_idx, GPR_NONE);
+	p->rsel.work_reg_taken_by_op[reg] = (gmmcOpIdx){ GMMC_OP_IDX_INVALID };
 }
 
 static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 	//if (for_op == 26) f_trap();
 	//if (p->rsel.debug_allocate_gpr_order.len == 4) f_trap();
 	
-	GPR gpr = GPR_INVALID;
+	GPR gpr = GPR_NONE;
 	f_assert(p->stage > Stage_Initial);
 
 	F_HITS(_c, 0);
 
-	gmmcType type = p->proc->ops[for_op].type;
+	gmmcType type = f_array_get(gmmcOpData, p->proc->ops, for_op).type;
 	RegisterSet rset = get_register_set_from_type(type);
 	fSlice(GPR) work_regs = get_work_registers(rset);
 
 	for (u32 i = 0; i < p->rsel.work_registers_used_count[rset]; i++) {
-		GPR work_reg = work_regs[i];
+		GPR work_reg = f_array_get(GPR, work_regs, i);
 		gmmcOpIdx taken_by_op = p->rsel.work_reg_taken_by_op[work_reg];
 		
-		if (p->current_op > p->ops_last_use_time[taken_by_op]) { // this op value will never be used later
-			p->rsel.ops_currently_in_register[taken_by_op] = GPR_INVALID;
+		if (p->current_op > f_array_get(gmmcOpIdx, p->ops_last_use_time, taken_by_op)) { // this op value will never be used later
+			f_array_set(GPR, p->rsel.ops_currently_in_register, taken_by_op, GPR_NONE);
 			gpr = work_reg;
 			break;
 		}
@@ -374,24 +376,24 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 	if (!gpr) {
 		if (p->rsel.work_registers_used_count[rset] < work_regs.len) {
 			u32 work_reg_idx = p->rsel.work_registers_used_count[rset]++;
-			gpr = work_regs[work_reg_idx];
+			gpr = f_array_get(GPR, work_regs, work_reg_idx);
 		}
 		else {
-			gmmcOpIdx greatest_last_use_time = 0;
-			gmmcOpIdx victim = 0;
+			gmmcOpIdx greatest_last_use_time = GMMC_OP_IDX_INVALID;
+			gmmcOpIdx victim = GMMC_OP_IDX_INVALID;
 			
 			for (uint i = 0; i < work_regs.len; i++) {
-				GPR work_reg = work_regs[i];
+				GPR work_reg = f_array_get(GPR, work_regs, i);
 				gmmcOpIdx potential_victim = p->rsel.work_reg_taken_by_op[work_reg];
-				f_assert(p->rsel.ops_currently_in_register[potential_victim] == work_reg);
+				f_assert(f_array_get(GPR, p->rsel.ops_currently_in_register, potential_victim) == work_reg);
 				
 				if (potential_victim == p->current_op) {
 					// The current op has this register locked as its result register, so let's not steal it
 					continue;
 				}
 
-				gmmcOpIdx last_use_time = p->ops_last_use_time[potential_victim];
-				if (last_use_time > greatest_last_use_time) {
+				gmmcOpIdx last_use_time = f_array_get(gmmcOpIdx, p->ops_last_use_time, potential_victim);
+				if (greatest_last_use_time == GMMC_OP_IDX_INVALID || last_use_time > greatest_last_use_time) {
 					greatest_last_use_time = last_use_time;
 					
 					victim = potential_victim;
@@ -404,14 +406,14 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 	}
 
 	p->rsel.work_reg_taken_by_op[gpr] = for_op;
-	p->rsel.ops_currently_in_register[for_op] = gpr;
+	f_array_set(GPR, p->rsel.ops_currently_in_register, for_op, gpr);
 
 	{
 		// Verify that the register allocation is deterministic across Stage_SelectRegs and Stage_Emit.
 		// TODO: just use this array as a lookup directly to avoid having to do the same computation in the _Emit stage!!
 		uint i = f_array_push(&p->rsel.debug_allocate_gpr_order, gpr);
 		if (p->stage == Stage_Emit) {
-			f_assert(p->cached_rsel.debug_allocate_gpr_order[i] == gpr);
+			f_assert(f_array_get(GPR, p->cached_rsel.debug_allocate_gpr_order, i) == gpr);
 		}
 	}
 
@@ -420,7 +422,10 @@ static GPR allocate_gpr(ProcGen* p, gmmcOpIdx for_op) {
 
 static void update_last_use_time(ProcGen* p, gmmcOpIdx op_idx) {
 	if (p->stage == Stage_Initial) {
-		p->ops_last_use_time[op_idx] = F_MAX(p->ops_last_use_time[op_idx], p->current_op);
+		gmmcOpIdx existing = f_array_get(gmmcOpIdx, p->ops_last_use_time, op_idx);
+		
+		gmmcOpIdx last_use_time = existing == GMMC_OP_IDX_INVALID || p->current_op > existing ? p->current_op : existing;
+		f_array_set(gmmcOpIdx, p->ops_last_use_time, op_idx, last_use_time);
 	}
 }
 
@@ -429,16 +434,10 @@ static GPR allocate_op_result(ProcGen* p) {
 	if (p->stage > Stage_Initial) {
 		return allocate_gpr(p, p->current_op);
 	}
-	return GPR_INVALID;
+	return GPR_NONE;
 }
 
-enum ExtendBits {
-	ExtendBits_None,
-	ExtendBits_Zero,
-	ExtendBits_Sign,
-};
-
-static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, gmmcType type, ExtendBits extend = ExtendBits_None) {
+static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, gmmcType type, ExtendBits extend/* = ExtendBits_None*/) {
 	f_assert(p->stage == Stage_Emit);
 	RegSize size = gmmc_type_size(type);
 	
@@ -450,7 +449,7 @@ static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, gmmcType type, Ext
 		req.operand_count = 2;
 		req.operands[0] = make_reg_operand(to, size);
 		req.operands[1] = make_reg_operand(from, size);
-		emit(p, req);
+		emit(p, &req, "");
 	}
 	else {
 		if (extend == ExtendBits_Zero && size <= 2) {
@@ -464,7 +463,7 @@ static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, gmmcType type, Ext
 			req.operand_count = 2;
 			req.operands[0] = make_reg_operand(to, 8);
 			req.operands[1] = make_reg_operand(from, size);
-			emit(p, req);
+			emit(p, &req, "");
 		}
 		else if (extend == ExtendBits_Sign && size <= 4) {
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -472,7 +471,7 @@ static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, gmmcType type, Ext
 			req.operand_count = 2;
 			req.operands[0] = make_reg_operand(to, 8);
 			req.operands[1] = make_reg_operand(from, size);
-			emit(p, req);
+			emit(p, &req, "");
 		}
 		else {
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -480,26 +479,26 @@ static void emit_mov_reg_to_reg(ProcGen* p, GPR to, GPR from, gmmcType type, Ext
 			req.operand_count = 2;
 			req.operands[0] = make_reg_operand(to, size);
 			req.operands[1] = make_reg_operand(from, size);
-			emit(p, req);
+			emit(p, &req, "");
 		}
 	}
 }
 
 static u32 section_push_data(Section* section, void* data, uint size, uint align) {
-	f_array_resize(&section->data, F_ALIGN_UP_POW2(section->data.len, align), (u8)0);
+	f_array_resize_raw(&section->data, F_ALIGN_UP_POW2(section->data.len, align), &(u8){0}, 1);
 	u32 offset = (u32)section->data.len;
-	f_array_push_n(&section->data, fString{ (u8*)data, size });
+	f_array_push_n_raw(&section->data, data, size, 1);
 	return offset;
 }
 
-static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_INVALID) {
-	if (p->stage == Stage_Initial) return GPR_INVALID;
+static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg/* = GPR_INVALID*/) {
+	if (p->stage == Stage_Initial) return GPR_NONE;
 
-	GPR result = p->rsel.ops_currently_in_register[op_idx];
+	GPR result = f_array_get(GPR, p->rsel.ops_currently_in_register, op_idx);
 	if (result) {
 		if (specify_reg) {
 			if (p->stage == Stage_Emit) {
-				emit_mov_reg_to_reg(p, specify_reg, result, p->proc->ops[op_idx].type);
+				emit_mov_reg_to_reg(p, specify_reg, result, f_array_get(gmmcOpData, p->proc->ops, op_idx).type, ExtendBits_None);
 			}
 			return specify_reg;
 		}
@@ -517,7 +516,7 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 	}
 
 	if (p->stage == Stage_Emit) {
-		gmmcOpData* op = &p->proc->ops[op_idx];
+		gmmcOpData* op = f_array_get_ptr(gmmcOpData, p->proc->ops, op_idx);
 		if (op->kind == gmmcOpKind_local) {
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 			req.mnemonic = ZYDIS_MNEMONIC_LEA;
@@ -525,9 +524,10 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 			req.operands[0] = make_reg_operand(result, 8);
 			req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
 			req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
-			req.operands[1].mem.displacement = p->result->local_frame_rel_offset[op->local_idx] - p->result->rsp_offset;
+			req.operands[1].mem.displacement =
+				f_array_get(s32, p->result->local_frame_rel_offset, op->local_idx) - p->result->rsp_offset;
 			req.operands[1].mem.size = 8;
-			emit(p, req, " ; address of local");
+			emit(p, &req, " ; address of local");
 			int a = 50;
 		}
 		else if (op->kind == gmmcOpKind_addr_of_param) {
@@ -539,7 +539,7 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 			req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
 			req.operands[1].mem.displacement = 8 + 8 * (u32)op->imm_bits - p->result->rsp_offset; // + 8 for return address :AddressOfParam
 			req.operands[1].mem.size = 8;
-			emit(p, req, " ; address of param");
+			emit(p, &req, " ; address of param");
 		}
 		else if (op->kind == gmmcOpKind_addr_of_symbol) {
 			
@@ -549,15 +549,16 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 			req.operands[0] = make_reg_operand(result, 8);
 			req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 			req.operands[1].imm.u = 0xfefefefefefefefe; // trick zydis to emit the full 64 bits for the immediate
-			emit(p, req, " ; address of symbol (relocation will be applied to imm)");
+			emit(p, &req, " ; address of symbol (relocation will be applied to imm)");
 
 			Section* code_section = &p->module->sections[gmmcSection_Code];
 
 			// The relocation will be applied to the encoded immediate operand
 			u32 reloc_offset = (u32)code_section->data.len - 8;
-			*(u64*)(code_section->data.data + reloc_offset) = 0; // get rid of the fefefefe
+			*(u64*)((u8*)code_section->data.data + reloc_offset) = 0; // get rid of the fefefefe
 
-			f_array_push(&code_section->relocs, gmmcRelocation{ reloc_offset, op->symbol });
+			gmmcRelocation reloc = {reloc_offset, op->symbol};
+			f_array_push(&code_section->relocs, reloc);
 		}
 		else if (gmmc_is_op_direct(p->proc, op_idx)) {
 
@@ -567,7 +568,7 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 				// there are no floating point immediates in X64. Before emitting, we allocated
 				// all float immediates into the code section and that way we can access them relative to RIP.
 				
-				s64 float_offset = (s64)p->ops_float_imm_section_rel_offset[op_idx];
+				s64 float_offset = (s64)f_array_get(u32, p->ops_float_imm_section_rel_offset, op_idx);
 
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 				req.mnemonic = op->type == gmmcType_f64 ? ZYDIS_MNEMONIC_MOVSD : ZYDIS_MNEMONIC_MOVSS;
@@ -580,10 +581,10 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 				// NOTE: when using RIP-relative memory operand, RIP refers to the beginning of the next instruction.
 				// http://www.codegurus.be/Programming/riprelativeaddressing_en.htm
 
-				s64 next_instruction_offset = (s64)p->module->sections[gmmcSection_Code].data.len + (s64)get_zydis_instruction_len(req);
+				s64 next_instruction_offset = (s64)p->module->sections[gmmcSection_Code].data.len + (s64)get_zydis_instruction_len(&req);
 				req.operands[1].mem.displacement = float_offset - next_instruction_offset;
 				
-				emit(p, req, " ; immediate float to reg");
+				emit(p, &req, " ; immediate float to reg");
 			}
 			else {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -592,12 +593,10 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 				req.operands[0] = make_reg_operand(result, size);
 				req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 				req.operands[1].imm.u = sign_extend(op->imm_bits, size * 8); // zydis requires sign-extended immediates
-				emit(p, req, " ; immediate to reg");
+				emit(p, &req, " ; immediate to reg");
 			}
 		}
 		else {
-			//f_assert(p->ops[op_idx].currently_in_register == GPR_INVALID);
-
 			gmmcType type = op->type;
 			RegSize size = gmmc_type_size(type);
 
@@ -610,15 +609,15 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_I
 			req.operands[0] = make_reg_operand(result, size);
 			req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
 			req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
-			req.operands[1].mem.displacement = p->ops_spill_offset_frame_rel[op_idx] - p->result->rsp_offset;
+			req.operands[1].mem.displacement = f_array_get(u32, p->ops_spill_offset_frame_rel, op_idx) - p->result->rsp_offset;
 			req.operands[1].mem.size = size;
-			emit(p, req, " ; load spilled value");
+			emit(p, &req, " ; load spilled value");
 		}
 	}
 	return result;
 }
 
-static GPR use_op_value(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_INVALID) {
+static GPR use_op_value(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg/* = GPR_INVALID*/) {
 	update_last_use_time(p, op_idx);
 
 	GPR result = op_value_to_reg(p, op_idx, specify_reg);
@@ -626,7 +625,7 @@ static GPR use_op_value(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg = GPR_INVA
 }
 
 static LooseReg use_op_value_loose(ProcGen* p, gmmcOpIdx op_idx) {
-	LooseReg result = {};
+	LooseReg result = {0};
 	update_last_use_time(p, op_idx);
 
 	if (p->stage > Stage_Initial) {
@@ -638,23 +637,34 @@ static LooseReg use_op_value_loose(ProcGen* p, gmmcOpIdx op_idx) {
 
 // retrieving computed data
 GMMC_API u32 gmmc_asm_instruction_get_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op) {
-	VALIDATE(proc->ops[op].bb_idx != GMMC_BB_INDEX_NONE); // immediates do not get assigned an offset
-	return m->procs[proc->self_idx].ops_instruction_offset[op];
+	VALIDATE(f_array_get(gmmcOpData, proc->ops, op).bb_idx != GMMC_BB_INDEX_NONE); // immediates do not get assigned an offset
+	
+	gmmcAsmProc* asm_proc = f_array_get_ptr(gmmcAsmProc, m->procs, proc->self_idx);
+	return f_array_get(u32, asm_proc->ops_instruction_offset, op);
 }
 
-GMMC_API u32 gmmc_asm_proc_get_start_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_start_offset; }
-GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].code_section_end_offset; }
-GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc) { return 0 - m->procs[proc->self_idx].rsp_offset; }
-GMMC_API u32 gmmc_asm_proc_get_prolog_size(gmmcAsmModule* m, gmmcProc* proc) { return m->procs[proc->self_idx].prolog_size; }
-GMMC_API u32 gmmc_asm_global_get_offset(gmmcAsmModule* m, gmmcGlobal* global) { return m->globals[global->self_idx].offset; }
+GMMC_API u32 gmmc_asm_proc_get_start_offset(gmmcAsmModule* m, gmmcProc* proc) {
+	return f_array_get(gmmcAsmProc, m->procs, proc->self_idx).code_section_start_offset; }
+
+GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc) {
+	return f_array_get(gmmcAsmProc, m->procs, proc->self_idx).code_section_end_offset; }
+
+GMMC_API u32 gmmc_asm_proc_get_stack_frame_size(gmmcAsmModule* m, gmmcProc* proc) {
+	return 0 - f_array_get(gmmcAsmProc, m->procs, proc->self_idx).rsp_offset; }
+
+GMMC_API u32 gmmc_asm_proc_get_prolog_size(gmmcAsmModule* m, gmmcProc* proc) {
+	return f_array_get(gmmcAsmProc, m->procs, proc->self_idx).prolog_size; }
+
+GMMC_API u32 gmmc_asm_global_get_offset(gmmcAsmModule* m, gmmcGlobal* global) {
+	return f_array_get(gmmcAsmGlobal, m->globals, global->self_idx).offset; }
 
 GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx local_or_param) {
-	gmmcOpData* op = &proc->ops[local_or_param];
-	gmmcAsmProc* asm_proc = &m->procs[proc->self_idx];
+	gmmcOpData* op = f_array_get_ptr(gmmcOpData, proc->ops, local_or_param);
+	gmmcAsmProc* asm_proc = f_array_get_ptr(gmmcAsmProc, m->procs, proc->self_idx);
 
 	if (op->kind == gmmcOpKind_local) {
 		u32 local_idx = op->local_idx;
-		return asm_proc->local_frame_rel_offset[local_idx];
+		return f_array_get(u32, asm_proc->local_frame_rel_offset, local_idx);
 	}
 	else if (op->kind == gmmcOpKind_addr_of_param) {
 		return 8 + 8*(u32)op->imm_bits; // :AddressOfParam
@@ -662,15 +672,13 @@ GMMC_API s32 gmmc_asm_get_frame_rel_offset(gmmcAsmModule* m, gmmcProc* proc, gmm
 	VALIDATE(false); return 0;
 }
 
-
 const static GPR ms_x64_param_normal_regs[4] = { GPR_CX, GPR_DX, GPR_8, GPR_9 };
 const static GPR ms_x64_param_float_regs[4] = { GPR_XMM0, GPR_XMM1, GPR_XMM2, GPR_XMM3 };
 
 static void gen_array_access(ProcGen* p, gmmcOpData* op) {
 	GPR result_reg = allocate_op_result(p);
-	GPR base_reg = use_op_value(p, op->operands[0]);
-	GPR index_reg = use_op_value(p, op->operands[1]);
-
+	GPR base_reg = use_op_value(p, op->operands[0], GPR_NONE);
+	GPR index_reg = use_op_value(p, op->operands[1], GPR_NONE);
 
 	if (p->stage == Stage_Emit) {
 		// memory-based operand `scale` can only encode 1, 2, 4 or 8 in x64.
@@ -684,7 +692,7 @@ static void gen_array_access(ProcGen* p, gmmcOpData* op) {
 			req.operands[1] = make_reg_operand(index_reg, 8);
 			req.operands[2].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 			req.operands[2].imm.u = (u32)op->imm_bits;
-			emit(p, req);
+			emit(p, &req, "");
 
 			// NOTE: we `use_op_value` returns a read-only handle to a work register, so use RAX as a temporary
 			index_reg = GPR_AX;
@@ -701,14 +709,14 @@ static void gen_array_access(ProcGen* p, gmmcOpData* op) {
 		req.operands[1].mem.index = get_x64_reg(index_reg, 8);
 		req.operands[1].mem.scale = can_encode_scale_directly ? (u8)op->imm_bits : 1;
 		req.operands[1].mem.size = 8;
-		emit(p, req, " ; array access");
+		emit(p, &req, " ; array access");
 	}
 }
 
 static void gen_comparison(ProcGen* p, gmmcOpData* op) {
 	GPR result_value = allocate_op_result(p);
-	GPR a = use_op_value(p, op->operands[0]);
-	GPR b = use_op_value(p, op->operands[1]);
+	GPR a = use_op_value(p, op->operands[0], GPR_NONE);
+	GPR b = use_op_value(p, op->operands[1], GPR_NONE);
 	
 	if (p->stage == Stage_Emit) {
 		{
@@ -718,7 +726,7 @@ static void gen_comparison(ProcGen* p, gmmcOpData* op) {
 			req.operand_count = 2;
 			req.operands[0] = make_reg_operand(a, size);
 			req.operands[1] = make_reg_operand(b, size);
-			emit(p, req);
+			emit(p, &req, "");
 		}
 
 		{
@@ -733,7 +741,7 @@ static void gen_comparison(ProcGen* p, gmmcOpData* op) {
 			}
 			req.operand_count = 1;
 			req.operands[0] = make_reg_operand(result_value, 1);
-			emit(p, req);
+			emit(p, &req, "");
 		}
 	}
 }
@@ -741,7 +749,7 @@ static void gen_comparison(ProcGen* p, gmmcOpData* op) {
 static void gen_op_basic_2(ProcGen* p, gmmcOpData* op, ZydisMnemonic mnemonic) {
 	GPR result_value = allocate_op_result(p);
 	LooseReg a = use_op_value_loose(p, op->operands[0]);
-	GPR b = use_op_value(p, op->operands[1]);
+	GPR b = use_op_value(p, op->operands[1], GPR_NONE);
 
 	if (p->stage == Stage_Emit) {
 		op_value_to_reg(p, a.source_op, result_value); // ADD instruction overwrites the first operand with the result
@@ -752,7 +760,7 @@ static void gen_op_basic_2(ProcGen* p, gmmcOpData* op, ZydisMnemonic mnemonic) {
 		req.operand_count = 2;
 		req.operands[0] = make_reg_operand(result_value, size);
 		req.operands[1] = make_reg_operand(b, size);
-		emit(p, req);
+		emit(p, &req, "");
 	}
 }
 
@@ -763,14 +771,14 @@ static void emit_mov_imm_to_reg(ProcGen* p, GPR reg, u64 imm) {
 	req.operands[0] = make_reg_operand(reg, 8);
 	req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 	req.operands[1].imm.u = imm;
-	emit(p, req);
+	emit(p, &req, "");
 }
 
 static void gen_div_or_mod(ProcGen* p, gmmcOpData* op, GPR take_result_from) {
 	GPR result_value = allocate_op_result(p);
 
 	use_op_value(p, op->operands[0], GPR_AX); // dividend
-	GPR divisor = use_op_value(p, op->operands[1]);
+	GPR divisor = use_op_value(p, op->operands[1], GPR_NONE);
 
 	if (p->stage == Stage_Emit) {
 		//op->is_signed
@@ -786,7 +794,7 @@ static void gen_div_or_mod(ProcGen* p, gmmcOpData* op, GPR take_result_from) {
 			// sign-extend the dividend in RAX into RDX
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 			req.mnemonic = ZYDIS_MNEMONIC_CQO;
-			emit(p, req);
+			emit(p, &req, "");
 		}
 		else {
 			emit_mov_imm_to_reg(p, GPR_DX, 0);
@@ -796,14 +804,14 @@ static void gen_div_or_mod(ProcGen* p, gmmcOpData* op, GPR take_result_from) {
 		req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_IDIV : ZYDIS_MNEMONIC_DIV;
 		req.operand_count = 1;
 		req.operands[0] = make_reg_operand(divisor, size);
-		emit(p, req);
+		emit(p, &req, "");
 
-		emit_mov_reg_to_reg(p, result_value, take_result_from, op->type);
+		emit_mov_reg_to_reg(p, result_value, take_result_from, op->type, ExtendBits_None);
 	}
 }
 
 static void gen_return(ProcGen* p, gmmcOpData* op) {
-	LooseReg value_reg = {};
+	LooseReg value_reg = {0};
 	if (op->operands[0] != GMMC_OP_IDX_INVALID) value_reg = use_op_value_loose(p, op->operands[0]);
 
 	if (p->stage == Stage_Emit) {
@@ -818,7 +826,7 @@ static void gen_return(ProcGen* p, gmmcOpData* op) {
 			fSlice(GPR) work_regs = get_work_registers((RegisterSet)rset);
 
 			for (u32 i = 0; i < p->cached_rsel.work_registers_used_count[rset]; i++) {
-				GPR reg = work_regs[i];
+				GPR reg = f_array_get(GPR, work_regs, i);
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 				req.mnemonic = rset == RegisterSet_XMM ? ZYDIS_MNEMONIC_MOVAPS : ZYDIS_MNEMONIC_MOV;
 				req.operand_count = 2;
@@ -827,7 +835,7 @@ static void gen_return(ProcGen* p, gmmcOpData* op) {
 				req.operands[1].mem.base = ZYDIS_REGISTER_RSP;
 				req.operands[1].mem.displacement = p->callee_saved_reg_offset_frame_rel[reg] - p->result->rsp_offset;
 				req.operands[1].mem.size = rset == RegisterSet_XMM ? 16 : 8;
-				emit(p, req, " ; restore callee-saved register");
+				emit(p, &req, " ; restore callee-saved register");
 			}
 		}
 
@@ -839,11 +847,11 @@ static void gen_return(ProcGen* p, gmmcOpData* op) {
 			req.operands[0] = make_reg_operand(GPR_SP, 8);
 			req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 			req.operands[1].imm.s = 0 - p->result->rsp_offset;
-			emit(p, req, " ; pop stack frame");
+			emit(p, &req, " ; pop stack frame");
 		}
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 		req.mnemonic = ZYDIS_MNEMONIC_RET;
-		emit(p, req);
+		emit(p, &req, "");
 	}
 }
 
@@ -851,7 +859,7 @@ static void gen_return(ProcGen* p, gmmcOpData* op) {
 static void gen_call(ProcGen* p, gmmcOpData* op) {
 
 	for (u32 i = (u32)op->call.arguments.len - 1; i < op->call.arguments.len; i--) {
-		gmmcOpIdx arg_op_idx = op->call.arguments[i];
+		gmmcOpIdx arg_op_idx = f_array_get(gmmcOpIdx, op->call.arguments, i);
 		LooseReg arg = use_op_value_loose(p, arg_op_idx);
 		bool is_float = gmmc_type_is_float(gmmc_get_op_type(p->proc, arg_op_idx));
 
@@ -859,7 +867,7 @@ static void gen_call(ProcGen* p, gmmcOpData* op) {
 			op_value_to_reg(p, arg.source_op, is_float ? ms_x64_param_float_regs[i] : ms_x64_param_normal_regs[i]);
 		}
 		else {
-			GPR arg_reg = op_value_to_reg(p, arg.source_op);
+			GPR arg_reg = op_value_to_reg(p, arg.source_op, GPR_NONE);
 			
 			// the stack arguments are always 64 bits, this applies to floats/doubles too.
 
@@ -872,7 +880,7 @@ static void gen_call(ProcGen* p, gmmcOpData* op) {
 				req.operands[0].mem.displacement = i * 8;
 				req.operands[0].mem.size = 8;
 				req.operands[1] = make_reg_operand(arg_reg, 8);
-				emit(p, req);
+				emit(p, &req, "");
 			}
 		}
 	}
@@ -884,7 +892,7 @@ static void gen_call(ProcGen* p, gmmcOpData* op) {
 		p->largest_call_shadow_space_size = F_MAX(p->largest_call_shadow_space_size, shadow_space_size);
 	}
 
-	GPR result_reg = GPR_INVALID;
+	GPR result_reg = GPR_NONE;
 	if (op->type) {
 		// Procedure returns a value!
 		result_reg = allocate_op_result(p);
@@ -892,29 +900,29 @@ static void gen_call(ProcGen* p, gmmcOpData* op) {
 
 	// NOTE: we must do `use_op_value` on the call target AFTER we've pushed the parameters on the stack,
 	// because pushing the parameters might require the use of work registers that could invalidate this
-	GPR proc_addr_reg = use_op_value(p, op->call.target);
+	GPR proc_addr_reg = use_op_value(p, op->call.target, GPR_NONE);
 
 	if (p->stage == Stage_Emit) {
 		// hmm... the call target will not be in a register anymore
-		f_assert(p->rsel.ops_currently_in_register[op->call.target] == proc_addr_reg);
+		f_assert(f_array_get(GPR, p->rsel.ops_currently_in_register, op->call.target) == proc_addr_reg);
 
 		ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 		req.mnemonic = ZYDIS_MNEMONIC_CALL;
 		req.operand_count = 1;
 		req.operands[0] = make_reg_operand(proc_addr_reg, 8);
-		emit(p, req);
+		emit(p, &req, "");
 
 		if (op->type) {
 			// save the return value
-			emit_mov_reg_to_reg(p, result_reg, gmmc_type_is_float(op->type) ? GPR_XMM0 : GPR_AX, op->type);
+			emit_mov_reg_to_reg(p, result_reg, gmmc_type_is_float(op->type) ? GPR_XMM0 : GPR_AX, op->type, ExtendBits_None);
 		}
 	}
 }
 
 static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
-	gmmcBasicBlock* bb = p->proc->basic_blocks[bb_idx];
+	gmmcBasicBlock* bb = f_array_get(gmmcBasicBlock*, p->proc->basic_blocks, bb_idx);
 
-	u32 existing_offset = p->bbs_offset[bb_idx];
+	u32 existing_offset = f_array_get(u32, p->bbs_offset, bb_idx);
 	if (existing_offset != F_U32_MAX) return existing_offset; // already visited
 
 	if (p->stage > Stage_Initial) {
@@ -925,29 +933,29 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			gmmcOpIdx taken_by_op = p->rsel.work_reg_taken_by_op[i];
 			if (taken_by_op != GMMC_OP_IDX_INVALID) {
 				p->rsel.work_reg_taken_by_op[i] = GMMC_OP_IDX_INVALID;
-				p->rsel.ops_currently_in_register[taken_by_op] = GPR_INVALID;
+				f_array_set(GPR, p->rsel.ops_currently_in_register, taken_by_op, GPR_NONE);
 			}
 		}
 
 #ifdef _DEBUG
 		for (uint i = 0; i < p->rsel.ops_currently_in_register.len; i++) {
-			f_assert(p->rsel.ops_currently_in_register[i] == GMMC_OP_IDX_INVALID);
+			f_assert(f_array_get(GPR, p->rsel.ops_currently_in_register, i) == GMMC_OP_IDX_INVALID);
 		}
 #endif
 	}
 
 	u32 bb_offset = p->stage == Stage_Emit ? (u32)p->module->sections[gmmcSection_Code].data.len : 0;
-	p->bbs_offset[bb_idx] = bb_offset;
+	f_array_set(u32, p->bbs_offset, bb_idx, bb_offset);
 
 	Section* code_section = &p->module->sections[gmmcSection_Code];
 
 	for (uint i = 0; i < bb->ops.len; i++) {
-		p->current_op = bb->ops[i];
+		p->current_op = f_array_get(gmmcOpIdx, bb->ops, i);
 
-		gmmcOpData* op = &p->proc->ops[p->current_op];
+		gmmcOpData* op = f_array_get_ptr(gmmcOpData, p->proc->ops, p->current_op);
 
 		if (p->stage == Stage_Emit) {
-			p->result->ops_instruction_offset[p->current_op] = (u32)p->module->sections[gmmcSection_Code].data.len;
+			f_array_set(u32, p->result->ops_instruction_offset, p->current_op, (u32)p->module->sections[gmmcSection_Code].data.len);
 		}
 
 		switch (op->kind) {
@@ -957,8 +965,10 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				if (op->comment.len > 0) {
 					fSlice(fRangeUint) lines;
 					f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
+					
 					for (uint i = 0; i < lines.len; i++) {
-						fString line = f_str_slice(op->comment, lines[i].lo, lines[i].hi);
+						fRangeUint line_range = f_array_get(fRangeUint, lines, i);
+						fString line = f_str_slice(op->comment, line_range.lo, line_range.hi);
 						f_print(p->console, "; ~s\n", line);
 					}
 				}
@@ -980,7 +990,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			s32 offset_after_jmp;
 
 			if (p->stage == Stage_Emit) {
-				dst_block_has_been_generated = p->bbs_offset[op->goto_.dst_bb] != F_U32_MAX;
+				dst_block_has_been_generated = f_array_get(u32, p->bbs_offset, op->goto_.dst_bb) != F_U32_MAX;
 				if (dst_block_has_been_generated) {
 					ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 					req.mnemonic = ZYDIS_MNEMONIC_JMP;
@@ -988,7 +998,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 					req.branch_width = ZYDIS_BRANCH_WIDTH_32;
 					req.operands[0].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 					req.operands[0].imm.u = 0;
-					emit(p, req, " ; goto (target address is to be patched)");
+					emit(p, &req, " ; goto (target address is to be patched)");
 					offset_after_jmp = (s32)code_section->data.len;
 				}
 			}
@@ -997,14 +1007,14 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 
 			if (p->stage == Stage_Emit) {
 				if (dst_block_has_been_generated) {
-					*(s32*)(code_section->data.data + offset_after_jmp - 4) = (s32)dst_bb_offset - (s32)offset_after_jmp;
+					*(s32*)((u8*)code_section->data.data + offset_after_jmp - 4) = (s32)dst_bb_offset - (s32)offset_after_jmp;
 				}
 			}
 		} break;
 
 		case gmmcOpKind_if: {
 			f_assert(i == bb->ops.len - 1); // must be the last op
-			GPR condition_reg = use_op_value(p, op->if_.condition);
+			GPR condition_reg = use_op_value(p, op->if_.condition, GPR_NONE);
 			
 			// branches are expected to be 'false'
 
@@ -1016,7 +1026,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 					req.operand_count = 2;
 					req.operands[0] = make_reg_operand(condition_reg, 1);
 					req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
-					emit(p, req);
+					emit(p, &req, "");
 				}
 				
 				// jump to the 'true' block if the condition is true, otherwise continue execution with hopefully no jump
@@ -1027,7 +1037,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.branch_width = ZYDIS_BRANCH_WIDTH_32;
 				req.operands[0].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 				req.operands[0].imm.u = 0;
-				emit(p, req, " ; if true (target address is to be patched)");
+				emit(p, &req, " ; if true (target address is to be patched)");
 			}
 
 			u32 offset_after_cond_jmp = (u32)code_section->data.len;
@@ -1042,23 +1052,23 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 					req.branch_width = ZYDIS_BRANCH_WIDTH_32;
 					req.operands[0].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 					req.operands[0].imm.u = 0;
-					emit(p, req, " ; jump to false block (target address is to be patched)");
+					emit(p, &req, " ; jump to false block (target address is to be patched)");
 
 					s32 offset_after_jmp = (s32)code_section->data.len;
-					*(s32*)(code_section->data.data + offset_after_jmp - 4) = (s32)false_bb_offset - (s32)offset_after_jmp;
+					*(s32*)((u8*)code_section->data.data + offset_after_jmp - 4) = (s32)false_bb_offset - (s32)offset_after_jmp;
 				}
 			}
 
 			u32 true_bb_offset = gen_bb(p, op->if_.true_bb);
 			
 			if (p->stage == Stage_Emit) {
-				*(s32*)(code_section->data.data + offset_after_cond_jmp - 4) = (s32)true_bb_offset - (s32)offset_after_cond_jmp;
+				*(s32*)((u8*)code_section->data.data + offset_after_cond_jmp - 4) = (s32)true_bb_offset - (s32)offset_after_cond_jmp;
 			}
 		} break;
 
 		case gmmcOpKind_float2float: {
 			GPR result_reg = allocate_op_result(p);
-			GPR src_reg = use_op_value(p, op->operands[0]);
+			GPR src_reg = use_op_value(p, op->operands[0], GPR_NONE);
 
 			if (p->stage == Stage_Emit) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -1066,13 +1076,13 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operand_count = 2;
 				req.operands[0] = make_reg_operand(result_reg, 0);
 				req.operands[1] = make_reg_operand(src_reg, 0);
-				emit(p, req);
+				emit(p, &req, "");
 			}
 		} break;
 
 		case gmmcOpKind_int2float: {
 			GPR result_reg = allocate_op_result(p);
-			GPR src_reg = use_op_value(p, op->operands[0]);
+			GPR src_reg = use_op_value(p, op->operands[0], GPR_NONE);
 
 			if (p->stage == Stage_Emit) {
 				gmmcType src_type = gmmc_get_op_type(p->proc, op->operands[0]);
@@ -1087,13 +1097,13 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operand_count = 2;
 				req.operands[0] = make_reg_operand(result_reg, 0);
 				req.operands[1] = make_reg_operand(src_reg, src_type == gmmcType_i64 ? 8 : 4);
-				emit(p, req);
+				emit(p, &req, "");
 			}
 		} break;
 
 		case gmmcOpKind_float2int: {
 			GPR result_reg = allocate_op_result(p);
-			GPR src_reg = use_op_value(p, op->operands[0]);
+			GPR src_reg = use_op_value(p, op->operands[0], GPR_NONE);
 
 			if (p->stage == Stage_Emit) {
 				gmmcType src_type = gmmc_get_op_type(p->proc, op->operands[0]);
@@ -1102,13 +1112,13 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operand_count = 2;
 				req.operands[0] = make_reg_operand(result_reg, op->type == gmmcType_i64 ? 8 : 4);
 				req.operands[1] = make_reg_operand(src_reg, 4);
-				emit(p, req);
+				emit(p, &req, "");
 			}
 		} break;
 
 		case gmmcOpKind_store: {
-			GPR dst_reg = use_op_value(p, op->operands[0]);
-			GPR value_reg = use_op_value(p, op->operands[1]);
+			GPR dst_reg = use_op_value(p, op->operands[0], GPR_NONE);
+			GPR value_reg = use_op_value(p, op->operands[1], GPR_NONE);
 				
 			if (p->stage == Stage_Emit) {
 				gmmcType type = gmmc_get_op_type(p->proc, op->operands[1]);
@@ -1125,14 +1135,14 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operands[0].mem.base = get_x64_reg(dst_reg, 8);
 				req.operands[0].mem.size = size;
 				req.operands[1] = make_reg_operand(value_reg, size);
-				emit(p, req, " ; store");
+				emit(p, &req, " ; store");
 				int a = 50;
 			}
 		} break;
 
 		case gmmcOpKind_load: {
 			GPR result_reg = allocate_op_result(p);
-			GPR src_reg = use_op_value(p, op->operands[0]);
+			GPR src_reg = use_op_value(p, op->operands[0], GPR_NONE);
 
 			if (p->stage == Stage_Emit) {
 				RegSize size = gmmc_type_size(op->type);
@@ -1147,7 +1157,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operands[1].type = ZYDIS_OPERAND_TYPE_MEMORY;
 				req.operands[1].mem.base = get_x64_reg(src_reg, 8);
 				req.operands[1].mem.size = size;
-				emit(p, req, " ; load");
+				emit(p, &req, " ; load");
 			}
 		} break;
 
@@ -1166,7 +1176,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			// anything to the high bits.
 
 			GPR result_value = allocate_op_result(p);
-			GPR src_reg = use_op_value(p, op->operands[0]);
+			GPR src_reg = use_op_value(p, op->operands[0], GPR_NONE);
 			if (p->stage == Stage_Emit) {
 				gmmcType src_type = gmmc_get_op_type(p->proc, op->operands[0]);
 				emit_mov_reg_to_reg(p, result_value, src_reg, src_type, gmmcOpKind_sxt ? ExtendBits_Sign : ExtendBits_Zero);
@@ -1182,7 +1192,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 				req.mnemonic = ZYDIS_MNEMONIC_STOSB;
 				req.prefixes = ZYDIS_ATTRIB_HAS_REP;
-				emit(p, req, " ; memset");
+				emit(p, &req, " ; memset");
 			}
 		} break;
 
@@ -1200,13 +1210,13 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 				req.mnemonic = ZYDIS_MNEMONIC_MOVSB;
 				req.prefixes = ZYDIS_ATTRIB_HAS_REP;
-				emit(p, req, " ; memcpy");
+				emit(p, &req, " ; memcpy");
 			}
 		} break;
 
 		case gmmcOpKind_member_access: {
 			GPR result_reg = allocate_op_result(p);
-			GPR base_reg = use_op_value(p, op->operands[0]);
+			GPR base_reg = use_op_value(p, op->operands[0], GPR_NONE);
 			
 			if (p->stage == Stage_Emit) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -1217,7 +1227,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operands[1].mem.base = get_x64_reg(base_reg, 8);
 				req.operands[1].mem.displacement = op->imm_bits;
 				req.operands[1].mem.size = 8;
-				emit(p, req, " ; member access");
+				emit(p, &req, " ; member access");
 			}
 		} break;
 
@@ -1244,7 +1254,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			// This is a little bit magical to me.
 			GPR result_reg = allocate_op_result(p);
 			LooseReg a = use_op_value_loose(p, op->operands[0]);
-			GPR b = use_op_value(p, op->operands[1]);
+			GPR b = use_op_value(p, op->operands[1], GPR_NONE);
 
 			op_value_to_reg(p, a.source_op, result_reg);
 			if (result_reg == GPR_12 && b == GPR_12) f_trap();
@@ -1258,7 +1268,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operand_count = 2;
 				req.operands[0] = make_reg_operand(result_reg, size);
 				req.operands[1] = make_reg_operand(b, size);
-				emit(p, req);
+				emit(p, &req, "");
 			}
 		} break;
 		case gmmcOpKind_div: { gen_div_or_mod(p, op, GPR_AX); } break;
@@ -1279,7 +1289,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.mnemonic = ZYDIS_MNEMONIC_NOT;
 				req.operand_count = 1;
 				req.operands[0] = make_reg_operand(result_value, size);
-				emit(p, req);
+				emit(p, &req, "");
 			}
 		} break;
 		
@@ -1298,7 +1308,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operand_count = 2;
 				req.operands[0] = make_reg_operand(result_value, size);
 				req.operands[1] = make_reg_operand(GPR_CX, 1);
-				emit(p, req);
+				emit(p, &req, "");
 			}
 		} break;
 
@@ -1306,7 +1316,7 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 			if (p->stage == Stage_Emit) {
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 				req.mnemonic = ZYDIS_MNEMONIC_INT3;
-				emit(p, req);
+				emit(p, &req, "");
 			}
 		} break;
 
@@ -1315,8 +1325,8 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 	}
 
 	VALIDATE(bb->ops.len > 0);
-	gmmcOpKind last_op_kind = gmmc_get_op_kind(p->proc, bb->ops[bb->ops.len - 1]);
-	VALIDATE(gmmc_is_op_terminating(last_op_kind));
+	gmmcOpIdx last_op_idx = f_array_get(gmmcOpIdx, bb->ops, bb->ops.len - 1);
+	VALIDATE(gmmc_is_op_terminating(gmmc_get_op_kind(p->proc, last_op_idx)));
 	return bb_offset;
 }
 
@@ -1332,30 +1342,31 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 	//gmmc_proc_print_c(stdout, proc);
 	f_print(w, "---\n");
 	
-	ProcGen _p = {}; ProcGen* p = &_p;
+	ProcGen _p = {0}; ProcGen* p = &_p;
 	//p->console = w;
 	p->module = module_gen;
 	p->proc = proc;
 	p->result = result;
 
-	result->local_frame_rel_offset = f_make_slice_garbage<s32>(proc->locals.len, f_temp_alc());
-	result->ops_instruction_offset = f_make_slice<u32>(proc->ops.len, F_U32_MAX, f_temp_alc());
+	result->local_frame_rel_offset = f_make_slice_undef(s32, proc->locals.len, f_temp_alc());
+	result->ops_instruction_offset = f_make_slice(u32, proc->ops.len, (u32){F_U32_MAX}, f_temp_alc());
 
-	p->ops_last_use_time = f_make_slice<u32>(proc->ops.len, 0, f_temp_alc());
-	p->ops_float_imm_section_rel_offset = f_make_slice<u32>(proc->ops.len, F_U32_MAX, f_temp_alc());
-	p->ops_spill_offset_frame_rel = f_make_slice<u32>(proc->ops.len, 0, f_temp_alc());
-	p->bbs_offset = f_make_slice_garbage<u32>(proc->basic_blocks.len, f_temp_alc());
+	p->ops_last_use_time = f_make_slice(gmmcOpIdx, proc->ops.len, (gmmcOpIdx){GMMC_OP_IDX_INVALID}, f_temp_alc());
+
+	p->ops_float_imm_section_rel_offset = f_make_slice(u32, proc->ops.len, (u32){F_U32_MAX}, f_temp_alc());
+	p->ops_spill_offset_frame_rel = f_make_slice(u32, proc->ops.len, (u32){0}, f_temp_alc());
+	p->bbs_offset = f_make_slice_undef(u32, proc->basic_blocks.len, f_temp_alc());
 	
 	// When entering a procedure, the stack is always aligned to (16+8) bytes, because
 	// before the CALL instruction it must be aligned to 16 bytes.
 
 	result->rsp_offset = 0;
 	for (uint i = 1; i < proc->locals.len; i++) {
-		gmmcLocal local = proc->locals[i];
+		gmmcLocal local = f_array_get(gmmcLocal, proc->locals, i);
 		f_assert(local.size > 0);
 
 		reserve_stack_space(&result->rsp_offset, local.size, local.align);
-		result->local_frame_rel_offset[i] = result->rsp_offset;
+		f_array_set(s32, result->local_frame_rel_offset, i, result->rsp_offset);
 	}
 
 	{
@@ -1366,9 +1377,9 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 	
 	{
 		p->stage = Stage_SelectRegs;
-		p->rsel = {};
-		p->rsel.debug_allocate_gpr_order = f_array_make<GPR>(f_temp_alc());
-		p->rsel.ops_currently_in_register = f_make_slice<GPR>(proc->ops.len, GPR_INVALID, f_temp_alc());
+		p->rsel = (ProcGenSelectRegs){0};
+		p->rsel.debug_allocate_gpr_order = f_array_make(f_temp_alc());
+		p->rsel.ops_currently_in_register = f_make_slice(GPR, proc->ops.len, (GPR){GPR_NONE}, f_temp_alc());
 		memset(p->bbs_offset.data, 0xff, p->bbs_offset.len * sizeof(u32));
 		gen_bb(p, 0);
 	}
@@ -1379,7 +1390,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		fSlice(GPR) work_regs = get_work_registers((RegisterSet)rset);
 
 		for (u32 i = 0; i < p->rsel.work_registers_used_count[rset]; i++) {
-			GPR reg = work_regs[i];
+			GPR reg = f_array_get(GPR, work_regs, i);
 			RegisterSet rset = get_register_set(reg);
 
 			if (rset == RegisterSet_XMM) {
@@ -1400,18 +1411,18 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		
 		p->stage = Stage_Emit;
 		p->cached_rsel = p->rsel;
-		p->rsel = {};
-		p->rsel.debug_allocate_gpr_order = f_array_make<GPR>(f_temp_alc());
-		p->rsel.ops_currently_in_register = f_make_slice<GPR>(proc->ops.len, GPR_INVALID, f_temp_alc()); // @memory: we don't need to reallocate this slice
+		p->rsel = (ProcGenSelectRegs){0};
+		p->rsel.debug_allocate_gpr_order = f_array_make(f_temp_alc());
+		p->rsel.ops_currently_in_register = f_make_slice(GPR, proc->ops.len, (GPR){GPR_NONE}, f_temp_alc()); // @memory: we don't need to reallocate this slice
 		memset(p->bbs_offset.data, 0xff, p->bbs_offset.len * sizeof(u32));
 		
 		for (uint i = 0; i < proc->ops.len; i++) {
-			gmmcOpData* op = &proc->ops.data[i];
+			gmmcOpData* op = f_array_get_ptr(gmmcOpData, proc->ops, i);
 			if (op->kind == gmmcOpKind_f64 || op->kind == gmmcOpKind_f32) {
 				// We need to push float immediates into the code section and save their offsets.
 				u32 size = gmmc_type_size(op->type);
 				u32 offset = section_push_data(&p->module->sections[gmmcSection_Code], &op->imm_bits, size, size);
-				p->ops_float_imm_section_rel_offset[i] = offset;
+				f_array_set(u32, p->ops_float_imm_section_rel_offset, i, offset);
 			}
 		
 		}
@@ -1424,7 +1435,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 			req.operands[0] = make_reg_operand(GPR_SP, 8);
 			req.operands[1].type = ZYDIS_OPERAND_TYPE_IMMEDIATE;
 			req.operands[1].imm.s = 0 - result->rsp_offset;
-			emit(p, req, " ; push stack frame");
+			emit(p, &req, " ; push stack frame");
 		}
 
 		// Store the size of the initial sub RSP instruction.
@@ -1439,7 +1450,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 			fSlice(GPR) work_regs = get_work_registers((RegisterSet)rset);
 
 			for (u32 i = 0; i < p->cached_rsel.work_registers_used_count[rset]; i++) {
-				GPR reg = work_regs[i];
+				GPR reg = f_array_get(GPR, work_regs, i);
 				ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
 				req.mnemonic = rset == RegisterSet_XMM ? ZYDIS_MNEMONIC_MOVAPS : ZYDIS_MNEMONIC_MOV;
 				req.operand_count = 2;
@@ -1448,7 +1459,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 				req.operands[0].mem.displacement = p->callee_saved_reg_offset_frame_rel[reg] - p->result->rsp_offset;
 				req.operands[0].mem.size = rset == RegisterSet_XMM ? 16 : 8;
 				req.operands[1] = make_reg_operand(reg, 8);
-				emit(p, req, " ; store callee-saved register");
+				emit(p, &req, " ; store callee-saved register");
 				int _ = 50;
 			}
 		}
@@ -1458,7 +1469,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 
 		uint register_params_n = F_MIN(4, p->proc->signature->params.len);
 		for (uint i = 0; i < register_params_n; i++) {
-			gmmcType type = p->proc->signature->params[i];
+			gmmcType type = f_array_get(gmmcType, p->proc->signature->params, i);
 			bool is_float = gmmc_type_is_float(type);
 			
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -1469,7 +1480,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 			req.operands[0].mem.displacement = 8 + 8 * i - result->rsp_offset; // :AddressOfParam
 			req.operands[0].mem.size = 8;
 			req.operands[1] = make_reg_operand(is_float ? ms_x64_param_float_regs[i] : ms_x64_param_normal_regs[i], 8);
-			emit(p, req);
+			emit(p, &req, "");
 		}
 
 		gen_bb(p, 0);
@@ -1482,42 +1493,42 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 }
 
 GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
-	gmmcAsmModule* gen = f_mem_clone(gmmcAsmModule{}, m->allocator);
+	gmmcAsmModule* gen = f_mem_clone((gmmcAsmModule){0}, m->allocator);
 
 	for (uint i = 0; i < gmmcSection_COUNT; i++) {
-		gen->sections[i].data = f_array_make<u8>(m->allocator);
-		gen->sections[i].relocs = f_array_make<gmmcRelocation>(m->allocator);
+		gen->sections[i].data = f_array_make(m->allocator);
+		gen->sections[i].relocs = f_array_make(m->allocator);
 	}
 
-	gen->procs = f_make_slice<gmmcAsmProc>(m->procs.len, {}, m->allocator);
+	gen->procs = f_make_slice(gmmcAsmProc, m->procs.len, (gmmcAsmProc){0}, m->allocator);
 	
 	// add globals
-	gen->globals = f_make_slice_garbage<gmmcAsmGlobal>(m->globals.len, m->allocator);
+	gen->globals = f_make_slice_undef(gmmcAsmGlobal, m->globals.len, m->allocator);
 	for (uint i = 1; i < m->globals.len; i++) {
-		gmmcGlobal* global = m->globals[i];
+		gmmcGlobal* global = f_array_get(gmmcGlobal*, m->globals, i);
 
 		Section* section = &gen->sections[global->section];
-		gmmcAsmGlobal* asm_global = &gen->globals[i];
+		gmmcAsmGlobal* asm_global = f_array_get_ptr(gmmcAsmGlobal, gen->globals, i);
 		asm_global->global = global;
 		asm_global->offset = section_push_data(section, global->data, global->size, global->align);
 	}
 
 	// compile procedures
 	for (uint i = 0; i < m->procs.len; i++) {
-		gmmc_gen_proc(gen, &gen->procs[i], m->procs[i]);
+		gmmc_gen_proc(gen, f_array_get_ptr(gmmcAsmProc, gen->procs, i), f_array_get(gmmcProc*, m->procs, i));
 	}
 	
 	// add relocations now that all globals and procedures have an offset assigned to them
 
 	for (uint i = 1; i < m->globals.len; i++) {
-		gmmcGlobal* global = m->globals[i];
+		gmmcGlobal* global = f_array_get(gmmcGlobal*, m->globals, i);
 		Section* section = &gen->sections[global->section];
 
 		for (uint j = 0; j < global->relocations.len; j++) {
-			gmmcRelocation global_reloc = global->relocations[j];
+			gmmcRelocation global_reloc = f_array_get(gmmcRelocation, global->relocations, j);
 
 			gmmcRelocation reloc = global_reloc;
-			reloc.offset += gen->globals[i].offset;
+			reloc.offset += f_array_get(gmmcAsmGlobal, gen->globals, i).offset;
 			f_array_push(&section->relocs, reloc);
 		}
 	}

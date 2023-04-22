@@ -84,6 +84,8 @@ struct Gen {
 	fArray(cviewSourceFile) cv_file_from_parser_idx;
 };
 
+#define UNDEFINED_VALUE GMMC_OP_IDX_INVALID
+
 static void gen_statement(Gen* g, ffzNode* node);
 static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of);
 
@@ -176,7 +178,7 @@ static void set_loc(Gen* g, gmmcOpIdx op, ffzNode* loc_of_node) {
 		line_num -= g->proc_info->node->loc.start.line_num;
 		
 		gmmcOpIdx* line_op = &g->proc_info->dbginfo_line_ops[line_num];
-		if (*line_op == GMMC_OP_IDX_INVALID) {
+		if ((*line_op) == GMMC_OP_IDX_INVALID) {
 			*line_op = op;
 		}
 	}
@@ -323,7 +325,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	proc_info->node = node;
 	proc_info->type = proc_type;
 	proc_info->dbginfo_locals = f_array_make<DebugInfoLocal>(g->alc);
-	proc_info->dbginfo_line_ops = f_make_slice<gmmcOpIdx>(node->loc.end.line_num - node->loc.start.line_num + 1, GMMC_OP_IDX_INVALID, g->alc);
+	proc_info->dbginfo_line_ops = f_make_slice<gmmcOpIdx>(node->loc.end.line_num - node->loc.start.line_num + 1, gmmcOpIdx{GMMC_OP_IDX_INVALID}, g->alc);
 
 	f_array_push(&g->procs_sorted, proc_info);
 	*insertion._unstable_ptr = proc_info;
@@ -366,7 +368,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	
 	if (!proc_type->Proc.return_type) { // automatically generate a return statement if the proc doesn't return a value
 		g->override_line_num = &node->loc.end.line_num;
-		gmmcOpIdx op = gmmc_op_return(g->bb, GMMC_OP_IDX_INVALID);
+		gmmcOpIdx op = gmmc_op_return(g->bb, gmmcOpIdx{GMMC_OP_IDX_INVALID});
 		set_loc(g, op, node);
 		g->override_line_num = NULL;
 	}
@@ -517,7 +519,6 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* data, bool
 	return out;
 }
 
-
 static gmmcOpIdx gen_call(Gen* g, ffzNodeOp* node) {
 	ffzNode* left = node->Op.left;
 	
@@ -577,7 +578,7 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOp* node) {
 	}
 
 	gmmcOpIdx target = gen_expr(g, left, false);
-	f_assert(target);
+	f_assert(target != UNDEFINED_VALUE);
 
 	gmmcOpIdx call = gmmc_op_call(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
 	set_loc(g, call, node);
@@ -647,7 +648,6 @@ static gmmcOpIdx gen_initializer(Gen* g, ffzType* type, ffzNode* node) {
 	return out;
 }
 
-#define UNDEFINED_VALUE GMMC_OP_IDX_INVALID
 //
 // NOTE: this will return UNDEFINED_VALUE in case of an undefined value.
 // In FFZ, undefined values are only allowed in variable declarations.
@@ -780,7 +780,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 					ffzType* arg_type = arg->checked.type;
 
 					if (arg_type->tag == ffzTypeTag_Type && arg->checked.constant->type->tag == ffzTypeTag_Undefined) {
-						return UNDEFINED_VALUE;
+						return gmmcOpIdx{UNDEFINED_VALUE};
 					}
 
 					out = gen_expr(g, arg, false);
@@ -858,7 +858,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				f_assert(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
 
 				gmmcOpIdx addr_of_struct = gen_expr(g, left, left_type->tag != ffzTypeTag_Pointer);
-				f_assert(addr_of_struct);
+				f_assert(addr_of_struct != UNDEFINED_VALUE);
 
 				out = field.offset ? gmmc_op_member_access(g->bb, addr_of_struct, field.offset) : addr_of_struct;
 			}
@@ -981,7 +981,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		}
 	}
 
-	f_assert(out);
+	f_assert(out != UNDEFINED_VALUE);
 	set_loc(g, out, node);
 	
 	if (should_dereference) {
@@ -1151,7 +1151,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 	} break;
 
 	case ffzNodeKind_Return: {
-		gmmcOpIdx val = 0;
+		gmmcOpIdx val = gmmcOpIdx{GMMC_OP_IDX_INVALID};
 
 		if (node->Return.value) {
 			ffzType* ret_type = node->Return.value->checked.type;

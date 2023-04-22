@@ -876,8 +876,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 #endif
 
 	fArray(u8) string_table = f_array_make(temp);
-	u8 zero = 0;
-	f_array_push(&string_table, zero); // Strings seem to begin at index 1
+	f_array_push(&string_table, (u8){0}); // Strings seem to begin at index 1
 
 	// *** FILECHKSUMS
 	{
@@ -897,7 +896,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			VALIDATE(!f_str_contains(file->filepath, F_LIT("/"))); // Only backslashes are allowed!
 
 			f_array_push_n_raw(&string_table, file->filepath.data, file->filepath.len, 1);
-			f_array_push(&string_table, zero);
+			f_array_push(&string_table, (u8){0});
 
 			f_prints(gen->debugS.w, F_AS_BYTES(filedata));
 

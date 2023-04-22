@@ -180,6 +180,7 @@ extern "C" {
 #define F_UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
 
 #define f_trap() do {__debugbreak();} while(0) //void f_trap();
+#define f_nocheckin() f_trap()
 #define f_assert(x) { if (!(x)) f_trap(); }
 
 // Cast with range checking
@@ -330,9 +331,43 @@ inline void* f_mem_clone_size(uint size, const void* value, fAllocator* alc) {
 #ifndef __cplusplus
 #define f_array_push(array, elem) f_array_push_raw((array), &(elem), sizeof(elem))
 
-// maybe these could just be named f_subscript / f_subscript_ptr, since they could work both on slice and array types?
-#define f_array_get(T, array, i) ((T*)array.data)[i]
-#define f_array_get_ptr(T, array, i) (&((T*)array.data)[i])
+// 
+// f_array_get/f_array_get_ptr/f_array_set work on fArrays as well as fSlices
+#define f_array_get(T, array_or_slice, i) ((T*)array_or_slice.data)[i]
+#define f_array_get_ptr(T, array_or_slice, i) (&((T*)array_or_slice.data)[i])
+#define f_array_set(T, array_or_slice, i, value) ((T*)array_or_slice.data)[i] = value
+
+inline bool _f_array_each_condition(void* array, uint* i, void* elem, uint elem_size) {
+	fSliceRaw slice = *(fSliceRaw*)array;
+	if (*i < slice.len) {
+		memcpy(elem, (u8*)slice.data + (*i) * elem_size, elem_size);
+		return true;
+	}
+	return false;
+}
+
+inline bool _f_array_each_ptr_condition(void* array, uint* i, void** elem, uint elem_size) {
+	fSliceRaw slice = *(fSliceRaw*)array;
+	if (*i < slice.len) {
+		*elem = (u8*)slice.data + (*i) * elem_size;
+		return true;
+	}
+	return false;
+}
+
+// Magic array iteration macro - works both on fArray and fSlice types.
+// e.g.
+//    fArray(float) foo;
+//    for f_array_each(float, foo, it) {
+//       printf("foo at index %d has the value of %f\n", it.i, it.elem);
+//    }
+// 
+#define f_array_each(T, array, it_name) (struct f_##__LINE__{uint i; T elem;} it_name = {0}; \
+	_f_array_each_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
+
+#define f_array_each_ptr(T, array, it_name) (struct f_##__LINE__{uint i; T* elem;} it_name = {0}; \
+	_f_array_each_ptr_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
+
 
 #define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
 
@@ -342,24 +377,35 @@ inline fSliceRaw f_clone_slice_raw(fSliceRaw slice, fAllocator* alc, uint elem_s
 	return result;
 }
 
+inline fSliceRaw f_make_slice_raw(uint len, const void* initial_elem_value, fAllocator* alc, uint elem_size) {
+	fSliceRaw result = (fSliceRaw){ f_mem_alloc(len * elem_size, alc), len };
+	for (uint i = 0; i < len; i++) {
+		memcpy((u8*)result.data + i * elem_size, initial_elem_value, elem_size);
+	}
+	return result;
+}
+
+#define f_make_slice_undef(T, len, alc) (fSliceRaw){f_mem_alloc_n(T, len, alc), len}
+#define f_make_slice(T, len, initial_elem_value, alc) f_make_slice_raw(len, &initial_elem_value, alc, sizeof(T))
+
 #define f_to_slice(ptr, len) (fSliceRaw){ptr, len}
 #define f_clone_to_slice(ptr, len, alc) f_clone_slice_raw(f_to_slice(ptr, len), alc, sizeof(*ptr))
 #define f_clone_slice(T, slice, alc) f_clone_slice_raw(slice, alc, sizeof(T))
 
 #endif
 
-typedef struct { s64 nsec; } fTick;
+typedef struct fTick { s64 nsec; } fTick;
 
-#define NANOSECOND 1
-#define MICROSECOND 1000 // 1000 * NANOSECOND
-#define MILLISECOND 1000000 // 1000 * MICROSECOND
-#define SECOND 1000000000 // 1000 * MILLISECOND
-#define MINUTE 60000000000 // 60 * SECOND
-#define HOUR 3600000000000 // 60 * MINUTE
+//#define NANOSECOND 1
+//#define MICROSECOND 1000 // 1000 * NANOSECOND
+//#define MILLISECOND 1000000 // 1000 * MICROSECOND
+//#define SECOND 1000000000 // 1000 * MILLISECOND
+//#define MINUTE 60000000000 // 60 * SECOND
+//#define HOUR 3600000000000 // 60 * MINUTE
 
-typedef struct { void* handle; } fDynamicLibrary;
+typedef struct fDynamicLibrary { void* handle; } fDynamicLibrary;
 
-typedef enum {
+typedef enum fFileOpenMode {
 	fFileOpenMode_Read,
 	fFileOpenMode_Write,
 	fFileOpenMode_Append,
@@ -378,12 +424,12 @@ typedef struct fFile {
 	uint8_t buffer[F_FILE_WRITER_BUFFER_SIZE];
 } fFile;
 
-typedef struct {
+typedef struct fLeakTrackerCallstackEntry {
 	fString file;
 	u32 line;
 } fLeakTrackerCallstackEntry;
 
-typedef struct {
+typedef struct fLeakTracker_Entry {
 	fArray(fLeakTrackerCallstackEntry) callstack;
 
 	/*u64 allocation_idx;
@@ -395,7 +441,7 @@ typedef struct {
 	*/
 } fLeakTracker_Entry;
 
-typedef struct {
+typedef struct fLeakTracker {
 	// Note: LeakTracker never frees any of its internals until deinit_leak_tracker() is called
 	bool active;
 	fArena* internal_arena;
@@ -475,7 +521,7 @@ typedef struct {
 //}
 
 // These can be combined as a mask
-typedef enum {
+typedef enum fConsoleAttribute {
 	fConsoleAttribute_Blue = 0x0001,
 	fConsoleAttribute_Green = 0x0002,
 	fConsoleAttribute_Red = 0x0004,
@@ -484,14 +530,14 @@ typedef enum {
 typedef int fConsoleAttributeFlags;
 
 // TODO: get rid of this enum and make it into proc variants
-typedef enum {
+typedef enum fMapInsert {
 	fMapInsert_AssertUnique,
 	fMapInsert_DoNotOverride,
 	fMapInsert_Override,
 } fMapInsert;
 
 // todo: get rid of this?
-typedef struct { void* _unstable_ptr; bool added; } fMapInsertResult;
+typedef struct fMapInsertResult { void* _unstable_ptr; bool added; } fMapInsertResult;
 
 typedef struct fVisitDirectoryInfo {
 	fString name;
