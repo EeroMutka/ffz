@@ -1,14 +1,4 @@
-
-
-/*#foo: proc(b: f32) {
-	c: b
-	dbgbreak
-}
-
-#main: proc {
-	foo(0.5)
-}
-*/
+/**/
 
 #Basic: import(":Basic")
 

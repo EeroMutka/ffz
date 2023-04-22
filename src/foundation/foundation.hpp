@@ -243,12 +243,14 @@ inline T& f_array_peek(fArray(T)* array) {
 	return array->data[array->len - 1];
 }
 
-//#include <initializer_list>
-//#define F_STR_JOIN(alc, ...) f_str_join_il(alc, {__VA_ARGS__})
-//#define F_STR_T_JOIN(...) f_str_join_il(f_temp_alc(), {__VA_ARGS__})
-//inline fString f_str_join_il(fAllocator* alc, std::initializer_list<fString> args) {
-//	return f_str_join(alc, { (fString*)args.begin(), args.size() });
-//}
+#include <initializer_list>
+
+#define f_str_join(alc, ...) f_str_join_initializer_list(alc, {__VA_ARGS__})
+#define f_str_join_tmp(...) f_str_join_initializer_list(f_temp_alc(), {__VA_ARGS__})
+
+inline fString f_str_join_initializer_list(fAllocator* alc, std::initializer_list<fString> args) {
+	return f_str_join_n(alc, { (fString*)args.begin(), args.size() });
+}
 
 //inline void f_str_print_il(fArray(u8)* buffer, std::initializer_list<fString> args) {
 //	for (auto arg : args) f_write(buffer, arg);

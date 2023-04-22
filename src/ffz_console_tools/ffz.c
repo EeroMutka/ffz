@@ -62,7 +62,7 @@ void log_pretty_error(ffzError error, fString kind) {
 
 	{
 		uint offset = error.location.start.offset;
-		for (uint i = 0;; i++) {
+		for (;;) {
 			rune r = (u8)f_str_next_rune(error.source->source_code, &offset);
 			if (r == 0 || r == '\n') break;
 
@@ -81,7 +81,7 @@ void log_pretty_error(ffzError error, fString kind) {
 		for (uint i = 0; i < num_spaces; i++) f_os_print(F_LIT(" "));
 
 		uint offset = error.location.start.offset;
-		for (uint i = 0; offset < error.location.end.offset; i++) {
+		while (offset < error.location.end.offset) {
 			rune r = (u8)f_str_next_rune(error.source->source_code, &offset);
 			if (r == 0 || r == '\n') break;
 
@@ -114,7 +114,9 @@ static fOpt(ffzModule*) resolve_import(fString path, void* userdata) {
 
 	// `:` means that the path is relative to the modules directory shipped with the compiler
 	if (f_str_starts_with(path, F_LIT(":"))) {
-		path = f_str_join_tmp(module->project->modules_directory, F_LIT("/"), f_str_slice_after(path, 1));
+		fString slash = F_LIT("/");
+		
+		path = f_str_join_tmp(module->project->modules_directory, slash, f_str_slice_after(path, 1));
 	}
 	else {
 		// let's make the import path absolute
@@ -124,7 +126,6 @@ static fOpt(ffzModule*) resolve_import(fString path, void* userdata) {
 	}
 
 	fOpt(ffzModule*) imported = parse_and_check_directory(module->project, path);
-	int _ = 50;
 	return imported;
 }
 

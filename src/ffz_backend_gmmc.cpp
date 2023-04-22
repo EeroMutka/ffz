@@ -1,4 +1,3 @@
-#if 0
 #ifdef FFZ_BUILD_INCLUDE_GMMC
 
 #define F_INCLUDE_OS
@@ -1277,7 +1276,7 @@ static int cviewLine_compare_fn(const void* a, const void* b) {
 
 static bool build_x64(Gen* g, fString build_dir) {
 	fString obj_filename = F_LIT("a.obj");
-	fString obj_file_path = F_STR_T_JOIN(build_dir, F_LIT("/"), obj_filename);
+	fString obj_file_path = f_str_join_tmp(build_dir, F_LIT("/"), obj_filename);
 
 	gmmcAsmModule* asm_module = gmmc_asm_build_x64(g->gmmc);
 
@@ -1476,7 +1475,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 		bool ok = f_files_write_whole(obj_file_path, result);
 		f_assert(ok);
 
-		}, & obj_file_path, &coff_desc);
+		}, &obj_file_path, &coff_desc);
 
 
 	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
@@ -1488,14 +1487,14 @@ static bool build_x64(Gen* g, fString build_dir) {
 	//fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, g->alc); // contains vcruntime.h
 
 	fArray(fString) ms_linker_args = f_array_make<fString>(g->alc);
-	f_array_push(&ms_linker_args, F_STR_T_JOIN(msvc_directory, F_LIT("\\link.exe")));
+	f_array_push(&ms_linker_args, f_str_join_tmp(msvc_directory, F_LIT("\\link.exe")));
 	f_array_push(&ms_linker_args, obj_filename);
 
-	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/LIBPATH:"), vs_library_path));
+	f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
+	f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
+	f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), vs_library_path));
 
-	f_array_push(&ms_linker_args, F_STR_T_JOIN(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
+	f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
 	f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
 	
 	if (!g->link_against_libc) {
@@ -1532,7 +1531,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 
 static bool build_c(Gen* g, fString build_dir) {
 	fString c_filename = F_LIT("a.c");
-	fString c_filepath = F_STR_T_JOIN(build_dir, F_LIT("/"), c_filename);
+	fString c_filepath = f_str_join_tmp(build_dir, F_LIT("/"), c_filename);
 	
 	bool write = true;
 	if (write) {
@@ -1612,7 +1611,7 @@ static bool build_c(Gen* g, fString build_dir) {
 	return exit_code == 0;
 }
 
-bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name) {
+FFZ_CAPI bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name) {
 	ffzProject* project = root_module->project;
 
 	//fArenaMark temp_base = f_temp_get_mark();
@@ -1683,4 +1682,3 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 }
 
 #endif // FFZ_BUILD_INCLUDE_GMMC
-#endif

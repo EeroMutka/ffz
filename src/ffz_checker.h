@@ -851,7 +851,7 @@ FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
 //bool ffz_module_add_code_string(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb);
 
 // The node must be a top-level node and have it's parent field set to NULL.
-ffzOk ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
+FFZ_CAPI ffzOk ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 
 FFZ_CAPI ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata);
 
@@ -864,7 +864,7 @@ FFZ_CAPI ffzOk ffz_module_check_single_(ffzModule* m);
 // This automatically adds all files in the directory into the module.
 // If this has already been called before with identical directory, then that previously created module is returned.
 // Returns NULL if the directory does not exist, or if any of the source code files failed to parse.
-fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, fArena* module_arena, ffzError* out_error);
+FFZ_CAPI fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, fArena* module_arena, ffzError* out_error);
 
 //void ffz_module_resolve_imports_using_fileystem(ffzModule* m, fSlice(ffzModule*)* out_imports);
 

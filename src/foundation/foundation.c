@@ -1029,17 +1029,16 @@ uint log2_uint(uint_pow2 value) {
 
 fString f_str_join_n(fAllocator* a, fSliceRaw args) {
 	uint offset = 0;
-	for (uint i = 0; i < args.len; i++) {
-		offset += slice_get(fString, args, i).len;
+	f_for_array(fString, args, it) {
+		offset += it.elem.len;
 	}
 
 	fString result = { f_mem_alloc_n(u8, offset, a), offset };
 
 	offset = 0;
-	for (uint i = 0; i < args.len; i++) {
-		fString arg = slice_get(fString, args, i);
-		f_str_copy(f_str_slice(result, offset, offset + arg.len), arg);
-		offset += arg.len;
+	f_for_array(fString, args, it) {
+		f_str_copy(f_str_slice(result, offset, offset + it.elem.len), it.elem);
+		offset += it.elem.len;
 	}
 	return result;
 }
@@ -1524,7 +1523,7 @@ rune f_str_prev_rune(fString str, uint* byteoffset) {
 uint f_str_rune_count(fString str) {
 	//ZoneScoped;
 	uint i = 0;
-	for f_str_each(str, r, offset) i++;
+	for f_str_each(str, r, offset) { i++; F_UNUSED(offset); }
 	return i;
 }
 

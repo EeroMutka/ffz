@@ -394,7 +394,7 @@ inline fSliceRaw f_make_slice_raw(uint len, const void* initial_elem_value, fAll
 #define f_clone_to_slice(ptr, len, alc) f_clone_slice_raw(f_to_slice(ptr, len), alc, sizeof(*ptr))
 #define f_clone_slice(T, slice, alc) f_clone_slice_raw(slice, alc, sizeof(T))
 
-#define f_slice_lit(T, ...) (fSliceRaw){(T[]){__VA_ARGS__}, F_LEN((T[]){__VA_ARGS__})}
+#define f_slice_lit(T, ...) (fSliceRaw){(T[]){__VA_ARGS__}, sizeof((T[]){__VA_ARGS__}) / sizeof((T[]){__VA_ARGS__}[0])}
 #endif
 
 typedef struct fTick { s64 nsec; } fTick;

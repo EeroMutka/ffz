@@ -599,7 +599,7 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 				loc->column_num += 1;
 				for (;;) {
 					Token _tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
-					if (_tok.small == CHAR2('/', '*') || !_tok.small) break;
+					if (_tok.small == CHAR2('*','/') || !_tok.small) break;
 				}
 				tok_start = *loc;
 				prev_type = CharType_Whitespace;
@@ -835,7 +835,7 @@ static ffzOk parse_proc_type(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocR
 		tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
 	}
 
-	if (tok.small == CHAR2('=', '>')) {
+	if (tok.small == CHAR2('=','>')) {
 		*loc = new_loc;
 		TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->ProcType.out_parameter));
 	}

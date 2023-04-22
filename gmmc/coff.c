@@ -236,10 +236,6 @@ COFF_API void coff_create(void(*store_result)(coffString, void*), void* store_re
 }
 
 
-
-
-
-
 #if 0
 void GMMC_CreateHardcodedMinimalCoff(GMMC_CoffType type) {
 	fArena arena = MakeArena(GiB(1), &_global_allocator);

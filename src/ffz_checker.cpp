@@ -1,4 +1,4 @@
-#if 0
+
 // The checker checks if the program is correct, and in doing so,
 // computes and caches information about the program, such as which declarations
 // identifiers are pointing to, what types do expressions have, constant evaluation, and so on.
@@ -63,7 +63,7 @@ enum InferFlag {
 // ------------------------------
 
 static bool is_basic_type_size(u32 size) { return size == 1 || size == 2 || size == 4 || size == 8; }
-static void print_constant(ffzProject* p, fWriter* w, ffzConstant* constant);
+//static void print_constant(ffzProject* p, fWriter* w, ffzConstant* constant);
 static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type, InferFlags flags);
 
 // ------------------------------
@@ -218,8 +218,8 @@ bool ffz_type_is_comparable_for_equality(ffzType* type) {
 		return false; // TODO: implement this in the backends
 		//return ffz_type_can_be_checked_for_equality(type->FixedArray.elem_type);
 	}
+	default: return false;
 	}
-	return false;
 }
 
 bool ffz_type_is_comparable(ffzType* type) {
@@ -500,9 +500,9 @@ static ffzOk check_types_match(ffzModule* c, ffzNode* node, ffzType* received, f
 	return { true };
 }
 
-static ffzOk error_not_an_expression(ffzModule* c, ffzNode* node) {
-	ERR(node, "Expected an expression, but got a statement or a procedure call with no return value.");
-}
+//static ffzOk error_not_an_expression(ffzModule* c, ffzNode* node) {
+//	ERR(node, "Expected an expression, but got a statement or a procedure call with no return value.");
+//}
 
 bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, u32* out_index) {
 	for (u32 i = 0; i < fields.len; i++) {
@@ -589,10 +589,10 @@ static ffzOk check_argument_list(ffzModule* c, ffzNode* node, fSlice(ffzField) f
 	return FFZ_OK;
 }
 
-static bool uint_is_subtype_of(ffzType* type, ffzType* subtype_of) {
-	if (ffz_type_is_unsigned_integer(type->tag) && ffz_type_is_unsigned_integer(subtype_of->tag) && type->size <= subtype_of->size) return true;
-	return false;
-}
+//static bool uint_is_subtype_of(ffzType* type, ffzType* subtype_of) {
+//	if (ffz_type_is_unsigned_integer(type->tag) && ffz_type_is_unsigned_integer(subtype_of->tag) && type->size <= subtype_of->size) return true;
+//	return false;
+//}
 
 static ffzOk check_two_sided(ffzModule* c, ffzNode* left, ffzNode* right, OPT(ffzType*)* out_type) {
 	// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
@@ -684,8 +684,8 @@ u32 get_alignment(ffzType* type, u32 pointer_size) {
 	case ffzTypeTag_Slice: return pointer_size;
 	case ffzTypeTag_Record: return type->align; // alignment is computed at :ComputeRecordAlignment
 	case ffzTypeTag_FixedArray: return get_alignment(type->FixedArray.elem_type, pointer_size);
+	default: return type->size;
 	}
-	return type->size;
 }
 
 ffzTypeHash ffz_hash_type(ffzProject* p, ffzType* type) {
@@ -1699,8 +1699,8 @@ static ffzOk check_assign(ffzModule* c, ffzNode* node, ffzCheckInfo* result) {
 	
 	TRY(check_types_match(c, rhs, rhs->checked.type, lhs->checked.type, "Incorrect type with assignment:"));
 	
-	ffzNode* parent = node->parent;
-	bool is_code_scope = parent->kind == ffzNodeKind_Scope || parent->kind == ffzNodeKind_ProcType;
+	//ffzNode* parent = node->parent;
+	//bool is_code_scope = parent->kind == ffzNodeKind_Scope || parent->kind == ffzNodeKind_ProcType;
 	// TODO: check lvalue
 	//if (is_code_scope && lhs->checked.type->tag != ffzTypeTag_Raw && !is_lvalue(c, lhs)) {
 	//	ERR(lhs, "Attempted to assign to a non-assignable value.");
@@ -2268,7 +2268,7 @@ FFZ_CAPI ffzProject* ffz_init_project(fArena* arena, fString modules_directory) 
 }
 
 
-ffzOk ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node) {
+FFZ_CAPI ffzOk ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node) {
 	f_assert(node->parent == NULL);
 	
 	if (m->root_last_child) m->root_last_child->next = node;
@@ -2366,7 +2366,7 @@ FFZ_CAPI ffzOk ffz_module_check_single_(ffzModule* m) {
 }
 
 
-fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, fArena* module_arena, ffzError* out_error) {
+FFZ_CAPI fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, fArena* module_arena, ffzError* out_error) {
 
 	// Canonicalize the path to deduplicate modules that have the same absolute path, but were imported with different path strings.
 	if (!f_files_path_to_canonical({}, directory, f_temp_alc(), &directory)) {
@@ -2394,7 +2394,7 @@ fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString d
 			FileVisitData* visit = (FileVisitData*)userptr;
 
 			if (!info->is_directory && f_str_path_extension(info->name) == F_LIT("ffz") && info->name.data[0] != '!') {
-				fString filepath = f_str_join_il(visit->files.alc, { visit->directory, F_LIT("\\"), info->name });
+				fString filepath = f_str_join(visit->files.alc, visit->directory, F_LIT("\\"), info->name);
 				f_array_push(&visit->files, filepath);
 			}
 
@@ -2444,5 +2444,3 @@ fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString d
 	
 	return module;
 }
-
-#endif

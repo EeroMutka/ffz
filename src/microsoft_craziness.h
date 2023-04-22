@@ -65,16 +65,16 @@ struct WinSDK_Find_Result {
  
 static WinSDK_Find_Result WinSDK_find_visual_studio_and_windows_sdk();
  
-static void WinSDK_free_resources(WinSDK_Find_Result *result) {
-    free(result->windows_sdk_root);
-    free(result->windows_sdk_include_base); // @em
-    free(result->windows_sdk_um_library_path);
-    free(result->windows_sdk_ucrt_library_path);
-    free(result->vs_exe_path);
-    free(result->vs_library_path);
-    free(result->vs_include_path);
-    free(result->vs_base_path);
-}
+//static void WinSDK_free_resources(WinSDK_Find_Result *result) {
+//    free(result->windows_sdk_root);
+//    free(result->windows_sdk_include_base); // @em
+//    free(result->windows_sdk_um_library_path);
+//    free(result->windows_sdk_ucrt_library_path);
+//    free(result->vs_exe_path);
+//    free(result->vs_library_path);
+//    free(result->vs_include_path);
+//    free(result->vs_base_path);
+//}
  
 //
 // Call find_visual_studio_and_windows_sdk, look at the resulting
@@ -305,7 +305,7 @@ static void WinSDK_win10_best(wchar_t *short_name, wchar_t *full_name, WinSDK_Ve
     }
 }
  
-static void WinSDK_win8_best(wchar_t *short_name, wchar_t *full_name, WinSDK_Version_Data *data) {
+/*static void WinSDK_win8_best(wchar_t *short_name, wchar_t *full_name, WinSDK_Version_Data *data) {
     // Find the Windows 8 subdirectory with the highest version number.
  
     int i0, i1;
@@ -327,7 +327,8 @@ static void WinSDK_win8_best(wchar_t *short_name, wchar_t *full_name, WinSDK_Ver
         data->best_version[1] = i1;
     }
 }
- 
+*/
+
 static void WinSDK_find_windows_kit_root(WinSDK_Find_Result *result) {
     // Information about the Windows 10 and Windows 8 development kits
     // is stored in the same place in the registry. We open a key
