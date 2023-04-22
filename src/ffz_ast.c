@@ -39,6 +39,8 @@ ffzProject* project_from_parser(ffzParser* p) { return p->source->_module->proje
 #define fSlice(T) fSliceRaw
 #define Array(T) fArrayRaw
 
+#define CHAR2(a, b) ((u32)a | (u32)b << 8)
+
 const static ffzNode _ffz_node_default = {
 	.is_instantiation_root_of_poly = FFZ_POLYMORPH_ID_NONE,
 	.first_tag = NULL,
@@ -165,7 +167,7 @@ fString ffz_node_kind_to_string(ffzNodeKind kind) { return ffzNodeKind_to_name[k
 char* ffz_node_kind_to_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_name[kind].data; }
 
 fString ffz_node_kind_to_op_string(ffzNodeKind kind) { return ffzNodeKind_to_op_string[kind]; }
-char* ffz_node_kind_to_op_cstring(ffzNodeKind kind) { return ffzNodeKind_to_op_string[kind].data;}
+char* ffz_node_kind_to_op_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_op_string[kind].data;}
 
 
 // NOTE: The operators that exist in C have the same precedence as in C
@@ -209,8 +211,8 @@ u8 ffz_get_bracket_op_open_char(ffzNodeKind kind) {
 	case ffzNodeKind_PostSquareBrackets: return '[';
 	case ffzNodeKind_PostRoundBrackets: return '(';
 	case ffzNodeKind_PostCurlyBrackets: return '{';
+	default: return 0;
 	}
-	return 0;
 }
 
 u8 ffz_get_bracket_op_close_char(ffzNodeKind kind) {
@@ -220,8 +222,8 @@ u8 ffz_get_bracket_op_close_char(ffzNodeKind kind) {
 	case ffzNodeKind_PostSquareBrackets: return ']';
 	case ffzNodeKind_PostRoundBrackets: return ')';
 	case ffzNodeKind_PostCurlyBrackets: return '}';
+	default: return 0;
 	}
-	return 0;
 }
 
 static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
@@ -597,7 +599,7 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 				loc->column_num += 1;
 				for (;;) {
 					Token _tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
-					if (_tok.small == '/*' || !_tok.small) break; // :NoteAboutSeqLiterals
+					if (_tok.small == CHAR2('/', '*') || !_tok.small) break;
 				}
 				tok_start = *loc;
 				prev_type = CharType_Whitespace;
@@ -833,7 +835,7 @@ static ffzOk parse_proc_type(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocR
 		tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0);
 	}
 
-	if (tok.small == '>=') { // :NoteAboutSeqLiterals
+	if (tok.small == CHAR2('=', '>')) {
 		*loc = new_loc;
 		TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->ProcType.out_parameter));
 	}
@@ -1085,21 +1087,21 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 					op_kind = ffzNodeKind_MemberAccess;
 				}
 			} break;
-			case '~~': {
+			case CHAR2('~','~'): {
 				node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
 				node->Keyword.keyword = ffzKeyword_Undefined;
 			} break;
-			case '&&': { op_kind = ffzNodeKind_LogicalAND; } break; // :NoteAboutSeqLiterals
-			case '||': { op_kind = ffzNodeKind_LogicalOR; } break; // :NoteAboutSeqLiterals
-			case '*': { op_kind = ffzNodeKind_Mul; } break;
-			case '/': { op_kind = ffzNodeKind_Div; } break;
-			case '%': { op_kind = ffzNodeKind_Modulo; } break;
-			case '=<': { op_kind = ffzNodeKind_LessOrEqual; } break; // :NoteAboutSeqLiterals
-			case '<': { op_kind = ffzNodeKind_Less; } break;
-			case '=>': { op_kind = ffzNodeKind_GreaterOrEqual; } break; // :NoteAboutSeqLiterals
-			case '>': { op_kind = ffzNodeKind_Greater; } break;
-			case '==': { op_kind = ffzNodeKind_Equal; } break; // :NoteAboutSeqLiterals
-			case '=!': { op_kind = ffzNodeKind_NotEqual; } break; // :NoteAboutSeqLiterals
+			case CHAR2('&','&'): { op_kind = ffzNodeKind_LogicalAND; } break;
+			case CHAR2('|','|'): { op_kind = ffzNodeKind_LogicalOR; } break;
+			case '*':            { op_kind = ffzNodeKind_Mul; } break;
+			case '/':            { op_kind = ffzNodeKind_Div; } break;
+			case '%':            { op_kind = ffzNodeKind_Modulo; } break;
+			case CHAR2('<','='): { op_kind = ffzNodeKind_LessOrEqual; } break;
+			case '<':            { op_kind = ffzNodeKind_Less; } break;
+			case CHAR2('>','='): { op_kind = ffzNodeKind_GreaterOrEqual; } break;
+			case '>':            { op_kind = ffzNodeKind_Greater; } break;
+			case CHAR2('=','='): { op_kind = ffzNodeKind_Equal; } break;
+			case CHAR2('!','='): { op_kind = ffzNodeKind_NotEqual; } break;
 			}
 
 			if (op_kind) {
@@ -1261,12 +1263,12 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			else if ((tok.small & 0xff) >= '0' && (tok.small & 0xff) <= '9') {
 				u8 base = 10;
 				const char* base_name = "numeric";
-				if ((tok.small & 0xffff) == 'x0') { // :NoteAboutSeqLiterals
+				if ((tok.small & 0xffff) == CHAR2('0','x')) {
 					base = 16;
 					base_name = "hex";
 					f_str_advance(&tok.str, 2);
 				}
-				else if ((tok.small & 0xffff) == 'b0') { // :NoteAboutSeqLiterals
+				else if ((tok.small & 0xffff) == CHAR2('0','b')) {
 					base = 2;
 					base_name = "binary";
 					f_str_advance(&tok.str, 2);
@@ -1364,9 +1366,10 @@ ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file
 	};
 }
 
-OPT(ffzNode*) ffz_skip_standalone_tags(OPT(ffzNode*) node) {
-	for (; node && node->flags & ffzNodeFlag_IsStandaloneTag; node = node->next) {}
-	return node;
+void ffz_skip_standalone_tags(OPT(ffzNode*)* node) {
+	while (*node && (*node)->flags & ffzNodeFlag_IsStandaloneTag) {
+		*node = (*node)->next;
+	}
 }
 
 ffzNode* ffz_get_child(ffzNode* parent, u32 idx) {
@@ -1411,7 +1414,3 @@ fString ffz_get_parent_decl_pretty_name(OPT(ffzNode*) node) {
 	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
 	return decl ? ffz_get_pretty_name(decl->Op.left) : (fString){0};
 }
-
-// :NoteAboutSeqLiterals
-// when comparing agains a C character sequence literal, i.e. foo == 'abc', we need to 
-// flip the byte order of the literal, because C represents them in big-endian format.

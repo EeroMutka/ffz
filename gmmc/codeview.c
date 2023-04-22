@@ -7,7 +7,11 @@
 #define VALIDATE(x) f_assert(x)
 
 #define _VC_VER_INC
-#include "cvinfo.h"
+
+// This file is a bit messy as it contains a lot of reverse-engineered code and definitions copy-pasted from
+// https://github.com/microsoft/microsoft-pdb
+
+typedef unsigned long CV_typ_t;
 
 typedef struct xdata_UnwindCode {
 	u8 CodeOffset;
@@ -15,9 +19,270 @@ typedef struct xdata_UnwindCode {
 	u8 OpInfo : 4;
 } xdata_UnwindCode;
 
+#define CV_SIGNATURE_C13 4L
+
+#define LF_PAD1        0xf1
+#define LF_PAD2        0xf2
+#define LF_PAD3        0xf3
+#define LF_USHORT    0x8002
+#define LF_ULONG     0x8004
+#define LF_POINTER   0x1002
+#define LF_FIELDLIST 0x1203
+#define LF_ENUMERATE 0x1502
+#define LF_ENUM      0x1507
+#define LF_ARRAY     0x1503
+#define LF_MEMBER    0x150d
+#define LF_STRUCTURE 0x1505
+
+#define S_FRAMEPROC   0x1012
+#define S_END         0x0006
+#define S_GPROC32_ID  0x1147
+#define S_REGREL32    0x1111
+#define S_BLOCK32     0x1103
+#define S_OBJNAME     0x1101
+#define S_COMPILE3    0x113c
+#define S_PROC_ID_END 0x114f
+#define S_GDATA32     0x110d
+
+#define CV_AMD64_RSP 335
+
+#define CV_CFL_X64 0xD0
+
+#define CV_PTR_MODE_PTR 0x00
+#define CV_PTR_MODE_REF 0x01
+
+#define CV_public 3
+
+#define CV_PTR_64 0x0c
+
+#define T_64PVOID 0x0603
+
+#define CHKSUM_TYPE_SHA_256 3
+
+#define T_BOOL08 0x0030
+#define T_BOOL16 0x0031
+#define T_BOOL32 0x0032
+#define T_BOOL64 0x0033
+#define T_REAL16 0x0046
+#define T_REAL32 0x0040
+#define T_REAL64 0x0041
+#define T_INT1   0x0068
+#define T_INT2   0x0072
+#define T_INT4   0x0074
+#define T_INT8   0x0076
+#define T_UINT1  0x0069
+#define T_UINT2  0x0073
+#define T_UINT4  0x0075
+#define T_UINT8  0x0077
+#define T_UQUAD  0x0023
+
+typedef enum DEBUG_S_SUBSECTION_TYPE {
+	DEBUG_S_IGNORE = 0x80000000,
+	DEBUG_S_SYMBOLS = 0xf1,
+	DEBUG_S_LINES,
+	DEBUG_S_STRINGTABLE,
+	DEBUG_S_FILECHKSMS,
+	DEBUG_S_FRAMEDATA,
+	DEBUG_S_INLINEELINES,
+	DEBUG_S_CROSSSCOPEIMPORTS,
+	DEBUG_S_CROSSSCOPEEXPORTS,
+	DEBUG_S_IL_LINES,
+	DEBUG_S_FUNC_MDTOKEN_MAP,
+	DEBUG_S_TYPE_MDTOKEN_MAP,
+	DEBUG_S_MERGED_ASSEMBLYINPUT,
+	DEBUG_S_COFF_SYMBOL_RVA,
+} DEBUG_S_SUBSECTION_TYPE;
+
 // @portability
 #pragma pack(push, 1)
 
+// NOTE: 1-byte alignment
+typedef struct DATASYM32 {
+	unsigned short  reclen;     // Record length
+	unsigned short  rectyp;     // S_LDATA32, S_GDATA32, S_LMANDATA, S_GMANDATA
+	CV_typ_t        typind;     // Type index, or Metadata token if a managed symbol
+	u32                off;
+	unsigned short  seg;
+	unsigned char   name[1];    // Length-prefixed name
+} DATASYM32;
+
+// NOTE: 1-byte alignment
+typedef struct CV_Line_t {
+	unsigned long   offset;             // Offset to start of code bytes for line number
+	unsigned long   linenumStart : 24;    // line where statement/expression starts
+	unsigned long   deltaLineEnd : 7;     // delta to line where statement ends (optional)
+	unsigned long   fStatement : 1;       // true if a statement linenumber, else an expression line num
+} CV_Line_t;
+
+// NOTE: 1-byte alignment
+typedef struct CV_DebugSLinesHeader_t {
+	u32            offCon;
+	unsigned short segCon;
+	unsigned short flags;
+	u32            cbCon;
+} CV_DebugSLinesHeader_t;
+
+// NOTE: 1-byte alignment
+typedef struct SYMTYPE {
+	unsigned short      reclen;     // Record length
+	unsigned short      rectyp;     // Record type
+//	char                data[0];
+} SYMTYPE;
+
+// NOTE: 1-byte alignment
+typedef struct FRAMEPROCSYM {
+	unsigned short  reclen;     // Record length
+	unsigned short  rectyp;     // S_FRAMEPROC
+	unsigned long   cbFrame;    // count of bytes of total frame of procedure
+	unsigned long   cbPad;      // count of bytes of padding in the frame
+	u32             offPad;     // offset (relative to frame poniter) to where
+	//  padding starts
+	unsigned long   cbSaveRegs; // count of bytes of callee save registers
+	u32             offExHdlr;  // offset of exception handler
+	unsigned short  sectExHdlr; // section id of exception handler
+
+	struct {
+		unsigned long   fHasAlloca : 1;   // function uses _alloca()
+		unsigned long   fHasSetJmp : 1;   // function uses setjmp()
+		unsigned long   fHasLongJmp : 1;   // function uses longjmp()
+		unsigned long   fHasInlAsm : 1;   // function uses inline asm
+		unsigned long   fHasEH : 1;   // function has EH states
+		unsigned long   fInlSpec : 1;   // function was speced as inline
+		unsigned long   fHasSEH : 1;   // function has SEH
+		unsigned long   fNaked : 1;   // function is __declspec(naked)
+		unsigned long   fSecurityChecks : 1;   // function has buffer security check introduced by /GS.
+		unsigned long   fAsyncEH : 1;   // function compiled with /EHa
+		unsigned long   fGSNoStackOrdering : 1;   // function has /GS buffer checks, but stack ordering couldn't be done
+		unsigned long   fWasInlined : 1;   // function was inlined within another function
+		unsigned long   fGSCheck : 1;   // function is __declspec(strict_gs_check)
+		unsigned long   fSafeBuffers : 1;   // function is __declspec(safebuffers)
+		unsigned long   encodedLocalBasePointer : 2;  // record function's local pointer explicitly.
+		unsigned long   encodedParamBasePointer : 2;  // record function's parameter pointer explicitly.
+		unsigned long   fPogoOn : 1;   // function was compiled with PGO/PGU
+		unsigned long   fValidCounts : 1;   // Do we have valid Pogo counts?
+		unsigned long   fOptSpeed : 1;  // Did we optimize for speed?
+		unsigned long   fGuardCF : 1;   // function contains CFG checks (and no write checks)
+		unsigned long   fGuardCFW : 1;   // function contains CFW checks and/or instrumentation
+		unsigned long   pad : 9;   // must be zero
+	} flags;
+} FRAMEPROCSYM;
+
+// NOTE: 1-byte alignment
+typedef struct PROCSYM32 {
+	unsigned short  reclen;     // Record length
+	unsigned short  rectyp;     // S_GPROC32, S_LPROC32, S_GPROC32_ID, S_LPROC32_ID, S_LPROC32_DPC or S_LPROC32_DPC_ID
+	unsigned long   pParent;    // pointer to the parent
+	unsigned long   pEnd;       // pointer to this blocks end
+	unsigned long   pNext;      // pointer to next symbol
+	unsigned long   len;        // Proc length
+	unsigned long   DbgStart;   // Debug start offset
+	unsigned long   DbgEnd;     // Debug end offset
+	CV_typ_t        typind;     // Type index or ID
+	u32             off;
+	unsigned short  seg;
+	u8 /*CV_PROCFLAGS*/ flags;      // Proc flags
+	unsigned char   name[1];    // Length-prefixed name
+} PROCSYM32;
+
+// NOTE: 1-byte alignment
+typedef struct COMPILESYM3 {
+	unsigned short  reclen;     // Record length
+	unsigned short  rectyp;     // S_COMPILE3
+	struct {
+		unsigned long   iLanguage : 8;   // language index
+		unsigned long   fEC : 1;   // compiled for E/C
+		unsigned long   fNoDbgInfo : 1;   // not compiled with debug info
+		unsigned long   fLTCG : 1;   // compiled with LTCG
+		unsigned long   fNoDataAlign : 1;   // compiled with -Bzalign
+		unsigned long   fManagedPresent : 1;   // managed code/data present
+		unsigned long   fSecurityChecks : 1;   // compiled with /GS
+		unsigned long   fHotPatch : 1;   // compiled with /hotpatch
+		unsigned long   fCVTCIL : 1;   // converted with CVTCIL
+		unsigned long   fMSILModule : 1;   // MSIL netmodule
+		unsigned long   fSdl : 1;   // compiled with /sdl
+		unsigned long   fPGO : 1;   // compiled with /ltcg:pgo or pgu
+		unsigned long   fExp : 1;   // .exp module
+		unsigned long   pad : 12;   // reserved, must be 0
+	} flags;
+	unsigned short  machine;    // target processor
+	unsigned short  verFEMajor; // front end major version #
+	unsigned short  verFEMinor; // front end minor version #
+	unsigned short  verFEBuild; // front end build version #
+	unsigned short  verFEQFE;   // front end QFE version #
+	unsigned short  verMajor;   // back end major version #
+	unsigned short  verMinor;   // back end minor version #
+	unsigned short  verBuild;   // back end build version #
+	unsigned short  verQFE;     // back end QFE version #
+	char            verSz[1];   // Zero terminated compiler version string
+} COMPILESYM3;
+
+// NOTE: 1-byte alignment
+typedef struct OBJNAMESYM {
+	unsigned short  reclen;     // Record length
+	unsigned short  rectyp;     // S_OBJNAME
+	unsigned long   signature;  // signature
+	unsigned char   name[1];    // Length-prefixed name
+} OBJNAMESYM;
+
+// NOTE: 1-byte alignment
+typedef struct CV_DebugSSubsectionHeader_t {
+	DEBUG_S_SUBSECTION_TYPE type;
+	u32 cbLen;
+} CV_DebugSSubsectionHeader_t;
+
+// NOTE: 1-byte alignment
+typedef struct BLOCKSYM32 {
+	unsigned short  reclen;     // Record length
+	unsigned short  rectyp;     // S_BLOCK32
+	unsigned long   pParent;    // pointer to the parent
+	unsigned long   pEnd;       // pointer to this blocks end
+	unsigned long   len;        // Block length
+	u32             off;        // Offset in code segment
+	unsigned short  seg;        // segment of label
+	unsigned char   name[1];    // Length-prefixed name
+} BLOCKSYM32;
+
+// NOTE: 1-byte alignment
+typedef struct REGREL32 {
+	unsigned short  reclen;     // Record length
+	unsigned short  rectyp;     // S_REGREL32
+	u32                off;        // offset of symbol
+	CV_typ_t        typind;     // Type index or metadata token
+	unsigned short  reg;        // register index for symbol
+	unsigned char   name[1];    // Length-prefixed name
+} REGREL32;
+
+// NOTE: 1-byte alignment
+typedef struct CV_prop_t {
+	unsigned short  packed : 1;     // true if structure is packed
+	unsigned short  ctor : 1;     // true if constructors or destructors present
+	unsigned short  ovlops : 1;     // true if overloaded operators present
+	unsigned short  isnested : 1;     // true if this is a nested class
+	unsigned short  cnested : 1;     // true if this class contains nested types
+	unsigned short  opassign : 1;     // true if overloaded assignment (=)
+	unsigned short  opcast : 1;     // true if casting methods
+	unsigned short  fwdref : 1;     // true if forward reference (incomplete defn)
+	unsigned short  scoped : 1;     // scoped definition
+	unsigned short  hasuniquename : 1;   // true if there is a decorated name following the regular name
+	unsigned short  sealed : 1;     // true if class cannot be used as a base class
+	unsigned short  hfa : 2;     // CV_HFA_e
+	unsigned short  intrinsic : 1;     // true if class is an intrinsic type (e.g. __m128d)
+	unsigned short  mocom : 2;     // CV_MOCOM_UDT_e
+} CV_prop_t;
+
+// NOTE: 1-byte alignment
+typedef struct CV_fldattr_t {
+	unsigned short  access : 2;     // access protection CV_access_t
+	unsigned short  mprop : 3;     // method properties CV_methodprop_t
+	unsigned short  pseudo : 1;     // compiler generated fcn and does not exist
+	unsigned short  noinherit : 1;     // true if class cannot be inherited
+	unsigned short  noconstruct : 1;     // true if class cannot be constructed
+	unsigned short  compgenx : 1;     // compiler generated fcn and does exist
+	unsigned short  sealed : 1;     // true if method cannot be overridden
+	unsigned short  unused : 6;     // unused
+} CV_fldattr_t;
+
+// NOTE: 1-byte alignment
 typedef struct _TYPTYPE {
 	unsigned short len;
 	unsigned short leaf;
@@ -547,8 +812,8 @@ static u32 generate_cv_type(DebugSectionGen* ctx, TypeGen* types, u32 index, boo
 	return t;
 }
 
-static u32 begin_subsection(DebugSectionGen* gen, enum DEBUG_S_SUBSECTION_TYPE type) {
-	struct CV_DebugSSubsectionHeader_t subsection_header;
+static u32 begin_subsection(DebugSectionGen* gen, DEBUG_S_SUBSECTION_TYPE type) {
+	CV_DebugSSubsectionHeader_t subsection_header;
 	subsection_header.type = type;
 	f_prints(gen->debugS.w, F_AS_BYTES(subsection_header));
 	
@@ -743,12 +1008,12 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			u32 subsection_base = begin_subsection(gen, DEBUG_S_LINES);
 
 			{
-				struct CV_DebugSLinesHeader_t lines_header;
+				CV_DebugSLinesHeader_t lines_header;
 
 				lines_header.segCon = 0; // Section number containing the code. To be relocated
 				{
 					coffRelocation seg_reloc = {0};
-					seg_reloc.offset = (u32)gen->debugS.buffer.len + F_OFFSET_OF(struct CV_DebugSLinesHeader_t, segCon);
+					seg_reloc.offset = (u32)gen->debugS.buffer.len + F_OFFSET_OF(CV_DebugSLinesHeader_t, segCon);
 					seg_reloc.sym_idx = fn->sym_index;
 					seg_reloc.type = IMAGE_REL_AMD64_SECTION; // IMAGE_REL_X_SECTION sets the relocated value to be the section number of the target symbol
 					f_array_push(&gen->debugS_relocs, seg_reloc);
@@ -757,7 +1022,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				lines_header.offCon = 0; // Start offset of the function within the section. To be relocated
 				{
 					coffRelocation off_reloc = {0};
-					off_reloc.offset = (u32)gen->debugS.buffer.len + F_OFFSET_OF(struct CV_DebugSLinesHeader_t, offCon);
+					off_reloc.offset = (u32)gen->debugS.buffer.len + F_OFFSET_OF(CV_DebugSLinesHeader_t, offCon);
 					off_reloc.sym_idx = fn->sym_index;
 					off_reloc.type = IMAGE_REL_AMD64_SECREL; // IMAGE_REL_X_SECREL sets the relocated value to be the offset of the target symbol from the beginning of its section
 					f_array_push(&gen->debugS_relocs, off_reloc);
@@ -775,7 +1040,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 				file_block_header.fileid = size_of_file_checksum_entry * fn->file_idx; // the 'fileid' seems to encode the offset into the FILECHKSUMS subsection
 				file_block_header.nLines = (u32)fn->lines_count;
-				file_block_header.cbFileBlock = sizeof(file_block_header) + file_block_header.nLines * sizeof(struct CV_Line_t);
+				file_block_header.cbFileBlock = sizeof(file_block_header) + file_block_header.nLines * sizeof(CV_Line_t);
 				f_prints(gen->debugS.w, F_AS_BYTES(file_block_header));
 
 				// add the lines
@@ -784,7 +1049,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 				for (u32 i = 0; i < fn->lines_count; i++) {
 					cviewLine* line = &fn->lines[i];
 
-					struct CV_Line_t l = {0};
+					CV_Line_t l = {0};
 					l.linenumStart = line->line_num;
 					// line.deltaLineEnd is only used when column information is stored
 

@@ -20,7 +20,7 @@
 // at the base of some address range that is aligned, so you can just align the pointer down to access it.
 // OR if you want to align to cache line size... yeah.
 typedef struct fAllocator {
-	void*(*_proc)(struct fAllocator* allocator, /*opt*/ void* old_ptr, size_t old_size, size_t new_size);
+	void*(*_proc)(struct fAllocator* allocator, /*optional*/ void* old_ptr, size_t old_size, size_t new_size);
 } fAllocator;
 
 typedef struct fSliceRaw {
@@ -358,15 +358,17 @@ inline bool _f_array_each_ptr_condition(void* array, uint* i, void** elem, uint 
 // Magic array iteration macro - works both on fArray and fSlice types.
 // e.g.
 //    fArray(float) foo;
-//    for f_array_each(float, foo, it) {
+//    f_for_array(float, foo, it) {
 //       printf("foo at index %d has the value of %f\n", it.i, it.elem);
 //    }
 // 
-#define f_array_each(T, array, it_name) (struct f_##__LINE__{uint i; T elem;} it_name = {0}; \
-	_f_array_each_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
+#define f_for_array(T, array, it_name) \
+	struct F_CONCAT(f_, __LINE__) {uint i; T elem;}; \
+	for (struct F_CONCAT(f_, __LINE__) it_name = {0}; \
+		_f_array_each_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
 
-#define f_array_each_ptr(T, array, it_name) (struct f_##__LINE__{uint i; T* elem;} it_name = {0}; \
-	_f_array_each_ptr_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
+//#define f_for_array_ptr(T, array, it_name) (struct f_##__LINE__{uint i; T* elem;} it_name = {0}; \
+//	_f_array_each_ptr_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
 
 
 #define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
@@ -700,7 +702,7 @@ inline uint64_t f_hasher_end(fHasher* h) { return f_mix64(h->state); }
 // -- fString ------------------------------------------------------------------
 
 #define f_str_is_utf8_first_byte(c) (((c) & 0xC0) != 0x80) /* is c the start of a utf8 sequence? */
-#define f_str_each(str, r, i) (uint i=0, r = 0, i##_next=0; r=f_str_next_rune(str, &i##_next); i=i##_next)
+#define f_str_each(str, r, i) (uint i=0, r = 0, i##_next=0; (r=f_str_next_rune(str, &i##_next)); i=i##_next)
 #define f_str_each_reverse(str, r, i) (uint i=str.len; rune r=f_str_prev_rune(str, &i);)
 
 #define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, allocator), len }
@@ -830,6 +832,7 @@ fString f_os_get_working_dir(fAllocator* allocator);
 inline fString f_os_t_get_working_dir() { return f_os_get_working_dir(f_temp_alc()); }
 
 fString f_os_get_executable_path(fAllocator* allocator);
+
 //inline fString f_os_t_get_executable_path() { return f_os_get_executable_path(f_temp_alc()); }
 
 // these strings do not currently convert slashes - they will be windows specific `\`

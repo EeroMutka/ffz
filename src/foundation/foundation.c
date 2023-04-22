@@ -132,7 +132,7 @@ bool f_str_contains(fString str, fString substr) {
 
 fString f_str_path_extension(fString path) {
 	//ZoneScoped;
-	s64 idx;
+	uint idx;
 	if (f_str_last_index_of_any_char(path, F_LIT("."), &idx)) {
 		return f_str_slice_after(path, idx + 1);
 	}
@@ -233,15 +233,15 @@ void f_print_va(fWriter* w, const char* fmt, va_list args) {
 				
 				uint64_t value = 0;
 				switch (*c) {
-				case '8': { value = va_arg(args, uint8_t); } break; // u8
-				case '1': { value = va_arg(args, uint16_t); } break; // u16
+				case '8': { f_nocheckin();/*value = va_arg(args, int8_t); */} break; // u8
+				case '1': { f_nocheckin(); /*value = va_arg(args, uint16_t); */} break; // u16
 				case '3': { value = va_arg(args, uint32_t); } break; // u32
 				case '6': { value = va_arg(args, uint64_t); } break; // u64
 				default: f_assert(false);
 				}
 				
 				if (*c != '8') { // u8 is the only one with only 1 character
-					*c++;
+					c++;
 					if (*c == 0) return;
 				}
 
@@ -574,7 +574,7 @@ u64 f_hash64_str_ex(fString data, u64 seed) {
 	//return h;
 }
 
-static void leak_tracker_begin_entry_stacktrace_visitor(fString function, fString file, u32 line, void* user_ptr) {
+/*static void leak_tracker_begin_entry_stacktrace_visitor(fString function, fString file, u32 line, void* user_ptr) {
 	LeakTrackerBeginEntryPass* pass = user_ptr;
 	if (pass->i > pass->skip_stackframes_count) {
 		u64 filepath_hash = f_hash64_str_ex(file, 0);
@@ -590,6 +590,7 @@ static void leak_tracker_begin_entry_stacktrace_visitor(fString function, fStrin
 	}
 	pass->i++;
 }
+*/
 
 void f_leak_tracker_begin_entry(void* address, uint skip_stackframes_count) {
 	if (!_f_leak_tracker.active) return;
@@ -1014,7 +1015,7 @@ uint_pow2 f_round_up_power_of_2(uint v) {
 	return v;
 }
 
-uint log2(uint_pow2 value) {
+uint log2_uint(uint_pow2 value) {
 	f_assert(F_IS_POWER_OF_2(value));
 	uint result = 0;
 	for (; value > 1;) {
@@ -1048,7 +1049,7 @@ fMap64Raw f_make_map64_cap_raw(u32 value_size, uint_pow2 capacity, fAllocator* a
 		.alc = a,
 		.value_size = F_ALIGN_UP_POW2(value_size, 8),
 	};
-	uint slot_count_log2 = log2(capacity);
+	uint slot_count_log2 = log2_uint(capacity);
 	f_map64_resize_raw(&map, F_CAST(u32, slot_count_log2));
 	return map;
 }
@@ -1275,7 +1276,7 @@ void f_arena_clear(fArena* arena) {
 	}
 }
 
-static void* arena_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_size, uint new_size) {
+static void* arena_allocator_proc(fAllocator* a, fOpt(void*) old_ptr, size_t old_size, size_t new_size) {
 	//ZoneScoped;
 
 	//F_HITS(_c, 0);
@@ -1312,7 +1313,7 @@ static void* arena_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_siz
 	}
 	else {
 		f_debug_fill_garbage(old_ptr + new_size, old_size - new_size); // erase the top
-		int a = 11111;
+		//int a = 11111;
 	}
 
 	return old_ptr;
@@ -1668,6 +1669,8 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	#define NOMINMAX
 	#include <Windows.h>
 	#include <DbgHelp.h>
+	
+	#define MORE_SANE_MAX_PATH 1024
 
 	#pragma comment(lib, "Comdlg32.lib") // for GetOpenFileName
 
@@ -1679,7 +1682,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		f_assert((u32)str_utf16_len == str_utf16_len);
 
 		DWORD num_chars_written;
-		BOOL ok = WriteConsoleW(_f_stdout_handle, str_utf16, (u32)str_utf16_len, &num_chars_written, NULL);
+		WriteConsoleW(_f_stdout_handle, str_utf16, (u32)str_utf16_len, &num_chars_written, NULL);
 		f_temp_set_mark(mark);
 	}
 
@@ -1802,7 +1805,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		};
 
 		GetOpenFileNameA(&ofn);
-		return f_str_clone(f_str_from_cstr(buffer.data), a);
+		return f_str_clone(f_str_from_cstr((char*)buffer.data), a);
 	}
 
 	
@@ -1885,7 +1888,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		if (length <= 0) return (fString) { 0 };
 
 		fString result = f_str_make(length, a); // length includes the null-termination.
-		int length2 = WideCharToMultiByte(CP_UTF8, 0, str_utf16, -1, result.data, (int)result.len, NULL, NULL);
+		int length2 = WideCharToMultiByte(CP_UTF8, 0, str_utf16, -1, (char*)result.data, (int)result.len, NULL, NULL);
 		if (length2 <= 0) return (fString) { 0 };
 		
 		result.len--;
@@ -1947,15 +1950,16 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 
 	fString f_os_get_working_dir(fAllocator* a) {
-		wchar_t buf[MAX_PATH];
+		wchar_t buf[MORE_SANE_MAX_PATH];
 		buf[0] = 0;
-		GetCurrentDirectoryW(MAX_PATH, buf);
+		GetCurrentDirectoryW(MORE_SANE_MAX_PATH, buf);
 		return f_str_from_utf16(buf, a);
 	}
 
 	fString f_os_get_executable_path(fAllocator* allocator) {
-		wchar_t buf[MAX_PATH];
-		u32 n = GetModuleFileNameW(NULL, buf, MAX_PATH);
+		wchar_t buf[MORE_SANE_MAX_PATH];
+		u32 n = GetModuleFileNameW(NULL, buf, MORE_SANE_MAX_PATH);
+		f_assert(n > 0 && n < MORE_SANE_MAX_PATH);
 		return f_str_from_utf16(buf, allocator);
 	}
 
@@ -1964,7 +1968,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		if (OpenClipboard(NULL)) {
 			HANDLE hData = GetClipboardData(CF_UNICODETEXT);
 			
-			u8* buffer = (u8*)GlobalLock(hData);
+			/*u8* buffer = (u8*)*/GlobalLock(hData);
 			
 			int length = WideCharToMultiByte(CP_UTF8, 0, (wchar_t*)hData, -1, NULL, 0, NULL, NULL);
 			if (length > 0) {
@@ -2045,8 +2049,8 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		HANDLE file_handle = CreateFileW(path_utf16, 0, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL); 
 		if (file_handle == INVALID_HANDLE_VALUE) ok = false;
 
-		TCHAR result_utf16[MAX_PATH];
-		ok = ok && GetFinalPathNameByHandleW(file_handle, result_utf16, MAX_PATH, VOLUME_NAME_DOS) < MAX_PATH;
+		TCHAR result_utf16[MORE_SANE_MAX_PATH];
+		ok = ok && GetFinalPathNameByHandleW(file_handle, result_utf16, MORE_SANE_MAX_PATH, VOLUME_NAME_DOS) < MORE_SANE_MAX_PATH;
 
 		fString result = {0};
 		if (ok) {
@@ -2088,6 +2092,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 			if (f_str_equals(info.name, F_LIT(".."))) continue;
 			
 			fVisitDirectoryResult result = visitor(&info, visitor_userptr);
+			f_assert(result == fVisitDirectoryResult_Continue);
 		}
 
 		bool ok = GetLastError() == ERROR_NO_MORE_FILES;
@@ -2285,10 +2290,10 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		uint name_utf16_len;
 		wchar_t* name_utf16 = f_str_to_utf16(name, 1, f_temp_alc(), &name_utf16_len);
 
-		wchar_t path[MAX_PATH] = { 0 };
+		wchar_t path[MORE_SANE_MAX_PATH] = { 0 };
 
-		DWORD dwRet = SearchPathW(NULL, name_utf16, NULL, MAX_PATH, path, NULL);
-		if (dwRet == 0 || dwRet >= MAX_PATH) {
+		DWORD dwRet = SearchPathW(NULL, name_utf16, NULL, MORE_SANE_MAX_PATH, path, NULL);
+		if (dwRet == 0 || dwRet >= MORE_SANE_MAX_PATH) {
 			return (fString) { 0 };
 		}
 
@@ -2464,7 +2469,7 @@ fString f_str_to_lower(fString str, fAllocator* a) {
 	return out;
 }
 
-void f_string_builder_writer_proc(fWriter* writer, void* data, size_t size) {
+void f_string_builder_writer_proc(fWriter* writer, const void* data, size_t size) {
 	f_array_push_n_raw(writer->userdata, data, size, 1);
 }
 
@@ -2474,14 +2479,14 @@ void f_flush_buffered_writer(fBufferedWriter* writer) {
 	writer->current_pos = 0;
 }
 
-void f_writer_stdout_proc(fWriter* writer, void* data, size_t size) {
-	f_os_print((fString){ data, size });
+void f_writer_stdout_proc(fWriter* writer, const void* data, size_t size) {
+	f_os_print((fString){ (void*)data, size });
 }
 
-void f_buffered_writer_proc(fWriter* writer, void* data, size_t size) {
+void f_buffered_writer_proc(fWriter* writer, const void* data, size_t size) {
 	fBufferedWriter* buffered = (fBufferedWriter*)writer;
 
-	u8* src = data;
+	u8* src = (u8*)data;
 	fWriter* backing = (fWriter*)writer->userdata;
 
 	for (;;) {

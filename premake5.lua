@@ -73,7 +73,6 @@ function import_ffz()
 	end
 end
 
-
 workspace "ffz"
 	configurations { "Debug", "Profile", "Release" }
 	architecture "x64"
@@ -83,10 +82,10 @@ workspace "ffz"
 	location "build"
 	targetdir "bin"
 
-
 project "ffz"
 	kind "ConsoleApp"
 	language "C++"
+	toolset "clang"
 	
 	import_ffz()
 	
@@ -95,7 +94,6 @@ project "ffz"
 		"src/foundation/*",
 		"src/ffz_console_tools/ffz.cpp",
 	}
-
 
 project "ffz_test_runner"
 	kind "ConsoleApp"

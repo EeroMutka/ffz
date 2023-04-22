@@ -681,7 +681,9 @@ ffzNode ffz_node_default();
 
 inline ffzModule* ffz_module_of_node(ffzNode* n) { return n->_module; }
 
-#define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? parent->first_child : NULL; n = ffz_skip_standalone_tags(n); n = n->next)
+//inline fOpt(ffzNode*) _ffz_skip_standalone_tags(fOpt(ffzNode*) node);
+#define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? parent->first_child : NULL; \
+	(ffz_skip_standalone_tags(&n), n); n = n->next)
 
 // -- Builder -------------------------------------------
 
@@ -762,7 +764,7 @@ FFZ_CAPI fString ffz_node_kind_to_op_string(ffzNodeKind kind);
 FFZ_CAPI ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file_path);
 FFZ_CAPI ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_path);
 
-FFZ_CAPI fOpt(ffzNode*) ffz_skip_standalone_tags(fOpt(ffzNode*) node);
+FFZ_CAPI void ffz_skip_standalone_tags(fOpt(ffzNode*)* node);
 
 FFZ_CAPI void ffz_print_ast(fWriter* w, ffzNode* node);
 FFZ_CAPI fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc);

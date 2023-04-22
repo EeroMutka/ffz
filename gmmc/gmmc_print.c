@@ -30,7 +30,7 @@ static fString gmmc_type_get_string(gmmcType type) {
 	return (fString){0};
 }
 
-static char* gmmc_type_get_cstr(gmmcType type) { return (char*)gmmc_type_get_string(type).data; }
+//static char* gmmc_type_get_cstr(gmmcType type) { return (char*)gmmc_type_get_string(type).data; }
 
 static fString operand_to_str(gmmcBasicBlock* bb, gmmcOpIdx op_idx) {
 	gmmcOpData* op = f_array_get_ptr(gmmcOpData, bb->proc->ops, op_idx);
@@ -64,6 +64,8 @@ static fString operand_to_str(gmmcBasicBlock* bb, gmmcOpIdx op_idx) {
 				return op->symbol->name;
 			}
 		} break;
+		
+		default: break;
 	}
 	return f_tprint("_$~u32", op_idx);
 }
@@ -232,9 +234,9 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 				}
 				f_print(f, ")) ~s ) (", OTOS_(op->call.target));
 			}
-			
+
 			// args
-			for f_array_each(gmmcOpIdx, op->call.arguments, arg) {
+			f_for_array(gmmcOpIdx, op->call.arguments, arg) {
 				if (i > 0) f_print(f, ", ");
 				f_prints(f, OTOS_(arg.elem));
 			}
@@ -245,7 +247,7 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 			if (op->comment.len > 0) {
 				fSlice(fRangeUint) lines;
 				f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
-				for f_array_each(fRangeUint, lines, line) {
+				f_for_array(fRangeUint, lines, line) {
 					fString line_str = f_str_slice(op->comment, line.elem.lo, line.elem.hi);
 					f_print(f, "    // ~s\n", line_str);
 				}
@@ -286,7 +288,7 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 		f_print(f, "~s ~s(", (proc->signature->return_type ?
 			gmmc_type_get_string(proc->signature->return_type) : F_LIT("void")), name);
 
-		for f_array_each(gmmcType, proc->signature->params, it) {
+		f_for_array(gmmcType, proc->signature->params, it) {
 			if (it.i > 0) f_print(f, ", ");
 			f_print(f, "~s _$~u32", gmmc_type_get_string(it.elem), f_array_get(gmmcOpIdx, proc->addr_of_params, it.i));
 		}
@@ -312,7 +314,7 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 	//f_writef(f, "    ");
 	if (proc->locals.len > 0) f_print(f, "\n");
 
-	for f_array_each(gmmcBasicBlock*, proc->basic_blocks, it) {
+	f_for_array(gmmcBasicBlock*, proc->basic_blocks, it) {
 		print_bb(f, it.elem);
 	}
 	//f_writef(f, "char _;\n"); // goto: at the end with nothing after it is illegal, this is just a dumb fix for it
@@ -427,12 +429,10 @@ GMMC_API void gmmc_module_print_c(fWriter* f, gmmcModule* m) {
 	
 	f_print(f, "#pragma pack(push, 1)\n"); // TODO: use alignas instead! for relocations
 
-	fAllocator* alc = m->allocator;
-
 	// forward declare symbols
 
 	f_print(f, "\n");
-	for f_array_each(gmmcProc*, m->procs, it) {
+	f_for_array(gmmcProc*, m->procs, it) {
 		// hmm... do we need to declare procs with the right type?
 		fString name = it.elem->sym.name;
 		if (f_str_equals(name, F_LIT("main"))) continue; // :MainSpecialHandling
@@ -440,14 +440,14 @@ GMMC_API void gmmc_module_print_c(fWriter* f, gmmcModule* m) {
 		gmmcType ret_type = it.elem->signature->return_type;
 		f_print(f, "~s ~s(", ret_type ? gmmc_type_get_string(ret_type) : F_LIT("void"), name);
 
-		for f_array_each(gmmcType, it.elem->signature->params, param) {
+		f_for_array(gmmcType, it.elem->signature->params, param) {
 			if (param.i > 0) f_print(f, ", ");
 			f_prints(f, gmmc_type_get_string(param.elem));
 		}
 		f_print(f, ");\n");
 	}
 
-	for f_array_each(gmmcExtern*, m->external_symbols, it) {
+	f_for_array(gmmcExtern*, m->external_symbols, it) {
 		fString name = it.elem->sym.name;
 		if (f_str_equals(name, F_LIT("memset"))) continue; // already defined in the prelude
 		if (f_str_equals(name, F_LIT("memcpy"))) continue; // already defined in the prelude
@@ -556,7 +556,7 @@ GMMC_API void gmmc_module_print_c(fWriter* f, gmmcModule* m) {
 	f_print(f, "#pragma pack(pop)\n"); // TODO: use alignas instead! for relocations
 	f_print(f, "\n// ------------------------\n\n");
 
-	for f_array_each(gmmcProc*, m->procs, it) {
+	f_for_array(gmmcProc*, m->procs, it) {
 		gmmc_proc_print_c(f, it.elem);
 		f_print(f, "\n");
 	}

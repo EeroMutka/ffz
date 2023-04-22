@@ -258,8 +258,9 @@ static fSlice(GPR) get_work_registers(RegisterSet reg_set) {
 	switch (reg_set) {
 	case RegisterSet_Normal: return (fSliceRaw){(void*)&int_work_registers, F_LEN(int_work_registers)};
 	case RegisterSet_XMM: return (fSliceRaw){(void*)&float_work_registers, F_LEN(float_work_registers)};
+	default: f_trap();
 	}
-	f_trap(); return (fSliceRaw){0};
+	return (fSliceRaw){0};
 }
 
 // `size` is ignored for XMM registers
@@ -340,7 +341,6 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 			req.operands[0].mem.size = size;
 			req.operands[1] = make_reg_operand(reg, size);
 			emit(p, &req, " ; spill the op value");
-			int a = 50;
 		}
 	}
 	f_array_set(GPR, p->rsel.ops_currently_in_register, op_idx, GPR_NONE);
@@ -535,7 +535,6 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg/* = GPR
 				f_array_get(s32, p->result->local_frame_rel_offset, op->local_idx) - p->result->rsp_offset;
 			req.operands[1].mem.size = 8;
 			emit(p, &req, " ; address of local");
-			int a = 50;
 		}
 		else if (op->kind == gmmcOpKind_addr_of_param) {
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
@@ -745,6 +744,7 @@ static void gen_comparison(ProcGen* p, gmmcOpData* op) {
 			case gmmcOpKind_le: { req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_SETLE : ZYDIS_MNEMONIC_SETBE; } break;
 			case gmmcOpKind_gt: { req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_SETNLE : ZYDIS_MNEMONIC_SETNBE; } break;
 			case gmmcOpKind_ge: { req.mnemonic = op->is_signed ? ZYDIS_MNEMONIC_SETNL : ZYDIS_MNEMONIC_SETNB; } break;
+			default: break;
 			}
 			req.operand_count = 1;
 			req.operands[0] = make_reg_operand(result_value, 1);
@@ -1143,7 +1143,6 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 				req.operands[0].mem.size = size;
 				req.operands[1] = make_reg_operand(value_reg, size);
 				emit(p, &req, " ; store");
-				int a = 50;
 			}
 		} break;
 
@@ -1473,7 +1472,6 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 				req.operands[0].mem.size = rset == RegisterSet_XMM ? 16 : 8;
 				req.operands[1] = make_reg_operand(reg, 8);
 				emit(p, &req, " ; store callee-saved register");
-				int _ = 50;
 			}
 		}
 		
