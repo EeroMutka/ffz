@@ -1,36 +1,24 @@
-#include "src/foundation/foundation.hpp"
+#include "src/foundation/foundation.h"
 
 #define gmmcString fString
 #include "gmmc.h"
-
-//#include <Zydis/Zydis.h>
 
 #define VALIDATE(x) f_assert(x)
 
 GMMC_API gmmcProcSignature* gmmc_make_proc_signature(gmmcModule* m, gmmcType return_type,
 	gmmcType* params, uint32_t params_count)
 {
-	gmmcProcSignature* s = f_mem_clone(gmmcProcSignature{}, m->allocator);
+	gmmcProcSignature* s = f_mem_clone((gmmcProcSignature){0}, m->allocator);
 	s->return_type = return_type;
-	s->params = {params, params_count};
+	s->params = (fSliceRaw){params, params_count};
 	f_array_push(&m->proc_signatures, s);
 	return s;
 }
 
-//const fString gmmcOpKind_to_string[] = {
-//	F_LIT_COMP("Invalid"),
-//	F_LIT_COMP("debugbreak"),
-//	F_LIT_COMP("ret"),
-//	F_LIT_COMP("if"),
-//};
-//
-//F_STATIC_ASSERT(gmmcOpKind_COUNT == F_LEN(gmmcOpKind_to_string));
-
 GMMC_API void gmmc_global_add_relocation(gmmcGlobal* global, uint32_t offset, gmmcSymbol* target) {
-	f_array_push(&global->relocations, gmmcRelocation{offset, target});
+	gmmcRelocation reloc = { offset, target };
+	f_array_push(&global->relocations, reloc);
 }
-
-//static gmmcOpIdx make_reg(gmmcProc* proc, gmmcType type, u32 local_idx = 0);
 
 static gmmcOpIdx gmmc_push_op(gmmcBasicBlock* bb, gmmcOpData* op) {
 	op->bb_idx = bb->self_idx;
@@ -40,10 +28,10 @@ static gmmcOpIdx gmmc_push_op(gmmcBasicBlock* bb, gmmcOpData* op) {
 	return idx;
 }
 
-static void validate_operand(gmmcBasicBlock* bb, gmmcOpIdx operand, gmmcType required_type = gmmcType_None) {
+static void validate_operand(gmmcBasicBlock* bb, gmmcOpIdx operand, gmmcType required_type/* = gmmcType_None*/) {
 #ifdef _DEBUG
 	// ops can use operands only from the same basic block, or from GMMC_BB_INDEX_NONE
-	gmmcOpData* op = &bb->proc->ops[operand];
+	gmmcOpData* op = f_array_get_ptr(gmmcOpData, bb->proc->ops, operand);
 	gmmcBasicBlockIdx operand_bb_idx = op->bb_idx;
 	VALIDATE(operand_bb_idx == bb->self_idx || operand_bb_idx == GMMC_BB_INDEX_NONE);
 
@@ -86,7 +74,7 @@ GMMC_API gmmcOpIdx gmmc_op_load(gmmcBasicBlock* bb, gmmcType type, gmmcOpIdx ptr
 
 GMMC_API gmmcOpIdx gmmc_op_store(gmmcBasicBlock* bb, gmmcOpIdx ptr, gmmcOpIdx value) {
 	validate_operand(bb, ptr, gmmcType_ptr);
-	validate_operand(bb, value);
+	validate_operand(bb, value, gmmcType_None);
 	
 	gmmcOpData op = { gmmcOpKind_store };
 	op.operands[0] = ptr;
@@ -150,16 +138,17 @@ GMMC_API gmmcOpIdx gmmc_op_addr_of_symbol(gmmcProc* proc, gmmcSymbol* symbol) {
 
 GMMC_API gmmcOpIdx gmmc_op_local(gmmcProc* proc, uint32_t size, uint32_t align) {
 	VALIDATE(size > 0);
+	gmmcLocal local = { size, align };
 
 	gmmcOpData op = { gmmcOpKind_local };
 	op.bb_idx = GMMC_BB_INDEX_NONE;
-	op.local_idx = (u32)f_array_push(&proc->locals, gmmcLocal{ size, align });
+	op.local_idx = (u32)f_array_push(&proc->locals, local);
 	op.type = gmmcType_ptr;
 	return (gmmcOpIdx)f_array_push(&proc->ops, op);
 }
 
 gmmcOpIdx gmmc_op_immediate(gmmcProc* proc, gmmcType type, void* data) {
-	gmmcOpData op = {};
+	gmmcOpData op = {0};
 	op.kind = (gmmcOpKind)(gmmcOpKind_bool + (type - gmmcType_bool));
 	op.bb_idx = GMMC_BB_INDEX_NONE;
 	memcpy(&op.imm_bits, data, gmmc_type_size(type));
@@ -177,7 +166,7 @@ GMMC_API gmmcOpIdx gmmc_op_f64(gmmcProc* proc, double value) { return gmmc_op_im
 
 static gmmcOpIdx op_comparison(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) {
 	gmmcType type = gmmc_get_op_type(bb->proc, a);
-	validate_operand(bb, a);
+	validate_operand(bb, a, gmmcType_None);
 	validate_operand(bb, b, type);
 	
 	if (kind == gmmcOpKind_eq || kind == gmmcOpKind_ne) {}
@@ -234,7 +223,7 @@ GMMC_API u32 gmmc_type_size(gmmcType type) {
 static gmmcOpIdx op_int_arithmetic(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx a, gmmcOpIdx b, bool is_signed) {
 	gmmcType type = gmmc_get_op_type(bb->proc, a);
 	VALIDATE(gmmc_type_is_integer(type));
-	validate_operand(bb, a);
+	validate_operand(bb, a, gmmcType_None);
 
 	if (kind == gmmcOpKind_not) {}
 	else if (kind == gmmcOpKind_shl || kind == gmmcOpKind_shr) {
@@ -254,7 +243,7 @@ static gmmcOpIdx op_int_arithmetic(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpId
 static gmmcOpIdx op_float_arithmetic(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx a, gmmcOpIdx b) {
 	gmmcType type = gmmc_get_op_type(bb->proc, a);
 	VALIDATE(gmmc_type_is_float(type));
-	validate_operand(bb, a);
+	validate_operand(bb, a, gmmcType_None);
 	validate_operand(bb, b, type);
 	
 	gmmcOpData op = { kind };
@@ -286,7 +275,7 @@ GMMC_API gmmcOpIdx gmmc_op_int2ptr(gmmcBasicBlock* bb, gmmcOpIdx value) {
 }
 
 static gmmcOpIdx op_simple_convert(gmmcBasicBlock* bb, gmmcOpKind kind, gmmcOpIdx value, gmmcType type) {
-	validate_operand(bb, value);
+	validate_operand(bb, value, gmmcType_None);
 	gmmcOpData op = { kind };
 	op.operands[0] = value;
 	op.type = type;
@@ -313,7 +302,7 @@ GMMC_API gmmcOpIdx gmmc_op_int2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType
 
 GMMC_API gmmcOpIdx gmmc_op_int2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type, bool from_signed) {
 	gmmcType src_type = gmmc_get_op_type(bb->proc, value);
-	validate_operand(bb, value);
+	validate_operand(bb, value, gmmcType_None);
 	VALIDATE(gmmc_type_is_integer(src_type));
 	VALIDATE(gmmc_type_is_float(target_type));
 
@@ -326,7 +315,7 @@ GMMC_API gmmcOpIdx gmmc_op_int2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcTy
 
 GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type/*, bool to_signed*/) {
 	gmmcType src_type = gmmc_get_op_type(bb->proc, value);
-	validate_operand(bb, value);
+	validate_operand(bb, value, gmmcType_None);
 	VALIDATE(gmmc_type_is_float(src_type));
 	VALIDATE(gmmc_type_is_integer(target_type));
 
@@ -339,7 +328,7 @@ GMMC_API gmmcOpIdx gmmc_op_float2int(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcTy
 
 GMMC_API gmmcOpIdx gmmc_op_float2float(gmmcBasicBlock* bb, gmmcOpIdx value, gmmcType target_type) {
 	gmmcType src_type = gmmc_get_op_type(bb->proc, value);
-	validate_operand(bb, value);
+	validate_operand(bb, value, gmmcType_None);
 	VALIDATE(target_type != src_type);
 	VALIDATE(gmmc_type_is_float(src_type));
 	VALIDATE(gmmc_type_is_float(target_type));
@@ -364,16 +353,16 @@ GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to) {
 }
 
 GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc) {
-	gmmcBasicBlock* b = f_mem_clone(gmmcBasicBlock{}, proc->sym.module->allocator);
+	gmmcBasicBlock* b = f_mem_clone((gmmcBasicBlock){0}, proc->sym.module->allocator);
 	b->mod = proc->sym.module;
 	b->proc = proc;
-	b->ops = f_array_make<gmmcOpIdx>(proc->sym.module->allocator);
+	b->ops = f_array_make(proc->sym.module->allocator);
 	b->self_idx = (gmmcBasicBlockIdx)f_array_push(&proc->basic_blocks, b);
 	return b;
 }
 
 GMMC_API gmmcExtern* gmmc_make_extern(gmmcModule* m, gmmcString name) {
-	gmmcExtern* sym = f_mem_clone(gmmcExtern{{gmmcSymbolKind_Extern}}, m->allocator);
+	gmmcExtern* sym = f_mem_clone((gmmcExtern){{gmmcSymbolKind_Extern}}, m->allocator);
 	sym->self_idx = (gmmcExternIdx)f_array_push(&m->external_symbols, sym);
 	sym->sym.module = m;
 	sym->sym.name = name;
@@ -386,22 +375,23 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 {
 	VALIDATE(name.len > 0);
 
-	gmmcProc* proc = f_mem_clone(gmmcProc{}, m->allocator);
+	gmmcProc* proc = f_mem_clone((gmmcProc){0}, m->allocator);
 	proc->sym.kind = gmmcSymbolKind_Proc;
 	proc->sym.module = m;
 	proc->sym.name = name;
 	proc->self_idx = (gmmcProcIdx)f_array_push(&m->procs, proc);
 	proc->signature = signature;
 	
-	proc->locals = f_array_make<gmmcLocal>(m->allocator);
-	proc->ops = f_array_make<gmmcOpData>(m->allocator);
-	f_array_push(&proc->ops, {});        // op 0 is invalid
-	f_array_push(&proc->locals, {});     // local 0 is invalid
+	proc->locals = f_array_make(m->allocator);
+	proc->ops = f_array_make(m->allocator);
+	f_array_push(&proc->ops, (gmmcOpData){0});        // op 0 is invalid. TODO: make it start from 1 and have the invalid be something like 0xFFFFF
+	f_array_push(&proc->locals, (gmmcLocal){0});      // local 0 is invalid
 
-	proc->basic_blocks = f_array_make<gmmcBasicBlock*>(m->allocator);
+	proc->basic_blocks = f_array_make(m->allocator);
 	proc->entry_bb = gmmc_make_basic_block(proc);
 
-	proc->addr_of_params = f_make_slice_garbage<gmmcOpIdx>(signature->params.len, m->allocator);
+	proc->addr_of_params = f_mem_alloc_n(gmmcOpIdx, signature->params.len, m->allocator);
+
 	for (uint i = 0; i < signature->params.len; i++) {
 		gmmcOpData op = { gmmcOpKind_addr_of_param };
 		op.bb_idx = GMMC_BB_INDEX_NONE;
@@ -420,24 +410,27 @@ GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb,
 {
 	validate_operand(bb, proc_address, gmmcType_ptr);
 	for (u32 i = 0; i < in_arguments_count; i++) {
-		validate_operand(bb, in_arguments[i]);
+		validate_operand(bb, in_arguments[i], gmmcType_None);
 	}
-
+	
 	gmmcOpData op = { gmmcOpKind_vcall };
 	op.call.target = proc_address;
-	op.call.arguments = f_clone_slice<gmmcOpIdx>({ in_arguments, in_arguments_count }, bb->mod->allocator);
+	op.call.arguments = f_clone_to_slice(in_arguments, in_arguments_count, bb->mod->allocator);
 	op.type = return_type;
 	return gmmc_push_op(bb, &op);
 }
 
 GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
-	gmmcModule* m = f_mem_clone(gmmcModule{}, allocator);
+	gmmcModule* m = f_mem_clone((gmmcModule){0}, allocator);
 	m->allocator = allocator;
-	m->proc_signatures = f_array_make<gmmcProcSignature*>(m->allocator);
-	m->globals = f_array_make<gmmcGlobal*>(m->allocator);
-	f_array_push(&m->globals, (gmmcGlobal*)0);
-	m->procs = f_array_make<gmmcProc*>(m->allocator);
-	m->external_symbols = f_array_make<gmmcExtern*>(m->allocator);
+	m->proc_signatures = f_array_make(m->allocator);
+	m->globals = f_array_make(m->allocator);
+	
+	gmmcGlobal* null_global = NULL;
+	f_array_push(&m->globals, null_global);
+	
+	m->procs = f_array_make(m->allocator);
+	m->external_symbols = f_array_make(m->allocator);
 	return m;
 }
 
@@ -446,7 +439,7 @@ GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t ali
 	memset(data, 0, size);
 	f_assert(section != gmmcSection_Code); // hmm... todo? this should be fine on the assembly target, but what about C?
 
-	gmmcGlobal* global = f_mem_clone(gmmcGlobal{}, m->allocator);
+	gmmcGlobal* global = f_mem_clone((gmmcGlobal){0}, m->allocator);
 	global->self_idx = (gmmcGlobalIdx)f_array_push(&m->globals, global);
 	global->sym.kind = gmmcSymbolKind_Global;
 	global->sym.module = m;
@@ -455,11 +448,12 @@ GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t ali
 	global->align = align;
 	global->section = section;
 	global->data = data;
-	global->relocations = f_array_make<gmmcRelocation>(m->allocator);
+	global->relocations = f_array_make(m->allocator);
 
 	*out_data = data;
 	return global;
 }
+
 
 /*
 int factorial(int n) {

@@ -268,7 +268,7 @@ typedef struct gmmcProc {
 	fArray(gmmcBasicBlock*) basic_blocks;
 	fArray(gmmcOpData) ops; // 0 is invalid!
 
-	fSlice(gmmcOpIdx) addr_of_params;
+	gmmcOpIdx* addr_of_params;
 	fArray(gmmcLocal) locals; // gmmcLocalIdx, 0 is invalid!
 } gmmcProc;
 
@@ -467,7 +467,9 @@ GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb,
 // Direct values are values that don't require any computation and such aren't tied to any specific basic block.
 //
 #define GMMC_BB_INDEX_NONE 0xFFFFFFFF
-inline bool gmmc_is_op_direct(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].bb_idx == GMMC_BB_INDEX_NONE; }
+inline bool gmmc_is_op_direct(gmmcProc* proc, gmmcOpIdx op) {
+	return ((gmmcOpData*)proc->ops.data)[op].bb_idx == GMMC_BB_INDEX_NONE;
+}
 
 GMMC_API gmmcOpIdx gmmc_op_addr_of_param(gmmcProc* proc, uint32_t index);
 
@@ -535,8 +537,8 @@ GMMC_API void gmmc_asm_get_section_relocations(gmmcAsmModule* m, gmmcSection sec
 
 // -- Common utilities -------------------------
 
-inline gmmcOpKind gmmc_get_op_kind(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].kind; }
-inline gmmcType gmmc_get_op_type(gmmcProc* proc, gmmcOpIdx op) { return proc->ops[op].type; }
+inline gmmcOpKind gmmc_get_op_kind(gmmcProc* proc, gmmcOpIdx op) { return ((gmmcOpData*)proc->ops.data)[op].kind; }
+inline gmmcType gmmc_get_op_type(gmmcProc* proc, gmmcOpIdx op) { return ((gmmcOpData*)proc->ops.data)[op].type; }
 GMMC_API u32 gmmc_type_size(gmmcType type);
 
 inline bool gmmc_type_is_integer(gmmcType t) { return t >= gmmcType_i8 && t <= gmmcType_i128; }

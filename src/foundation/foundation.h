@@ -246,12 +246,6 @@ inline bool f_does_mul_overflow(uint x, uint y) { return y && x > ((uint)-1) / y
 inline bool f_does_add_overflow(uint x, uint y) { return x + y < x; }
 inline bool f_does_sub_underflow(uint x, uint y) { return x - y > x; }
 
-// c container macros
-#ifndef __cplusplus
-#define f_array_push(array, elem) f_array_push_raw((array), &(elem), sizeof(elem))
-#define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
-#endif
-
 typedef enum fArenaMode {
 	fArenaMode_VirtualReserveFixed,
 	//ArenaMode_VirtualGrowing, // do we really need this since we have UsingAllocatorGrowing?
@@ -317,9 +311,6 @@ inline u8 f_get_alignment(uint size) {
 #define f_mem_resize_n(T, ptr, old_count, new_count, allocator) (T*)(allocator)->_proc((allocator), ptr, (old_count) * sizeof(T), (new_count) * sizeof(T))
 #define f_mem_free_n(T, ptr, count, allocator) (allocator)->_proc((allocator), (ptr), (count) * sizeof(T), 0)
 
-//#define f_mem_zero(ptr) memset(ptr, 0, sizeof(*ptr))
-//#define f_mem_zero_slice(slice) memset((f_slice).data, 0, (slice).size_bytes())
-
 #define f_mem_clone(value, allocator) f_mem_clone_size(sizeof(value), &value, allocator)
 
 inline void* f_mem_clone_size(uint size, const void* value, fAllocator* alc) {
@@ -332,6 +323,29 @@ inline void* f_mem_clone_size(uint size, const void* value, fAllocator* alc) {
 #define f_debug_fill_garbage(ptr, len) memset(ptr, 0xCC, len);
 #else
 #define f_debug_fill_garbage(ptr, len)
+#endif
+
+
+// c helper macros
+#ifndef __cplusplus
+#define f_array_push(array, elem) f_array_push_raw((array), &(elem), sizeof(elem))
+
+// maybe these could just be named f_subscript / f_subscript_ptr, since they could work both on slice and array types?
+#define f_array_get(T, array, i) ((T*)array.data)[i]
+#define f_array_get_ptr(T, array, i) (&((T*)array.data)[i])
+
+#define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
+
+inline fSliceRaw f_clone_slice_raw(fSliceRaw slice, fAllocator* alc, uint elem_size) {
+	fSliceRaw result = { f_mem_alloc(slice.len * elem_size, alc), slice.len };
+	memcpy(result.data, slice.data, slice.len * elem_size);
+	return result;
+}
+
+#define f_to_slice(ptr, len) (fSliceRaw){ptr, len}
+#define f_clone_to_slice(ptr, len, alc) f_clone_slice_raw(f_to_slice(ptr, len), alc, sizeof(*ptr))
+#define f_clone_slice(T, slice, alc) f_clone_slice_raw(slice, alc, sizeof(T))
+
 #endif
 
 typedef struct { s64 nsec; } fTick;
