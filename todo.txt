@@ -20,6 +20,9 @@
 [] @module_struct
 [] struct and array ==, != comparison
 
+[] translate the codebase to C
+[] profiling macros - we can use an uninitialized variable error trick to remind us to have the profiling end scope
+
 --------------- Keith release candidate ---------------
 [] optionals
 [] hash procedure type based on its contents, not its unique node

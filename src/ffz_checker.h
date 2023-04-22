@@ -5,11 +5,17 @@
 // The checker takes in an abstract syntax tree form of a program as input, so it is dependend on "ffz_ast.h".
 // 
 
+
+
+// FFZ is a statically typed, compiled programming language for data-oriented programming
+// with the goal of being debuggable and enjoyable to use. And, it is written as a modular
+// library consisting of <10k lines of well-commented C code!
 // 
-// FFZ is a small, statically typed, compiled programming language
-// with the goal of being practical, enjoyable to use, and to give
-// full control to the programmer. And, its reference implementation is
-// written as a modular library in <10k lines of well-commented C++!
+// 
+// FFZ is a statically typed, compiled programming language
+// with the goal of being practical, debuggable, enjoyable to use, and
+// giving full control to the programmer. And, it is written as a modular
+// library consisting of <10k lines of well-commented C code!
 // 
 // A big goal for FFZ is giving the programmer tools to use the
 // programming language as a library, and to deal with the code however they like.

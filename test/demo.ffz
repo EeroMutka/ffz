@@ -34,8 +34,8 @@ g: Globals(~~)
 #draw: proc {
 	Draw2D.begin_drawing(&g.canvas, background: {20, 40, 20, 255})
 	
-	//Draw2D.triangle(&g.canvas, {-0.5, -0.5}, {0.5, -0.5}, {0., 0.5}, color: {20, 102, 222, 255})
-	Draw2D.rect(&g.canvas, {{-0.5, -0.5}, {0.1, 0.1}}, color: {255, 0, 100, 255}, texture: g.mursu)
+	Draw2D.rect(&g.canvas, {{-0.8, -0.8}, {0., 0.}}, color: {255, 0, 100, 255}, texture: g.mursu)
+	
 	Draw2D.rect(&g.canvas, {{0.1, 0.1}, {0.5, 0.5}}, color: {255, 10, 255, 255}, texture: g.mursu)
 	
 	Draw2D.end_drawing(&g.canvas)
@@ -77,34 +77,10 @@ g: Globals(~~)
 		dbgbreak
 	}
 	
-	//my_tex_slot: Draw2D.TextureSlot(0)
-	
 	mursu: Draw2D.make_texture_ex(&g.canvas, Draw2D.TextureFormat.RGBA8, u32(width), u32(height), img_data)
 	g.mursu = &mursu
 	
-	
-	texture: GL.GLuint(0)
-	gl.GenTextures(1, &texture)
-	gl.BindTexture(GL.TEXTURE_2D, texture)
-	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.REPEAT)
-	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.REPEAT)
-	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.LINEAR)
-	gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.LINEAR)
-
-	gl.TexImage2D(GL.TEXTURE_2D, 0, GL.RGBA8, width, height, 0, GL.RGBA, GL.UNSIGNED_BYTE, img_data)
-	
 	// stbi.image_free(img_data)
-	
-	{ // set active texture
-		// learnopengl.com says there should be always at least 16 texture slots available to use.
-		
-		gl.ActiveTexture(GL.TEXTURE0)
-		gl.BindTexture(GL.TEXTURE_2D, texture)
-		
-		gl.UseProgram(g.canvas.shader_program) // shader must be bound for setting uniforms
-		
-	}
-	
 	Window.show(g.window)
 	
 	i: 0

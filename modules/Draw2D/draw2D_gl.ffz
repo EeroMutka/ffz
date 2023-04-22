@@ -217,9 +217,9 @@ void main() {
 	gl.UseProgram(c.shader_program)
 	gl.BindVertexArray(c.vao)
 	
-	//sampler_loc: gl.GetUniformLocation(c.shader_program, "u_texture".ptr)
-	//if sampler_loc == -1 { dbgbreak }
-	//gl.Uniform1i(sampler_loc, TEXTURE_SLOT) // NOTE: shader must be bound
+	sampler_loc: gl.GetUniformLocation(c.shader_program, "u_texture".ptr)
+	if sampler_loc == -1 { dbgbreak }
+	gl.Uniform1i(sampler_loc, TEXTURE_SLOT) // NOTE: shader must be bound
 	
 	gl.BindBuffer(GL.ARRAY_BUFFER, c.vbo)
 	gl.BindBuffer(GL.ELEMENT_ARRAY_BUFFER, c.ebo)

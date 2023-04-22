@@ -2367,7 +2367,7 @@ ffzOk ffz_module_check_single_(ffzModule* m) {
 
 
 fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, fArena* module_arena, ffzError* out_error) {
-	
+
 	// Canonicalize the path to deduplicate modules that have the same absolute path, but were imported with different path strings.
 	if (!f_files_path_to_canonical({}, directory, f_temp_alc(), &directory)) {
 		return NULL; // TODO: error report
