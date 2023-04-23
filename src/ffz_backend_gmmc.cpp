@@ -443,12 +443,12 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 
 	case ffzTypeTag_Record: {
 		memset(base + offset, 0, type->size);
-		ffzConstantData empty_constant = {};
+		//ffzConstantData empty_constant = {};
 
 		for (uint i = 0; i < type->record_fields.len; i++) {
 			ffzField* field = &type->record_fields[i];
 			
-			ffzConstantData* field_data = data->record_fields.len == 0 ? &empty_constant : &data->record_fields[i];
+			ffzConstantData* field_data = data->record_fields.len == 0 ? ffz_zero_value_constant() : &data->record_fields[i];
 			fill_global_constant_data(g, global, base, offset + field->offset, field->type, field_data);
 		}
 	} break;

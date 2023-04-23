@@ -467,7 +467,7 @@ struct ffzDefinitionPath {
 	fString name;
 };
 
-// if we wanted to pack the ffzConstantData structure down, then we would read bad memory in a few places  :PackConstantTroubles
+// if we wanted to pack the ffzConstantData structure down, then we would read bad memory in a few places :PackConstantTroubles
 typedef struct ffzConstantData {
 	union {
 		uint64_t  _uint;
@@ -907,6 +907,7 @@ void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(f
 
 bool ffz_constant_is_zero(ffzConstantData constant);
 
+ffzConstantData* ffz_zero_value_constant();
 
 inline fString ffz_decl_get_name(ffzNodeOpDeclare* decl) { return decl->Op.left->Identifier.name; }
 

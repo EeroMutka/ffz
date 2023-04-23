@@ -155,10 +155,14 @@ u64 ffz_hash_definition_path(ffzDefinitionPath path) {
 	return f_hasher_end(&h);
 }
 
+ffzConstantData* ffz_zero_value_constant() {
+	const static ffzConstantData zeroes = {};
+	return (ffzConstantData*)&zeroes;
+}
+
 static ffzConstantData* make_constant(ffzModule* c) {
 	// TODO: we should deduplicate constants
-	ffzConstantData* constant = f_mem_clone(ffzConstantData{}, c->alc);
-	//if (constant == (void*)0x0000020000003a90) f_trap();
+	ffzConstantData* constant = f_mem_clone(*ffz_zero_value_constant(), c->alc);
 	return constant;
 }
 
@@ -179,10 +183,7 @@ ffzCheckInfo make_type_constant(ffzModule* c, ffzType* type) {
 }
 
 ffzType* ffz_ground_type(ffzConstantData* constant, ffzType* type) {
-	if (type->tag == ffzTypeTag_Type) {
-		return constant->type;
-	}
-	return type;
+	return type->tag == ffzTypeTag_Type ? constant->type : type;
 }
 
 bool ffz_type_is_concrete(ffzType* type) {
@@ -427,11 +428,6 @@ bool ffz_constant_is_zero(ffzConstantData constant) {
 	return memcmp(&constant, zeroes, sizeof(ffzConstantData)) == 0;
 }
 
-ffzConstantData* ffz_zero_value_constant(ffzModule* c, ffzType* t) {
-	const static ffzConstantData empty = {};
-	return (ffzConstantData*)&empty;
-}
-
 ffzFieldHash ffz_hash_field(ffzType* type, fString member_name) {
 	fHasher h = f_hasher_begin();
 	f_hasher_add(&h, type->hash);
@@ -635,7 +631,7 @@ u32 ffz_get_encoded_constant_size(ffzType* type) {
 
 ffzConstantData ffz_constant_fixed_array_get(ffzConstant array, u32 index) {
 	u32 elem_size = ffz_get_encoded_constant_size(array.type->FixedArray.elem_type);
-	ffzConstantData result = {};
+	ffzConstantData result = *ffz_zero_value_constant();
 	if (array.data->fixed_array_elems) memcpy(&result, (u8*)array.data->fixed_array_elems + index*elem_size, elem_size);
 	return result;
 }
@@ -783,7 +779,7 @@ static void ffz_record_builder_add_field(ffzRecordBuilder* b, fString name, ffzT
 	field.type = field_type;
 	field.decl = decl;
 	field.has_default_value = default_value != NULL;
-	field.default_value = default_value != NULL ? *default_value : ffzConstantData{};
+	field.default_value = default_value != NULL ? *default_value : *ffz_zero_value_constant();
 	f_array_push(&b->fields, field);
 
 	// the alignment of a record is that of the largest field  :ComputeRecordAlignment
@@ -804,10 +800,9 @@ ffzType* ffz_make_type_slice(ffzModule* c, ffzType* elem_type) {
 	ffzType* out = ffz_make_type(c, type);
 
 	if (out->record_fields.len == 0) { // this type hasn't been made before
-		ffzConstantData zero = {};
 		ffzRecordBuilder b = ffz_record_builder_init(c, out, 2);
-		ffz_record_builder_add_field(&b, F_LIT("ptr"), ffz_make_type_ptr(c, elem_type), &zero, {});
-		ffz_record_builder_add_field(&b, F_LIT("len"), ffz_builtin_type(c, ffzKeyword_uint), &zero, {});
+		ffz_record_builder_add_field(&b, F_LIT("ptr"), ffz_make_type_ptr(c, elem_type), ffz_zero_value_constant(), {});
+		ffz_record_builder_add_field(&b, F_LIT("len"), ffz_builtin_type(c, ffzKeyword_uint), ffz_zero_value_constant(), {});
 		ffz_record_builder_finish(&b);
 	}
 	return out;
@@ -1492,14 +1487,14 @@ FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) 
 		c->module_type = ffz_make_type(c, { ffzTypeTag_Module });
 		c->type_type = ffz_make_type(c, { ffzTypeTag_Type });
 
-		ffzConstantData zero = {};
+		ffzConstantData* zero = ffz_zero_value_constant();
 		{
 			ffzType* string = ffz_make_type(c, { ffzTypeTag_String });
 			c->builtin_types[ffzKeyword_string] = string;
 
 			ffzRecordBuilder b = ffz_record_builder_init(c, c->builtin_types[ffzKeyword_string], 2);
-			ffz_record_builder_add_field(&b, F_LIT("ptr"), ffz_make_type_ptr(c, ffz_builtin_type(c, ffzKeyword_u8)), &zero, {});
-			ffz_record_builder_add_field(&b, F_LIT("len"), ffz_builtin_type(c, ffzKeyword_uint), &zero, {});
+			ffz_record_builder_add_field(&b, F_LIT("ptr"), ffz_make_type_ptr(c, ffz_builtin_type(c, ffzKeyword_u8)), zero, {});
+			ffz_record_builder_add_field(&b, F_LIT("len"), ffz_builtin_type(c, ffzKeyword_uint), zero, {});
 			ffz_record_builder_finish(&b);
 		}
 
@@ -1507,7 +1502,7 @@ FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) 
 			c->builtin_types[ffzKeyword_extern] = ffz_make_pseudo_record_type(c);
 			ffzRecordBuilder b = ffz_record_builder_init(c, c->builtin_types[ffzKeyword_extern], 1);
 			ffz_record_builder_add_field(&b, F_LIT("library"), ffz_builtin_type(c, ffzKeyword_string), NULL, {});
-			ffz_record_builder_add_field(&b, F_LIT("name_prefix"), ffz_builtin_type(c, ffzKeyword_string), &zero, {});
+			ffz_record_builder_add_field(&b, F_LIT("name_prefix"), ffz_builtin_type(c, ffzKeyword_string), zero, {});
 			ffz_record_builder_finish(&b);
 		}
 		
@@ -1750,7 +1745,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		TRY(check_tag(c, tag_n));
 	}
 
-	//if (node == (void*)0x0000020000048310) f_trap();
+	//F_HITS(_c, 357);
 
 	ffzCheckInfo result = ffzCheckInfo_default();
 
@@ -2116,10 +2111,12 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		}
 	}
 
+	//if (result.constant == (void*)0x000002000005f430) f_trap();
 	if (result.type && result.type->tag == ffzTypeTag_Type && (flags & InferFlag_TypeMeansZeroValue)) {
 		result.type = ffz_ground_type(result.constant, result.type);
-		result.constant = ffz_zero_value_constant(c, result.type);
+		result.constant = ffz_zero_value_constant();
 	}
+	
 
 	// Say you have `#X: struct { a: ^X }`
 	// When checking it the first time, when we get to the identifier after the pointer-to-operator,
@@ -2137,6 +2134,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			node->checked = result;
 		}
 	}
+
 
 	// post-check. The idea is to check the children AFTER we have cached the CheckInfo for this node.
 	// This gives more freedom to the children to use utilities, such as get_scope() which requires the parents to be checked.
