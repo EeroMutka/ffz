@@ -7,6 +7,8 @@
 #include "../ffz_ast.h"
 #include "../ffz_checker.h"
 
+#include "../tracy/tracy/TracyC.h"
+
 //#include <Windows.h>
 //#include <math.h>
 //
@@ -94,6 +96,8 @@ void log_pretty_error(ffzError error, fString kind) {
 inline void log_pretty_syntax_error(ffzError error) { log_pretty_error(error, F_LIT("Syntax error ")); }
 inline void log_pretty_semantic_error(ffzError error) { log_pretty_error(error, F_LIT("Semantic error ")); }
 
+const bool DEBUG_PRINT_AST = false;
+
 static void dump_module_ast(ffzModule* m, fString dir) {
 	u8 console_buf[4096];
 	fBufferedWriter console_writer;
@@ -130,51 +134,40 @@ static fOpt(ffzModule*) resolve_import(fString path, void* userdata) {
 }
 
 static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString directory) {
+	TracyCZone(tr, true);
 	fArena* module_arena = _f_temp_arena; // TODO
-
-	//ErrorCallbackPassed error_cb_passed = {};
-	//error_cb_passed.error_kind = F_LIT("Syntax error ");
-	//ffzParserErrorCallback error_cb = { log_pretty_error, &error_cb_passed };
 
 	ffzError err;
 	fOpt(ffzModule*) module = ffz_project_add_module_from_filesystem(project, directory, module_arena, &err);
-	if (!module) {
-		log_pretty_syntax_error(err);
-		return NULL;
-	}
 
-	if (!module->checked) {
-		//F_HITS(__c, 2);
-		if (!ffz_module_resolve_imports_(module, resolve_import, module).ok)
-		{
-			log_pretty_semantic_error(module->error);
-			return NULL;
+	if (module && !module->checked) {
+		
+		if (!ffz_module_resolve_imports_(module, resolve_import, module).ok) {
+			err = module->error;
+			module = NULL;
 		}
 
-		if (!ffz_module_check_single_(module).ok) {
-			log_pretty_semantic_error(module->error);
-			return NULL;
+		if (module && !ffz_module_check_single_(module).ok) {
+			err = module->error;
+			module = NULL;
 		}
 		
-		dump_module_ast(module, directory);
+		if (module && DEBUG_PRINT_AST) {
+			dump_module_ast(module, directory);
+		}
 	}
 
-	return module;
-	//module->report_error = [](ffzModule* checker, fSlice(ffzNode*) poly_path, ffzNode* at, fString error) {
-	//	ffzParser* parser = checker->project->parsers[at->id.source_id];
-	//
-	//	ffz_log_pretty_error(parser, F_LIT("Semantic error "), at->loc, error, true);
-	//	for (uint i = poly_path.len - 1; i < poly_path.len; i++) {
-	//		ffz_log_pretty_error(parser, F_LIT("\n  ...inside instantiation "), poly_path[i]->loc, F_LIT(""), false);
-	//	}
-	//
-	//	int a = 50;
-	//};
+	if (!module) {
+		log_pretty_syntax_error(err);
+	}
 
-	//module->parsers = f_make_slice_garbage<ffzParser*>(visit.files.len, module->alc);
+	TracyCZoneEnd(tr);
+	return module;
 }
 
 int main(int argc, const char* argv[]) {
+	TracyCZone(tr, true);
+
 	//fHash64 h1 = f_hash64_start();
 	//f_hash64_update(&h1, 0);
 	//f_hash64_update(&h1, 1);
@@ -185,48 +178,51 @@ int main(int argc, const char* argv[]) {
 
 	f_init();
 
+	bool ok = true;
 	if (argc <= 1) {
 		f_cprint("Please provide a directory to compile!\n");
-		return 1;
+		ok = false;
 	}
-	
-	fSliceRaw my_strings = f_slice_lit(fString, F_LIT("heyy"), F_LIT("sailor"));
-	F_UNUSED(my_strings);
-	
-	fString dir = f_str_from_cstr(argv[1]);
-	fString exe_path = f_os_get_executable_path(f_temp_alc());
-	fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
-	fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
 
-	fArena* arena = _f_temp_arena;
-	ffzProject* p = ffz_init_project(arena, modules_dir);
+	if (ok) {
+		fSliceRaw my_strings = f_slice_lit(fString, F_LIT("heyy"), F_LIT("sailor"));
+		F_UNUSED(my_strings);
 
-	ffzModule* root_module = parse_and_check_directory(p, dir);
-	if (root_module == NULL) return false;
+		fString dir = f_str_from_cstr(argv[1]);
+		fString exe_path = f_os_get_executable_path(f_temp_alc());
+		fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
+		fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
 
-	fString project_name = f_str_path_tail(dir);
-	fString build_dir = f_str_join_tmp(dir, F_LIT("\\.build"));
-	f_assert(f_files_make_directory(build_dir));
+		fArena* arena = _f_temp_arena;
+		ffzProject* p = ffz_init_project(arena, modules_dir);
+
+		ffzModule* root_module = parse_and_check_directory(p, dir);
+		if (root_module == NULL) return false;
+
+		fString project_name = f_str_path_tail(dir);
+		fString build_dir = f_str_join_tmp(dir, F_LIT("\\.build"));
+		f_assert(f_files_make_directory(build_dir));
 	
 #if defined(FFZ_BUILD_INCLUDE_TB)
-	if (!ffz_backend_gen_executable_tb(p)) {
-		return 1;
-	}
-#elif defined(FFZ_BUILD_INCLUDE_GMMC)
+		ok = ffz_backend_gen_executable_tb(p);
+	#elif defined(FFZ_BUILD_INCLUDE_GMMC)
 	
-	// hmm.. if we want to reduce memory usage / increase cache efficiency and speed, I think we could
-	// consider building a procedure after right after checking it, then throwing away the AST nodes.
-	// Or maybe only do that for GMMC nodes.
+		// hmm.. if we want to reduce memory usage / increase cache efficiency and speed, I think we could
+		// consider building a procedure after right after checking it, then throwing away the AST nodes.
+		// Or maybe only do that for GMMC nodes.
 
-	if (!ffz_backend_gen_executable_gmmc(root_module, build_dir, project_name)) {
-		return 1;
+		ok = ffz_backend_gen_executable_gmmc(root_module, build_dir, project_name);
+	#else
+	#error
+	#endif
 	}
-#else
-#error
-#endif
 
-	f_os_print_color(F_LIT("Compile succeeded!\n"), fConsoleAttribute_Green | fConsoleAttribute_Intensify);
+	if (ok) {
+		f_os_print_color(F_LIT("Compile succeeded!\n"), fConsoleAttribute_Green | fConsoleAttribute_Intensify);
+	}
 
-	f_deinit();
-	return 0;
+	//f_deinit();
+	
+	TracyCZoneEnd(tr);
+	return ok ? 0 : 1;
 }

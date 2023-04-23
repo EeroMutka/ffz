@@ -5,17 +5,26 @@ function import_ffz()
 	debugdir "%{cfg.linktarget.directory}"
 	flags {"FatalWarnings"}
 	includedirs "."
-
+	
+	vectorextensions "AVX"
+	
 	filter "configurations:Debug"
-		defines { "_DEBUG" }
+		defines { "F_DEBUG" }
 		symbols "On"
 		
+	filter "configurations:Profile"
+		files "src/tracy/TracyClient.cpp"
+		
+		defines { "TRACY_ENABLE", "TRACY_NO_EXIT" }
+		editandcontinue "Off" -- tracy requires edit-and-continue to be off
+		optimize "On"
+		
 	filter "configurations:Release"
-		defines { "_RELEASE" }
+		--defines { "_RELEASE" }
 		optimize "On"
 	
 	filter "system:windows"
-		linkoptions { "/DYNAMICBASE:NO" }
+		linkoptions { "/DYNAMICBASE:NO" } -- deterministic addresses
 	
 	filter {}
 	
@@ -85,7 +94,7 @@ workspace "ffz"
 project "ffz"
 	kind "ConsoleApp"
 	language "C++"
-	toolset "clang"
+	--toolset "clang"
 	
 	import_ffz()
 	

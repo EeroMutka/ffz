@@ -7,6 +7,11 @@
 // WARNING: THIS IS ALL CURRENTLY A WORK-IN-PROGRESS CODEBASE!! Some things aren't complete or fully tested,
 // such as UTF8 support and some things might be implemented in a dumb way.
 
+// Build options:
+//  F_DEBUG - enable various debugging helpers, i.e. allocations are filled to 0xCC
+//  F_MINIMAL_INCLUDE - include only essential type definitions, such as fArray, fString and fMap64
+//  F_INCLUDE_OS - include OS procedures
+
 #ifndef _FOUNDATION_H
 #define _FOUNDATION_H
 
@@ -320,7 +325,7 @@ inline void* f_mem_clone_size(uint size, const void* value, fAllocator* alc) {
 	return result;
 }
 
-#ifdef _DEBUG
+#ifdef F_DEBUG
 #define f_debug_fill_garbage(ptr, len) memset(ptr, 0xCC, len);
 #else
 #define f_debug_fill_garbage(ptr, len)

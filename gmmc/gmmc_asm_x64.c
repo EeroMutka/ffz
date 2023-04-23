@@ -3,6 +3,7 @@
 #define gmmcString fString
 #include "gmmc.h"
 
+// We could see if XED would be faster than zydis
 #include "Zydis/Zydis.h"
 
 //#include <stdio.h> // for fopen
@@ -1346,18 +1347,23 @@ static void default_rsel(ProcGenSelectRegs* rsel, gmmcProc* proc) {
 	}
 }
 
+const bool DEBUG_PRINT_GENERATED_INSTRUCTIONS = false;
+
 GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmcProc* proc) {
 	fWriter* w = f_get_stdout();
 	bool buffered = true;
 
 	u8 console_buf[4096];
 	fBufferedWriter console_writer;
-	if (buffered) w = f_open_buffered_writer(w, console_buf, F_LEN(console_buf), &console_writer);
 	
-	f_print(w, "---- generating proc: '~s' ----\n", proc->sym.name);
-	//gmmc_proc_print_c(stdout, proc);
-	f_print(w, "---\n");
+	if (DEBUG_PRINT_GENERATED_INSTRUCTIONS) {
+		if (buffered) w = f_open_buffered_writer(w, console_buf, F_LEN(console_buf), &console_writer);
 	
+		f_print(w, "---- generating proc: '~s' ----\n", proc->sym.name);
+		gmmc_proc_print_c(w, proc);
+		f_print(w, "---\n");
+	}
+
 	ProcGen _p = {0}; ProcGen* p = &_p;
 	//p->console = w;
 	p->module = module_gen;
@@ -1499,8 +1505,10 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		result->code_section_end_offset = (u32)code_section->data.len;
 	}
 	
-	f_print(w, "---------------------------------\n");
-	if (buffered) f_flush_buffered_writer(&console_writer);
+	if (DEBUG_PRINT_GENERATED_INSTRUCTIONS) {
+		f_print(w, "---------------------------------\n");
+		if (buffered) f_flush_buffered_writer(&console_writer);
+	}
 }
 
 GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {

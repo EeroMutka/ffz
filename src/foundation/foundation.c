@@ -858,7 +858,7 @@ void* f_arena_push_undef(fArena* arena, uint size, uint align) {
 			error_out_of_memory();
 		}
 
-#ifdef _DEBUG
+#ifdef F_DEBUG
 		memset(allocation_pos, 0xCC, size);
 #endif
 	} break;
@@ -1122,8 +1122,8 @@ bool f_map64_remove_raw(fMap64Raw* map, u64 key) {
 		u32 next_slot_index = (slot_index + 1) & wrapping_mask;
 
 		if (*key_ptr == key) {
+#ifdef F_DEBUG
 			void* value_ptr = key_ptr + 1;
-#ifdef _DEBUG
 			memset(value_ptr, 0xCC, map->value_size); // debug; trigger data-breakpoints
 #endif
 			u64* next_key_ptr = (u64*)(slots + next_slot_index * slot_size);
@@ -1244,7 +1244,7 @@ uint f_arena_get_contiguous_cursor(fArena* arena) {
 }
 
 void f_arena_set_mark(fArena* arena, fArenaMark mark) {
-#ifdef _DEBUG
+#ifdef F_DEBUG
 	if (arena->desc.mode == fArenaMode_UsingAllocatorGrowing) {
 		fArenaBlock* last = arena->pos.current_block;
 		for (fArenaBlock* block = mark.current_block->next; block && block != last->next; block = block->next) {

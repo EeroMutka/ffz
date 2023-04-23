@@ -1,6 +1,8 @@
 #define FOUNDATION_HELPER_MACROS
 #include "foundation/foundation.h"
 
+#include "tracy/tracy/TracyC.h"
+
 // TODO: convert the codebase to GCC-compitable C and hook it up with tracy?
 
 // Future research:
@@ -527,6 +529,7 @@ static bool is_identifier_char(rune r) {
 
 // returns an empty token when the end of file is reached.
 static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
+	TracyCZone(tr, true);
 	typedef enum CharType {
 		CharType_Alphanumeric,
 		CharType_Whitespace,
@@ -645,6 +648,7 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 	tok.range.end = *loc;
 	tok.str = f_str_slice(p->source->source_code, tok.range.start.offset, tok.range.end.offset);
 	memcpy(&tok.small, tok.str.data, F_MIN(tok.str.len, sizeof(tok.small)));
+	TracyCZoneEnd(tr);
 	return tok;
 }
 
@@ -971,11 +975,9 @@ static ffzOk parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRang
 }
 
 static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out) {
+	TracyCZone(tr, true);
 	fArray(ffzNodeOp*) operator_chain = f_array_make(parser_allocator(p));
-	//F_HITS(_c, 4);
 	
-	//if (loc->line_num == 333) f_trap();
-
 	// We want to first parse the tags for the entire node.
 	// i.e. in `@using a: int`, the tag should be attached to the entire node, not to the left-hand-side.
 	OPT(ffzNode*) first_tag;
@@ -1320,6 +1322,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 	if (node->parent) node->parent->loc.end = node->loc.end;
 
 	*out = node;
+	TracyCZoneEnd(tr);
 	return FFZ_OK;
 }
 
@@ -1333,6 +1336,7 @@ ffzSource* ffz_new_source(ffzModule* m, fString code, fString filepath) {
 }
 
 ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_path) {
+	TracyCZone(tr, true);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
 	parser.alc = m->alc;
@@ -1342,14 +1346,17 @@ ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_
 	
 	ffzNode* node;
 	ffzOk ok = parse_node(&parser, &loc, NULL, (ParseFlags)0, &node);
-	return (ffzParseResult){
+	ffzParseResult result = {
 		.node = ok.ok ? node : NULL,
 		.import_keywords = parser.import_keywords.slice,
 		.error = parser.error
 	};
+	TracyCZoneEnd(tr);
+	return result;
 }
 
 ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file_path) {
+	TracyCZone(tr, true);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
 	parser.alc = m->alc;
@@ -1359,11 +1366,13 @@ ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file
 	ffzNode* root = new_node(&parser, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
 
 	ffzOk ok = parse_children(&parser, &loc, root, 0);
-	return (ffzParseResult){
+	ffzParseResult result = {
 		.node = ok.ok ? root : NULL,
 		.import_keywords = parser.import_keywords.slice,
 		.error = parser.error
 	};
+	TracyCZoneEnd(tr);
+	return result;
 }
 
 void ffz_skip_standalone_tags(OPT(ffzNode*)* node) {

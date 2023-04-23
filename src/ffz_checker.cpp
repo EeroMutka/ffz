@@ -10,6 +10,8 @@
 #include "ffz_ast.h"
 #include "ffz_checker.h"
 
+#include "tracy/tracy/Tracy.hpp"
+
 #define TRY(x) { if ((x).ok == false) return ffzOk{false}; }
 
 #define OPT(ptr) ptr
@@ -1740,6 +1742,7 @@ static bool integer_is_negative(void* bits, u32 size) {
 
 static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type, InferFlags flags) {
 	if (node->has_checked) return FFZ_OK;
+	ZoneScoped;
 	
 	for (ffzNode* tag_n = node->first_tag; tag_n; tag_n = tag_n->next) {
 		TRY(check_tag(c, tag_n));
@@ -2323,6 +2326,7 @@ FFZ_CAPI ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from
 }
 
 FFZ_CAPI ffzOk ffz_module_check_single_(ffzModule* m) {
+	ZoneScoped;
 	VALIDATE(!m->checked);
 	//m->error_cb = error_cb;
 	m->error = {};

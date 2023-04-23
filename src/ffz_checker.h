@@ -468,6 +468,8 @@ struct ffzDefinitionPath {
 };
 
 // if we wanted to pack the ffzConstantData structure down, then we would read bad memory in a few places :PackConstantTroubles
+// NOTE: to initialize this to a default value, use `ffzConstantData` instead of ffzConstantData{}! It seems like some
+//  members won't get initialized to zero otherwised.
 typedef struct ffzConstantData {
 	union {
 		uint64_t  _uint;

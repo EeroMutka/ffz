@@ -1,5 +1,7 @@
 #ifdef FFZ_BUILD_INCLUDE_GMMC
 
+#include "tracy/tracy/Tracy.hpp"
+
 #define F_INCLUDE_OS
 #include "foundation/foundation.hpp"
 
@@ -20,6 +22,7 @@
 #undef small // window include header, wtf?
 
 #include <stdlib.h> // for qsort
+
 
 #define todo f_trap()
 
@@ -655,6 +658,7 @@ static gmmcOpIdx gen_initializer(Gen* g, ffzType* type, ffzNode* node) {
 // i.e.   foo: int(~~)
 //
 static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
+	ZoneScoped;
 	gmmcOpIdx out = {};
 
 	f_assert(ffz_type_is_concrete(node->checked.type));
@@ -1008,6 +1012,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 }
 
 static void gen_statement(Gen* g, ffzNode* node) {
+	ZoneScoped;
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
 		if (node->kind == ffzNodeKind_Scope) {}
@@ -1275,6 +1280,7 @@ static int cviewLine_compare_fn(const void* a, const void* b) {
 }
 
 static bool build_x64(Gen* g, fString build_dir) {
+	ZoneScoped;
 	fString obj_filename = F_LIT("a.obj");
 	fString obj_file_path = f_str_join_tmp(build_dir, F_LIT("/"), obj_filename);
 
@@ -1354,6 +1360,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 
 	// the procs need to be sorted for debug info
 	for (uint i = 0; i < g->procs_sorted.len; i++) {
+		ZoneScopedN("add procedure symbol");
 		ProcInfo* proc_info = g->procs_sorted[i];
 		gmmcProc* proc = proc_info->gmmc_proc;
 
@@ -1370,6 +1377,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 		u32 sym_idx = (u32)f_array_push(&symbols, sym);
 
 		if (INCLUDE_DEBUG_INFO) {
+			ZoneScopedN("add procedure debug info");
 			cviewFunction cv_func = {};
 			cv_func.name = proc->sym.name;
 			cv_func.sym_index = sym_idx;
@@ -1469,16 +1477,22 @@ static bool build_x64(Gen* g, fString build_dir) {
 	coff_desc.symbols = symbols.data;
 	coff_desc.symbols_count = (u32)symbols.len;
 	
-	coff_create([](fString result, void* userptr) {
-		fString obj_file_path = *(fString*)userptr;
+	{
+		ZoneScopedN("coff_create");
+		coff_create([](fString result, void* userptr) {
+			fString obj_file_path = *(fString*)userptr;
 		
-		bool ok = f_files_write_whole(obj_file_path, result);
-		f_assert(ok);
+			bool ok = f_files_write_whole(obj_file_path, result);
+			f_assert(ok);
 
-		}, &obj_file_path, &coff_desc);
+			}, &obj_file_path, &coff_desc);
+	}
 
-
-	WinSDK_Find_Result windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
+	WinSDK_Find_Result windows_sdk;
+	{
+		ZoneScopedN("WinSDK_find_visual_studio_and_windows_sdk");
+		windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
+	}
 	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, g->alc); // contains cl.exe, link.exe
 	//fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, g->alc); // contains <string.h>, etc
 	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, g->alc); // contains kernel32.lib, etc
@@ -1487,44 +1501,54 @@ static bool build_x64(Gen* g, fString build_dir) {
 	//fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, g->alc); // contains vcruntime.h
 
 	fArray(fString) ms_linker_args = f_array_make<fString>(g->alc);
-	f_array_push(&ms_linker_args, f_str_join_tmp(msvc_directory, F_LIT("\\link.exe")));
-	f_array_push(&ms_linker_args, obj_filename);
+	{
+		ZoneScopedN("build ms_linker_args");
 
-	f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-	f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-	f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), vs_library_path));
+		f_array_push(&ms_linker_args, f_str_join_tmp(msvc_directory, F_LIT("\\link.exe")));
+		f_array_push(&ms_linker_args, obj_filename);
 
-	f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
-	f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
-	
-	if (!g->link_against_libc) {
-		f_array_push(&ms_linker_args, F_LIT("/ENTRY:main"));
-		f_array_push(&ms_linker_args, F_LIT("/NODEFAULTLIB"));
+		f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
+		f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
+		f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), vs_library_path));
+
+		f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
+		f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
+
+		if (!g->link_against_libc) {
+			f_array_push(&ms_linker_args, F_LIT("/ENTRY:main"));
+			f_array_push(&ms_linker_args, F_LIT("/NODEFAULTLIB"));
+		}
+
+		f_array_push(&ms_linker_args, F_LIT("/DEBUG"));
+		f_array_push(&ms_linker_args, F_LIT("/DYNAMICBASE:NO")); // to get deterministic pointers
+
+		for (uint i = 0; i < g->project->link_libraries.len; i++) {
+			f_array_push(&ms_linker_args, g->project->link_libraries[i]);
+		}
+		for (uint i = 0; i < g->project->link_system_libraries.len; i++) {
+			f_array_push(&ms_linker_args, g->project->link_system_libraries[i]);
+		}
+
+		// specify reserve and commit for the stack.
+		f_array_push(&ms_linker_args, F_LIT("/STACK:0x200000,200000"));
+
+		if (true) {
+			f_cprint("Running link.exe: ");
+			for (uint i = 0; i < ms_linker_args.len; i++) {
+				f_cprint("\"~s\" ", ms_linker_args[i]);
+			}
+			f_cprint("\n");
+		}
 	}
 
-	f_array_push(&ms_linker_args, F_LIT("/DEBUG"));
-	f_array_push(&ms_linker_args, F_LIT("/DYNAMICBASE:NO")); // to get deterministic pointers
-
-	for (uint i = 0; i < g->project->link_libraries.len; i++) {
-		f_array_push(&ms_linker_args, g->project->link_libraries[i]);
-	}
-	for (uint i = 0; i < g->project->link_system_libraries.len; i++) {
-		f_array_push(&ms_linker_args, g->project->link_system_libraries[i]);
-	}
-
-	// specify reserve and commit for the stack.
-	f_array_push(&ms_linker_args, F_LIT("/STACK:0x200000,200000"));
-
-	f_cprint("Running link.exe: ");
-	for (uint i = 0; i < ms_linker_args.len; i++) {
-		f_cprint("\"~s\" ", ms_linker_args[i]);
-	}
-	f_cprint("\n");
 
 	u32 exit_code;
-	if (!f_os_run_command(ms_linker_args.slice, build_dir, &exit_code)) {
-		f_cprint("link.exe couldn't be found! Have you installed visual studio?\n");
-		return false;
+	{
+		ZoneScopedN("run linker");
+		if (!f_os_run_command(ms_linker_args.slice, build_dir, &exit_code)) {
+			f_cprint("link.exe couldn't be found! Have you installed visual studio?\n");
+			return false;
+		}
 	}
 	return exit_code == 0;
 }
@@ -1612,6 +1636,7 @@ static bool build_c(Gen* g, fString build_dir) {
 }
 
 FFZ_CAPI bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name) {
+	ZoneScoped;
 	ffzProject* project = root_module->project;
 
 	//fArenaMark temp_base = f_temp_get_mark();
