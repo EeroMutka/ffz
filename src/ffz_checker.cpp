@@ -945,15 +945,26 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 	return FFZ_OK;
 }
 
-static ffzOk check_initializer(ffzModule* c, ffzType* type, ffzNode* node, ffzCheckInfo* result) {
+static ffzOk check_curly_initializer(ffzModule* c, ffzType* type, ffzNode* node, ffzCheckInfo* result) {
 	result->type = type;
 
 	if (type->tag == ffzTypeTag_Proc) {
+		// Procedure initializer, e.g. proc{dbgbreak}
 		result->constant = make_constant(c);
 		result->constant->node = node;
 	}
+	else if (type->tag == ffzTypeTag_Slice) {
+		// Slice initializer, e.g. []int{1, 2, 3}
+
+		ffzType* elem_type = type->Slice.elem_type;
+
+		for FFZ_EACH_CHILD(n, node) {
+			TRY(check_node(c, n, elem_type, 0));
+		}
+	}
 	else if (type->tag == ffzTypeTag_FixedArray) {
-		// Array literal
+		// Array initializer, e.g. [3]int{1, 2, 3}
+
 		ffzType* elem_type = type->FixedArray.elem_type;
 
 		fArray(ffzNode*) elems = f_array_make<ffzNode*>(f_temp_alc());
@@ -983,7 +994,7 @@ static ffzOk check_initializer(ffzModule* c, ffzType* type, ffzNode* node, ffzCh
 			result->constant->fixed_array_elems = ptr;
 		}
 	}
-	else if (type->tag == ffzTypeTag_Record || ffz_type_is_slice_ish(type->tag)) {
+	else if (type->tag == ffzTypeTag_Record) {
 		if (type->tag == ffzTypeTag_Record && type->Record.is_union) {
 			ERR(node, "Union initialization with {} is not currently supported.");
 		}
@@ -1835,7 +1846,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		}
 		else {
 			// type-inferred initializer
-			TRY(check_initializer(c, require_type, node, &result));
+			TRY(check_curly_initializer(c, require_type, node, &result));
 		}
 	} break;
 
@@ -1987,7 +1998,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		ffzNode* left = node->Op.left;
 		TRY(check_node(c, left, NULL, 0));
 		TRY(verify_is_type_expression(c, left));
-		TRY(check_initializer(c, left->checked.constant->type, node, &result));
+		TRY(check_curly_initializer(c, left->checked.constant->type, node, &result));
 	} break;
 	
 	case ffzNodeKind_PostSquareBrackets: {

@@ -73,6 +73,7 @@ struct Gen {
 	};
 
 	bool link_against_libc;
+	u32 pointer_size;
 
 	uint dummy_name_counter;
 	
@@ -617,7 +618,7 @@ static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* typ
 	return result;
 }
 
-static gmmcOpIdx gen_initializer(Gen* g, ffzType* type, ffzNode* node) {
+static gmmcOpIdx gen_curly_initializer(Gen* g, ffzType* type, ffzNode* node) {
 	gmmcOpIdx out = gmmc_op_local(g->proc, type->size, type->align);
 
 	if (type->tag == ffzTypeTag_FixedArray) {
@@ -626,6 +627,22 @@ static gmmcOpIdx gen_initializer(Gen* g, ffzType* type, ffzNode* node) {
 		for FFZ_EACH_CHILD(n, node) {
 			gmmcOpIdx src = gen_expr(g, n, false);
 			gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, out, i * elem_type->size);
+			gen_store(g, dst_ptr, src, elem_type, n);
+			i++;
+		}
+	}
+	else if (type->tag == ffzTypeTag_Slice) {
+		ffzType* elem_type = type->Slice.elem_type;
+		u32 child_count = ffz_get_child_count(node);
+		gmmcOpIdx array_data = gmmc_op_local(g->proc, child_count * elem_type->size, elem_type->align);
+		
+		gmmc_op_store(g->bb, out, array_data); // set pointer
+		gmmc_op_store(g->bb, gmmc_op_member_access(g->bb, out, g->pointer_size), gmmc_op_i64(g->proc, child_count)); // set len
+		
+		u32 i = 0;
+		for FFZ_EACH_CHILD(n, node) {
+			gmmcOpIdx src = gen_expr(g, n, false);
+			gmmcOpIdx dst_ptr = gmmc_op_member_access(g->bb, array_data, i * elem_type->size);
 			gen_store(g, dst_ptr, src, elem_type, n);
 			i++;
 		}
@@ -873,7 +890,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		} break;
 
 		case ffzNodeKind_PostCurlyBrackets: {
-			out = gen_initializer(g, node->checked.type, node);
+			out = gen_curly_initializer(g, node->checked.type, node);
 			result_is_indirect = true;// should_dereference = !address_of;
 		} break;
 
@@ -902,21 +919,21 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 					}
 					else {
 						// load the 'len' field of a slice
-						hi = gmmc_op_load(g->bb, gmmcType_i64, gmmc_op_member_access(g->bb, left_value, 8));
+						hi = gmmc_op_load(g->bb, gmmcType_i64, gmmc_op_member_access(g->bb, left_value, g->pointer_size));
 					}
 				}
 				else {
 					hi = gen_expr(g, hi_node, false);
 				}
 
-				out = gmmc_op_local(g->proc, 16, 8);
-				lo = gmmc_op_int2int(g->bb, lo, gmmcType_i32, false);
+				out = gmmc_op_local(g->proc, g->pointer_size*2, g->pointer_size);
+				lo = gmmc_op_int2int(g->bb, lo, gmmcType_i32, false); // ??? why and how are we converting to 32-bit integers?
 				hi = gmmc_op_int2int(g->bb, hi, gmmcType_i32, false);
 				gmmcOpIdx ptr = gmmc_op_array_access(g->bb, array_data, lo, elem_type->size);
 				gmmcOpIdx len = gmmc_op_sub(g->bb, hi, lo);
 
 				gmmc_op_store(g->bb, out, ptr);
-				gmmc_op_store(g->bb, gmmc_op_member_access(g->bb, out, 8), len);
+				gmmc_op_store(g->bb, gmmc_op_member_access(g->bb, out, g->pointer_size), len);
 			}
 			else { // taking an index
 				ffzNode* index_node = ffz_get_child(node, 0);
@@ -963,7 +980,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		switch (node->kind) {
 		case ffzNodeKind_Scope: {
 			// type-inferred initializer
-			out = gen_initializer(g, node->checked.type, node);
+			out = gen_curly_initializer(g, node->checked.type, node);
 			result_is_indirect = true; //should_dereference = !address_of;
 		} break;
 		case ffzNodeKind_Identifier: {
@@ -1649,6 +1666,7 @@ FFZ_CAPI bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString bu
 
 	Gen g = {};
 	g.project = project;
+	g.pointer_size = project->pointer_size;
 	g.root_module = root_module;
 	g.gmmc = gmmc;
 	g.alc = f_temp_alc();
