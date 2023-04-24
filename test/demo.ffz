@@ -1,22 +1,25 @@
-/*
+
 //#Vector2: struct{x: int, y: int}
 
-#do_things: proc(args: []int) {
-	dbgbreak
-}
-
+//#do_things: proc(args: []int) {
+//	dbgbreak
+//}
+/*
 #main: proc {
 	
-	//numbers: []int{1, 2, 3}
+	#numbers: []int{1, 2, 3}
 	
-	do_things({5, 6, 7})
+	foo: numbers
+	foo[0] = 504
+	
+	//do_things({5, 6, 7})
 	
 	//f: &get_value(50, 20)
 	//arena_push().ptr
 	//^Arena(arena_push().ptr)
 	dbgbreak
-}
-*/
+}*/
+
 
 #Basic: import(":Basic")
 

@@ -182,17 +182,17 @@ _temp_arena_tls_index: u32(0)
 // #arena_push_new: poly[T] proc(arena: ^Arena) => ^T {...}
 
 #form_string: proc(ptr: ^u8, len: uint) => string {
-	out: string(~~)
-	out.ptr = ptr
-	out.len = len
-	ret out
+	result: string(~~)
+	result.ptr = ptr
+	result.len = len
+	ret result
 }
 
 #form_slice: poly[T] proc(ptr: ^T, len: uint) => []T {
-	out: []u8(~~)
-	out.ptr = ptr
-	out.len = len
-	ret out
+	result: []u8(~~)
+	result.ptr = ptr
+	result.len = len
+	ret result
 }
 
 #arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
@@ -264,10 +264,10 @@ _temp_arena_tls_index: u32(0)
 }
 
 #make_slice_undef: poly[T] proc(len: uint, alc: ^Allocator) => []T {
-	ret []T{
-		^T(alc._proc(alc, ^raw(0), 0, len * size_of(T), align_of(T)))
-		len
-	}
+	result: []T(~~)
+	result.ptr = ^T(alc._proc(alc, ^raw(0), 0, len * size_of(T), align_of(T)))
+	result.len = len
+	ret result
 }
 
 #resize_slice_undef: poly[T] proc(slice: ^[]T, len: uint, alc: ^Allocator) {

@@ -60,6 +60,9 @@ enum InferFlag {
 
 	// We only allow undefined values in variable (not parameter) declarations.
 	InferFlag_AllowUndefinedValues = 1 << 6,
+	
+	// RequireConstant verifies that the node has a constant or an undefined value.
+	InferFlag_RequireConstant = 1 << 7,
 };
 
 // ------------------------------
@@ -108,7 +111,7 @@ ffzConstantHash ffz_hash_constant(ffzConstant constant) {
 	case ffzTypeTag_Slice: { f_trap(); } break;
 	case ffzTypeTag_FixedArray: {
 		for (u32 i = 0; i < (u32)constant.type->FixedArray.length; i++) {
-			ffzConstantData elem_data = ffz_constant_fixed_array_get(constant, i);
+			ffzConstantData elem_data = ffz_constant_array_get_elem(constant, i);
 			ffzConstant elem = { constant.type->FixedArray.elem_type, &elem_data };
 			f_hasher_add(&h, ffz_hash_constant(elem));
 		}
@@ -470,12 +473,6 @@ static ffzOk verify_is_type_expression(ffzModule* c, ffzNode* node) {
 	return FFZ_OK;
 }
 
-static ffzOk verify_is_constant(ffzModule* c, ffzNode* node) {
-	f_assert(!node->checked.is_undefined);
-	if (node->checked.constant == NULL) ERR(node, "Expression is not constant, but constant was expected.");
-	return FFZ_OK;
-}
-
 // if this returns true, its ok to bit-cast between the types
 static bool type_is_a_bit_by_bit(ffzProject* p, ffzType* src, ffzType* target) {
 	if (src->tag == ffzTypeTag_DefaultUint && target->tag == ffzTypeTag_DefaultSint) return true; // allow implicit cast from uint -> int
@@ -631,10 +628,11 @@ u32 ffz_get_encoded_constant_size(ffzType* type) {
 	return ffz_type_is_integer(type->tag) ? type->size : sizeof(ffzConstantData);
 }
 
-ffzConstantData ffz_constant_fixed_array_get(ffzConstant array, u32 index) {
+ffzConstantData ffz_constant_array_get_elem(ffzConstant array, u32 index) {
 	u32 elem_size = ffz_get_encoded_constant_size(array.type->FixedArray.elem_type);
 	ffzConstantData result = *ffz_zero_value_constant();
-	if (array.data->fixed_array_elems) memcpy(&result, (u8*)array.data->fixed_array_elems + index*elem_size, elem_size);
+	//if (array.data->array_elems)
+	memcpy(&result, (u8*)array.data->array_elems.data + index*elem_size, elem_size);
 	return result;
 }
 
@@ -945,7 +943,7 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 	return FFZ_OK;
 }
 
-static ffzOk check_curly_initializer(ffzModule* c, ffzType* type, ffzNode* node, ffzCheckInfo* result) {
+static ffzOk check_curly_initializer(ffzModule* c, ffzType* type, ffzNode* node, InferFlags flags, ffzCheckInfo* result) {
 	result->type = type;
 
 	if (type->tag == ffzTypeTag_Proc) {
@@ -953,20 +951,10 @@ static ffzOk check_curly_initializer(ffzModule* c, ffzType* type, ffzNode* node,
 		result->constant = make_constant(c);
 		result->constant->node = node;
 	}
-	else if (type->tag == ffzTypeTag_Slice) {
-		// Slice initializer, e.g. []int{1, 2, 3}
+	else if (type->tag == ffzTypeTag_Slice || type->tag == ffzTypeTag_FixedArray) {
+		// Array or slice initializer, e.g. []int{1, 2, 3} or [3]int{1, 2, 3}
 
-		ffzType* elem_type = type->Slice.elem_type;
-
-		for FFZ_EACH_CHILD(n, node) {
-			TRY(check_node(c, n, elem_type, 0));
-		}
-	}
-	else if (type->tag == ffzTypeTag_FixedArray) {
-		// Array initializer, e.g. [3]int{1, 2, 3}
-
-		ffzType* elem_type = type->FixedArray.elem_type;
-
+		ffzType* elem_type = type->tag == ffzTypeTag_Slice ? type->Slice.elem_type : type->FixedArray.elem_type;
 		fArray(ffzNode*) elems = f_array_make<ffzNode*>(f_temp_alc());
 		bool all_elems_are_constant = true;
 
@@ -975,23 +963,30 @@ static ffzOk check_curly_initializer(ffzModule* c, ffzType* type, ffzNode* node,
 			f_array_push(&elems, n);
 			all_elems_are_constant = all_elems_are_constant && n->checked.constant != NULL;
 		}
-		
-		s32 expected = type->FixedArray.length;
-		if (expected < 0) { // make a new type if [?]
-			result->type = ffz_make_type_fixed_array(c, elem_type, (s32)elems.len);
-		}
-		else if (elems.len != expected) {
-			ERR(node, "Incorrect number of array initializer arguments. Expected ~u32, got ~u32", expected, (u32)elems.len);
+
+		if (type->tag == ffzTypeTag_FixedArray) {
+			s32 expected = type->FixedArray.length;
+			if (expected < 0) { // make a new type if [?]
+				result->type = ffz_make_type_fixed_array(c, elem_type, (s32)elems.len);
+			}
+			else if (elems.len != expected) {
+				ERR(node, "Incorrect number of array initializer arguments. Expected ~u32, got ~u32", expected, (u32)elems.len);
+			}
 		}
 
-		if (all_elems_are_constant) {
+		// For slices, we don't want to give the node a constant value if it's a local/temporary
+		// to make sure a stack copy is made of the data.
+		bool allow_constant = type->tag != ffzTypeTag_Slice || (flags & InferFlag_RequireConstant);
+
+		if (all_elems_are_constant && allow_constant) {
 			u32 elem_size = ffz_get_encoded_constant_size(elem_type);
-			void* ptr = f_mem_alloc(elem_size * elems.len, c->alc);
+			void* data = f_mem_alloc(elem_size * elems.len, c->alc);
 			for (uint i = 0; i < elems.len; i++) {
-				memcpy((u8*)ptr + elem_size * i, elems[i]->checked.constant, elem_size);
+				memcpy((u8*)data + elem_size * i, elems[i]->checked.constant, elem_size);
 			}
 			result->constant = make_constant(c);
-			result->constant->fixed_array_elems = ptr;
+			result->constant->array_elems.data = data;
+			result->constant->array_elems.len = (u32)elems.len;
 		}
 	}
 	else if (type->tag == ffzTypeTag_Record) {
@@ -1157,8 +1152,7 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 		fArray(ffzConstant) params = f_array_make<ffzConstant>(c->alc);
 
 		for FFZ_EACH_CHILD(arg, node) {
-			TRY(check_node(c, arg, NULL, 0));
-			TRY(verify_is_constant(c, arg));
+			TRY(check_node(c, arg, NULL, InferFlag_RequireConstant));
 			f_array_push(&params, ffzConstant{ arg->checked.type, arg->checked.constant });
 		}
 
@@ -1428,8 +1422,7 @@ static ffzOk check_member_access(ffzModule* c, ffzNode* node, ffzCheckInfo* resu
 //}
 
 static ffzOk check_tag(ffzModule* c, ffzNode* tag) {
-	TRY(check_node(c, tag, NULL, InferFlag_TypeMeansZeroValue));
-	TRY(verify_is_constant(c, tag));
+	TRY(check_node(c, tag, NULL, InferFlag_TypeMeansZeroValue | InferFlag_RequireConstant));
 	if (tag->checked.type->tag != ffzTypeTag_Record) {
 		ERR(tag, "Tag was not a struct literal.", "");
 	}
@@ -1564,7 +1557,7 @@ static ffzOk post_check_enum(ffzModule* c, ffzNode* node) {
 		if (n->kind != ffzNodeKind_Declare) ERR(n, "Expected a declaration; got: [~s]", ffz_node_kind_to_string(n->kind));
 
 		// NOTE: Infer the declaration from the enum internal type!
-		TRY(check_node(c, n, enum_type->Enum.internal_type, InferFlag_Statement));
+		TRY(check_node(c, n, enum_type->Enum.internal_type, InferFlag_Statement | InferFlag_RequireConstant));
 
 		u64 val = n->checked.constant->_uint;
 		
@@ -1806,10 +1799,13 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		if (is_local || is_global_variable) {
 			rhs_flags |= InferFlag_AllowUndefinedValues;
 		}
-		
+		if (!is_local) {
+			rhs_flags |= InferFlag_RequireConstant;
+		}
+
 		// sometimes we want to pass `require_type` down to the rhs, namely with enum field declarations
 		TRY(check_node(c, rhs, require_type, rhs_flags));
-
+		
 		result = rhs->checked; // Declarations cache the value of the right-hand side
 		result.is_local_variable = is_local;
 
@@ -1827,9 +1823,6 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			}
 		}
 		
-		if (!is_local && !rhs->checked.is_undefined) {
-			TRY(verify_is_constant(c, rhs));
-		}
 
 		// The lhs identifier will recurse into this same declaration,
 		// at which point we should have cached the result for this node to cut the loop.
@@ -1846,7 +1839,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		}
 		else {
 			// type-inferred initializer
-			TRY(check_curly_initializer(c, require_type, node, &result));
+			TRY(check_curly_initializer(c, require_type, node, flags, &result));
 		}
 	} break;
 
@@ -1998,7 +1991,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		ffzNode* left = node->Op.left;
 		TRY(check_node(c, left, NULL, 0));
 		TRY(verify_is_type_expression(c, left));
-		TRY(check_curly_initializer(c, left->checked.constant->type, node, &result));
+		TRY(check_curly_initializer(c, left->checked.constant->type, node, flags, &result));
 	} break;
 	
 	case ffzNodeKind_PostSquareBrackets: {
@@ -2131,6 +2124,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		result.constant = ffz_zero_value_constant();
 	}
 	
+	if (flags & InferFlag_RequireConstant && !result.is_undefined) {
+		if (result.constant == NULL) ERR(node, "Expression is not constant, but constant is required.");
+	}
 
 	// Say you have `#X: struct { a: ^X }`
 	// When checking it the first time, when we get to the identifier after the pointer-to-operator,
@@ -2214,8 +2210,7 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 				if (n->kind != ffzNodeKind_Declare) ERR(n, "Expected a declaration.");
 				fString name = ffz_decl_get_name(n);
 
-				TRY(check_node(c, n, NULL, InferFlag_Statement));
-				TRY(verify_is_constant(c, n));
+				TRY(check_node(c, n, NULL, InferFlag_Statement | InferFlag_RequireConstant));
 
 				ffzType* field_type = n->checked.type->tag == ffzTypeTag_Type ? n->checked.constant->type : n->checked.type;
 				fOpt(ffzConstantData*) default_value = n->checked.type->tag == ffzTypeTag_Type ? NULL : n->checked.constant;

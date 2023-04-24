@@ -488,10 +488,10 @@ typedef struct ffzConstantData {
 		ffzModule* module;
 		fString string_zero_terminated; // length doesn't contain the zero termination.
 
-		// tightly-packed array of ffzConstantData. i.e. if this is an array of u8,
-		// the n-th element would be ((ffzConstantData*)((u8*)array_elems + n))->_u8.
-		// You can use ffz_constant_fixed_array_get() to get an element from it.
-		fOpt(void*) fixed_array_elems; // or NULL for zero-initialized
+		// Tightly packed array of ffzConstantData, used for constant array and slice initializers.
+		// i.e. if this is an array of u8, the n-th element would be ((u8*)array_elems)[n].
+		// You can use ffz_constant_array_get_elem() to get an element from it.
+		struct { void* data; uint32_t len; } array_elems;
 
 		// for procedures and poly-expressions.
 		// NOTE: When an extern procedure, `node` will point to the ProcType node that is tagged @extern,
@@ -795,7 +795,7 @@ inline bool ffz_type_is_slice_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Sli
 inline bool ffz_type_is_pointer_sized_integer(ffzProject* p, ffzType* type) { return ffz_type_is_integer(type->tag) && type->size == p->pointer_size; }
 
 uint32_t ffz_get_encoded_constant_size(ffzType* type);
-ffzConstantData ffz_constant_fixed_array_get(ffzConstant constant, uint32_t index);
+ffzConstantData ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
 
 bool ffz_type_is_concrete(ffzType* type); // a type is grounded when a runtime variable may have that type.
 

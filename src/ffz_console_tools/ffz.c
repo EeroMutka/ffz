@@ -10,7 +10,7 @@
 
 #include "../tracy/tracy/TracyC.h"
 
-const bool DEBUG_PRINT_AST = true;
+const bool DEBUG_PRINT_AST = false;
 
 //#include <Windows.h>
 //#include <math.h>

@@ -426,6 +426,32 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 		memcpy(base + offset, &data->ptr.as_integer, 8);
 	} break;
 
+	case ffzTypeTag_FixedArray: {
+		ffzType* elem_type = type->FixedArray.elem_type;
+		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
+			ffzConstantData elem_constant_data = ffz_constant_array_get_elem(ffzConstant{ type, data }, i);
+			fill_global_constant_data(g, global, base, offset + i*elem_type->size, elem_type, &elem_constant_data);
+		}
+	} break;
+
+	case ffzTypeTag_Slice: {
+		ffzType* elem_type = type->Slice.elem_type;
+
+		void* slice_data;
+		gmmcGlobal* slice_data_global = gmmc_make_global(g->gmmc, elem_type->size * data->array_elems.len,
+			elem_type->align, gmmcSection_RData, &slice_data);
+
+		for (u32 i = 0; i < data->array_elems.len; i++) {
+			ffzConstantData elem_constant_data = ffz_constant_array_get_elem({ type, data }, i);
+			fill_global_constant_data(g, slice_data_global, (u8*)slice_data, i*elem_type->size, elem_type, &elem_constant_data);
+		}
+		
+		gmmc_global_add_relocation(global, offset, gmmc_global_as_symbol(slice_data_global));
+
+		u64 len = data->array_elems.len;
+		memcpy(base + offset + 8, &len, 8);
+	} break;
+
 	case ffzTypeTag_String: {
 		fString s = data->string_zero_terminated;
 
@@ -434,36 +460,22 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 		memcpy(str_data, s.data, s.len);
 		((u8*)str_data)[s.len] = 0; // zero-termination
 
-		memset(base + offset, 0, 8);
 		gmmc_global_add_relocation(global, offset, gmmc_global_as_symbol(str_data_global));
 
 		u64 len = s.len;
 		memcpy(base + offset + 8, &len, 8);
 	} break;
 
-	case ffzTypeTag_Slice: {
-		memset(base + offset, 0, 16);
-	} break;
-
 	case ffzTypeTag_Record: {
 		memset(base + offset, 0, type->size);
-		//ffzConstantData empty_constant = {};
-
-		for (uint i = 0; i < type->record_fields.len; i++) {
+		for (u32 i = 0; i < type->record_fields.len; i++) {
 			ffzField* field = &type->record_fields[i];
 			
 			ffzConstantData* field_data = data->record_fields.len == 0 ? ffz_zero_value_constant() : &data->record_fields[i];
 			fill_global_constant_data(g, global, base, offset + field->offset, field->type, field_data);
 		}
 	} break;
-	case ffzTypeTag_FixedArray: {
-		u32 elem_size = type->FixedArray.elem_type->size;
-		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
-			ffzConstantData elem_constant_data = ffz_constant_fixed_array_get(ffzConstant{type, data}, i);
-			
-			fill_global_constant_data(g, global, base, offset + i * elem_size, type->FixedArray.elem_type, &elem_constant_data);
-		}
-	} break;
+
 	default: f_trap();
 	}
 }
@@ -634,8 +646,10 @@ static gmmcOpIdx gen_curly_initializer(Gen* g, ffzType* type, ffzNode* node) {
 	else if (type->tag == ffzTypeTag_Slice) {
 		ffzType* elem_type = type->Slice.elem_type;
 		u32 child_count = ffz_get_child_count(node);
-		gmmcOpIdx array_data = gmmc_op_local(g->proc, child_count * elem_type->size, elem_type->align);
 		
+		gmmcOpIdx array_data = child_count > 0 ? gmmc_op_local(g->proc, child_count * elem_type->size, elem_type->align) :
+			gmmc_op_int2ptr(g->bb, gmmc_op_i64(g->proc, 0));
+
 		gmmc_op_store(g->bb, out, array_data); // set pointer
 		gmmc_op_store(g->bb, gmmc_op_member_access(g->bb, out, g->pointer_size), gmmc_op_i64(g->proc, child_count)); // set len
 		

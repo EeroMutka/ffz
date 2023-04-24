@@ -26,8 +26,7 @@ foo: proc {
 	foo: &BigStruct{1, 2, 3}
 	
 	// If an expression is required to be constant and address-of is used, the address will point to
-	// static read-only memory.
-	// Otherwise, a modifiable stack copy is made.
+	// static read-only memory. Otherwise, a modifiable stack copy is made.
 	
 	#address_of_constant: &my_constant
 	
