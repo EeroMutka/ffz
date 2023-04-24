@@ -15,7 +15,7 @@
 	mursu: ^Draw2D.Texture(0)
 }
 
-@*global
+@global
 g: Globals(~~)
 
 #draw: proc {
@@ -37,7 +37,19 @@ g: Globals(~~)
 	draw()
 }
 
+
+#MyArray: struct {
+	a: int
+	@using things: [3]int
+	b: int
+}
+
 #entry: proc {
+	
+	foo: MyArray{20, {5, 6, 67}, 200}
+	foo[1] = 423
+	b: foo[2]
+	
 	//foo(0.5, 1.)
 	Basic.print("hello!\n")
 	g.window = Window.create(512, 512, "My window")

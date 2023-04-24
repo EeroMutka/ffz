@@ -443,7 +443,7 @@ ffzFieldHash ffz_hash_field(ffzType* type, fString member_name) {
 static ffzOk add_fields_to_field_from_name_map(ffzModule* c, ffzType* root_type, ffzType* parent_type, u32 offset_from_root = 0) {
 	for (u32 i = 0; i < parent_type->record_fields.len; i++) {
 		ffzField* field = &parent_type->record_fields[i];
-		ffzTypeRecordFieldUse* field_use = f_mem_clone(ffzTypeRecordFieldUse{ field->type, offset_from_root + field->offset }, c->alc);
+		ffzTypeRecordFieldUse field_use = { field, offset_from_root + field->offset };
 
 		auto insertion = f_map64_insert(&c->field_from_name_map, ffz_hash_field(root_type, field->name), field_use, fMapInsert_DoNotOverride);
 		if (!insertion.added) {
@@ -451,7 +451,7 @@ static ffzOk add_fields_to_field_from_name_map(ffzModule* c, ffzType* root_type,
 		}
 
 		if (field->decl) {
-			if (ffz_get_tag(c->project, field->decl, ffzKeyword_using)) {
+			if (ffz_get_tag(field->decl, ffzKeyword_using)) {
 				TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
 			}
 		}
@@ -461,8 +461,8 @@ static ffzOk add_fields_to_field_from_name_map(ffzModule* c, ffzType* root_type,
 
 bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out) {
 	ffzModule* c = p->checkers[type->checker_id];
-	if (ffzTypeRecordFieldUse** result = f_map64_get(&c->field_from_name_map, ffz_hash_field(type, name))) {
-		*out = **result;
+	if (ffzTypeRecordFieldUse* result = f_map64_get(&c->field_from_name_map, ffz_hash_field(type, name))) {
+		*out = *result;
 		return true;
 	}
 	return false;
@@ -1143,6 +1143,22 @@ FFZ_CAPI ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstan
 	return result.node;
 }
 
+bool ffz_find_subscriptable_base_type(ffzType* type, ffzTypeRecordFieldUse* out) {
+	bool found = false;
+	f_for_array(ffzField, type->record_fields, it) {
+		if (it.elem.type->tag == ffzTypeTag_Slice || it.elem.type->tag == ffzTypeTag_FixedArray) {
+			if (it.elem.decl && ffz_get_tag(it.elem.decl, ffzKeyword_using)) {
+				if (found) {
+					return false;
+				}
+				*out = {&type->record_fields[it.i], it.elem.offset};
+				found = true;
+			}
+		}
+	}
+	return found;
+}
+
 static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInfo* result) {
 	ffzNode* left = node->Op.left;
 	TRY(check_node(c, left, NULL, 0));
@@ -1271,13 +1287,22 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 	else {
 		// Array subscript
 		
-		if (!(left_chk.type->tag == ffzTypeTag_Slice || left_chk.type->tag == ffzTypeTag_FixedArray)) {
-			ERR(left,
-				"Expected an array, a slice, or a polymorphic expression before [].\n    received: ~s",
+		fOpt(ffzType*) subscriptable_type = NULL;
+		if (left_chk.type->tag == ffzTypeTag_Slice || left_chk.type->tag == ffzTypeTag_FixedArray) {
+			subscriptable_type = left_chk.type;
+		} else {
+			ffzTypeRecordFieldUse subscriptable_field;
+			if (ffz_find_subscriptable_base_type(left_chk.type, &subscriptable_field)) {
+				subscriptable_type = subscriptable_field.src_field->type;
+			}
+		}
+		
+		if (subscriptable_type == NULL) {
+			ERR(left, "Expected an array, a slice, or a polymorphic expression before [].\n    received: ~s",
 				ffz_type_to_string(c->project, left_chk.type));
 		}
 
-		ffzType* elem_type = left_chk.type->tag == ffzTypeTag_Slice ? left_chk.type->Slice.elem_type : left_chk.type->FixedArray.elem_type;
+		ffzType* elem_type = subscriptable_type->tag == ffzTypeTag_Slice ? subscriptable_type->Slice.elem_type : subscriptable_type->FixedArray.elem_type;
 
 		u32 child_count = ffz_get_child_count(node);
 		if (child_count == 1) {
@@ -1391,7 +1416,7 @@ static ffzOk check_member_access(ffzModule* c, ffzNode* node, ffzCheckInfo* resu
 
 			ffzTypeRecordFieldUse field;
 			if (ffz_type_find_record_field_use(c->project, dereferenced_type, member_name, &field)) {
-				result->type = field.type;
+				result->type = field.src_field->type;
 				found = true;
 			}
 		}
@@ -1413,7 +1438,7 @@ static ffzOk check_member_access(ffzModule* c, ffzNode* node, ffzCheckInfo* resu
 //		// first check the tags...
 //		bool is_global = ffz_get_tag(c->project, inst, ffzKeyword_global) != NULL;
 //		if (!name->Identifier.is_constant && !is_global) {
-//			ERR(name, "Top-level declaration must be constant, or @*global, but got a non-constant.");
+//			ERR(name, "Top-level declaration must be constant, or @global, but got a non-constant.");
 //		}
 //	} break;
 //	default: ERR(node, "Top-level node must be a declaration, but got: ~s", ffz_node_kind_to_string(node->kind));
@@ -1453,7 +1478,7 @@ FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) 
 	c->alc = alc;
 	c->checked_identifiers = f_map64_make_raw(0, c->alc);
 	c->definition_map = f_map64_make<ffzNodeIdentifier*>(c->alc);
-	c->field_from_name_map = f_map64_make<ffzTypeRecordFieldUse*>(c->alc);
+	c->field_from_name_map = f_map64_make<ffzTypeRecordFieldUse>(c->alc);
 	c->enum_value_from_name = f_map64_make<u64>(c->alc);
 	c->enum_value_is_taken = f_map64_make<ffzNode*>(c->alc);
 	c->import_decl_from_module = f_map64_make<ffzNode*>(c->alc);
@@ -1531,19 +1556,19 @@ fOpt(ffzNode*) ffz_this_dot_get_assignee(ffzNodeThisValueDot* dot) {
 	return NULL;
 }
 
-fOpt(ffzConstantData*) ffz_get_tag_of_type(ffzProject* p, ffzNode* node, ffzType* tag_type) {
+fOpt(ffzConstantData*) ffz_get_tag_of_type(ffzNode* node, ffzType* tag_type) {
 	for (ffzNode* tag_n = node->first_tag; tag_n; tag_n = tag_n->next) {
 		f_assert(tag_n->has_checked);
-		if (type_is_a_bit_by_bit(p, tag_n->checked.type, tag_type)) {
+		if (type_is_a_bit_by_bit(node->_module->project, tag_n->checked.type, tag_type)) {
 			return tag_n->checked.constant;
 		}
 	}
 	return NULL;
 }
 
-fOpt(ffzConstantData*) ffz_get_tag(ffzProject* p, ffzNode* node, ffzKeyword tag) {
+fOpt(ffzConstantData*) ffz_get_tag(ffzNode* node, ffzKeyword tag) {
 	ffzType* type = ffz_builtin_type(ffz_module_of_node(node), tag);
-	return ffz_get_tag_of_type(p, node, type);
+	return ffz_get_tag_of_type(node, type);
 }
 
 static ffzOk post_check_enum(ffzModule* c, ffzNode* node) {
@@ -1619,7 +1644,7 @@ static ffzOk check_proc_type(ffzModule* c, ffzNode* node, ffzCheckInfo* result) 
 		proc_type.Proc.return_type = out_param->checked.constant->type;
 	}
 	
-	if (ffz_get_tag(c->project, node->parent, ffzKeyword_extern)) {
+	if (ffz_get_tag(node->parent, ffzKeyword_extern)) {
 		// if it's an extern proc, then don't turn it into a type type!!
 		result->type = ffz_make_type(c, proc_type);
 		result->constant = make_constant(c);

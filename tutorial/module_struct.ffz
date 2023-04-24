@@ -38,7 +38,7 @@
 
 // in Array.ffz:
 
-@*module_struct
+@module_struct
 #Array: struct[T] {
 	slice: []T
 	len: uint

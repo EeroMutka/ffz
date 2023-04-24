@@ -161,8 +161,8 @@ fString ffz_keyword_to_string(ffzKeyword keyword) {
 	case ffzKeyword_using:                return F_LIT("using");
 	case ffzKeyword_global:               return F_LIT("global");
 	case ffzKeyword_module_defined_entry: return F_LIT("module_defined_entry");
-	default: f_trap();
 	}
+	f_trap();
 	return (fString){0};
 }
 
@@ -259,7 +259,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	switch (node->kind) {
 
 	case ffzNodeKind_Keyword: {
-		if (ffz_keyword_is_extended(node->Keyword.keyword)) f_print(w, "*");
+		//if (ffz_keyword_is_extended(node->Keyword.keyword)) f_print(w, "*");
 		f_prints(w, ffz_keyword_to_string(node->Keyword.keyword));
 	} break;
 
@@ -1012,10 +1012,10 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 
 		Token tok = maybe_eat_next_token(p, loc, check_infix_or_postfix ? 0 : ParseFlag_SkipNewlines);
 		
-		bool is_extended_keyword = !check_infix_or_postfix && tok.small == '*';
-		if (is_extended_keyword) {
-			tok = maybe_eat_next_token(p, loc, 0);
-		}
+		//bool is_extended_keyword = !check_infix_or_postfix && tok.small == '*';
+		//if (is_extended_keyword) {
+		//	tok = maybe_eat_next_token(p, loc, 0);
+		//}
 
 		if (!prev && tok.str.len == 0) {
 			ERR(p, parent->loc, "File ended unexpectedly when parsing child-list.", "");
@@ -1213,17 +1213,17 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				TRY(parse_struct(p, loc, parent, tok.range, true, &node));
 			}
 			       // hmm... I don't think we even need the `f_str_decode_rune` here, we can just look at the first byte
-			else if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?' || is_extended_keyword) {
+			else if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?'/* || is_extended_keyword*/) {
 				ffzProject* project = project_from_parser(p);
 				ffzKeyword* keyword = f_map64_get_raw(&project->keyword_from_string, f_hash64_str(tok.str));
-				if (keyword) {
-					if (ffz_keyword_is_extended(*keyword)) {
-						if (!is_extended_keyword) keyword = NULL; // should be an identifier instead.
-					}
-					else {
-						if (is_extended_keyword) ERR(p, tok.range, "Unrecognized extended keyword: \"~s\"", tok.str);
-					}
-				}
+				//if (keyword) {
+				//	if (ffz_keyword_is_extended(*keyword)) {
+				//		if (!is_extended_keyword) keyword = NULL; // should be an identifier instead.
+				//	}
+				//	else {
+				//		if (is_extended_keyword) ERR(p, tok.range, "Unrecognized extended keyword: \"~s\"", tok.str);
+				//	}
+				//}
 				if (keyword) {
 					node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
 					node->Keyword.keyword = *keyword;

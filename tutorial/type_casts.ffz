@@ -12,11 +12,11 @@
 		// *no_bc disables the cast checks both in DEBUG and RELEASE builds, but still keeps
 		// them on in the PARANOID build mode.
 		
-		// c: @*no_bc u8(a)
+		// c: @no_bc u8(a)
 		
 		// If you want your cast to wrap, you can use the *trunc tag which truncates the value
 		// and disables all checks.
-		d: @*trunc u8(a)
+		d: @trunc u8(a)
 	}
 	
 	{

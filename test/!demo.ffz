@@ -1,5 +1,5 @@
 
-@*extern{"c_things.obj"}
+@extern{"c_things.obj"}
 #test: proc(a: f32, b: f32, c: f32, d: f32, e: f32) => f32
 
 #main: proc(argc: u32, argv: ^raw) => u32 {

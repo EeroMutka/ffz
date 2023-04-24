@@ -27,13 +27,13 @@
 #ENABLE_DEBUG_CHECKS: true
 
 // globals shouldn't be allowed in modules, but only for the basic module an exception is made
-@*global
+@global
 _temp_arena_tls_index: u32(0)
 
 #ArenaMark: struct {head: ^u8}
 
 #Arena: struct {
-	@*using allocator: Allocator // NOTE: must be the first field for downcasting! (see `arena_alc`)
+	@using allocator: Allocator // NOTE: must be the first field for downcasting! (see `arena_alc`)
 	
 	system_page_size: u32 // practically always 4 KiB
 	
@@ -341,7 +341,7 @@ _temp_arena_tls_index: u32(0)
 	//_CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_DETACH, ^raw(0))
 }
 
-@*extern{"?"}
+@extern{"?"}
 #entry: proc(args: []string) => u32
 
 // The Basic-module overrides the main entry point for your program
@@ -354,14 +354,14 @@ _temp_arena_tls_index: u32(0)
 // which is also one of the compilation targets that FFZ supports.
 // The "m" word is strictly prohibited over here!
 
-// @*module_defined_entry exports the procedure symbol, even though it's inside a to-be-imported module, but
+// @module_defined_entry exports the procedure symbol, even though it's inside a to-be-imported module, but
 // only when we're building an executable. It ignores it when building a static/dynamic library.
 // If we had #if support, we could get rid of this.
 
 // how would we do DLL/static libs?
 // thread_init_basic/thread_deinit_basic must be called if the code is using the Basic module. That's it!
 
-@*module_defined_entry
+@module_defined_entry
 #main: proc(argc: u32, argv: ^^u8) => u32 { // ffz_entry
 	thread_init_basic()
 	
@@ -389,11 +389,11 @@ _temp_arena_tls_index: u32(0)
 	wProcessorRevision: u16
 }
 
-#Kernel32: *extern{":Kernel32.lib"}
+#Kernel32: extern{":Kernel32.lib"}
 
 #HANDLE: ^raw
 
-#asm_routines: *extern{"asm_routines/asm_routines.obj"}
+#asm_routines: extern{"asm_routines/asm_routines.obj"}
 
 @asm_routines #memcpy: proc(dst: ^raw, src: ^raw, size: uint)
 @asm_routines #memmove: proc(dst: ^raw, src: ^raw, size: uint)

@@ -28,7 +28,7 @@
 	ret shader
 }
 
-@*global
+@global
 globals: struct{
 	window: Window.Window
 	gl: GL.API

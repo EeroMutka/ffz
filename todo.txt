@@ -1,5 +1,4 @@
 
-[] if statement semicolon parsing
 [] make .slice[] not necessary for Array
 
 [] get raylib up and running
@@ -14,6 +13,9 @@
 
 [] @module_struct
 [] struct and array ==, != comparison
+
+[] slice bounds checking
+	hmm, maybe this could be implemented similar to enabling libc where it's an optional tag that the Basic module implements
 
 --------------- Keith release candidate ---------------
 [] optionals

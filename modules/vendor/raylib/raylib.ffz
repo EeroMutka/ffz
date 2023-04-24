@@ -2,12 +2,12 @@
 
 /// -------------------
 
-@*extern{":winmm.lib"}
-@*extern{":kernel32.lib"}
-@*extern{":gdi32.lib"}
-@*extern{":user32.lib"}
-@*extern{":shell32.lib"}
-#raylib: *extern{"raylib.lib"}
+@extern{":winmm.lib"}
+@extern{":kernel32.lib"}
+@extern{":gdi32.lib"}
+@extern{":user32.lib"}
+@extern{":shell32.lib"}
+#raylib: extern{"raylib.lib"}
 
 #f32: u32
 #f64: u64

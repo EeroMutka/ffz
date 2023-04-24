@@ -4,7 +4,7 @@
 
 // TODO: do not use malloc. I think we could completely remove the dependency on libc.
 
-#STBI: *extern{"lib/stb_image.lib", name_prefix: "stbi_"}
+#STBI: extern{"lib/stb_image.lib", name_prefix: "stbi_"}
 
 #stbi_io_callbacks: struct {
 	read: proc(user: ^raw, data: ^u8, size: s32) => s32

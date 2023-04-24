@@ -350,16 +350,6 @@ inline void* f_mem_clone_size(uint size, const void* value, fAllocator* alc) {
 #endif
 
 
-// c helper macros
-#ifndef __cplusplus
-#define f_array_push(array, elem) f_array_push_raw((array), &(elem), sizeof(elem))
-
-// 
-// f_array_get/f_array_get_ptr/f_array_set work on fArrays as well as fSlices
-#define f_array_get(T, array_or_slice, i) ((T*)array_or_slice.data)[i]
-#define f_array_get_ptr(T, array_or_slice, i) (&((T*)array_or_slice.data)[i])
-#define f_array_set(T, array_or_slice, i, value) ((T*)array_or_slice.data)[i] = value
-
 inline bool _f_array_each_condition(void* array, uint* i, void* elem, uint elem_size) {
 	fSliceRaw slice = *(fSliceRaw*)array;
 	if (*i < slice.len) {
@@ -378,7 +368,7 @@ inline bool _f_array_each_ptr_condition(void* array, uint* i, void** elem, uint 
 	return false;
 }
 
-// Magic array iteration macro - works both on fArray and fSlice types.
+// Magical array iteration macro - works both on fArray and fSlice types.
 // e.g.
 //    fArray(float) foo;
 //    f_for_array(float, foo, it) {
@@ -392,6 +382,17 @@ inline bool _f_array_each_ptr_condition(void* array, uint* i, void** elem, uint 
 
 //#define f_for_array_ptr(T, array, it_name) (struct f_##__LINE__{uint i; T* elem;} it_name = {0}; \
 //	_f_array_each_ptr_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
+
+
+// c helper macros
+#ifndef __cplusplus
+#define f_array_push(array, elem) f_array_push_raw((array), &(elem), sizeof(elem))
+
+// 
+// f_array_get/f_array_get_ptr/f_array_set work on fArrays as well as fSlices
+#define f_array_get(T, array_or_slice, i) ((T*)array_or_slice.data)[i]
+#define f_array_get_ptr(T, array_or_slice, i) (&((T*)array_or_slice.data)[i])
+#define f_array_set(T, array_or_slice, i, value) ((T*)array_or_slice.data)[i] = value
 
 
 #define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))

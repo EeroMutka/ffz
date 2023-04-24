@@ -1,5 +1,5 @@
 
-#STBTT: *extern{"lib/stb_truetype.lib"}
+#STBTT: extern{"lib/stb_truetype.lib"}
 
 #buf: struct {
 	data: ^u8

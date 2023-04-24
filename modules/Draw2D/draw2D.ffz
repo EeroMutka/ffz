@@ -2,6 +2,14 @@
 // Simple 2D drawing library.
 // Gives you the ability to draw basic primitives such as rectangles, circles, and text.
 
+// hmm... maybe for text rendering, we could use the cool vector graphics rendering trick. Also
+// allow generic vector graphics stuff.
+
+// Then we need to assume that the colors won't change a lot between the shapes.
+// OR use stencil buffer? I think stencil buffer should do the trick right? Then we can have
+// as many colors as we want!!
+
+
 #GL: import(":OpenGL")
 #Basic: import(":Basic")
 

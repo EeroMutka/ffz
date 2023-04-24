@@ -94,7 +94,7 @@
 
 #HANDLE: ^raw
 
-#Kernel32: *extern{":Kernel32.lib"}
+#Kernel32: extern{":Kernel32.lib"}
 
 @Kernel32
 #CreateFileW: proc(lpFileName: ^u16, dwDesiredAccess: u32, dwShareMode: u32, lpSecurityAttributes: ^raw,

@@ -250,7 +250,7 @@
 
 
 #Array: poly[T] struct {
-	@*using slice: []T{}
+	@using slice: []T{}
 	capacity: uint(0)
 	allocator: ^Basic.Allocator
 }

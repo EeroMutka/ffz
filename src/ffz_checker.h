@@ -216,7 +216,7 @@ enum {
 	ffzNodeFlag_IsStandaloneTag = 1 << 0,
 };
 
-typedef enum ffzKeyword { // synced with `ffzKeyword_to_string`
+typedef enum ffzKeyword {
 	ffzKeyword_INVALID,
 
 	ffzKeyword_Eater,        // _
@@ -521,13 +521,12 @@ typedef struct ffzField {
 
 	uint32_t offset; // ignored for procedure parameters
 	ffzType* type;
-} ffzNamedField;
+} ffzField;
 
-typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
-struct ffzTypeRecordFieldUse {
-	ffzType* type;
-	uint32_t offset;
-};
+typedef struct ffzTypeRecordFieldUse {
+	ffzField* src_field;
+	uint32_t offset; // offset relative to the base address of the top-level (in case of @using) record type
+} ffzTypeRecordFieldUse;
 
 typedef struct ffzTypeEnumField {
 	fString name;
@@ -580,7 +579,6 @@ typedef struct ffzType {
 		} Pointer;
 	};
 } ffzType;
-
 
 typedef struct ffzProject {
 	fAllocator* persistent_allocator;
@@ -654,7 +652,7 @@ struct ffzModule {
 	// Contains a list of all tags, within this module, of each type.
 	fMap64(fArray(ffzNode*)) all_tags_of_type; // key: TypeHash
 	
-	fMap64(ffzTypeRecordFieldUse*) field_from_name_map; // key: FieldHash
+	fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
 	
 	// Only required during checking.
 	fMap64(u64) enum_value_from_name; // key: FieldHash.
@@ -870,11 +868,9 @@ FFZ_CAPI fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, 
 
 // ---
 
-
 // we could give you a flat array of all the types in your program
 // - and procedures
 // - and standalone tags
-
 
 // TODO: CLEANUP
 //ffzOk ffz_check_toplevel_statement(ffzModule* c, ffzNode* node);
@@ -885,6 +881,13 @@ FFZ_CAPI fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, 
 //bool ffz_find_top_level_declaration(ffzModule* c, fString name, ffzNodeOpDeclare* out_decl);
 
 bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
+
+// Find the field that is tagged @using and has type []T or [N]T. Returns true if exactly one such field is found.
+// e.g. with `struct{a: int, @using b: []int}`, the field `b` would be returned.
+// This functionality is mainly there to make it possible to create custom array types that support the subscript operator.
+// Currently, this does not do a recursive search (i.e. it won't detect a field that is inside another field with @using.)
+bool ffz_find_subscriptable_base_type(ffzType* type, ffzTypeRecordFieldUse* out);
+
 
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in `foo: int`, the foo identifier would be a definition.
@@ -924,6 +927,6 @@ bool ffz_is_code_scope(ffzNode* node);
 
 fOpt(ffzNode*) ffz_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 
-fOpt(ffzConstantData*) ffz_get_tag_of_type(ffzProject* p, ffzNode* node, ffzType* tag_type);
-fOpt(ffzConstantData*) ffz_get_tag(ffzProject* p, ffzNode* node, ffzKeyword tag);
+fOpt(ffzConstantData*) ffz_get_tag_of_type(ffzNode* node, ffzType* tag_type);
+fOpt(ffzConstantData*) ffz_get_tag(ffzNode* node, ffzKeyword tag);
 

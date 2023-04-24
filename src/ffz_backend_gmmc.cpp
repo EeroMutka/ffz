@@ -99,7 +99,7 @@ static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 	f_init_string_builder(&name, f_temp_alc());
 
 	if (node) {
-		fOpt(ffzConstantData*) extern_tag = ffz_get_tag(g->project, node->parent, ffzKeyword_extern);
+		fOpt(ffzConstantData*) extern_tag = ffz_get_tag(node->parent, ffzKeyword_extern);
 		if (extern_tag) {
 			f_prints(name.w, extern_tag->record_fields[1].string_zero_terminated); // name_prefix
 		}
@@ -111,7 +111,7 @@ static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 			// Currently, we're giving these symbols unique ids and exporting them anyway, because
 			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 			
-			bool is_module_defined_entry = ffz_get_tag(g->project, node->parent, ffzKeyword_module_defined_entry);
+			bool is_module_defined_entry = ffz_get_tag(node->parent, ffzKeyword_module_defined_entry);
 			if (extern_tag == NULL && !is_module_defined_entry) {
 				f_print(name.w, "$$~u32", node->_module->self_id);
 				//f_prints(name.w, g->checker->_dbg_module_import_name);
@@ -909,16 +909,26 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		} break;
 
 		case ffzNodeKind_PostSquareBrackets: {
-			ffzType* left_type = left->checked.type;
-			f_assert(left_type->tag == ffzTypeTag_FixedArray || left_type->tag == ffzTypeTag_Slice);
+			ffzType* subscriptable_type = left->checked.type;
+			u32 offset = 0;
+			if (subscriptable_type->tag == ffzTypeTag_FixedArray || subscriptable_type->tag == ffzTypeTag_Slice) {}
+			else {
+				ffzTypeRecordFieldUse subscriptable_field;
+				f_assert(ffz_find_subscriptable_base_type(subscriptable_type, &subscriptable_field));
+				subscriptable_type = subscriptable_field.src_field->type;
+				offset = subscriptable_field.offset;
+			}
 
-			ffzType* elem_type = left_type->tag == ffzTypeTag_Slice ? left_type->Slice.elem_type : left_type->FixedArray.elem_type;
+			ffzType* elem_type = subscriptable_type->tag == ffzTypeTag_Slice ? subscriptable_type->Slice.elem_type : subscriptable_type->FixedArray.elem_type;
 
 			gmmcOpIdx left_value = gen_expr(g, left, true);
-			gmmcOpIdx array_data = left_value;
+			if (offset != 0) {
+				left_value = gmmc_op_member_access(g->bb, left_value, offset);
+			}
+			gmmcOpIdx array_data_ptr = left_value;
 
-			if (left_type->tag == ffzTypeTag_Slice) {
-				array_data = gmmc_op_load(g->bb, gmmcType_ptr, array_data);
+			if (subscriptable_type->tag == ffzTypeTag_Slice) {
+				array_data_ptr = gmmc_op_load(g->bb, gmmcType_ptr, array_data_ptr);
 			}
 
 			if (ffz_get_child_count(node) == 2) { // slicing
@@ -928,8 +938,8 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				gmmcOpIdx lo = lo_node->kind == ffzNodeKind_Blank ? gmmc_op_i64(g->proc, 0) : gen_expr(g, lo_node, false);
 				gmmcOpIdx hi;
 				if (hi_node->kind == ffzNodeKind_Blank) {
-					if (left_type->tag == ffzTypeTag_FixedArray) {
-						hi = gmmc_op_i64(g->proc, left_type->FixedArray.length);
+					if (subscriptable_type->tag == ffzTypeTag_FixedArray) {
+						hi = gmmc_op_i64(g->proc, subscriptable_type->FixedArray.length);
 					}
 					else {
 						// load the 'len' field of a slice
@@ -943,7 +953,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				out = gmmc_op_local(g->proc, g->pointer_size*2, g->pointer_size);
 				lo = gmmc_op_int2int(g->bb, lo, gmmcType_i32, false); // ??? why and how are we converting to 32-bit integers?
 				hi = gmmc_op_int2int(g->bb, hi, gmmcType_i32, false);
-				gmmcOpIdx ptr = gmmc_op_array_access(g->bb, array_data, lo, elem_type->size);
+				gmmcOpIdx ptr = gmmc_op_array_access(g->bb, array_data_ptr, lo, elem_type->size);
 				gmmcOpIdx len = gmmc_op_sub(g->bb, hi, lo);
 
 				gmmc_op_store(g->bb, out, ptr);
@@ -954,7 +964,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				
 				gmmcOpIdx index = gen_expr(g, index_node, false);
 				index = gmmc_op_int2int(g->bb, index, gmmcType_i64, false);
-				out = gmmc_op_array_access(g->bb, array_data, index, elem_type->size);
+				out = gmmc_op_array_access(g->bb, array_data_ptr, index, elem_type->size);
 
 				result_is_indirect = true; //should_dereference = !address_of;
 			}
@@ -1073,7 +1083,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		if (ffz_decl_is_variable(node)) {
 			ffzNode* rhs = node->Op.right;
 			Value val = {};
-			if (ffz_get_tag(g->project, node, ffzKeyword_global)) {
+			if (ffz_get_tag(node, ffzKeyword_global)) {
 				f_assert(rhs->checked.type == node->checked.type);
 
 				void* global_data;

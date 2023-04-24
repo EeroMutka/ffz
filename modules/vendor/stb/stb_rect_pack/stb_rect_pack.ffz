@@ -1,5 +1,5 @@
 
-#STBRP: @*extern{"lib/stb_rect_pack.lib"}
+#STBRP: @extern{"lib/stb_rect_pack.lib"}
 
 #context: struct {
 	width: s32
