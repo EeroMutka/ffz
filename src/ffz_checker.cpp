@@ -1835,6 +1835,11 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	case ffzNodeKind_Scope: {
 		if (require_type == NULL) {
 			TRY(add_possible_definitions_to_scope(c, node, node));
+			
+			if (node->loc.start.line_num == node->loc.end.line_num && node->first_child != NULL) {
+				ERR(node, "A non-empty scope must span over multiple lines.\n"
+					"  (This restriction is currently here to improve debuggability and\n  to simplify the compiler / debug info generation.)");
+			}
 			// post-check the scope
 		}
 		else {

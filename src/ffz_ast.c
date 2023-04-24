@@ -1132,8 +1132,20 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 			if (f_str_equals(tok.str, F_LIT("if"))) {
 				// TOOD: I think we should make if, for, etc keywords and call parse_if, parse_for, etc from the keyword codepath
 				node = new_node(p, parent, tok.range, ffzNodeKind_If);
+				
 				TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->If.condition));
+
 				TRY(parse_node(p, loc, node, 0, &node->If.true_scope));
+				if (node->If.true_scope->kind != ffzNodeKind_Scope) {
+					ERR(p, tok.range, "if-statement must be followed by a scope.", "");
+				}
+				
+				//ffzLoc new_loc = *loc;
+				//tok = maybe_eat_next_token(p, &new_loc, 0);
+				//if (tok.small == ';') *loc = new_loc;
+				//else if (tok.small != '{') {
+				//	ERR(p, tok.range, "Expected either `;` or `{` following if-statement condition.", "");
+				//}
 
 				ffzLoc new_loc = *loc;
 				tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);

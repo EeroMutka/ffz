@@ -1,8 +1,4 @@
 
-[] slice literals
-  we kind of need this if we want to support something like `#print: proc(args: []string)` and want to be able to 
-  do  print({"hello", "sailor"})
-
 [] if statement semicolon parsing
 [] make .slice[] not necessary for Array
 

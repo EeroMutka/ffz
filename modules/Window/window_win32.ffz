@@ -7,7 +7,9 @@
 #Window: WindowHandle.Window
 
 #str_to_utf16_temp: proc(str: string) => []u16 {
-	if str.len == 0 { ret []u16{} }
+	if str.len == 0 {
+		ret []u16{}
+	}
 	
 	#MB_ERR_INVALID_CHARS: u32(0x00000008)
 	#CP_UTF8: u32(65001)
@@ -133,7 +135,7 @@
 		^raw(0))
 	
 	// failed
-	if hwnd == HWND(0) { dbgbreak }
+	Basic.assert(hwnd != HWND(0))
 	
 	ret Window{hwnd}
 }

@@ -1,26 +1,3 @@
-
-//#Vector2: struct{x: int, y: int}
-
-//#do_things: proc(args: []int) {
-//	dbgbreak
-//}
-/*
-#main: proc {
-	
-	#numbers: []int{1, 2, 3}
-	
-	foo: numbers
-	foo[0] = 504
-	
-	//do_things({5, 6, 7})
-	
-	//f: &get_value(50, 20)
-	//arena_push().ptr
-	//^Arena(arena_push().ptr)
-	dbgbreak
-}*/
-
-
 #Basic: import(":Basic")
 
 #Window: import(":Window")
@@ -50,7 +27,9 @@ g: Globals(~~)
 	
 	Draw2D.end_drawing(&g.canvas)
 	
-	if !GL.swap_buffers(g.window) {dbgbreak}
+	if !GL.swap_buffers(g.window) {
+		dbgbreak
+	}
 }
 
 #resize_cb: Window.ResizeCallback {
@@ -60,8 +39,6 @@ g: Globals(~~)
 
 #entry: proc {
 	//foo(0.5, 1.)
-	
-	
 	Basic.print("hello!\n")
 	g.window = Window.create(512, 512, "My window")
 	

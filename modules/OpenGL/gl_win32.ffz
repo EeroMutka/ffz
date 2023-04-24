@@ -23,12 +23,12 @@
 	Basic.assert(SetPixelFormat(hdc, pixel_format, &pfd) == 1)
 	
 	dummy_wgl_context: wglCreateContext(hdc) // NOTE: must be called after SetPixelFormat
-	if dummy_wgl_context == HGLRC(0) {dbgbreak}
-	if wglMakeCurrent(hdc, dummy_wgl_context) == 0 {dbgbreak}
+	Basic.assert(dummy_wgl_context != HGLRC(0))
+	Basic.assert(wglMakeCurrent(hdc, dummy_wgl_context) != 0)
 	
 	wglCreateContextAttribsARB: wglCreateContextAttribsARB_Proc(wglGetProcAddress("wglCreateContextAttribsARB".ptr))
 	
-	if version != Version._3_3 {dbgbreak} // TODO
+	Basic.assert(version == Version._3_3) // TODO
 	#GL_VERSION_MAJOR: s32(3)
 	#GL_VERSION_MINOR: s32(3)
 	
