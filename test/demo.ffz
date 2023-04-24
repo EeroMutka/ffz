@@ -1,18 +1,16 @@
 
-#get_value: proc(a: u32, b: u32) => u32 {
-	ret a + b
-}
+#Vector2: struct{x: int, y: int}
 
 #main: proc {
 	
+	a: &Vector2{20, 50}
+	a.y = 205
+	
 	//y: (1 / 2) / 3
 	
-	f: &get_value(50, 20)
-	
+	//f: &get_value(50, 20)
 	//arena_push().ptr
-	
 	//^Arena(arena_push().ptr)
-	
 	dbgbreak
 }
 

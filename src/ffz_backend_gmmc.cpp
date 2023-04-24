@@ -175,9 +175,9 @@ static bool has_big_return(ffzType* proc_type) {
 }
 
 // optionally set debug-info location
-static void set_loc(Gen* g, gmmcOpIdx op, ffzNode* loc_of_node) {
+static void set_loc(Gen* g, gmmcOpIdx op, ffzLocRange loc) {
 	if (!gmmc_is_op_direct(g->proc, op)) {
-		u32 line_num = g->override_line_num ? *g->override_line_num : loc_of_node->loc.start.line_num;
+		u32 line_num = g->override_line_num ? *g->override_line_num : loc.start.line_num;
 		line_num -= g->proc_info->node->loc.start.line_num;
 		
 		gmmcOpIdx* line_op = &g->proc_info->dbginfo_line_ops[line_num];
@@ -372,7 +372,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	if (!proc_type->Proc.return_type) { // automatically generate a return statement if the proc doesn't return a value
 		g->override_line_num = &node->loc.end.line_num;
 		gmmcOpIdx op = gmmc_op_return(g->bb, gmmcOpIdx{GMMC_OP_IDX_INVALID});
-		set_loc(g, op, node);
+		set_loc(g, op, node->loc);
 		g->override_line_num = NULL;
 	}
 
@@ -467,7 +467,8 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 	}
 }
 
-static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* data) {
+// If non-trivial type, the returned op-value will point to a stack copy.
+static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* data, ffzLocRange loc) {
 	gmmcOpIdx out = {};
 
 	switch (type->tag) {
@@ -508,9 +509,16 @@ static gmmcOpIdx gen_constant(Gen* g, ffzType* type, ffzConstantData* data) {
 		fill_global_constant_data(g, global, (u8*)global_data, 0, type, data);
 
 		out = gmmc_op_addr_of_symbol(g->proc, gmmc_global_as_symbol(global));
-		
+
 		if (value_is_trivial(type)) {
 			out = gmmc_op_load(g->bb, get_gmmc_trivial_type(g, type), out);
+		}
+		else {
+			// Create a stack copy
+			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, type->size, type->align);
+			gmmcOpIdx copy_op = gmmc_op_memcpy(g->bb, local_copy_addr, out, gmmc_op_i32(g->proc, type->size));
+			set_loc(g, copy_op, loc);
+			out = local_copy_addr;
 		}
 	} break;
 
@@ -551,29 +559,38 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOp* node) {
 		gmmcOpIdx arg_value;
 		if (arg_node == NULL) {
 			// use the default value
-			arg_value = gen_constant(g, param_type, &field->default_value);
+			arg_value = gen_constant(g, param_type, &field->default_value, node->loc);
 		} else {
 			arg_value = gen_expr(g, arg_node, false);
 		}
 
-		if (param_type->size > 8) {
-			// make a copy on the stack for the parameter
+		// NOTE: the way we pass around op-values matches the parameter passing calling convention,
+		// so we don't need to do any extra work. Also, indirect values (the kinds not listed below) are
+		// pointers to temporary stack copies, so we don't even need to duplicate them for the callee.
+		// 
+		//   "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are
+		//   passed as if they were integers of the same size"
+		//   https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention?view=msvc-170
 
-			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
-			gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
-			set_loc(g, copy, node);
-			arg_value = local_copy_addr;
-		}
-		else {
-			if (!value_is_trivial(param_type)) {
-				// we need to do this to make sure we aren't reading out of bounds memory
-
-				gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, 8, 8);
-				gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
-				set_loc(g, copy, node);
-				arg_value = gmmc_op_load(g->bb, gmmcType_i64, local_copy_addr);
-			}
-		}
+		//if (param_type->size > 8) {
+		//	// make a copy on the stack for the parameter
+		//	// We don't need to do that, it's done automatically!
+		//
+		//	//gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
+		//	//gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
+		//	//set_loc(g, copy, node);
+		//	//arg_value = local_copy_addr;
+		//}
+		//else {
+		//	if (!value_is_trivial(param_type)) {
+		//		// hmm... should a struct of size 3/5/6/7 be passed by pointer? I think yes!
+		//		f_trap();
+		//		//gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, 8, 8);
+		//		//gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value, gmmc_op_i32(g->proc, param_type->size));
+		//		//set_loc(g, copy, node);
+		//		//arg_value = gmmc_op_load(g->bb, gmmcType_i64, local_copy_addr);
+		//	}
+		//}
 
 		f_array_push(&args, arg_value);
 	}
@@ -582,7 +599,7 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOp* node) {
 	f_assert(target != UNDEFINED_VALUE);
 
 	gmmcOpIdx call = gmmc_op_call(g->bb, ret_type_gmmc, target, args.data, (u32)args.len);
-	set_loc(g, call, node);
+	set_loc(g, call, node->loc);
 	if (!big_return) out = call;
 
 	return out;
@@ -596,7 +613,7 @@ static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* typ
 	} else {
 		result = gmmc_op_memcpy(g->bb, addr, value, gmmc_op_i32(g->proc, type->size));
 	}
-	set_loc(g, result, node);
+	set_loc(g, result, node->loc);
 	return result;
 }
 
@@ -630,12 +647,12 @@ static gmmcOpIdx gen_initializer(Gen* g, ffzType* type, ffzNode* node) {
 			gmmcOpIdx src;
 			if (arg == NULL) { // use default value
 				if (ffz_constant_is_zero(field.default_value)) continue;
-				src = gen_constant(g, field.type, &field.default_value);
+				src = gen_constant(g, field.type, &field.default_value, node->loc);
 			}
 			else {
 				if (arg->checked.constant) {
 					if (ffz_constant_is_zero(*arg->checked.constant)) continue;
-					src = gen_constant(g, field.type, arg->checked.constant);
+					src = gen_constant(g, field.type, arg->checked.constant, arg->loc);
 				}
 				else {
 					src = gen_expr(g, arg, false);
@@ -659,13 +676,16 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	ZoneScoped;
 	gmmcOpIdx out = {};
 
+	//if (node->loc.start.line_num == 13) f_trap();
+
 	f_assert(ffz_type_is_concrete(node->checked.type));
 	f_assert(node->kind != ffzNodeKind_Declare);
 
 	bool result_is_indirect = false; // if true, result holds an address to the expression value
 
 	if (node->checked.constant) {
-		out = gen_constant(g, node->checked.type, node->checked.constant);
+		// if you take an address of constant, it should make a copy.
+		out = gen_constant(g, node->checked.type, node->checked.constant, node->loc);
 	}
 	else if (ffz_node_is_operator(node->kind)) {
 		ffzNode* left = node->Op.left;
@@ -971,7 +991,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	}
 
 	f_assert(out != UNDEFINED_VALUE);
-	set_loc(g, out, node);
+	set_loc(g, out, node->loc);
 	
 	if (result_is_indirect) {
 		if (address_of) {}
@@ -979,7 +999,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 			// Dereference the indirect value
 			if (value_is_trivial(node->checked.type)) {
 				out = gmmc_op_load(g->bb, get_gmmc_trivial_type(g, node->checked.type), out);
-				set_loc(g, out, node);
+				set_loc(g, out, node->loc);
 			}
 		}
 	}
@@ -989,7 +1009,7 @@ static gmmcOpIdx gen_expr(Gen* g, ffzNode* node, bool address_of) {
 			gmmcOpIdx tmp = gmmc_op_local(g->proc, node->checked.type->size, node->checked.type->align);
 			gmmc_op_store(g->bb, tmp, out);
 			out = tmp;
-			set_loc(g, out, node);
+			set_loc(g, out, node->loc);
 		}
 	}
 	
@@ -1086,7 +1106,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		}
 
 		gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
-		set_loc(g, gmmc_op_if(g->bb, cond, true_bb, node->If.false_scope ? false_bb : after_bb), node);
+		set_loc(g, gmmc_op_if(g->bb, cond, true_bb, node->If.false_scope ? false_bb : after_bb), node->loc);
 
 		g->bb = true_bb;
 		gen_statement(g, node->If.true_scope);
@@ -1139,7 +1159,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 
 	case ffzNodeKind_Keyword: {
 		f_assert(node->Keyword.keyword == ffzKeyword_dbgbreak);
-		set_loc(g, gmmc_op_debugbreak(g->bb), node);
+		set_loc(g, gmmc_op_debugbreak(g->bb), node->loc);
 	} break;
 
 	case ffzNodeKind_Return: {
@@ -1157,7 +1177,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 			}
 		}
 
-		set_loc(g, gmmc_op_return(g->bb, val), node);
+		set_loc(g, gmmc_op_return(g->bb, val), node->loc);
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: {
