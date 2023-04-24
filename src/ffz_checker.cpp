@@ -4,7 +4,7 @@
 // identifiers are pointing to, what types do expressions have, constant evaluation, and so on.
 // If the c succeeds, the program is valid and should compile with no errors.
 
-#define F_INCLUDE_OS
+#define F_DEF_INCLUDE_OS
 #include "foundation/foundation.hpp"
 
 #include "ffz_ast.h"

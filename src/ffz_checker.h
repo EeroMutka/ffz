@@ -72,7 +72,7 @@
 // soo.. put them in the module who instantiates.
 //
 
-#define F_MINIMAL_INCLUDE
+#define F_DEF_MINIMAL_INCLUDE
 #include "foundation/foundation.h"
 
 #ifdef __cplusplus

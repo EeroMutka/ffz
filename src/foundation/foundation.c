@@ -3,7 +3,7 @@
 #pragma comment(lib, "Dbghelp.lib") // os_get_stack_trace
 //
 
-#define F_INCLUDE_OS
+#define F_DEF_INCLUDE_OS
 #include "foundation.h"
 
 #define Array(T) fArrayRaw
@@ -233,8 +233,8 @@ void f_print_va(fWriter* w, const char* fmt, va_list args) {
 				
 				uint64_t value = 0;
 				switch (*c) {
-				case '8': { f_nocheckin();/*value = va_arg(args, int8_t); */} break; // u8
-				case '1': { f_nocheckin(); /*value = va_arg(args, uint16_t); */} break; // u16
+				case '8': { f_trap();/*value = va_arg(args, int8_t); */} break; // u8
+				case '1': { f_trap(); /*value = va_arg(args, uint16_t); */} break; // u16
 				case '3': { value = va_arg(args, uint32_t); } break; // u32
 				case '6': { value = va_arg(args, uint64_t); } break; // u64
 				default: f_assert(false);
@@ -858,7 +858,7 @@ void* f_arena_push_undef(fArena* arena, uint size, uint align) {
 			error_out_of_memory();
 		}
 
-#ifdef F_DEBUG
+#ifdef F_DEF_DEBUG
 		memset(allocation_pos, 0xCC, size);
 #endif
 	} break;
@@ -1122,7 +1122,7 @@ bool f_map64_remove_raw(fMap64Raw* map, u64 key) {
 		u32 next_slot_index = (slot_index + 1) & wrapping_mask;
 
 		if (*key_ptr == key) {
-#ifdef F_DEBUG
+#ifdef F_DEF_DEBUG
 			void* value_ptr = key_ptr + 1;
 			memset(value_ptr, 0xCC, map->value_size); // debug; trigger data-breakpoints
 #endif
@@ -1244,7 +1244,7 @@ uint f_arena_get_contiguous_cursor(fArena* arena) {
 }
 
 void f_arena_set_mark(fArena* arena, fArenaMark mark) {
-#ifdef F_DEBUG
+#ifdef F_DEF_DEBUG
 	if (arena->desc.mode == fArenaMode_UsingAllocatorGrowing) {
 		fArenaBlock* last = arena->pos.current_block;
 		for (fArenaBlock* block = mark.current_block->next; block && block != last->next; block = block->next) {
@@ -1672,6 +1672,10 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	#define MORE_SANE_MAX_PATH 1024
 
 	#pragma comment(lib, "Comdlg32.lib") // for GetOpenFileName
+	
+	bool f_os_is_debugger_present() {
+		return IsDebuggerPresent() == 1;
+	}
 
 	void f_os_print(fString str) {
 		fArenaMark mark = f_temp_get_mark();
@@ -1911,6 +1915,10 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	//	}
 	//	assert(false);
 	//}
+
+	void f_os_exit_program(u32 exit_code) {
+		ExitProcess(exit_code);
+	}
 
 	void f_os_error_popup(fString title, fString message) {
 		u8 buf[4096]; // we can't use temp_push/f_temp_pop here, because we might be reporting an error about running over the temporary arena

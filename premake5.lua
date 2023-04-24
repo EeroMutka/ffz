@@ -8,6 +8,11 @@ function import_ffz()
 	
 	vectorextensions "AVX"
 	
+	defines {
+		"F_DEF_TRAP_TITLE=\"Error!\"",
+		"F_DEF_TRAP_MESSAGE=\"FFZ reached an internal error. Sorry! Please message Eero.\"",
+	}
+	
 	filter "configurations:Debug"
 		defines { "F_DEBUG" }
 		symbols "On"
@@ -94,7 +99,10 @@ workspace "ffz"
 project "ffz"
 	kind "ConsoleApp"
 	language "C++"
+	
+	-- clang
 	--toolset "clang"
+	--buildoptions "-Wformat" -- tracy needs this
 	
 	import_ffz()
 	

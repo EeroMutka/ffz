@@ -2,7 +2,7 @@
 
 #include "tracy/tracy/Tracy.hpp"
 
-#define F_INCLUDE_OS
+#define F_DEF_INCLUDE_OS
 #include "foundation/foundation.hpp"
 
 #include "ffz_ast.h"

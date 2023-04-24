@@ -8,9 +8,11 @@
 // such as UTF8 support and some things might be implemented in a dumb way.
 
 // Build options:
-//  F_DEBUG - enable various debugging helpers, i.e. allocations are filled to 0xCC
-//  F_MINIMAL_INCLUDE - include only essential type definitions, such as fArray, fString and fMap64
-//  F_INCLUDE_OS - include OS procedures
+//  F_DEF_DEBUG - enable various debugging helpers, i.e. allocations are filled to 0xCC
+//  F_DEF_MINIMAL_INCLUDE - include only essential type definitions, such as fArray, fString and fMap64
+//  F_DEF_INCLUDE_OS - include OS procedures
+//  F_DEF_TRAP_TITLE
+//  F_DEF_TRAP_MESSAGE
 
 #ifndef _FOUNDATION_H
 #define _FOUNDATION_H
@@ -110,7 +112,7 @@ typedef struct fStringBuilder {
 // Used to mark nullable pointers
 #define fOpt(ptr) ptr
 
-#ifndef F_MINIMAL_INCLUDE
+#ifndef F_DEF_MINIMAL_INCLUDE
 
 // Common type aliases. These are the only things without the 'f' prefix
 typedef uint8_t   u8;
@@ -184,12 +186,28 @@ extern "C" {
 // Useful for surpressing compiler warnings
 // https://stackoverflow.com/questions/12198449/cross-platform-macro-for-silencing-unused-variables-warning/12199209#12199209
 #define F_UNUSED(x) (void)(x)
-//#define F_UNUSED(name) ((void)(0 ? ((name) = (name)) : (name)))
 
+bool f_os_is_debugger_present();
+void f_os_error_popup(fString title, fString message);
+void f_os_exit_program(u32 exit_code);
 
-#define f_trap() do {__debugbreak();} while(0) //void f_trap();
-#define f_nocheckin() f_trap()
+#ifndef F_DEF_TRAP_TITLE
+#define F_DEF_TRAP_TITLE "Debug-trap!"
+#endif
+#ifndef F_DEF_TRAP_MESSAGE
+#define F_DEF_TRAP_MESSAGE "The program reached an invalid state."
+#endif
+
+#define f_trap() do { \
+	if (f_os_is_debugger_present()) { __debugbreak(); } \
+	else { f_os_error_popup(F_LIT(F_DEF_TRAP_TITLE), F_LIT(F_DEF_TRAP_MESSAGE)); f_os_exit_program(1); } \
+} while(0)
+
 #define f_assert(x) { if (!(x)) f_trap(); }
+
+// Breakpoint that executes only when ran inside the debugger
+#define f_bp() do { if (f_os_is_debugger_present()) __debugbreak(); } while(0)
+
 
 // Cast with range checking
 //#define F_CAST(T, x) ((T)(x) == (x) ? (T)(x) : (f_trap(), (T)0))
@@ -325,7 +343,7 @@ inline void* f_mem_clone_size(uint size, const void* value, fAllocator* alc) {
 	return result;
 }
 
-#ifdef F_DEBUG
+#ifdef F_DEF_DEBUG
 #define f_debug_fill_garbage(ptr, len) memset(ptr, 0xCC, len);
 #else
 #define f_debug_fill_garbage(ptr, len)
@@ -819,7 +837,7 @@ rune f_str_prev_rune(fString str, uint* byteoffset);
 
 uint f_str_rune_count(fString str);
 
-#ifdef F_INCLUDE_OS
+#ifdef F_DEF_INCLUDE_OS
 // -- OS general ---------------------------------------------------------------
 
 u64 f_read_cycle_counter();

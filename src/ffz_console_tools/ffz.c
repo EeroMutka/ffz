@@ -1,7 +1,8 @@
 
 // Command line ffz compiler
 
-#define F_INCLUDE_OS
+#define F_DEF_INCLUDE_OS
+//#define F_DEF_TRAP() f_os_error_popup(F_LIT("Debug-trap!"), F_LIT("The program reached an invalid state."))
 #include "../foundation/foundation.h"
 
 #include "../ffz_ast.h"
