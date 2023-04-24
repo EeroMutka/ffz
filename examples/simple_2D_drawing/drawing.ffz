@@ -1,0 +1,101 @@
+#Basic: import(":Basic")
+
+#Window: import(":Window")
+#GL: import(":OpenGL")
+#Draw2D: import(":Draw2D")
+
+#Files: import(":Files")
+#stbi: import(":vendor/stb/stb_image")
+
+#Globals: struct {
+	window: Window.Window
+	gl: GL.API
+	canvas: Draw2D.Canvas
+	
+	mursu: ^Draw2D.Texture(0)
+}
+
+@global
+g: Globals(~~)
+
+#draw: proc {
+	Draw2D.begin_drawing(&g.canvas, background: {20, 40, 20, 255})
+	
+	Draw2D.rect(&g.canvas, {{-0.8, -0.8}, {0., 0.}}, color: {255, 0, 100, 255}, texture: g.mursu)
+	
+	Draw2D.rect(&g.canvas, {{0.1, 0.1}, {0.5, 0.5}}, color: {255, 10, 255, 255}, texture: g.mursu)
+	
+	Draw2D.end_drawing(&g.canvas)
+	
+	if !GL.swap_buffers(g.window) {
+		dbgbreak
+	}
+}
+
+#resize_cb: Window.ResizeCallback {
+	g.gl.Viewport(0, 0, s32(in.width), s32(in.height))
+	draw()
+}
+
+
+#MyArray: struct {
+	a: int
+	@using things: [3]int
+	b: int
+}
+
+#entry: proc {
+	
+	foo: MyArray{20, {5, 6, 67}, 200}
+	foo[1] = 423
+	b: foo[2]
+	
+	//foo(0.5, 1.)
+	Basic.print("hello!\n")
+	g.window = Window.create(512, 512, "My window")
+	
+	gl: &g.gl
+	GL.load(gl, g.window, GL.Version._3_3)
+	
+	g.canvas = Draw2D.init(gl, Basic.temp_arena())
+	
+	
+	// load images
+	// we need a read-entire-file procedure
+	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", Basic.temp_alc())
+	Basic.assert(image_file.ok)
+	
+	
+	width: s32(~~), height: s32(~~), channels_in_file: s32(~~)
+	
+	stbi.set_flip_vertically_on_load(1)
+	img_data: stbi.load_from_memory(image_file.data.ptr, s32(image_file.data.len),
+		&width, &height, &channels_in_file, desired_channels: 4)
+	
+	if img_data == ^u8(0) {
+		dbgbreak
+	}
+	
+	mursu: Draw2D.make_texture_ex(&g.canvas, Draw2D.TextureFormat.RGBA8, u32(width), u32(height), img_data)
+	g.mursu = &mursu
+	
+	// stbi.image_free(img_data)
+	Window.show(g.window)
+	
+	i: 0
+	
+	quit: false
+	for, !quit {
+		events: Window.poll_events(g.window, resize_cb, ^raw(gl))
+		
+		if events.quit {
+			quit = true
+		}
+		
+		if !quit {
+			draw()
+		}
+		
+		i= . + 1
+	}
+}

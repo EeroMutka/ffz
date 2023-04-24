@@ -2063,6 +2063,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		if (ok) {
 			result = f_str_from_utf16(result_utf16, alc);
 			f_str_advance(&result, 4); // strings returned have `\\?\` - prefix that we should get rid of
+			*out_canonical = result;
 		}
 		
 		if (working_dir.len > 0) {
@@ -2072,7 +2073,6 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		if (file_handle != INVALID_HANDLE_VALUE) CloseHandle(file_handle);
 
 		if (alc != f_temp_alc()) f_temp_set_mark(mark);
-		*out_canonical = result;
 		return ok;
 	}
 

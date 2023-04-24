@@ -21,76 +21,74 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 
 static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString directory);
 
-//struct ErrorCallbackPassed {
-//	fString error_kind;
-//};
 
 void log_pretty_error(ffzError error, fString kind) {
-	//ErrorCallbackPassed* passed = (ErrorCallbackPassed*)userdata;
-	
 	f_os_print_color(kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
-	f_os_print(F_LIT("("));
+	
+	fString line_num_str;
+	if (error.source) {
+		f_os_print(F_LIT("("));
+		f_os_print_color(error.source->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
 
-	f_assert(error.source); // TODO
+		line_num_str = f_str_from_uint(error.location.start.line_num, 10, f_temp_alc());
 
-	f_os_print_color(error.source->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+		f_os_print(F_LIT(":"));
+		f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
+		f_os_print(F_LIT(":"));
+		f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
+		f_os_print(F_LIT(")\n  "));
+	}
 
-	fString line_num_str = f_str_from_uint(error.location.start.line_num, 10, f_temp_alc());
-
-	f_os_print(F_LIT(":"));
-	f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
-	f_os_print(F_LIT(":"));
-	f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
-	f_os_print(F_LIT(")\n  "));
 	f_os_print(error.message);
 	f_os_print(F_LIT("\n"));
-	//if (extra_newline) f_os_print(F_LIT("\n"));
 
-	// Scan left until the start of the line
-	uint line_start_offset = error.location.start.offset;
-	for (;;) {
-		uint prev = line_start_offset;
-		u8 r = (u8)f_str_prev_rune(error.source->source_code, &prev);
-		if (r == 0 || r == '\n') break;
-		line_start_offset = prev;
-	}
-
-	u16 code_color = fConsoleAttribute_Green | fConsoleAttribute_Red;
-
-	fString src_line_separator = F_LIT(":    ");
-	f_os_print_color(line_num_str, fConsoleAttribute_Intensify);
-	f_os_print_color(src_line_separator, fConsoleAttribute_Intensify);
-	
-	fString start_str = f_str_slice(error.source->source_code, line_start_offset, error.location.start.offset);
-	start_str = f_str_replace(start_str, F_LIT("\t"), F_LIT("    "), f_temp_alc());
-	f_os_print_color(start_str, code_color);
-
-	{
-		uint offset = error.location.start.offset;
+	if (error.source) {
+		// Scan left until the start of the line
+		uint line_start_offset = error.location.start.offset;
 		for (;;) {
-			rune r = (u8)f_str_next_rune(error.source->source_code, &offset);
+			uint prev = line_start_offset;
+			u8 r = (u8)f_str_prev_rune(error.source->source_code, &prev);
 			if (r == 0 || r == '\n') break;
-
-			u8 r_utf8[4];
-			fString r_str = { r_utf8, f_str_encode_rune(r_utf8, r) };
-			f_os_print_color(r_str, offset <= error.location.end.offset ? (fConsoleAttribute_Red | fConsoleAttribute_Intensify) : code_color);
+			line_start_offset = prev;
 		}
-		f_os_print(F_LIT("\n"));
-	}
 
-	{
-		// write the ^^^ characters
+		u16 code_color = fConsoleAttribute_Green | fConsoleAttribute_Red;
 
-		//for (i64 i=0; i<
-		uint num_spaces = line_num_str.len + src_line_separator.len + f_str_rune_count(start_str);
-		for (uint i = 0; i < num_spaces; i++) f_os_print(F_LIT(" "));
+		fString src_line_separator = F_LIT(":    ");
+		f_os_print_color(line_num_str, fConsoleAttribute_Intensify);
+		f_os_print_color(src_line_separator, fConsoleAttribute_Intensify);
+	
+		fString start_str = f_str_slice(error.source->source_code, line_start_offset, error.location.start.offset);
+		start_str = f_str_replace(start_str, F_LIT("\t"), F_LIT("    "), f_temp_alc());
+		f_os_print_color(start_str, code_color);
 
-		uint offset = error.location.start.offset;
-		while (offset < error.location.end.offset) {
-			rune r = (u8)f_str_next_rune(error.source->source_code, &offset);
-			if (r == 0 || r == '\n') break;
+		{
+			uint offset = error.location.start.offset;
+			for (;;) {
+				rune r = (u8)f_str_next_rune(error.source->source_code, &offset);
+				if (r == 0 || r == '\n') break;
 
-			f_os_print_color(F_LIT("^"), fConsoleAttribute_Red);
+				u8 r_utf8[4];
+				fString r_str = { r_utf8, f_str_encode_rune(r_utf8, r) };
+				f_os_print_color(r_str, offset <= error.location.end.offset ? (fConsoleAttribute_Red | fConsoleAttribute_Intensify) : code_color);
+			}
+			f_os_print(F_LIT("\n"));
+		}
+
+		{
+			// write the ^^^ characters
+
+			//for (i64 i=0; i<
+			uint num_spaces = line_num_str.len + src_line_separator.len + f_str_rune_count(start_str);
+			for (uint i = 0; i < num_spaces; i++) f_os_print(F_LIT(" "));
+
+			uint offset = error.location.start.offset;
+			while (offset < error.location.end.offset) {
+				rune r = (u8)f_str_next_rune(error.source->source_code, &offset);
+				if (r == 0 || r == '\n') break;
+
+				f_os_print_color(F_LIT("^"), fConsoleAttribute_Red);
+			}
 		}
 	}
 	f_os_print(F_LIT("\n"));

@@ -1,0 +1,3 @@
+
+@build_option
+#link_against_libc: true

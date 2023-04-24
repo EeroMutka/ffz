@@ -1,101 +1,161 @@
+
 #Basic: import(":Basic")
+#Array: import(":Array")
+#RL: import(":vendor/raylib")
 
-#Window: import(":Window")
-#GL: import(":OpenGL")
-#Draw2D: import(":Draw2D")
+#V2: [2]int
 
-#Files: import(":Files")
-#stbi: import(":vendor/stb/stb_image")
+#window_size: uint(512)
+#grid_size: uint(12)
 
-#Globals: struct {
-	window: Window.Window
-	gl: GL.API
-	canvas: Draw2D.Canvas
-	
-	mursu: ^Draw2D.Texture(0)
+#equals_v2: proc(a: V2, b: V2) => bool {
+	ret a.x == b.x && a.y == b.y
 }
 
-@global
-g: Globals(~~)
+#add_v2: proc(a: V2, b: V2) => V2 {
+	ret V2{a.x + b.x, a.y + b.y}
+}
 
-#draw: proc {
-	Draw2D.begin_drawing(&g.canvas, background: {20, 40, 20, 255})
-	
-	Draw2D.rect(&g.canvas, {{-0.8, -0.8}, {0., 0.}}, color: {255, 0, 100, 255}, texture: g.mursu)
-	
-	Draw2D.rect(&g.canvas, {{0.1, 0.1}, {0.5, 0.5}}, color: {255, 10, 255, 255}, texture: g.mursu)
-	
-	Draw2D.end_drawing(&g.canvas)
-	
-	if !GL.swap_buffers(g.window) {
-		dbgbreak
+#random_grid_slot: proc() => V2 {
+	ret V2{
+		int(RL.GetRandomValue(0, s32(grid_size-1)))
+		int(RL.GetRandomValue(0, s32(grid_size-1)))
 	}
 }
 
-#resize_cb: Window.ResizeCallback {
-	g.gl.Viewport(0, 0, s32(in.width), s32(in.height))
-	draw()
+#Game: struct {
+	snake: Array.Array[V2]
+	
+	apple_pos: V2{2, 2}
+	
+	lost: false
+	
+	snake_direction: V2{1, 0}
+	next_input: V2{1, 0}
+	
+	score: uint(0)
+	frame_index: uint(1)
 }
 
-
-#MyArray: struct {
-	a: int
-	@using things: [3]int
-	b: int
-}
-
-#entry: proc {
-	
-	foo: MyArray{20, {5, 6, 67}, 200}
-	foo[1] = 423
-	b: foo[2]
-	
-	//foo(0.5, 1.)
-	Basic.print("hello!\n")
-	g.window = Window.create(512, 512, "My window")
-	
-	gl: &g.gl
-	GL.load(gl, g.window, GL.Version._3_3)
-	
-	g.canvas = Draw2D.init(gl, Basic.temp_arena())
-	
-	
-	// load images
-	// we need a read-entire-file procedure
-	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", Basic.temp_alc())
-	Basic.assert(image_file.ok)
-	
-	
-	width: s32(~~), height: s32(~~), channels_in_file: s32(~~)
-	
-	stbi.set_flip_vertically_on_load(1)
-	img_data: stbi.load_from_memory(image_file.data.ptr, s32(image_file.data.len),
-		&width, &height, &channels_in_file, desired_channels: 4)
-	
-	if img_data == ^u8(0) {
-		dbgbreak
+#update: proc(game: ^Game) {
+	snake: &game.snake
+	if game.lost {
+		ret
 	}
 	
-	mursu: Draw2D.make_texture_ex(&g.canvas, Draw2D.TextureFormat.RGBA8, u32(width), u32(height), img_data)
-	g.mursu = &mursu
-	
-	// stbi.image_free(img_data)
-	Window.show(g.window)
-	
-	i: 0
-	
-	quit: false
-	for, !quit {
-		events: Window.poll_events(g.window, resize_cb, ^raw(gl))
-		
-		if events.quit {
-			quit = true
+	if game.frame_index % 15 == 0 {
+		if !equals_v2(game.next_input, V2{0, 0}) {
+			game.snake_direction= game.next_input
+			game.next_input= V2{0, 0}
 		}
 		
-		if !quit {
-			draw()
+		for i: int(snake.len) - 1, i > 0, i= .-1 {
+			if !equals_v2(snake.slice[i], snake.slice[i-1]) {
+				snake.slice[i] = snake.slice[i-1]
+			}
 		}
 		
-		i= . + 1
+		// eat apple?
+		if equals_v2(snake.slice[0], game.apple_pos) {
+			Array.insert[V2](snake, 0, snake.slice[0])
+			
+			// TODO: check to make sure the apple doesn't spawn inside the snake!!
+			game.apple_pos = random_grid_slot()
+			
+			game.score = .+1
+		}
+		
+		snake.slice[0] = add_v2(., game.snake_direction)
+		
+		head: snake.slice[0]
+		if head.x < 0 || head.x >= grid_size || head.y < 0 || head.y >= grid_size {
+			game.lost = true
+		}
+		
+		// if you hit yourself, lose
+		for i: 1, i < snake.len, i= .+1 {
+			if equals_v2(snake.slice[0], snake.slice[i]) {
+				game.lost = true
+			}
+		}
+	}
+	
+	if RL.IsKeyDown(RL.KeyboardKey.RIGHT) && game.snake_direction.x == 0 {
+		game.next_input = V2{1, 0}
+	}
+	if RL.IsKeyDown(RL.KeyboardKey.LEFT) && game.snake_direction.x == 0 {
+		game.next_input = V2{-1, 0}
+	}
+	if RL.IsKeyDown(RL.KeyboardKey.UP) && game.snake_direction.y == 0 {
+		game.next_input = V2{0, -1}
+	}
+	if RL.IsKeyDown(RL.KeyboardKey.DOWN) && game.snake_direction.y == 0 {
+		game.next_input = V2{0, 1}
+	}
+	game.frame_index= . + 1
+}
+
+#draw: proc(game: ^Game) {
+	RL.BeginDrawing()
+	
+	rect_width: window_size / grid_size
+	
+	RL.ClearBackground(RL.Color{200, 200, 200, 255})
+	
+	for y: 0, y < grid_size, y= y + 1 {
+		for x: 0, x < grid_size, x= x + 1 {
+			RL.DrawRectangle(
+				s32(x * rect_width)
+				s32(y * rect_width)
+				s32(rect_width - 2)
+				s32(rect_width - 2)
+				RL.Color{190, 190, 190, 255})
+		}
+	}
+		
+	// draw apple
+	RL.DrawRectangle(
+		s32(game.apple_pos.x * rect_width)
+		s32(game.apple_pos.y * rect_width)
+		s32(rect_width-2)
+		s32(rect_width-2)
+		RL.Color{240, 250, 100, 255})
+	
+	// draw snake
+	for i: 0, i < game.snake.len, i= .+1 {
+		coord: game.snake.slice[i]
+		RL.DrawRectangle(
+			s32(coord.x * rect_width)
+			s32(coord.y * rect_width)
+			s32(rect_width-2)
+			s32(rect_width-2)
+			RL.Color{200, 20, 255, 255})
+	}
+	
+	if game.lost {
+		RL.DrawText("GAME LOST!\0".ptr, 190, 5, 30, RL.Color{255, 0, 0, 220})
+	}
+	
+	RL.EndDrawing()
+}
+
+#entry: proc() {
+	// init raylib
+	RL.InitWindow(s32(window_size), s32(window_size), "Hello".ptr)
+	
+	RL.SetRandomSeed(100)
+	
+	game: Game{
+		snake: Array.make[V2](Basic.temp_alc())
+	}
+	
+	Array.push[V2](&game.snake, V2{5, 5})
+	
+	RL.SetTargetFPS(60)
+	
+	// main loop
+	for, !RL.WindowShouldClose() {
+		update(&game)
+		draw(&game)
 	}
 }

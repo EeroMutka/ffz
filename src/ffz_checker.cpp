@@ -16,17 +16,21 @@
 
 #define OPT(ptr) ptr
 
-static void report_module_error(ffzNode* node, fString msg) {
-	ffzModule* m = ffz_module_of_node(node);
+static void report_module_error(ffzModule* m, fOpt(ffzNode*) node, fString msg) {
 	m->error.node = node;
 	m->error.message = msg;
-	m->error.source = node->loc_source;
-	m->error.location = node->loc;
-	//f_trap();
+	if (node) {
+		m->error.source = node->loc_source;
+		m->error.location = node->loc;
+	}
 }
 
+//#define ERR_NO_NODE(m, fmt, ...) \
+//	report_module_error(m, NULL, f_aprint(m->alc, fmt, __VA_ARGS__)); \
+//	return ffzOk{false};
+
 #define ERR(node, fmt, ...) { \
-	report_module_error(node, f_aprint(ffz_module_of_node(node)->alc, fmt, __VA_ARGS__)); \
+	report_module_error(ffz_module_of_node(node), node, f_aprint(ffz_module_of_node(node)->alc, fmt, __VA_ARGS__)); \
 	return ffzOk{false}; \
 }
 
@@ -1452,11 +1456,6 @@ static ffzOk check_tag(ffzModule* c, ffzNode* tag) {
 		ERR(tag, "Tag was not a struct literal.", "");
 	}
 
-	if (tag->checked.type == ffz_builtin_type(c, ffzKeyword_extern)) {
-		fString library = tag->checked.constant->record_fields[0].string_zero_terminated;
-		f_map64_insert(&c->extern_libraries, f_hash64_str(library), library, fMapInsert_DoNotOverride);
-	}
-	
 	auto tags = f_map64_insert(&c->all_tags_of_type, tag->checked.type->hash, {}, fMapInsert_DoNotOverride);
 	if (tags.added) *tags._unstable_ptr = f_array_make<ffzNode*>(c->alc);
 	f_array_push(tags._unstable_ptr, tag);
@@ -1488,7 +1487,7 @@ FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) 
 	c->all_tags_of_type = f_map64_make<fArray(ffzNode*)>(c->alc);
 	c->poly_from_hash = f_map64_make<ffzPolymorphID>(c->alc);
 	c->polymorphs = f_array_make<ffzPolymorph>(c->alc);
-	c->extern_libraries = f_map64_make<fString>(c->alc);
+	c->_extern_libraries = f_array_make<ffzNode*>(c->alc);
 	
 	c->root = ffz_new_node(c, ffzNodeKind_Scope);
 	//c->root = f_mem_clone(ffzNode{}, c->alc); // :NewNode
@@ -1922,6 +1921,11 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	case ffzNodeKind_Keyword: {
 		ffzKeyword keyword = node->Keyword.keyword;
 		OPT(ffzType*) type_expr = ffz_builtin_type(c, keyword);
+		
+		if (keyword == ffzKeyword_extern) {
+			f_array_push(&c->_extern_libraries, node);
+		}
+
 		if (type_expr) {
 			result = make_type_constant(c, type_expr);
 		}
@@ -2384,16 +2388,20 @@ FFZ_CAPI ffzOk ffz_module_check_single_(ffzModule* m) {
 		TRY(check_node(m, n, NULL, InferFlag_Statement));
 	}
 
-	fString* p_library;
-	for f_map64_each_raw(&m->extern_libraries, _key, &p_library) {
-		fString library = *p_library;
+	f_for_array(ffzNode*, m->_extern_libraries, it) {
+		ffzNode* lit = it.elem->parent;
+		if (lit->checked.constant == NULL) ERR(lit, "`extern` has no {} after it.");
+		
+		fString library = lit->checked.constant->record_fields[0].string_zero_terminated;
 		if (library == F_LIT("?")) continue;
 		
 		if (f_str_cut_start(&library, F_LIT(":"))) {
 			f_array_push(&m->project->link_system_libraries, library);
 		}
 		else {
-			f_assert(f_files_path_to_canonical(m->directory, library, f_temp_alc(), &library)); // TODO: error checking
+			if (!f_files_path_to_canonical(m->directory, library, f_temp_alc(), &library)) {
+				ERR(lit, "Failed to import external library \"~s\" relative to module base directory \"~s\"", library, m->directory);
+			}
 			f_array_push(&m->project->link_libraries, library);
 		}
 	}

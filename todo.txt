@@ -1,6 +1,4 @@
 
-[] make .slice[] not necessary for Array
-
 [] get raylib up and running
 
 - keyboard / mouse input
