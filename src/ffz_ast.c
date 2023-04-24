@@ -24,6 +24,11 @@ typedef struct ffzParser {
 	ffzError error;
 } ffzParser;
 
+typedef struct ffzOperatorPrecedence {
+	uint8_t precedence;
+	bool right_associative; // most operators are left-associative, i.e. 1/2/3 means ((1/2)/3)
+} ffzOperatorPrecedence;
+
 #define TRY(x) { if ((x).ok == false) return (ffzOk){false}; }
 
 #define OPT(ptr) ptr
@@ -171,40 +176,38 @@ char* ffz_node_kind_to_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_
 fString ffz_node_kind_to_op_string(ffzNodeKind kind) { return ffzNodeKind_to_op_string[kind]; }
 char* ffz_node_kind_to_op_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_op_string[kind].data;}
 
-
-// NOTE: The operators that exist in C have the same precedence as in C
-// https://en.cppreference.com/w/c/language/operator_precedence
-u32 ffz_operator_get_precedence(ffzNodeKind kind) {
+// NOTE: The operators that exist in C have the same precedence as in C.
+ffzOperatorPrecedence ffz_operator_get_precedence(ffzNodeKind kind) {
 	switch (kind) {
-	case ffzNodeKind_MemberAccess: return 13;
-	case ffzNodeKind_PostSquareBrackets: return 12;
-	case ffzNodeKind_PointerTo: // fallthrough
-	case ffzNodeKind_PreSquareBrackets: return 11;
-	case ffzNodeKind_PostRoundBrackets: // fallthrough
-	case ffzNodeKind_PostCurlyBrackets: return 10;
-	case ffzNodeKind_UnaryMinus: // fallthrough
-	case ffzNodeKind_AddressOf: // fallthrough
-	case ffzNodeKind_LogicalNOT: // fallthrough
-	case ffzNodeKind_UnaryPlus: return 9;
-	case ffzNodeKind_Dereference: return 8;
-	case ffzNodeKind_Mul: // fallthrough
-	case ffzNodeKind_Div: // fallthrough
-	case ffzNodeKind_Modulo: return 7;
-	case ffzNodeKind_Add: return 6;
-	case ffzNodeKind_Sub: return 5;
-	case ffzNodeKind_Less: // fallthrough
-	case ffzNodeKind_LessOrEqual: // fallthrough
-	case ffzNodeKind_Greater: // fallthrough
-	case ffzNodeKind_GreaterOrEqual: return 4;
-	case ffzNodeKind_Equal: // fallthrough
-	case ffzNodeKind_NotEqual: return 3;
-	case ffzNodeKind_LogicalAND: return 2;
-	case ffzNodeKind_LogicalOR: return 1;
-	case ffzNodeKind_Declare: // fallthrough
-	case ffzNodeKind_Assign: return 0;
+	case ffzNodeKind_MemberAccess:       return (ffzOperatorPrecedence){13, .right_associative=false};
+	case ffzNodeKind_PostSquareBrackets: return (ffzOperatorPrecedence){12, .right_associative=false};
+	case ffzNodeKind_PointerTo:          // fallthrough
+	case ffzNodeKind_PreSquareBrackets:  return (ffzOperatorPrecedence){11, .right_associative=true};
+	case ffzNodeKind_PostRoundBrackets:  // fallthrough
+	case ffzNodeKind_PostCurlyBrackets:  return (ffzOperatorPrecedence){10, .right_associative=false};
+	case ffzNodeKind_UnaryMinus:         // fallthrough
+	case ffzNodeKind_AddressOf:          // fallthrough
+	case ffzNodeKind_LogicalNOT:         // fallthrough
+	case ffzNodeKind_UnaryPlus:          return (ffzOperatorPrecedence){9, .right_associative=true};
+	case ffzNodeKind_Dereference:        return (ffzOperatorPrecedence){8, .right_associative=false};
+	case ffzNodeKind_Mul:                // fallthrough
+	case ffzNodeKind_Div:                // fallthrough
+	case ffzNodeKind_Modulo:             return (ffzOperatorPrecedence){7, .right_associative=false};
+	case ffzNodeKind_Add:                return (ffzOperatorPrecedence){6, .right_associative=false};
+	case ffzNodeKind_Sub:                return (ffzOperatorPrecedence){5, .right_associative=false};
+	case ffzNodeKind_Less:               // fallthrough
+	case ffzNodeKind_LessOrEqual:        // fallthrough
+	case ffzNodeKind_Greater:            // fallthrough
+	case ffzNodeKind_GreaterOrEqual:     return (ffzOperatorPrecedence){4, .right_associative=false};
+	case ffzNodeKind_Equal:              // fallthrough
+	case ffzNodeKind_NotEqual:           return (ffzOperatorPrecedence){3, .right_associative = false};
+	case ffzNodeKind_LogicalAND:         return (ffzOperatorPrecedence){2, .right_associative = false};
+	case ffzNodeKind_LogicalOR:          return (ffzOperatorPrecedence){1, .right_associative = false};
+	case ffzNodeKind_Declare:            // fallthrough
+	case ffzNodeKind_Assign:             return (ffzOperatorPrecedence){0, .right_associative = false};
 	default: f_assert(false);
 	}
-	return 0;
+	return (ffzOperatorPrecedence) { 0 };
 }
 
 u8 ffz_get_bracket_op_open_char(ffzNodeKind kind) {
@@ -772,43 +775,37 @@ static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	//                        (f * g)  (h / i)
 	//
 	
-	//    ^b * d > i + j
-	//          / \
-	//   (^b * d)
-	//      /
-	//   (^b)
-
 	ffzNodeOp** data = chain.data;
 	
 	uint lowest_prec_i = 0;
-	uint lowest_prec = F_U64_MAX;
+	u8 lowest_prec = 0xFF;
 	for (uint i = chain.len - 1; i < chain.len; i--) {
-		f_assert(ffz_node_is_operator(data[i]->kind));
-		uint prec = ffz_operator_get_precedence(data[i]->kind);
-		if (prec < lowest_prec) {
-			lowest_prec = prec;
+		ffzOperatorPrecedence prec = ffz_operator_get_precedence(data[i]->kind);
+		if (prec.precedence < lowest_prec || (prec.precedence == lowest_prec && prec.right_associative)) {
+			lowest_prec = prec.precedence;
 			lowest_prec_i = i;
 		}
 	}
 
 	ffzNodeOp* root = data[lowest_prec_i];
 
-	if (lowest_prec_i > 0) {
-		ffzNodeOp* left = merge_operator_chain(SLICE_BEFORE(ffzNodeOp*, chain, lowest_prec_i));
-		if (root->Op.left == NULL) { // if this is a prefix operator
-			root = left;
+	if (lowest_prec_i < chain.len - 1) {
+		ffzNodeOp* right_side_root = merge_operator_chain(SLICE_AFTER(ffzNodeOp*, chain, lowest_prec_i + 1));
+		if (root->Op.right == NULL) {
+			// If this is a postfix operator (i.e. `^` in `a^.b`), we want to put it as the child of the rhs
+			root = right_side_root;
 		}
 		else {
-			root->Op.left = left;
+			root->Op.right = right_side_root;
 		}
 	}
-	if (lowest_prec_i < chain.len - 1) {
-		ffzNodeOp* right = merge_operator_chain(SLICE_AFTER(ffzNodeOp*, chain, lowest_prec_i + 1));
-		if (root->Op.right == NULL) { // if this is a postfix operator
-			root = right;
+	if (lowest_prec_i > 0) {
+		ffzNodeOp* left_side_root = merge_operator_chain(SLICE_BEFORE(ffzNodeOp*, chain, lowest_prec_i));
+		if (root->Op.left == NULL) {
+			root = left_side_root;
 		}
 		else {
-			root->Op.right = right;
+			root->Op.left = left_side_root;
 		}
 	}
 

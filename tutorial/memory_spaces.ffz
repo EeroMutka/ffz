@@ -25,16 +25,17 @@ foo: proc {
 	
 	foo: &BigStruct{1, 2, 3}
 	
-	// If an expression is forced to be constant and address-of is used, the address will point to
+	// If an expression is required to be constant and address-of is used, the address will point to
 	// static read-only memory.
-	// But if it's not forced to be a constant, a modifiable stack copy is made.
+	// Otherwise, a modifiable stack copy is made.
 	
 	#address_of_constant: &my_constant
 	
 	bar: &my_constant        // points to a modifiable stack copy
 	baz: address_of_constant // points to a value in static read-only memory
 	
-	// What about taking address of a procedure? Maybe we should just disallow that.
+	// NOTE: if you take an address of a procedure, you will get a pointer to a procedure pointer on the stack.
+	// This is just the direct result of the language rules, since a procedure is represented internally as a pointer.
 	
 	// this would also be really nice:
 	{

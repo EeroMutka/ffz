@@ -10,6 +10,8 @@
 
 #include "../tracy/tracy/TracyC.h"
 
+const bool DEBUG_PRINT_AST = true;
+
 //#include <Windows.h>
 //#include <math.h>
 //
@@ -94,10 +96,8 @@ void log_pretty_error(ffzError error, fString kind) {
 	f_os_print(F_LIT("\n"));
 }
 
-inline void log_pretty_syntax_error(ffzError error) { log_pretty_error(error, F_LIT("Syntax error ")); }
-inline void log_pretty_semantic_error(ffzError error) { log_pretty_error(error, F_LIT("Semantic error ")); }
-
-const bool DEBUG_PRINT_AST = false;
+//inline void log_pretty_syntax_error(ffzError error) { log_pretty_error(error, F_LIT("Syntax error ")); }
+//inline void log_pretty_semantic_error(ffzError error) { log_pretty_error(error, F_LIT("Semantic error ")); }
 
 static void dump_module_ast(ffzModule* m, fString dir) {
 	u8 console_buf[4096];
@@ -141,6 +141,10 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	ffzError err;
 	fOpt(ffzModule*) module = ffz_project_add_module_from_filesystem(project, directory, module_arena, &err);
 
+	if (module && DEBUG_PRINT_AST) {
+		dump_module_ast(module, directory);
+	}
+
 	if (module && !module->checked) {
 		
 		if (!ffz_module_resolve_imports_(module, resolve_import, module).ok) {
@@ -153,13 +157,10 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 			module = NULL;
 		}
 		
-		if (module && DEBUG_PRINT_AST) {
-			dump_module_ast(module, directory);
-		}
 	}
 
 	if (!module) {
-		log_pretty_syntax_error(err);
+		log_pretty_error(err, F_LIT("Error "));
 	}
 
 	TracyCZoneEnd(tr);

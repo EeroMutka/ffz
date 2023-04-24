@@ -753,8 +753,6 @@ FFZ_CAPI uint32_t ffz_get_child_index(ffzNode* child); // will assert if child i
 FFZ_CAPI ffzNode* ffz_get_child(ffzNode* parent, uint32_t idx);
 FFZ_CAPI uint32_t ffz_get_child_count(fOpt(ffzNode*) parent); // returns 0 if parent is NULL
 
-FFZ_CAPI uint32_t ffz_operator_get_precedence(ffzNodeKind kind);
-
 FFZ_CAPI fString ffz_keyword_to_string(ffzKeyword keyword);
 
 FFZ_CAPI fString ffz_node_kind_to_string(ffzNodeKind kind);
