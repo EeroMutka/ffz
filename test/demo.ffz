@@ -37,6 +37,7 @@
 	ticker: int(0)
 }
 
+
 #update: proc(game: ^Game) {
 	snake: &game.snake
 	if game.lost {
@@ -85,12 +86,21 @@
 		}
 		
 		snake^[0] = v2_add(., game.snake_direction) // move the head forward
-		head: snake^[0]
 		
-		
-		
-		if head.x < 0 || head.x >= grid_size || head.y < 0 || head.y >= grid_size {
-			game.lost = true
+		// wrap around the world
+		{
+			if snake^[0].x < 0 {
+				snake^[0].x = grid_size - 1
+			}
+			if snake^[0].y < 0 {
+				snake^[0].y = grid_size - 1
+			}
+			if snake^[0].x >= grid_size {
+				snake^[0].x = 0
+			}
+			if snake^[0].y >= grid_size {
+				snake^[0].y = 0
+			}
 		}
 		
 		if eat_apple {
@@ -110,8 +120,7 @@
 		
 		// if you hit yourself, lose
 		for i: 1, i < snake.len, i= .+1 {
-			if v2_eq(head, snake^[i]) {
-				dbgbreak
+			if v2_eq(snake^[0], snake^[i]) {
 				game.lost = true
 			}
 		}
@@ -149,12 +158,18 @@
 	// draw snake
 	for i: 0, i < game.snake.len, i= .+1 {
 		coord: game.snake[i]
+		
+		color: RL.Color{240, 80, 15, 255}
+		if i % 4 == 0 {
+			color = RL.Color{80, 250, 50, 255}
+		}
+		
 		RL.DrawRectangle(
 			s32(coord.x * tile_size_pixels)
 			s32(coord.y * tile_size_pixels)
 			s32(tile_size_pixels-2)
 			s32(tile_size_pixels-2)
-			RL.Color{200, 20, 255, 255})
+			color)
 	}
 	
 	{
