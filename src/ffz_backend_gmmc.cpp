@@ -577,9 +577,14 @@ static gmmcOpIdx gen_call(Gen* g, ffzNodeOp* node) {
 			arg_value = gen_expr(g, arg_node, false);
 		}
 
+		// The GMMC values returned by gen_expr, et al, are either direct (trivial) or indirect, meaning a pointer
+		// is stored to the value instead. When you do `foo: Vector2{1, 2}, bar(foo)`, then the indirect value
+		// holds the address of the local, and thus a copy must be made on the stack for the callee procedure.
+		// But when you do `bar(Vector2{1, 2})`, the indirect value already holds a pointer to a temporary stack value
+		// that will not be modified in any way, so we don't need to copy the value in that case.
+
 		// NOTE: the way we pass around op-values matches the parameter passing calling convention,
-		// so we don't need to do any extra work. Also, indirect values (the kinds not listed below) are
-		// pointers to temporary stack copies, so we don't even need to duplicate them for the callee.
+		// so we don't need to do any extra work.
 		// 
 		//   "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are
 		//   passed as if they were integers of the same size"

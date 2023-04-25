@@ -1,9 +1,9 @@
 
 [] get raylib up and running
+[] implicit dereferencing of array subscript[]
 
 - keyboard / mouse input
 [] HMM-like math library with stuff like sqrt and vectors to start with until we implement array math
-
 [] stbi
 [] stbtt
 
