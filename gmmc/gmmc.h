@@ -401,7 +401,7 @@ GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasic
 GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
 // TODO: gmmc_op_select
 
-// value should be GMMC_REG_NONE if the procedure returns no value
+// value should be GMMC_OP_IDX_INVALID if the procedure returns no value
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value);
 
 // -- Convertions ---------------------------------------

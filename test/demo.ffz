@@ -6,7 +6,7 @@
 #V2: [2]int
 
 #window_size: uint(512)
-#grid_size: uint(12)
+#grid_size: uint(32)
 
 #v2_eq: proc(a: V2, b: V2) => bool {
 	ret a.x == b.x && a.y == b.y
@@ -37,9 +37,6 @@
 	ticker: int(0)
 }
 
-@global
-_i: int(0)
-
 #update: proc(game: ^Game) {
 	snake: &game.snake
 	if game.lost {
@@ -65,7 +62,7 @@ _i: int(0)
 	}
 	
 	if game.ticker <= 0 {
-		game.ticker = 16
+		game.ticker = 8
 		
 		if !v2_eq(input, V2{0, 0}) {
 			game.snake_direction = input
@@ -75,12 +72,6 @@ _i: int(0)
 		// eat the apple if the head is at the apple
 		eat_apple: v2_eq(snake^[0], game.apple_pos)
 		if eat_apple {
-			if _i == 7 {
-				dbgbreak
-			}
-			
-			_i = .+1
-			
 			Array.insert[V2](snake, 0, snake^[0])
 			game.score = .+1
 		}
@@ -99,7 +90,6 @@ _i: int(0)
 		
 		
 		if head.x < 0 || head.x >= grid_size || head.y < 0 || head.y >= grid_size {
-			dbgbreak
 			game.lost = true
 		}
 		
