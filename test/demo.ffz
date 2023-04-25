@@ -123,38 +123,51 @@
 #draw: proc(game: ^Game) {
 	RL.BeginDrawing()
 	
-	rect_width: window_size / grid_size
+	tile_size_pixels: window_size / grid_size
 	
 	RL.ClearBackground(RL.Color{200, 200, 200, 255})
 	
 	for y: 0, y < grid_size, y= y + 1 {
 		for x: 0, x < grid_size, x= x + 1 {
 			RL.DrawRectangle(
-				s32(x * rect_width)
-				s32(y * rect_width)
-				s32(rect_width - 2)
-				s32(rect_width - 2)
+				s32(x * tile_size_pixels)
+				s32(y * tile_size_pixels)
+				s32(tile_size_pixels - 2)
+				s32(tile_size_pixels - 2)
 				RL.Color{190, 190, 190, 255})
 		}
 	}
 		
 	// draw apple
 	RL.DrawRectangle(
-		s32(game.apple_pos.x * rect_width)
-		s32(game.apple_pos.y * rect_width)
-		s32(rect_width-2)
-		s32(rect_width-2)
+		s32(game.apple_pos.x * tile_size_pixels)
+		s32(game.apple_pos.y * tile_size_pixels)
+		s32(tile_size_pixels-2)
+		s32(tile_size_pixels-2)
 		RL.Color{240, 250, 100, 255})
 	
 	// draw snake
 	for i: 0, i < game.snake.len, i= .+1 {
 		coord: game.snake[i]
 		RL.DrawRectangle(
-			s32(coord.x * rect_width)
-			s32(coord.y * rect_width)
-			s32(rect_width-2)
-			s32(rect_width-2)
+			s32(coord.x * tile_size_pixels)
+			s32(coord.y * tile_size_pixels)
+			s32(tile_size_pixels-2)
+			s32(tile_size_pixels-2)
 			RL.Color{200, 20, 255, 255})
+	}
+	
+	{
+		// Draw eyes
+		eye_offset: [2]s32{3, 5}
+		pupil_offset: [2]s32{3 + 2*s32(game.snake_direction.x), 6 + 2*s32(game.snake_direction.y)}
+		head: game.snake[0]
+		
+		RL.DrawCircle(s32(head.x * tile_size_pixels) + eye_offset.x, s32(head.y * tile_size_pixels) + eye_offset.y, 5.0, RL.Color{255, 255, 255, 255})
+		RL.DrawCircle(s32(head.x * tile_size_pixels) + pupil_offset.x, s32(head.y * tile_size_pixels) + pupil_offset.y, 3.0, RL.Color{0, 0, 0, 255})
+		
+		RL.DrawCircle(s32(head.x * tile_size_pixels) + eye_offset.x + 11, s32(head.y * tile_size_pixels) + eye_offset.y, 5.0, RL.Color{255, 255, 255, 255})
+		RL.DrawCircle(s32(head.x * tile_size_pixels) + pupil_offset.x + 11, s32(head.y * tile_size_pixels) + pupil_offset.y, 3.0, RL.Color{0, 0, 0, 255})
 	}
 	
 	if game.lost {
