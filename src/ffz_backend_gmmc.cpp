@@ -888,7 +888,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 			}
 			else {
 				ffzType* left_type = left->checked.type;
-				ffzType* struct_type = left_type->tag == ffzTypeTag_Pointer ? left_type->Pointer.pointer_to : left_type;
+				ffzType* struct_type = left_type->tag == ffzTypeTag_Pointer ? left_type->Pointer.pointer_to : left_type; // NOTE: implicit dereference
 
 				ffzTypeRecordFieldUse field;
 				f_assert(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
@@ -907,7 +907,9 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		} break;
 
 		case ffzNodeKind_PostSquareBrackets: {
-			ffzType* subscriptable_type = left->checked.type;
+			bool implicit_dereference = left->checked.type->tag == ffzTypeTag_Pointer;
+			ffzType* subscriptable_type = implicit_dereference ? left->checked.type->Pointer.pointer_to : left->checked.type;
+
 			u32 offset = 0;
 			if (subscriptable_type->tag == ffzTypeTag_FixedArray || subscriptable_type->tag == ffzTypeTag_Slice) {}
 			else {
@@ -919,12 +921,12 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 
 			ffzType* elem_type = subscriptable_type->tag == ffzTypeTag_Slice ? subscriptable_type->Slice.elem_type : subscriptable_type->FixedArray.elem_type;
 
-			gmmcOpIdx left_value = gen_expr(g, left, true).op;
+			gmmcOpIdx left_value = gen_expr(g, left, !implicit_dereference).op;
 			if (offset != 0) {
 				left_value = gmmc_op_member_access(g->bb, left_value, offset);
 			}
-			gmmcOpIdx array_data_ptr = left_value;
 
+			gmmcOpIdx array_data_ptr = left_value;
 			if (subscriptable_type->tag == ffzTypeTag_Slice) {
 				array_data_ptr = gmmc_op_load(g->bb, gmmcType_ptr, array_data_ptr);
 			}

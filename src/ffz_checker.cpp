@@ -1291,19 +1291,21 @@ static ffzOk check_post_square_brackets(ffzModule* c, ffzNode* node, ffzCheckInf
 	else {
 		// Array subscript
 		
+		ffzType* left_type = left_chk.type->tag == ffzTypeTag_Pointer ? left_chk.type->Pointer.pointer_to : left_chk.type; // NOTE: allow implicit dereferencing
+
 		fOpt(ffzType*) subscriptable_type = NULL;
-		if (left_chk.type->tag == ffzTypeTag_Slice || left_chk.type->tag == ffzTypeTag_FixedArray) {
-			subscriptable_type = left_chk.type;
+		if (left_type->tag == ffzTypeTag_Slice || left_type->tag == ffzTypeTag_FixedArray) {
+			subscriptable_type = left_type;
 		} else {
 			ffzTypeRecordFieldUse subscriptable_field;
-			if (ffz_find_subscriptable_base_type(left_chk.type, &subscriptable_field)) {
+			if (ffz_find_subscriptable_base_type(left_type, &subscriptable_field)) {
 				subscriptable_type = subscriptable_field.src_field->type;
 			}
 		}
 		
 		if (subscriptable_type == NULL) {
 			ERR(left, "Expected an array, a slice, or a polymorphic expression before [].\n    received: ~s",
-				ffz_type_to_string(c->project, left_chk.type));
+				ffz_type_to_string(c->project, left_type));
 		}
 
 		ffzType* elem_type = subscriptable_type->tag == ffzTypeTag_Slice ? subscriptable_type->Slice.elem_type : subscriptable_type->FixedArray.elem_type;

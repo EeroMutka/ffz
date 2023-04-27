@@ -512,6 +512,7 @@ typedef struct ffzPolymorph {
 	fSlice(ffzConstant) parameters;
 } ffzPolymorph;
 
+// A "field" can mean any of the following: a struct member, an enum member, or a procedure parameter.
 typedef struct ffzField {
 	fString name;
 	fOpt(ffzNodeOpDeclare*) decl; // not always used, i.e. for slice type fields
@@ -519,7 +520,7 @@ typedef struct ffzField {
 	ffzConstantData default_value;
 	bool has_default_value;
 
-	uint32_t offset; // ignored for procedure parameters
+	uint32_t offset; // ignored for procedure parameters / enum members
 	ffzType* type;
 } ffzField;
 

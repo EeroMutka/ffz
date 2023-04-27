@@ -1,5 +1,5 @@
 
-[] get raylib up and running
+[x] get raylib up and running
 [] implicit dereferencing of array subscript[]
 
 - keyboard / mouse input

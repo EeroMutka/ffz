@@ -8,10 +8,12 @@
 #window_size: uint(512)
 #grid_size: uint(32)
 
+// Check if two vectors are equal
 #v2_eq: proc(a: V2, b: V2) => bool {
 	ret a.x == b.x && a.y == b.y
 }
 
+// Add two vectors together
 #v2_add: proc(a: V2, b: V2) => V2 {
 	ret V2{a.x + b.x, a.y + b.y}
 }
@@ -32,7 +34,7 @@
 	
 	snake_direction: V2{1, 0}
 	
-	score: uint(0)
+	score: uint(0) // how many apples you have eaten
 	
 	ticker: int(0)
 }
@@ -59,7 +61,7 @@
 	}
 	
 	if !v2_eq(input, V2{0, 0}) && !v2_eq(input, game.snake_direction) {
-		game.ticker = 0 // instant feedback
+		game.ticker = 0 // apply input instantly
 	}
 	
 	if game.ticker <= 0 {
@@ -69,37 +71,36 @@
 			game.snake_direction = input
 		}
 		
-		
 		// eat the apple if the head is at the apple
-		eat_apple: v2_eq(snake^[0], game.apple_pos)
+		eat_apple: v2_eq(snake[0], game.apple_pos)
 		if eat_apple {
-			Array.insert[V2](snake, 0, snake^[0])
+			Array.insert[V2](snake, 0, snake[0])
 			game.score = .+1
 		}
 		else {
 			// move all segments (except the head) towards the head
 			for i: int(snake.len) - 1, i > 0, i= .-1 {
-				if !v2_eq(snake^[i], snake^[i-1]) {
-					snake^[i] = snake^[i-1]
+				if !v2_eq(snake[i], snake[i-1]) {
+					snake[i] = snake[i-1]
 				}
 			}
 		}
 		
-		snake^[0] = v2_add(., game.snake_direction) // move the head forward
+		snake[0] = v2_add(., game.snake_direction) // move the head forward
 		
 		// wrap around the world
 		{
-			if snake^[0].x < 0 {
-				snake^[0].x = grid_size - 1
+			if snake[0].x < 0 {
+				snake[0].x = grid_size - 1
 			}
-			if snake^[0].y < 0 {
-				snake^[0].y = grid_size - 1
+			if snake[0].y < 0 {
+				snake[0].y = grid_size - 1
 			}
-			if snake^[0].x >= grid_size {
-				snake^[0].x = 0
+			if snake[0].x >= grid_size {
+				snake[0].x = 0
 			}
-			if snake^[0].y >= grid_size {
-				snake^[0].y = 0
+			if snake[0].y >= grid_size {
+				snake[0].y = 0
 			}
 		}
 		
@@ -111,7 +112,7 @@
 				apple_pos_ok = true
 				
 				for i: 1, i < snake.len, i= .+1 {
-					if v2_eq(game.apple_pos, snake^[i]) {
+					if v2_eq(game.apple_pos, snake[i]) {
 						apple_pos_ok = false
 					}
 				}
@@ -120,7 +121,7 @@
 		
 		// if you hit yourself, lose
 		for i: 1, i < snake.len, i= .+1 {
-			if v2_eq(snake^[0], snake^[i]) {
+			if v2_eq(snake[0], snake[i]) {
 				game.lost = true
 			}
 		}
