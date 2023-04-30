@@ -1,4 +1,4 @@
-#Basic: import(":Basic")
+/*#Basic: import(":Basic")
 
 #Window: import(":Window")
 #GL: import(":OpenGL")
@@ -15,11 +15,33 @@
 	mursu: ^Draw2D.Texture(0)
 }
 
+
+/*
+OK OK.
+So flip the stencil always.
+- Paint the mask into stencil buffer, with pixel alpha 0.
+- Draw a quad over the area with alpha 1
+
+If we want to draw over this area, we need to revert back the stencil buffer. Just reverse the operations with alpha 0!
+- Draw the quad over the area with alpha 0
+- Paint the mask into stencil buffer, with pixel alpha 0.
+
+*/
+
 @global
 g: Globals(~~)
 
 #draw: proc {
 	Draw2D.begin_drawing(&g.canvas, background: {20, 40, 20, 255})
+	
+	// hmm... we could do all rendering in a stencil-buffer area if we wanted to. It'd just mean sending twice
+	// the number of triangles in places where we know we want to draw on top.
+	// That could be an option on each command, like "rewind_stencil: true".
+	
+	// Maybe we could additionally have something like
+	// flush_stencil_buffer()
+	// that forces a draw-call, and calls glClear on the stencil buffer
+	
 	
 	Draw2D.rect(&g.canvas, {{-0.8, -0.8}, {0., 0.}}, color: {255, 0, 100, 255}, texture: g.mursu)
 	
@@ -99,3 +121,4 @@ g: Globals(~~)
 		i= . + 1
 	}
 }
+*/

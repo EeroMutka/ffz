@@ -725,11 +725,21 @@ static void gen_comparison(ProcGen* p, gmmcOpData* op) {
 	GPR a = use_op_value(p, op->operands[0], GPR_NONE);
 	GPR b = use_op_value(p, op->operands[1], GPR_NONE);
 	
+
 	if (p->stage == Stage_Emit) {
+		gmmcType type = gmmc_get_op_type(p->proc, op->operands[0]);
+		bool is_float = gmmc_type_is_float(type);
+		
+		if (is_float) {
+			// NOTE: we're using op->is_signed to select the instructions for signed/unsigned comparison.
+			// For floats, UCOMISS sets CF to indicate "less-than", which the unsigned comparison instructions use.
+			f_assert(op->is_signed == false);
+		}
+
 		{
-			RegSize size = gmmc_type_size(gmmc_get_op_type(p->proc, op->operands[0]));
+			RegSize size = gmmc_type_size(type);
 			ZydisEncoderRequest req = { ZYDIS_MACHINE_MODE_LONG_64 };
-			req.mnemonic = ZYDIS_MNEMONIC_CMP;
+			req.mnemonic = is_float ? ZYDIS_MNEMONIC_UCOMISS : ZYDIS_MNEMONIC_CMP;
 			req.operand_count = 2;
 			req.operands[0] = make_reg_operand(a, size);
 			req.operands[1] = make_reg_operand(b, size);

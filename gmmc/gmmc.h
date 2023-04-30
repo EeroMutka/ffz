@@ -364,15 +364,19 @@ GMMC_API gmmcOpIdx gmmc_op_debugbreak(gmmcBasicBlock* bb);
 // empty string will insert a newline
 GMMC_API gmmcOpIdx gmmc_op_comment(gmmcBasicBlock* bb, fString text);
 
-// Comparisons always return a boolean
+// Edge cases with comparison ops:
+// - If either value is NaN, the behaviour is backend-defined.
 
 // ==, !=
-// Defined for all types
+// Returns a boolean.
+// Defined for all types, where `a` and `b` must have the same type
 GMMC_API gmmcOpIdx gmmc_op_eq(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 GMMC_API gmmcOpIdx gmmc_op_ne(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b);
 
 // <, <=, >, >=
-// Defined for integer and float types. `is_signed` is ignored when using floats.
+// Returns a boolean.
+// Defined for integer and float types, where `a` and `b` must have the same type.
+// `is_signed` is ignored when using floats.
 GMMC_API gmmcOpIdx gmmc_op_lt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 GMMC_API gmmcOpIdx gmmc_op_le(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);
 GMMC_API gmmcOpIdx gmmc_op_gt(gmmcBasicBlock* bb, gmmcOpIdx a, gmmcOpIdx b, bool is_signed);

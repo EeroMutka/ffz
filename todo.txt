@@ -1,6 +1,8 @@
 
+Workflow is too important. Could I make a visual studio extension for FFZ?
+
 [x] get raylib up and running
-[] implicit dereferencing of array subscript[]
+[x] implicit dereferencing of array subscript[]
 
 - keyboard / mouse input
 [] HMM-like math library with stuff like sqrt and vectors to start with until we implement array math
@@ -14,6 +16,7 @@
 
 [] slice bounds checking
 	hmm, maybe this could be implemented similar to enabling libc where it's an optional tag that the Basic module implements
+
 
 --------------- Keith release candidate ---------------
 [] optionals

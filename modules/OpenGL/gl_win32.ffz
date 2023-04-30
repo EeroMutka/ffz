@@ -1,6 +1,4 @@
 
-//#Window: struct{ hwnd: HWND }
-
 #load: proc(api: ^API, window: Window, version: Version) {
 	// https://www.khronos.org/opengl/wiki/Creating_an_OpenGL_Context_(WGL)
 	

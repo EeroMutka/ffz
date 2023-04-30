@@ -846,7 +846,9 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 					else if (ffz_type_is_float(dst_type->tag)) {
 						gmmcType dt = get_gmmc_trivial_type(g, dst_type);
 						if (ffz_type_is_float(arg_type->tag)) {
-							out.op = gmmc_op_float2float(g->bb, out.op, dt);
+							if (arg_type->size != dst_type->size) {
+								out.op = gmmc_op_float2float(g->bb, out.op, dt);
+							}
 						}
 						else if (ffz_type_is_integer_ish(arg_type->tag)) {
 							out.op = gmmc_op_int2float(g->bb, out.op, dt, ffz_type_is_signed_integer(arg_type->tag));

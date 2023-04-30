@@ -211,8 +211,28 @@ void main() {
 	c.index_count = 0
 	
 	gl: c.gl
+	
+	gl.Enable(GL.BLEND) // TODO: allow for customizable blend modes
+	gl.BlendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
+	
+	
+	// Start off with a stencil buffer that is zeroed out. We want the fragment to pass the stencil test
+	// when the stencil buffer has 1s. And we want to always flip the stencil buffer bits wherever we're drawing.
+	// The process for drawing a concave polygon would look like:
+	//  1. Draw the triangles with no alpha, as in https://medium.com/@evanwallace/easy-scalable-text-rendering-on-the-gpu-c3f4d782c5ac
+	//  2. Draw a rectangle around the polygon with the desired color.
+	//  3. IF revert_stencil is set, draw the rectangle and the triangles with no alpha, to revert the stencil buffer state.
+	// Text rendering is most likely the bottleneck, so we want to optimize that.
+	
+	gl.Enable(GL.STENCIL_TEST)
+	gl.StencilMask(0xFF)
+	gl.StencilFunc(GL.EQUAL, 0xFF, 0xFF)
+	gl.StencilOp(GL.INVERT, GL.INVERT, GL.INVERT)
+	
+	
 	gl.ClearColor(f32(background.r) / 255., f32(background.g) / 255., f32(background.b) / 255., f32(background.a) / 255.)
-	gl.Clear(GL.COLOR_BUFFER_BIT)
+	gl.ClearStencil(0)
+	gl.Clear(bit_or(GL.COLOR_BUFFER_BIT, GL.STENCIL_BUFFER_BIT))
 	
 	gl.UseProgram(c.shader_program)
 	gl.BindVertexArray(c.vao)
@@ -251,7 +271,7 @@ void main() {
 	c.index_count = 0
 }
 
-#reserve_vertices: proc(c: ^Canvas, num_vertices: uint, num_indices: uint) => struct {v: u32, i: u32} {
+#reserve_vertices: proc(c: ^Canvas, num_vertices: uint, num_indices: uint) => struct{v: u32, i: u32} {
 	Basic.assert(num_vertices < c.vertex_buf.len)
 	Basic.assert(num_indices < c.index_buf.len)
 	
@@ -279,23 +299,70 @@ void main() {
 }
 
 #rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
+	apply_rect(c, r, color, uv, texture) // draw
+}
+
+#polygon: proc(c: ^Canvas, points: []Vec2, color: Color) {
+	apply_polygon(c, points, Color{0, 0, 0, 0}) // fill the stencil to 1 bits
+	
+	// find bounding box
+	min_x: f32(1000000.)
+	min_y: f32(1000000.)
+	max_x: f32(-1000000.)
+	max_y: f32(-1000000.)
+	for i: 0, i<points.len, i=.+1 {
+		p: points[i]
+		min_x = Basic.max[f32](., p.x)
+		min_y = Basic.max[f32](., p.y)
+		max_x = Basic.min[f32](., p.x)
+		max_y = Basic.min[f32](., p.y)
+	}
+	
+	apply_rect(c, {min: {min_x, min_y}, max: {max_x, max_y}}, color)
+}
+
+#apply_rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
 	set_texture(c, texture)
-	v: reserve_vertices(c, 4, 6)
+	base: reserve_vertices(c, num_vertices: 4, num_indices: 6)
 	
 	enable_texture: Basic.select[f32](texture == ^Texture(0), 0., 1.)
 	
-	c.vertex_buf[v.v]   = {r.min             , uv.min              , enable_texture, color}
-	c.vertex_buf[v.v+1] = {{r.max.x, r.min.y}, {uv.max.x, uv.min.y}, enable_texture, color}
-	c.vertex_buf[v.v+2] = {r.max             , uv.max              , enable_texture, color}
-	c.vertex_buf[v.v+3] = {{r.min.x, r.max.y}, {uv.min.x, uv.max.y}, enable_texture, color}
+	c.vertex_buf[base.v]   = {r.min             , uv.min              , enable_texture, color}
+	c.vertex_buf[base.v+1] = {{r.max.x, r.min.y}, {uv.max.x, uv.min.y}, enable_texture, color}
+	c.vertex_buf[base.v+2] = {r.max             , uv.max              , enable_texture, color}
+	c.vertex_buf[base.v+3] = {{r.min.x, r.max.y}, {uv.min.x, uv.max.y}, enable_texture, color}
 	
-	c.index_buf[v.i]    = v.v
-	c.index_buf[v.i+1]  = v.v+1
-	c.index_buf[v.i+2]  = v.v+2
-	c.index_buf[v.i+3]  = v.v
-	c.index_buf[v.i+4]  = v.v+2
-	c.index_buf[v.i+5]  = v.v+3
+	c.index_buf[base.i]    = base.v
+	c.index_buf[base.i+1]  = base.v+1
+	c.index_buf[base.i+2]  = base.v+2
+	c.index_buf[base.i+3]  = base.v
+	c.index_buf[base.i+4]  = base.v+2
+	c.index_buf[base.i+5]  = base.v+3
 }
+
+#apply_polygon: proc(c: ^Canvas, points: []Vec2, color: Color) {
+	// Draw a triangle from one of the points to all other points.
+	// http://www.glprogramming.com/red/chapter14.html#name13
+	
+	Basic.assert(points.len >= 3)
+	
+	num_triangles: points.len - 2
+	base: reserve_vertices(c, num_vertices: points.len, num_indices: num_triangles*3)
+	
+	for i: 0, i<points.len, i=.+1 {
+		c.vertex_buf[base.v + u32(i)] = {points[i], {0., 0.}, 0., color}
+	}
+	
+	// Use the last vertex as the "origin vertex" where all triangles are connected
+	origin_vertex: base.v + u32(points.len) - 1
+	
+	for i: 0, i<num_triangles, i=.+1 {
+		c.index_buf[base.i + u32(i)*3]     = origin_vertex
+		c.index_buf[base.i + u32(i)*3 + 1] = base.v + u32(i)
+		c.index_buf[base.i + u32(i)*3 + 2] = base.v + u32(i) + 1
+	}
+}
+
 
 //#triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color) {
 //	first_vertex: Index(c.vertices.len)
