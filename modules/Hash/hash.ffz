@@ -8,13 +8,13 @@
 #mix64: proc(x: u64) => u64 {
 	// https://github.com/jonmaiga/mx3/blob/master/mx3.h
 	#C: u64(0xbea225f9eb34556d)
-	x = bit_xor(., .>>32)
+	x = bit_xor(., bit_shr(., 32))
 	x = .*C
-	x = bit_xor(., .>>29)
+	x = bit_xor(., bit_shr(., 29))
 	x = .*C
-	x = bit_xor(., .>>32)
+	x = bit_xor(., bit_shr(., 32))
 	x = .*C
-	x = bit_xor(., .>>29)
+	x = bit_xor(., bit_shr(., 29))
 	ret x
 }
 
@@ -22,7 +22,7 @@
 	// https://github.com/jonmaiga/mx3/blob/master/mx3.h
 	#C: u64(0xbea225f9eb34556d)
 	x = .*C
-	x = bit_xor(., bit_xor(.>>57, .>>43))
+	x = bit_xor(., bit_xor(bit_shr(., 57), bit_shr(., 43)))
 	x = .*C
 	h = .+x
 	h = .*C
@@ -33,7 +33,7 @@
 //#define f_hash64_str(s) f_hash64_str_ex(s, 0)
 
 // Knuth's multiplicative hash
-#knuth64: proc(x: u64) {
+#knuth64: proc(x: u64) => u64 {
 	#golden_ratio_64: u64(11400714819323198485) // The golden ratio of 2^64
 	ret x * golden_ratio_64
 }

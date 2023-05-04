@@ -1,13 +1,29 @@
 
-#Map: import(":Map")
+//#Map: import(":Map")
+//#Basic: import(":Basic")
+
+#MyProc: proc(a: int, b: int) => int
 
 #main: proc {
 	
-	aaa: Data.bar(50)
-	//bbb: MyThings{5, u32}
+	aa: MyProc {
+		dbgbreak
+		ret in.a + in.b
+	}
 	
-	// should give an error, since the type is not concrete
-	// foo: MyThings{1, u32}
+	test: aa(1, 2)
+	
+	aa = proc(a: int, b: int) => int {
+		dbgbreak
+		ret a - b
+	}
+	
+	test2: aa(1, 2)
+	
+	//alc: Basic.arena_alc(Basic.tla())
+	
+	//my_map: Map.make[Map.Key_u32, u32](alc)
+	
 }
 
 /*#Basic: import(":Basic")

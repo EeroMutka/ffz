@@ -195,20 +195,22 @@ ffzType* ffz_ground_type(ffzConstantData* constant, ffzType* type) {
 	return type->tag == ffzTypeTag_Type ? constant->type : type;
 }
 
-bool ffz_type_is_concrete(ffzType* type) {
-	if (type->tag == ffzTypeTag_Type) return false;
-	if (type->tag == ffzTypeTag_FixedArray && type->FixedArray.length == -1) return false;
-	if (type->tag == ffzTypeTag_Raw) return false;
-	if (type->tag == ffzTypeTag_Module) return false;
-	
-	for (uint i = 0; i < type->record_fields.len; i++) {
-		if (!ffz_type_is_concrete(type->record_fields[i].type)) {
-			return false;
-		}
-	}
-
-	return true;
-}
+//bool ffz_type_is_concrete(ffzType* type) {
+//	return type->is_concrete;
+//	if (type->tag == ffzTypeTag_Type) return false;
+//	if (type->tag == ffzTypeTag_FixedArray && type->FixedArray.length == -1) return false;
+//	if (type->tag == ffzTypeTag_Module) return false;
+//	if (type->tag == ffzTypeTag_Raw) return false;
+//	
+//	// hmm... non-concrete types should propagate up, even
+//	for (uint i = 0; i < type->record_fields.len; i++) {
+//		if (!ffz_type_is_concrete(type->record_fields[i].type)) {
+//			return false;
+//		}
+//	}
+//
+//	return true;
+//}
 
 // TODO: store this as a flag in ffzType
 // hmm... shouldn't all types be comparable for equality?
@@ -719,7 +721,16 @@ ffzTypeHash ffz_hash_type(ffzProject* p, ffzType* type) {
 
 	case ffzTypeTag_Pointer: { f_hasher_add(&h, ffz_hash_type(p, type->Pointer.pointer_to)); } break;
 
-	case ffzTypeTag_Proc:     // fallthrough
+	case ffzTypeTag_Proc: {
+		// NOTE: Procedures are structurally typed, whereas structs are nominally typed
+		for (uint i = 0; i < type->Proc.in_params.len; i++) {
+			f_hasher_add(&h, ffz_hash_type(p, type->Proc.in_params[i].type));
+		}
+		if (type->Proc.return_type) {
+			f_hasher_add(&h, ffz_hash_type(p, type->Proc.return_type));
+		}
+	} break;
+
 	case ffzTypeTag_Enum:     // fallthrough   :EnumFieldsShouldNotContributeToTypeHash
 	case ffzTypeTag_Record: {
 		// If the node is an instantiation of a polymorphic definition, we need to use the polymorph hash instead of the
@@ -750,8 +761,6 @@ ffzTypeHash ffz_hash_type(ffzProject* p, ffzType* type) {
 }
 
 ffzType* ffz_make_type(ffzModule* c, ffzType type_desc) {
-	//F_HITS(_c, 35);
-	//F_HITS(_c1, 416);
 	type_desc.checker_id = c->self_id;
 	type_desc.hash = ffz_hash_type(c->project, &type_desc);
 	//if (type_desc.hash == 16688289346569842202) f_trap();
@@ -767,8 +776,17 @@ ffzType* ffz_make_type(ffzModule* c, ffzType type_desc) {
 	return *entry._unstable_ptr;
 }
 
+static ffzType* ffz_make_basic_type(ffzModule* c, ffzTypeTag tag, u32 size, bool is_concrete) {
+	ffzType type = { tag };
+	type.size = size;
+	type.is_concrete.x = is_concrete;
+	return ffz_make_type(c, type);
+}
+
 ffzType* ffz_make_type_ptr(ffzModule* c, ffzType* pointer_to) {
-	ffzType type = { ffzTypeTag_Pointer, c->project->pointer_size };
+	ffzType type = { ffzTypeTag_Pointer };
+	type.size = c->project->pointer_size;
+	type.is_concrete.x = true;
 	type.Pointer.pointer_to = pointer_to;
 	return ffz_make_type(c, type);
 }
@@ -780,12 +798,13 @@ OPT(ffzType*) ffz_builtin_type(ffzModule* c, ffzKeyword keyword) {
 struct ffzRecordBuilder {
 	ffzModule* checker;
 	ffzType* record;
+	bool is_concrete;
 	fArray(ffzField) fields;
 };
 
 static ffzRecordBuilder ffz_record_builder_init(ffzModule* c, ffzType* record, uint fields_cap) {
 	f_assert(record->size == 0);
-	return { c, record, f_array_make_cap<ffzField>(fields_cap, c->alc) };
+	return { c, record, true, f_array_make_cap<ffzField>(fields_cap, c->alc) };
 }
 
 // NOTE: default_value is copied
@@ -803,6 +822,9 @@ static void ffz_record_builder_add_field(ffzRecordBuilder* b, fString name, ffzT
 	field.default_value = default_value != NULL ? *default_value : *ffz_zero_value_constant();
 	f_array_push(&b->fields, field);
 
+	// If the field has a non-concrete type, then this record type will also be non-concrete, i.e. struct{foo: type}
+	b->is_concrete = b->is_concrete && field_type->is_concrete.x;
+
 	// the alignment of a record is that of the largest field  :ComputeRecordAlignment
 	b->record->align = F_MAX(b->record->align, field_type->align);
 	b->record->size = field.offset + field_type->size;
@@ -811,12 +833,14 @@ static void ffz_record_builder_add_field(ffzRecordBuilder* b, fString name, ffzT
 static ffzOk ffz_record_builder_finish(ffzRecordBuilder* b) {
 	b->record->record_fields = b->fields.slice;
 	b->record->size = F_ALIGN_UP_POW2(b->record->size, b->record->align); // Align the size up to the largest member alignment
+	b->record->is_concrete.x = b->is_concrete;
 	TRY(add_fields_to_field_from_name_map(b->checker, b->record, b->record));
 	return FFZ_OK;
 }
 
 ffzType* ffz_make_type_slice(ffzModule* c, ffzType* elem_type) {
 	ffzType type = { ffzTypeTag_Slice };
+	type.is_concrete.x = true;
 	type.Slice.elem_type = elem_type;
 	ffzType* out = ffz_make_type(c, type);
 
@@ -1525,28 +1549,26 @@ FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) 
 	//c->root->module_id = c->self_id;
 
 	{
-		c->builtin_types[ffzKeyword_u8] = ffz_make_type(c, { ffzTypeTag_Uint, 1 });
-		c->builtin_types[ffzKeyword_u16] = ffz_make_type(c, { ffzTypeTag_Uint, 2 });
-		c->builtin_types[ffzKeyword_u32] = ffz_make_type(c, { ffzTypeTag_Uint, 4 });
-		c->builtin_types[ffzKeyword_u64] = ffz_make_type(c, { ffzTypeTag_Uint, 8 });
-		c->builtin_types[ffzKeyword_s8] = ffz_make_type(c, { ffzTypeTag_Sint, 1 });
-		c->builtin_types[ffzKeyword_s16] = ffz_make_type(c, { ffzTypeTag_Sint, 2 });
-		c->builtin_types[ffzKeyword_s32] = ffz_make_type(c, { ffzTypeTag_Sint, 4 });
-		c->builtin_types[ffzKeyword_s64] = ffz_make_type(c, { ffzTypeTag_Sint, 8 });
-		c->builtin_types[ffzKeyword_f32] = ffz_make_type(c, { ffzTypeTag_Float, 4 });
-		c->builtin_types[ffzKeyword_f64] = ffz_make_type(c, { ffzTypeTag_Float, 8 });
-		c->builtin_types[ffzKeyword_uint] = ffz_make_type(c, { ffzTypeTag_DefaultUint, p->pointer_size });
-		c->builtin_types[ffzKeyword_int] = ffz_make_type(c, { ffzTypeTag_DefaultSint, p->pointer_size });
-		c->builtin_types[ffzKeyword_raw] = ffz_make_type(c, { ffzTypeTag_Raw });
-		c->builtin_types[ffzKeyword_bool] = ffz_make_type(c, { ffzTypeTag_Bool, 1 });
-		c->builtin_types[ffzKeyword_type] = ffz_make_type(c, { ffzTypeTag_Type, 0 });
+		c->builtin_types[ffzKeyword_u8] = ffz_make_basic_type(c, ffzTypeTag_Uint, 1, true);
+		c->builtin_types[ffzKeyword_u16] = ffz_make_basic_type(c, ffzTypeTag_Uint, 2, true);
+		c->builtin_types[ffzKeyword_u32] = ffz_make_basic_type(c, ffzTypeTag_Uint, 4, true);
+		c->builtin_types[ffzKeyword_u64] = ffz_make_basic_type(c, ffzTypeTag_Uint, 8, true);
+		c->builtin_types[ffzKeyword_s8] = ffz_make_basic_type(c, ffzTypeTag_Sint, 1, true);
+		c->builtin_types[ffzKeyword_s16] = ffz_make_basic_type(c, ffzTypeTag_Sint, 2, true);
+		c->builtin_types[ffzKeyword_s32] = ffz_make_basic_type(c, ffzTypeTag_Sint, 4, true);
+		c->builtin_types[ffzKeyword_s64] = ffz_make_basic_type(c, ffzTypeTag_Sint, 8, true);
+		c->builtin_types[ffzKeyword_f32] = ffz_make_basic_type(c, ffzTypeTag_Float, 4, true);
+		c->builtin_types[ffzKeyword_f64] = ffz_make_basic_type(c, ffzTypeTag_Float, 8, true);
+		c->builtin_types[ffzKeyword_uint] = ffz_make_basic_type(c, ffzTypeTag_DefaultUint, p->pointer_size, true);
+		c->builtin_types[ffzKeyword_int] = ffz_make_basic_type(c, ffzTypeTag_DefaultSint, p->pointer_size, true);
+		c->builtin_types[ffzKeyword_bool] = ffz_make_basic_type(c, ffzTypeTag_Bool, 1, true);
 		
-		//_ = foo
-		//c->builtin_types[ffzKeyword_Eater] = ffz_make_type(c, { ffzTypeTag_Eater });
-		c->builtin_types[ffzKeyword_Undefined] = ffz_make_type(c, { ffzTypeTag_Undefined });
-
-		c->module_type = ffz_make_type(c, { ffzTypeTag_Module });
-		c->type_type = ffz_make_type(c, { ffzTypeTag_Type });
+		// non-concrete types
+		c->builtin_types[ffzKeyword_type] = ffz_make_basic_type(c, ffzTypeTag_Type, 0, false);
+		c->builtin_types[ffzKeyword_raw] = ffz_make_basic_type(c, ffzTypeTag_Raw, 0, false);
+		c->builtin_types[ffzKeyword_Undefined] = ffz_make_basic_type(c, ffzTypeTag_Undefined, 0, false);
+		c->module_type = ffz_make_basic_type(c, ffzTypeTag_Module, 0, false);
+		c->type_type = ffz_make_basic_type(c, ffzTypeTag_Type, 0, false);
 
 		ffzConstantData* zero = ffz_zero_value_constant();
 		{
@@ -1634,10 +1656,10 @@ static ffzOk post_check_enum(ffzModule* c, ffzNode* node) {
 
 static ffzOk check_proc_type(ffzModule* c, ffzNode* node, ffzCheckInfo* result) {
 	ffzType proc_type = { ffzTypeTag_Proc };
+	proc_type.is_concrete.x = true;
 	proc_type.unique_node = node;
 	proc_type.size = c->project->pointer_size;
 	
-	//F_HITS(_c, 3);
 	ffzNode* parameter_scope = node->parent->kind == ffzNodeKind_PostCurlyBrackets ? node->parent : node;
 	TRY(add_possible_definitions_to_scope(c, parameter_scope, node));
 

@@ -273,7 +273,7 @@ typedef enum ffzKeyword {
 
 typedef struct ffzLoc {
 	uint32_t line_num; // As in text files, starts at 1
-	uint32_t column_num;
+	uint32_t column_num; // Character number in the line, starting from 1
 	uint32_t offset;
 } ffzLoc;
 
@@ -538,6 +538,7 @@ typedef struct ffzTypeEnumField {
 
 typedef struct ffzType {
 	ffzTypeTag tag;
+	struct { bool x; } is_concrete;
 	uint32_t size;
 	uint32_t align;
 
@@ -799,7 +800,8 @@ inline bool ffz_type_is_pointer_sized_integer(ffzProject* p, ffzType* type) { re
 uint32_t ffz_get_encoded_constant_size(ffzType* type);
 ffzConstantData ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
 
-bool ffz_type_is_concrete(ffzType* type); // a type is grounded when a runtime variable may have that type.
+// a type is grounded when a runtime variable may have that type.
+inline bool ffz_type_is_concrete(ffzType* type) { return type->is_concrete.x; }
 
 bool ffz_type_is_comparable_for_equality(ffzType* type); // supports ==, !=
 bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.

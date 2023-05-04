@@ -102,7 +102,7 @@ struct Gen {
 static void gen_statement(Gen* g, ffzNode* node);
 static Value gen_expr(Gen* g, ffzNode* node, bool address_of);
 
-static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
+static fString make_name(Gen* g, ffzNode* node = NULL, bool pretty = true) {
 	// @memory; we could reuse the names
 	fStringBuilder name;
 	f_init_string_builder(&name, f_temp_alc());
@@ -127,7 +127,8 @@ static fString make_name(Gen* g, ffzNode* node = {}, bool pretty = true) {
 			}
 		}
 	}
-	else {
+	
+	if (name.str.len == 0) {
 		f_print(name.w, "_ffz_~x64", g->dummy_name_counter);
 		g->dummy_name_counter++;
 	}
@@ -319,7 +320,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 		gmmcType param_type = value_is_direct(param->type) ? get_gmmc_trivial_type(g, param->type) : gmmcType_ptr;
 		f_array_push(&param_types, param_type);
 	}
-	//F_HITS(_c, 3);
+	//F_HITS(_c, 4);
 	fString name = make_name(g, node);
 	//if (name == F_LIT("arena_push")) f_trap();
 	gmmcProcSignature* sig = gmmc_make_proc_signature(g->gmmc, ret_type_gmmc, param_types.data, (u32)param_types.len);
@@ -338,11 +339,6 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	f_array_push(&g->procs_sorted, proc_info);
 	*insertion._unstable_ptr = proc_info;
 
-	//if (node->Op.left->kind == ffzNodeKind_ProcType && proc_type->Proc.out_param && proc_type->Proc.out_param->name.len) {
-	//	// Default initialize the output value
-	//	f_trap();//gen_statement(g, ICHILD(left, out_parameter));
-	//}
-
 	gmmcProc* proc_before = g->proc;
 	gmmcBasicBlock* bb_before = g->bb;
 	ProcInfo* proc_info_before = g->proc_info;
@@ -350,24 +346,30 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	g->proc = proc;
 	g->bb = entry_bb;
 
-	
-	for (u32 i = 0; i < proc_type->Proc.in_params.len; i++) {
-		ffzField* param = &proc_type->Proc.in_params[i];
+	if (node->kind == ffzNodeKind_PostCurlyBrackets && node->Op.left->kind == ffzNodeKind_ProcType) {
+		// Expose the parameters to the body.
+		// NOTE: we must loop through the parameter nodes like this instead of looking at the parameters using the type info,
+		// because procedure types are structurally typed, and the decl given by the field info might not be the one declared by this procedure.
+		u32 i = 0;
+		for FFZ_EACH_CHILD(param_decl, node->Op.left) {
+			f_assert(param_decl->kind == ffzNodeKind_Declare);
+			gmmcOpIdx param_addr = gmmc_op_addr_of_param(proc, i + (u32)big_return);
+			ffzType* param_type = param_decl->checked.type;
 
-		gmmcOpIdx param_addr = gmmc_op_addr_of_param(proc, i + (u32)big_return);
-		
-		Variable val = {};
-		val.local_addr = param_addr;
-		add_dbginfo_local(g, param->name, val.local_addr, param->type, param->type->size > 8);
-		
-		if (param->type->size > 8) {
-			// This is Microsoft-X64 calling convention specific!
-			// NOTE: we can't do gmmc_op_load here, because we can't access a values from other BBs.
-			val.local_addr_is_indirect = true;
-			//val.local_addr = gmmc_op_load(entry_bb, gmmcType_ptr, val.local_addr);
+			Variable val = {};
+			val.local_addr = param_addr;
+			add_dbginfo_local(g, ffz_decl_get_name(param_decl), val.local_addr, param_type, param_type->size > 8);
+
+			if (param_type->size > 8) {
+				// This is Microsoft-X64 calling convention specific!
+				// NOTE: we can't do gmmc_op_load here, because we can't access a values from other BBs.
+				val.local_addr_is_indirect = true;
+				//val.local_addr = gmmc_op_load(entry_bb, gmmcType_ptr, val.local_addr);
+			}
+
+			f_map64_insert(&g->variable_from_definition, (u64)param_decl->Op.left, val);
+			i++;
 		}
-
-		f_map64_insert(&g->variable_from_definition, (u64)param->decl->Op.left, val);
 	}
 
 	for FFZ_EACH_CHILD(n, node) {
