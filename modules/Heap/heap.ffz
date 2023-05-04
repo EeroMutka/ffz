@@ -1,0 +1,20 @@
+
+// Let's first implement the simple, debug-version of the heap.
+
+// Basic should give each thread an arena.
+
+#Heap: struct {
+}
+
+
+#make: proc() => Heap {
+}
+
+
+#alloc: proc() {
+}
+
+#free: proc() {
+	
+}
+

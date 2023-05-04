@@ -935,10 +935,14 @@ void* f_arena_push_undef(fArena* arena, uint size, uint align) {
 
 fMap64Raw f_map64_make_raw(u32 value_size, fAllocator* a) { return f_make_map64_cap_raw(value_size, 0, a); }
 
-static u32 hashmap64_get_slot_index(u64 key, u32 slot_count_log2) {
+static u32 hashmap64_get_slot_index(u64 key, fMap64Raw* map) {
 	const u64 golden_ratio_64 = 0x9E3779B97F4A7D69;
+	
+	// fibonacci hash
+	// NOTE: slot_count must be a power of 2!
 
-	u32 slot_index = (u32)((key * golden_ratio_64) >> (64 - slot_count_log2)); // fibonacci hash
+	u64 mask = (map->slot_count - 1);
+	u32 slot_index = (u32)((key * golden_ratio_64) & mask);
 	return slot_index;
 }
 
@@ -946,14 +950,14 @@ fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key) {
 	f_assert(key <= F_MAP64_LAST_VALID_KEY);
 	if (!map->slots) return NULL;
 
-	//HITS(_c, 628);
-	u32 slot_index = hashmap64_get_slot_index(key, map->slot_count_log2);
+	u32 slot_index = hashmap64_get_slot_index(key, map);
+
 	u32 slot_size = map->value_size + 8;
 	u8* slots = (u8*)map->slots;
 
-	u32 wrapping_mask = (1u << map->slot_count_log2) - 1;
+	u32 wrapping_mask = map->slot_count - 1;
 	for (;;) {
-		f_assert(slot_index < (1u << map->slot_count_log2));
+		f_assert(slot_index < map->slot_count);
 		u64* key_ptr = (u64*)(slots + slot_index * slot_size);
 		if (*key_ptr == key) {
 			return key_ptr + 1;
@@ -965,25 +969,20 @@ fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key) {
 	}
 }
 
-void f_map64_resize_raw(fMap64Raw* map, u32 slot_count_log2) {
-	slot_count_log2 = F_MAX(slot_count_log2, 2); // always have at minimum 4 slots
+void f_map64_resize_raw_(fMap64Raw* map, u32 slot_count_pow2) {
+	if (slot_count_pow2 <= 4) {
+		slot_count_pow2 = 4;
+	}
+	f_assert(F_IS_POWER_OF_2(slot_count_pow2));
+	
 	u32 slot_size = map->value_size + 8;
 	
 	fOpt(u8*) slots_before = map->slots;
-	u32 slot_count_before = (1 << map->slot_count_log2);
+	u32 slot_count_before = map->slot_count;
 
 	map->alive_count = 0;
-	map->slot_count = (1 << slot_count_log2);
-	map->slot_count_log2 = slot_count_log2;
-	
-	//((uint) & ((T*)0)->f)
-	//uint test = ((struct _dummy { char c; Arena member; }*)0)->member;
-
-	//int test = F_ALIGN_OF(int);
-
-	F_HITS(_c, 0);
+	map->slot_count = slot_count_pow2;
 	map->slots = f_mem_alloc_n(u8, slot_size * map->slot_count, map->alc);
-	//if (map->slots == (void*)0x0000020000004440) BP;
 	memset(map->slots, 0xFFFFFFFF, map->slot_count * slot_size); // fill all keys with HASHMAP64_EMPTY_KEY
 
 	if (slots_before) {
@@ -1043,35 +1042,32 @@ fString f_str_join_n(fAllocator* a, fSliceRaw args) {
 	return result;
 }
 
-fMap64Raw f_make_map64_cap_raw(u32 value_size, uint_pow2 capacity, fAllocator* a) {
+fMap64Raw f_make_map64_cap_raw(u32 value_size, u32 capacity_pow2, fAllocator* a) {
 	fMap64Raw map = (fMap64Raw){
 		.alc = a,
 		.value_size = F_ALIGN_UP_POW2(value_size, 8),
 	};
-	uint slot_count_log2 = log2_uint(capacity);
-	f_map64_resize_raw(&map, F_CAST(u32, slot_count_log2));
+	
+	f_map64_resize_raw_(&map, capacity_pow2);
 	return map;
 }
 
 fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) value, fMapInsert mode) {
 	f_assert(key <= F_MAP64_LAST_VALID_KEY);
-	F_HITS(_c, 0);
 
 	//     filled / allocated >= 70/100
 	// <=> filled * 100 >= allocated * 70
 
-	// Note that `slot_count_before` will be 1 even when it's actually zero, becase we can't represent 0 in the _log2 form.
-	// However this is fine, because the map will expand in that case too.
-	u32 slot_count_before = 1u << map->slot_count_log2;
+	u32 slot_count_before = map->slot_count;
 	if ((map->alive_count + 1) * 100 >= slot_count_before * 70) {
 		// expand the map
-		f_map64_resize_raw(map, map->slot_count_log2 + 1);
+		f_map64_resize_raw_(map, map->slot_count << 1u);
 	}
 
-	u32 slot_index = hashmap64_get_slot_index(key, map->slot_count_log2);
+	u32 wrapping_mask = map->slot_count - 1;
+	u32 slot_index = hashmap64_get_slot_index(key, map);
 	u32 slot_size = map->value_size + 8;
 	u8* slots = (u8*)map->slots;
-	u32 wrapping_mask = (1u << map->slot_count_log2) - 1;
 
 	void* first_dead_value = NULL;
 	
@@ -1108,10 +1104,10 @@ fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) v
 bool f_map64_remove_raw(fMap64Raw* map, u64 key) {
 	if (map->alive_count == 0 || !map->slots) return false;
 
-	u32 slot_index = hashmap64_get_slot_index(key, map->slot_count_log2);
+	u32 slot_index = hashmap64_get_slot_index(key, map);
 	u32 slot_size = map->value_size + 8;
 	u8* slots = (u8*)map->slots;
-	u32 wrapping_mask = (1u << map->slot_count_log2) - 1;
+	u32 wrapping_mask = map->slot_count - 1;// (1u << map->slot_count_log2) - 1;
 
 	for (;;) {
 		u64* key_ptr = (u64*)(slots + slot_index * slot_size);
@@ -1678,15 +1674,19 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 
 	void f_os_print(fString str) {
-		fArenaMark mark = f_temp_get_mark();
+		//fArenaMark mark = f_temp_get_mark();
 
-		uint str_utf16_len;
-		wchar_t* str_utf16 = f_str_to_utf16(str, 1, f_temp_alc(), &str_utf16_len);
-		f_assert((u32)str_utf16_len == str_utf16_len);
+		//uint str_utf16_len;
+		//wchar_t* str_utf16 = f_str_to_utf16(str, 1, f_temp_alc(), &str_utf16_len);
+		//f_assert((u32)str_utf16_len == str_utf16_len);
 
+		// NOTE: it seems like when we're capturing the output from an outside program,
+		//       using WriteConsoleW doesn't get captured, but WriteFile does.
 		DWORD num_chars_written;
-		WriteConsoleW(_f_stdout_handle, str_utf16, (u32)str_utf16_len, &num_chars_written, NULL);
-		f_temp_set_mark(mark);
+		//WriteFile(_f_stdout_handle, str_utf16, (u32)str_utf16_len * 2, &num_chars_written, NULL);
+		
+		WriteFile(_f_stdout_handle, str.data, (u32)str.len, &num_chars_written, NULL);
+		//f_temp_set_mark(mark);
 	}
 
 	// colored write to console
@@ -1698,14 +1698,14 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		
 		CONSOLE_SCREEN_BUFFER_INFO console_info;
 		bool ok = GetConsoleScreenBufferInfo(_f_stdout_handle, &console_info);
-		if (ok) {
-			str = f_str_replace(str, F_LIT("\t"), F_LIT("    "), f_temp_alc());
 
-			uint str_utf16_len;
-			wchar_t* str_utf16 = f_str_to_utf16(str, 1, f_temp_alc(), &str_utf16_len);
-			DWORD num_chars_written;
-			ok = WriteConsoleW(_f_stdout_handle, str_utf16, F_CAST(u32, str_utf16_len), &num_chars_written, NULL);
+		str = f_str_replace(str, F_LIT("\t"), F_LIT("    "), f_temp_alc());
+
+		DWORD num_chars_written;
+		if (!WriteFile(_f_stdout_handle, str.data, (u32)str.len, &num_chars_written, NULL)) {
+			ok = false;
 		}
+		
 		if (ok) {
 			WORD* attributes = f_mem_alloc_n(WORD, str.len, f_temp_alc());
 			for (u32 i = 0; i < str.len; i++) {

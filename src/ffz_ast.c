@@ -8,9 +8,7 @@
 // Future research:
 // https://nothings.org/computer/lexing.html
 
-
 #include "ffz_checker.h"
-//#include "ffz_ast.h"
 
 // Parser is responsible for parsing a single file / string of source code
 typedef struct ffzParser {
@@ -123,7 +121,6 @@ static const fString ffzNodeKind_to_op_string[] = {
 #undef X
 };
 
-
 fString ffz_keyword_to_string(ffzKeyword keyword) {
 	switch (keyword) {
 	case ffzKeyword_Eater:                return F_LIT("_");
@@ -149,6 +146,7 @@ fString ffz_keyword_to_string(ffzKeyword keyword) {
 	case ffzKeyword_uint:                 return F_LIT("uint");
 	case ffzKeyword_bool:                 return F_LIT("bool");
 	case ffzKeyword_raw:                  return F_LIT("raw");
+	case ffzKeyword_type:                 return F_LIT("type");
 	case ffzKeyword_string:               return F_LIT("string");
 	case ffzKeyword_bit_and:              return F_LIT("bit_and");
 	case ffzKeyword_bit_or:               return F_LIT("bit_or");

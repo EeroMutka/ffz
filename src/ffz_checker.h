@@ -246,6 +246,7 @@ typedef enum ffzKeyword {
 	ffzKeyword_uint,
 	ffzKeyword_bool,
 	ffzKeyword_raw,
+	ffzKeyword_type,
 	ffzKeyword_string,
 
 	// :ffz_keyword_is_bitwise_op
@@ -526,7 +527,8 @@ typedef struct ffzField {
 
 typedef struct ffzTypeRecordFieldUse {
 	ffzField* src_field;
-	uint32_t offset; // offset relative to the base address of the top-level (in case of @using) record type
+	uint32_t offset; // offset relative to the base address of the root
+	fSlice(uint32_t) index_path; // path to the target member from the root
 } ffzTypeRecordFieldUse;
 
 typedef struct ffzTypeEnumField {

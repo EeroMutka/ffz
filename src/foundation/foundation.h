@@ -74,7 +74,6 @@ typedef struct fMap64Raw {
 	uint32_t alive_count;
 
 	uint32_t slot_count;
-	uint32_t slot_count_log2; // if there are zero slots, this will be zero and the `slots` pointer will be null.
 	/*opt*/ void* slots;
 } fMap64Raw;
 
@@ -644,9 +643,9 @@ inline bool f_map64_iterate(fMap64Raw* map, uint* i, uint* key, void** value_ptr
 // I think we should provide serialization and deserialization functions for map.
 
 fMap64Raw f_map64_make_raw(u32 value_size, fAllocator* a);
-fMap64Raw f_make_map64_cap_raw(u32 value_size, uint_pow2 capacity, fAllocator* a);
+fMap64Raw f_make_map64_cap_raw(u32 value_size, u32 capacity_pow2, fAllocator* a);
 void f_map64_free_raw(fMap64Raw* map);
-void f_map64_resize_raw(fMap64Raw* map, u32 slot_count_log2);
+void f_map64_resize_raw_(fMap64Raw* map, u32 slot_count_pow2);
 fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) value, fMapInsert mode);
 bool f_map64_remove_raw(fMap64Raw* map, u64 key);
 fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key);

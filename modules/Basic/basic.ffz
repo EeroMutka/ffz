@@ -26,9 +26,9 @@
 
 #ENABLE_DEBUG_CHECKS: true
 
-// globals shouldn't be allowed in modules, but only for the basic module an exception is made
+// globals shouldn't really be allowed in modules, but only for the basic module an exception is made
 @global
-_temp_arena_tls_index: u32(0)
+_tl_arena_tls_index: u32(0)
 
 #ArenaMark: struct {head: ^u8}
 
@@ -310,22 +310,25 @@ _temp_arena_tls_index: u32(0)
 	assert(WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), str.ptr, u32(str.len), &num_chars_written, ^raw(0)) != 0)
 }
 
-#temp_arena: proc => ^Arena {
-	ret ^Arena(TlsGetValue(_temp_arena_tls_index))
+// thread-local arena
+#tla: proc => ^Arena {
+	ret ^Arena(TlsGetValue(_tl_arena_tls_index))
 }
 
-#temp_alc: proc => ^Allocator {
-	ret ^Allocator(TlsGetValue(_temp_arena_tls_index))
-}
+//#temp_alc: proc => ^Allocator {
+//	ret ^Allocator(TlsGetValue(_tl_arena_tls_index))
+//}
+
+
 
 // WARNING: call `temp_get_mark` and `temp_set_mark` only when you know exactly what you're doing.
 // The scope must be completely self-contained; it must not leak anything to the outside world.
 // This is an easy footgun! (include an example)
-#temp_get_mark: proc() => ArenaMark {
+#tla_get_mark: proc() => ArenaMark {
 	ret ArenaMark{^u8(0)}
 }
 
-#temp_set_mark: proc(mark: ArenaMark) {}
+#tla_set_mark: proc(mark: ArenaMark) {}
 
 #thread_init_basic: proc() {
 	// _CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_ATTACH, ^raw(0))
@@ -333,8 +336,8 @@ _temp_arena_tls_index: u32(0)
 	// Deterministic base-address. hmm... this won't work with multiple threads.
 	temp_arena_base: ^u8(TiB(2))
 	arena: arena_make_virtual_reserve_fixed(MiB(2), temp_arena_base)
-	_temp_arena_tls_index = TlsAlloc()
-	assert(TlsSetValue(_temp_arena_tls_index, arena) != 0)
+	_tl_arena_tls_index = TlsAlloc()
+	assert(TlsSetValue(_tl_arena_tls_index, arena) != 0)
 }
 
 #thread_deinit_basic: proc() {

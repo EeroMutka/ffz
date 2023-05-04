@@ -1,18 +1,23 @@
+[x] Finish futuregames application / CV
+[x] Visual studio extension for FFZ
 
-Workflow is too important. Could I make a visual studio extension for FFZ?
+[] allow 'type' in structs
+[] Get Map to work
 
-[x] get raylib up and running
-[x] implicit dereferencing of array subscript[]
+[] fix the situation with commas and newlines
 
-- keyboard / mouse input
-[] HMM-like math library with stuff like sqrt and vectors to start with until we implement array math
-[] stbi
-[] stbtt
+[] Slice, Array and Map visualizations in visual studio. Try to add the support in codeview for them
 
-- Goal #1: Basic 2D drawing library + demo app for it
+
+[] Text rendering using texture/glyphs
+
+[] Get keyboard + mouse input working with the 2D drawing sample app
+
+[] struct and array ==, != comparison
+
+[] Heap allocator, TLSF. Either make it into a module, or put it into Basic
 
 [] @module_struct
-[] struct and array ==, != comparison
 
 [] slice bounds checking
 	hmm, maybe this could be implemented similar to enabling libc where it's an optional tag that the Basic module implements
@@ -23,6 +28,11 @@ Workflow is too important. Could I make a visual studio extension for FFZ?
 [] hash procedure type based on its contents, not its unique node
 [] break, continue, to_else, named scopes
 [] module ' declaration
+
+[] implicit polymorphic parameter latching for calls would be really nice...
+[] typed poly-parameters
+
+[] any + type info and module caching. These need to be solved at the same time I think.
 
 - Goal #2: 3D chess game with OpenGL with no third-party dependencies, except
 - cgltf, miniaudio, stbi, stbtt

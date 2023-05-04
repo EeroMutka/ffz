@@ -1,0 +1,161 @@
+
+// CompareFn: proc(a: ^T, b: ^T) => bool
+// HashFn: proc(a: ^T) => u32
+
+// Maybe in the future, we could have default value for CompareFn and HashFn to be 'nil'.
+// and use an #if to default to for example, proc(a: ^T, b: ^T) => bool { ret a^ == b^ }
+// #KeyType: poly[T, CompareFn: nil, HashFn: nil] struct { key: T }
+
+// Key: KeyType
+//#Map: poly[Key, Value] struct {
+
+#Basic: import(":Basic")
+#Hash: import(":Hash")
+
+#KeyType: poly[_KEY] struct {
+	KEY: type // We need to expose the polymorphic parameter as a compile-time struct member
+	compare_fn: proc(a: _KEY, b: _KEY) => bool
+	hash_fn: proc(a: _KEY) => u32
+}
+
+#HASH_EMPTY_SLOT: u32(0)
+#HASH_DEAD_SLOT_BUT_REQUIRED_FOR_CHAIN: u32(1)
+#HASH_FIRST_VALID: u32(2)
+
+#MapSlot: poly[K, T] struct {
+	// This can have a special value of HASH_EMPTY_SLOT or HASH_DEAD_SLOT_BUT_REQUIRED_FOR_CHAIN
+	hash: u32
+	
+	key: K.KEY
+	value: T
+}
+
+#Map: poly[K/*: KeyType*/, T] struct {
+	alc: ^Basic.Allocator
+	alive_count: u32(0)
+	slots: []MapSlot[K, T]
+}
+
+#make: poly[K, T] proc(alc: ^Basic.Allocator) => Map[K, T] {
+	ret {alc: alc}
+}
+
+
+#add: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
+	added: _insert[K, T](map, key, value, overwrite: false)
+	Basic.assert(added)
+}
+
+// returns `true` if the value did not exist in the map before
+#add_or_ignore: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) => bool {
+	added: _insert[K, T](map, key, value, overwrite: false)
+	ret added
+}
+
+#add_or_overwrite: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
+	_insert[K, T](map, key, value, overwrite: true)
+}
+
+/*
+ Returns null if not found.
+ NOTE: the returned pointer is unstable across modifications to the map!
+*/
+#find_slot: poly[K, T] proc(map: ^Map[K, T], key: K.KEY) => ^MapSlot[K, T] {
+	hash: K.hash_fn(key)
+	if hash < HASH_FIRST_VALID {
+		hash = HASH_FIRST_VALID
+	}
+	
+	wrapping_mask: map.slot_count - 1
+	slot_index: bit_and(hash, wrapping_mask)
+	
+	for loop: true, loop, {
+		slot: &map.slots[slot_index]
+		
+		if slot.hash == hash && K.compare_fn(slot.key, key) {
+			ret slot
+		}
+		
+		if slot.hash == HASH_EMPTY_SLOT {
+			loop = false // This key does not exist in the map.
+		}
+		
+		slot_index = bit_and((slot_index + 1), wrapping_mask)
+	}
+	
+	ret ^MapSlot[K, T](0)
+}
+
+/*
+ returns `true` if the value did not exist in the map before
+*/
+#_insert: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T, overwrite: bool) => bool {
+	
+	//     filled / allocated >= 70/100
+	// <=> filled * 100 >= allocated * 70
+	
+	slot_count_before: map.slots.len
+	if (map.alive_count + 1) * 100 >= slot_count_before * 70 {
+		// expand the map
+		resize(map, bit_shl(map.slot_count, 1))
+	}
+	
+	
+	hash: K.hash_fn(key)
+	if hash < HASH_FIRST_VALID {
+		hash = HASH_FIRST_VALID
+	}
+	
+	wrapping_mask: map.slot_count - 1
+	slot_index: bit_and(hash, wrapping_mask)
+	first_unused_slot: ^MapSlot[K, T](0)
+	
+	for loop: true, loop, {
+		slot: &map.slots[slot_index]
+		
+		if slot.hash == hash && K.compare_fn(slot.key, key) {
+			// Key already exists in the map
+			
+			if overwrite {
+				slot.value = value
+			}
+		}
+		else if slot.hash <= HASH_FIRST_VALID {
+			if first_unused_slot == ^MapSlot[K, T](0) {
+				// The element might still exist after this slot
+				first_unused_slot = slot
+			}
+			if slot.hash == HASH_EMPTY_SLOT {
+				loop = false // This key does not exist in the map.
+			}
+		}
+		
+		slot_index = bit_and((slot_index + 1), wrapping_mask)
+	}
+	
+	map.alive_count = .+1
+	first_unused_slot.key = key
+	first_unused_slot.value = value
+	ret true
+}
+
+
+
+// -- Built-in key types ----------------------------------
+
+#primitive_compare: poly[T] proc(a: T, b: T) => bool {
+	ret a == b
+}
+
+#primitive_hash: poly[T] proc(x: T) => u32 {
+	hash: Hash.knuth64(u64(x))
+	ret hash
+	//h: &Hash.begin()
+	//Hash.add(h, u64(x^))
+	//ret u32(Hash.end(h))
+}
+
+#Key_u8:  KeyType[u8]{u8, primitive_compare[u8], primitive_hash[u8]}
+#Key_u16: KeyType[u16]{u16, primitive_compare[u16], primitive_hash[u16]}
+#Key_u32: KeyType[u32]{u32, primitive_compare[u32], primitive_hash[u32]}
+#Key_u64: KeyType[u64]{u64, primitive_compare[u64], primitive_hash[u64]}

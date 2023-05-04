@@ -1,0 +1,37 @@
+
+// Map with 64-bit keys
+
+#Map64: poly[T] struct {
+	alc: ^Basic.Allocator
+	elem_size: u32
+	alive_count: u32(0)
+	slot_count: u32(0)
+	slots: ^raw(0)
+}
+
+
+#make: poly[T] proc(alc: ^Basic.Allocator) => Map64[T] {
+	elem_size: Basic.align_up(size_of(T), 8)
+	ret Map64[T]{alc, u32(elem_size)}
+}
+
+
+#resize: poly[T] proc(map: ^Map64[T], slot_count_pow2: u32) {
+	resize_raw(map, slot_count_pow2)
+}
+
+
+
+// -- Raw map utilities -----------------------------------
+
+#resize_raw: proc(map: ^Map64[raw], slot_count_pow2: u32) {
+	if slot_count_pow2 <= 4 {
+		slot_count_pow2 = 4
+	}
+	
+	Basic.assert(Basic.is_power_of_2[u32](slot_count_pow2))
+	
+	slot_size: map.elem_size + 8
+	
+}
+

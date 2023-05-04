@@ -23,20 +23,36 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 
 
 void log_pretty_error(ffzError error, fString kind) {
-	f_os_print_color(kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+	// C-style error messages can be useful in Visual Studio output console, to be able to double click the code location
+	bool c_style = true;
+	if (!c_style) {
+		f_os_print_color(kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+	}
 	
 	fString line_num_str;
 	if (error.source) {
-		f_os_print(F_LIT("("));
-		f_os_print_color(error.source->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
-
 		line_num_str = f_str_from_uint(error.location.start.line_num, 10, f_temp_alc());
 
-		f_os_print(F_LIT(":"));
-		f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
-		f_os_print(F_LIT(":"));
-		f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
-		f_os_print(F_LIT(")\n  "));
+		if (c_style) {
+			f_os_print_color(error.source->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+			f_os_print(F_LIT("("));
+			f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
+			f_os_print(F_LIT(","));
+			f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
+			f_os_print(F_LIT("):\n "));
+			f_os_print_color(kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+			f_os_print(F_LIT(": "));
+		}
+		else {
+			f_os_print(F_LIT("("));
+			f_os_print_color(error.source->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
+
+			f_os_print(F_LIT(":"));
+			f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
+			f_os_print(F_LIT(":"));
+			f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
+			f_os_print(F_LIT(")\n  "));
+		}
 	}
 
 	f_os_print(error.message);
@@ -158,7 +174,7 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	}
 
 	if (!module) {
-		log_pretty_error(err, F_LIT("Error "));
+		log_pretty_error(err, F_LIT("Error"));
 	}
 
 	TracyCZoneEnd(tr);
@@ -167,16 +183,16 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 
 int main(int argc, const char* argv[]) {
 	TracyCZone(tr, true);
-
-	//fHash64 h1 = f_hash64_start();
-	//f_hash64_update(&h1, 0);
-	//f_hash64_update(&h1, 1);
-	//
-	//fHash64 h2 = f_hash64_start();
-	//f_hash64_update(&h2, 1);
-	//f_hash64_update(&h2, 0);
-
 	f_init();
+
+	//aa
+	//fString cwd = f_os_get_working_dir(f_temp_alc());
+	//f_cprint("cwd: <~s>\n", cwd);
+	//f_cprint("\x43\x3A\x2F\x64\x65\x76\x2F\x66\x66\x7A\x31\x2F\x73\x72\x63\x2F\x66\x66\x7A\x5F\x63\x6F\x6E\x73\x6F\x6C\x65\x5F\x74\x6F\x6F\x6C\x73\x2F\x66\x66\x7A\x2E\x63\x28\x31\x37\x38\x2C\x32\x29\x3A\x20\x65\x72\x72\x6F\x72\x20\x43\x32\x30\x36\x35\x3A\x20\x27\x61\x61\x27\x3A\x20\x75\x6E\x64\x65\x63\x6C\x61\x72\x65\x64\x20\x69\x64\x65\x6E\x74\x69\x66\x69\x65\x72\x0A");
+	
+	//for (int i = 0; i < argc; i++) {
+	//	f_cprint("arg: `~s`\n", f_str_from_cstr(argv[i]));
+	//}
 
 	bool ok = true;
 	if (argc <= 1) {
@@ -184,11 +200,13 @@ int main(int argc, const char* argv[]) {
 		ok = false;
 	}
 
+	fString dir;
+	ffzModule* root_module;
 	if (ok) {
 		fSliceRaw my_strings = f_slice_lit(fString, F_LIT("heyy"), F_LIT("sailor"));
 		F_UNUSED(my_strings);
 
-		fString dir = f_str_from_cstr(argv[1]);
+		dir = f_str_from_cstr(argv[1]);
 		fString exe_path = f_os_get_executable_path(f_temp_alc());
 		fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
 		fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
@@ -196,9 +214,11 @@ int main(int argc, const char* argv[]) {
 		fArena* arena = _f_temp_arena;
 		ffzProject* p = ffz_init_project(arena, modules_dir);
 
-		ffzModule* root_module = parse_and_check_directory(p, dir);
-		if (root_module == NULL) return false;
+		root_module = parse_and_check_directory(p, dir);
+		ok = root_module != NULL;
+	}
 
+	if (ok) {
 		fString project_name = f_str_path_tail(dir);
 		fString build_dir = f_str_join_tmp(dir, F_LIT("\\.build"));
 		f_assert(f_files_make_directory(build_dir));

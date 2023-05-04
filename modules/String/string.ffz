@@ -118,14 +118,15 @@
 }
 
 // hmm.. todo: accept `any`?
-#printf: proc(format: string, args: []string) {
-	mark: Basic.temp_get_mark()
-	
-	s: joinf(format, args, Basic.temp_alc())
-	Basic.print(s)
-	
-	Basic.temp_set_mark(mark)
-}
+//#printf: proc(format: string, args: []string) {
+//	mark: Basic.temp_get_mark()
+//	
+//	s: joinf(format, args, Basic.temp_alc())
+//	Basic.print(s)
+//	
+//	Basic.temp_set_mark(mark)
+//}
+
 
 // Join using a format string
 // Rules:
@@ -151,6 +152,6 @@
 
 // Temporary allocator helpers
 
-#tjoinf:      proc(format: string, args: []string) => string  { ret joinf(format, args, Basic.temp_alc()) }
-#tfrom_int:   proc(value: int) => string                      { ret from_int(value, Basic.temp_alc()) }
-#tfrom_uint:  proc(value: uint) => string                     { ret from_uint(value, Basic.temp_alc()) }
+//#tjoinf:      proc(format: string, args: []string) => string  { ret joinf(format, args, Basic.temp_alc()) }
+//#tfrom_int:   proc(value: int) => string                      { ret from_int(value, Basic.temp_alc()) }
+//#tfrom_uint:  proc(value: uint) => string                     { ret from_uint(value, Basic.temp_alc()) }

@@ -1,0 +1,57 @@
+
+// Interesting resources related to hashing:
+// https://papa.bretmulvey.com/post/124027987928/hash-functions
+// https://nullprogram.com/blog/2018/07/31/
+// https://www.reddit.com/r/RNG/comments/jqnq20/the_wang_and_jenkins_integer_hash_functions_just/
+// https://marc-b-reynolds.github.io/math/2019/08/10/Avalanche.html
+// https://github.com/jonmaiga/mx3/blob/master/mx3.h
+#mix64: proc(x: u64) => u64 {
+	// https://github.com/jonmaiga/mx3/blob/master/mx3.h
+	#C: u64(0xbea225f9eb34556d)
+	x = bit_xor(., .>>32)
+	x = .*C
+	x = bit_xor(., .>>29)
+	x = .*C
+	x = bit_xor(., .>>32)
+	x = .*C
+	x = bit_xor(., .>>29)
+	ret x
+}
+
+#mix64_stream: proc(h: u64, x: u64) => u64 {
+	// https://github.com/jonmaiga/mx3/blob/master/mx3.h
+	#C: u64(0xbea225f9eb34556d)
+	x = .*C
+	x = bit_xor(., bit_xor(.>>57, .>>43))
+	x = .*C
+	h = .+x
+	h = .*C
+	ret h
+}
+
+//u64 f_hash64_str_ex(fString s, u64 seed)
+//#define f_hash64_str(s) f_hash64_str_ex(s, 0)
+
+// Knuth's multiplicative hash
+#knuth64: proc(x: u64) {
+	#golden_ratio_64: u64(11400714819323198485) // The golden ratio of 2^64
+	ret x * golden_ratio_64
+}
+
+// -- Hasher ----------------
+
+#Hasher: struct { state: u64 }
+
+#begin: proc => Hasher {
+	ret {0}
+}
+
+#add: proc(h: ^Hasher, data: u64) {
+	h.state = mix64_stream(., data)
+}
+
+#end: proc(h: ^Hasher) => u64 {
+	ret mix64(h.state)
+}
+
+// --------------------------

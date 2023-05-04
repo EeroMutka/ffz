@@ -1,4 +1,16 @@
-#Basic: import(":Basic")
+
+#Map: import(":Map")
+
+#main: proc {
+	
+	aaa: Data.bar(50)
+	//bbb: MyThings{5, u32}
+	
+	// should give an error, since the type is not concrete
+	// foo: MyThings{1, u32}
+}
+
+/*#Basic: import(":Basic")
 
 #Window: import(":Window")
 #GL: import(":OpenGL")
@@ -15,7 +27,6 @@
 	mursu: ^Draw2D.Texture(0)
 }
 
-
 /*
 OK OK.
 So flip the stencil always.
@@ -25,7 +36,6 @@ So flip the stencil always.
 If we want to draw over this area, we need to revert back the stencil buffer. Just reverse the operations with alpha 0!
 - Draw the quad over the area with alpha 0
 - Paint the mask into stencil buffer, with pixel alpha 0.
-
 */
 
 @global
@@ -45,15 +55,18 @@ g: Globals(~~)
 	// the same time.
 	// 
 	
+	// hmm... so for anti-aliased geometry... I think we should draw each triangle as a triangle SDF / fading from the edges,
+	// and have a bit for each side representing if it's an edge vs should be solid.
+	// We could call this just "edge softness" and draw rounded rectangles using it.
 	
 	Draw2D.rect(canvas, {{-0.8, -0.8}, {0.2, 0.2}}, color: {255, 255, 100, 150}, texture: g.mursu)
+
+	Draw2D.rect(canvas, {{-0.1, -0.1}, {0.5, 0.5}}, color: {255, 50, 255, 255}, texture: g.mursu)
 	
-	Draw2D.rect(canvas, {{-0.1, -0.1}, {0.5, 0.5}}, color: {255, 10, 255, 100}, texture: g.mursu)
-	
-	Draw2D.polygon(canvas, {{0.2, 0.9}, {0.23, 0.4}, {0.3, 0.1}, {0.5, 0.2}}, color: {0, 0, 255, 150})
+	//Draw2D.polygon(canvas, {{0.2, 0.9}, {0.23, 0.4}, {0.3, 0.1}, {0.5, 0.2}, {0.54, 0.5}, {0.74, 0.52}}, color: {255, 0, 255, 150})
 	
 	Draw2D.end_drawing(canvas)
-	
+
 	if !GL.swap_buffers(g.window) {
 		dbgbreak
 	}
@@ -64,45 +77,39 @@ g: Globals(~~)
 	draw()
 }
 
-
-#MyArray: struct {
-	a: int
-	@using things: [3]int
-	b: int
-}
-
 #entry: proc {
+
+	// let's just say for now that Basic gives us a thread-local arena.
+	// If some library, e.g. a String library, needs some temporary memory, it can still take it from the tl-arena, however
+	// it also is responsible for rewinding it.
 	
-	aa: f32(5.02)
-	bb: f32(5.02)
-	if aa != bb {
-		dbgbreak
-	}
-	else {
-		dbgbreak
-	}
+	// to implement a heap, we need the ability to reserve chunks of memory. We could reserve them directly from the OS, but we also
+	// could reserve them from an arena. The benefit of using the OS directly is that we could more easily release big allocations
+	// to the OS when freeing.
 	
+	// A heap can be implemented on top of an arena, and an arena can be implemented on top of a heap.
 	
-	foo: MyArray{20, {5, 6, 67}, 200}
-	foo[1] = 423
-	b: foo[2]
-	
-	//foo(0.5, 1.)
+	// hmm. Most likely, your application wants to have a long term heap + short term temp arena. In this case,
+	// the temp arena should be allocated from the heap, and not the other way around, because otherwise
+	// clearing the temp arena would mean clearing the heap. We could say that a "temp arena" is not part of Basic,
+	// but then writing library code would be a bit annoying as we wouldn't have easy access to a temp arena.
+
+	tla: Basic.tla()
+	tla_alc: Basic.arena_alc(tla)
+
 	Basic.print("hello!\n")
 	g.window = Window.create(512, 512, "My window")
 	
 	gl: &g.gl
 	GL.load(gl, g.window, GL.Version._3_3)
 	
-	g.canvas = Draw2D.init(gl, Basic.temp_arena())
-	
-	
+	g.canvas = Draw2D.init(gl, tla)
+
 	// load images
 	// we need a read-entire-file procedure
-	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", Basic.temp_alc())
+	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", tla_alc)
 	Basic.assert(image_file.ok)
-	
-	
+
 	width: s32(~~), height: s32(~~), channels_in_file: s32(~~)
 	
 	stbi.set_flip_vertically_on_load(1)
@@ -136,3 +143,4 @@ g: Globals(~~)
 		i= . + 1
 	}
 }
+*/

@@ -875,7 +875,6 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 			fString member_name = right->Identifier.name;
 
 			if (left->kind == ffzNodeKind_Identifier && left->Identifier.name == F_LIT("in")) {
-				//f_assert(!address_of); // TODO
 				
 				bool found = false;
 				for (u32 i = 0; i < g->proc_info->type->Proc.in_params.len; i++) {

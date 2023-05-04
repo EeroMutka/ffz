@@ -199,9 +199,14 @@ bool ffz_type_is_concrete(ffzType* type) {
 	if (type->tag == ffzTypeTag_Type) return false;
 	if (type->tag == ffzTypeTag_FixedArray && type->FixedArray.length == -1) return false;
 	if (type->tag == ffzTypeTag_Raw) return false;
-	//if (type->tag == ffzTypeTag_PolyProc) return false;
-	//if (type->tag == ffzTypeTag_PolyRecord) return false;
 	if (type->tag == ffzTypeTag_Module) return false;
+	
+	for (uint i = 0; i < type->record_fields.len; i++) {
+		if (!ffz_type_is_concrete(type->record_fields[i].type)) {
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -444,21 +449,33 @@ ffzFieldHash ffz_hash_field(ffzType* type, fString member_name) {
 	return f_hasher_end(&h);
 }
 
-static ffzOk add_fields_to_field_from_name_map(ffzModule* c, ffzType* root_type, ffzType* parent_type, u32 offset_from_root = 0) {
+static ffzOk add_fields_to_field_from_name_map(ffzModule* c, ffzType* root_type, ffzType* parent_type,
+	fOpt(fArray(u32)*) index_path = NULL, u32 offset_from_root = 0)
+{
+	fArray(u32) _index_path;
+	if (index_path == NULL) {
+		index_path = &_index_path;
+		_index_path = f_array_make<u32>(c->alc);
+	}
+
 	for (u32 i = 0; i < parent_type->record_fields.len; i++) {
 		ffzField* field = &parent_type->record_fields[i];
-		ffzTypeRecordFieldUse field_use = { field, offset_from_root + field->offset };
-
+		f_array_push(index_path, i);
+		
+		ffzTypeRecordFieldUse field_use = { field, offset_from_root + field->offset, f_clone_slice(index_path->slice, c->alc) };
 		auto insertion = f_map64_insert(&c->field_from_name_map, ffz_hash_field(root_type, field->name), field_use, fMapInsert_DoNotOverride);
 		if (!insertion.added) {
 			ERR(field->decl, "`~s` is already declared before inside (TODO: print struct name) (TODO: print line)", field->name);
 		}
 
+		// NOTE: add leaves first, to make sure index_path will be as big as it gets by the time we start taking slices to it
 		if (field->decl) {
 			if (ffz_get_tag(field->decl, ffzKeyword_using)) {
-				TRY(add_fields_to_field_from_name_map(c, root_type, field->type));
+				TRY(add_fields_to_field_from_name_map(c, root_type, field->type, index_path));
 			}
 		}
+
+		f_array_pop(index_path);
 	}
 	return { true };
 }
@@ -900,8 +917,10 @@ static ffzOk check_post_round_brackets(ffzModule* c, ffzNode* node, ffzType* req
 		TRY(check_node(c, left, NULL, 0));
 		ffzType* left_type = left->checked.type;
 
-		if (left_type->tag == ffzTypeTag_Type) {
-			// ffzType casting
+		if (left_type->tag == ffzTypeTag_Type) { // Type cast
+
+			if (left->checked.constant == NULL) ERR(left, "Target type for type-cast was not a constant.");
+
 			result->type = left->checked.constant->type;
 			if (ffz_get_child_count(node) != 1) ERR(node, "Incorrect number of arguments in type initializer.");
 
@@ -1391,7 +1410,7 @@ static ffzOk check_member_access(ffzModule* c, ffzNode* node, ffzCheckInfo* resu
 	else {
 		TRY(check_node(c, left, NULL, 0));
 		ffzType* left_type = left->checked.type;
-		ffzConstantData* left_constant = left->checked.constant;
+		fOpt(ffzConstantData*) left_constant = left->checked.constant;
 		
 		if (left_type->tag == ffzTypeTag_Module) {
 			ffzModule* left_module = left_constant->module;
@@ -1424,6 +1443,15 @@ static ffzOk check_member_access(ffzModule* c, ffzNode* node, ffzCheckInfo* resu
 			if (ffz_type_find_record_field_use(c->project, dereferenced_type, member_name, &field)) {
 				result->type = field.src_field->type;
 				found = true;
+				
+				// Find the constant value for this member
+				if (left_constant != NULL) {
+					result->constant = left_constant;
+					for (u32 i = 0; i < field.index_path.len; i++) {
+						u32 member_idx = field.index_path[i];
+						result->constant = &result->constant->record_fields[member_idx];
+					}
+				}
 			}
 		}
 	}
@@ -1511,6 +1539,7 @@ FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena) 
 		c->builtin_types[ffzKeyword_int] = ffz_make_type(c, { ffzTypeTag_DefaultSint, p->pointer_size });
 		c->builtin_types[ffzKeyword_raw] = ffz_make_type(c, { ffzTypeTag_Raw });
 		c->builtin_types[ffzKeyword_bool] = ffz_make_type(c, { ffzTypeTag_Bool, 1 });
+		c->builtin_types[ffzKeyword_type] = ffz_make_type(c, { ffzTypeTag_Type, 0 });
 		
 		//_ = foo
 		//c->builtin_types[ffzKeyword_Eater] = ffz_make_type(c, { ffzTypeTag_Eater });
@@ -1834,7 +1863,6 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 		
 		result = rhs->checked; // Declarations cache the value of the right-hand side
 		result.is_local_variable = is_local;
-
 		
 		if (is_local || is_parameter || is_global_variable) {
 			if (is_parameter) {
@@ -1845,10 +1873,9 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 			result.constant = NULL; // runtime variables shouldn't store the constant value that the rhs expression might have
 
 			if (!ffz_type_is_concrete(result.type)) {
-				ERR(node, "Variable has a non-concrete type, the type being ~s.", ffz_type_to_string(c->project, result.type));
+				ERR(node, "Variable has a non-concrete type: `~s`.", ffz_type_to_string(c->project, result.type));
 			}
 		}
-		
 
 		// The lhs identifier will recurse into this same declaration,
 		// at which point we should have cached the result for this node to cut the loop.
@@ -1969,8 +1996,8 @@ static ffzOk check_node(ffzModule* c, ffzNode* node, OPT(ffzType*) require_type,
 	case ffzNodeKind_Record: {
 		ffzType struct_type = { ffzTypeTag_Record };
 		struct_type.unique_node = node;
-		//delayed_check_record = true;
 		result = make_type_constant(c, ffz_make_type(c, struct_type));
+		// NOTE: post-check the body
 	} break;
 	
 	case ffzNodeKind_FloatLiteral: {

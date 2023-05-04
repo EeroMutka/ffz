@@ -6,7 +6,7 @@
 #WindowHandle: import("WindowHandle")
 #Window: WindowHandle.Window
 
-#str_to_utf16_temp: proc(str: string) => []u16 {
+#str_to_utf16: proc(str: string, arena: ^Basic.Arena) => []u16 {
 	if str.len == 0 {
 		ret []u16{}
 	}
@@ -17,7 +17,7 @@
 	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
 	assert(len != 0)
 	
-	out: Basic.make_slice_undef[u16](uint(len) + 1, Basic.temp_alc())
+	out: Basic.make_slice_undef[u16](uint(len) + 1, Basic.arena_alc(arena))
 	
 	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
 	
@@ -82,6 +82,8 @@
 	// https://stackoverflow.com/questions/6593014/how-to-draw-opengl-content-while-resizing-win32-window
 	//wnd_class.hbrBackground
 	
+	tla_mark: Basic.tla_get_mark()
+	
 	wnd_class: WNDCLASSEXW{
 		cbSize:          size_of(WNDCLASSEXW)
 		style:           bit_or(CS_HREDRAW, bit_or(CS_VREDRAW, CS_OWNDC)) // CS_OWNDC is required for OpenGL
@@ -93,12 +95,14 @@
 		hCursor:         LoadCursorW(HINSTANCE(0), ^u16(IDC_ARROW))
 		hbrBackground:   ^raw(0)
 		lpszMenuName:    ^u16(0)
-		lpszClassName:   str_to_utf16_temp(WINDOW_CLASS_NAME).ptr
+		lpszClassName:   str_to_utf16(WINDOW_CLASS_NAME, Basic.tla()).ptr
 		hIconSm:         ^raw(0)
 	}
 	
 	atom: RegisterClassExW(&wnd_class)
 	assert(atom != 0)
+	
+	Basic.tla_set_mark(tla_mark)
 }
 
 #show: proc(window: Window) {
@@ -122,9 +126,11 @@
 	x: s32(100)
 	y: s32(100)
 	
+	tla_mark: Basic.tla_get_mark()
+	
 	hwnd: CreateWindowExW(0
-		str_to_utf16_temp(WINDOW_CLASS_NAME).ptr
-		str_to_utf16_temp(name).ptr
+		str_to_utf16(WINDOW_CLASS_NAME, Basic.tla()).ptr
+		str_to_utf16(name, Basic.tla()).ptr
 		WS_OVERLAPPEDWINDOW
 		x, y
 		s32(width)
@@ -136,6 +142,8 @@
 	
 	// failed
 	Basic.assert(hwnd != HWND(0))
+	
+	Basic.tla_set_mark(tla_mark)
 	
 	ret Window{hwnd}
 }

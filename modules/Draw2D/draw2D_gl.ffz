@@ -3,6 +3,10 @@
 // hmm.. to easily allow for different backends, we would either need to implement module parameters + #if
 // OR @using import().
 
+#Array: import(":Array")
+
+//#stbtt: import(":vendor/stb/stb_truetype")
+
 #TEXTURE_SLOT: u32(0)
 #VERTEX_BUFFER_CAPACITY: 32768
 #INDEX_BUFFER_CAPACITY: 65536
@@ -18,7 +22,7 @@
 
 #Canvas: struct {
 	gl: ^GL.API
-	arena: ^Basic.Arena
+	//arena: ^Basic.Arena
 	
 	vertex_buf: []Vertex
 	vertex_count: uint(0)
@@ -96,7 +100,6 @@ void main() {
 	ret shader
 }
 
-
 #init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas {
 	alc: Basic.arena_alc(arena)
 	
@@ -150,7 +153,6 @@ void main() {
 	
 	canvas: Canvas{
 		gl: gl
-		arena: arena
 		vertex_buf: Basic.make_slice_undef[Vertex](VERTEX_BUFFER_CAPACITY, alc)
 		index_buf: Basic.make_slice_undef[Index](INDEX_BUFFER_CAPACITY, alc)
 		shader_program: shader_program
@@ -159,10 +161,6 @@ void main() {
 		ebo: ebo
 		vao: vao
 	}
-	
-	//white_pixel: u32(0xFFFFFFFF)
-	//canvas.blank_texture = make_texture_ex(&canvas, TextureFormat.RGBA8, 1, 1, &white_pixel)
-	//canvas.current_tex = &canvas.blank_texture
 	
 	ret canvas
 }
@@ -216,23 +214,24 @@ void main() {
 	gl.BlendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
 	
 	
-	// Start off with a stencil buffer that is zeroed out. We want the fragment to pass the stencil test
-	// when the stencil buffer has 1s. And we want to always flip the stencil buffer bits wherever we're drawing.
-	// The process for drawing a concave polygon would look like:
-	//  1. Draw the triangles with no alpha, as in https://medium.com/@evanwallace/easy-scalable-text-rendering-on-the-gpu-c3f4d782c5ac
-	//  2. Draw a rectangle around the polygon with the desired color.
-	//  3. IF revert_stencil is set, draw the rectangle and the triangles with no alpha, to revert the stencil buffer state.
-	// Text rendering is most likely the bottleneck, so we want to optimize that.
-	
-	gl.Enable(GL.STENCIL_TEST)
-	gl.StencilMask(0xFF)
-	gl.StencilFunc(GL.EQUAL, 0xFF, 0xFF)
-	gl.StencilOp(GL.INVERT, GL.INVERT, GL.INVERT)
+		// Start off with a stencil buffer that is zeroed out. We want the fragment to pass the stencil test
+		// when the stencil buffer has 1s. And we want to always flip the stencil buffer bits wherever we're drawing.
+		// The process for drawing a concave polygon would look like:
+		//  1. Draw the triangles with no alpha, as in https://medium.com/@evanwallace/easy-scalable-text-rendering-on-the-gpu-c3f4d782c5ac
+		//  2. Draw a rectangle around the polygon with the desired color.
+		//  3. IF revert_stencil is set, draw the rectangle and the triangles with no alpha, to revert the stencil buffer state.
+		// Text rendering is most likely the bottleneck, so we want to optimize that.
+		
+		// gl.Enable(GL.STENCIL_TEST)
+		// gl.StencilMask(0xFF)
+		// gl.StencilFunc(GL.EQUAL, 0xFF, 0xFF)
+		// gl.StencilOp(GL.INVERT, GL.INVERT, GL.INVERT)
 	
 	
 	gl.ClearColor(f32(background.r) / 255., f32(background.g) / 255., f32(background.b) / 255., f32(background.a) / 255.)
-	gl.ClearStencil(0)
-	gl.Clear(bit_or(GL.COLOR_BUFFER_BIT, GL.STENCIL_BUFFER_BIT))
+	//gl.ClearStencil(0)
+	//gl.Clear(bit_or(GL.COLOR_BUFFER_BIT, GL.STENCIL_BUFFER_BIT))
+	gl.Clear(GL.COLOR_BUFFER_BIT)
 	
 	gl.UseProgram(c.shader_program)
 	gl.BindVertexArray(c.vao)
@@ -299,14 +298,16 @@ void main() {
 }
 
 #rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
-	apply_rect(c, r, color, uv, texture) // draw
+	//apply_rect(c, r, Color{0, 0, 0, 0}, uv, texture) // fill stencil bits to 1
+	apply_rect(c, r, color, uv, texture)
 }
 
 #polygon: proc(c: ^Canvas, points: []Vec2, color: Color) {
-	apply_polygon(c, points, Color{0, 0, 0, 0}) // fill the stencil to 1 bits
+	apply_polygon(c, points, color)
+	//apply_polygon(c, points, Color{0, 0, 0, 0}) // fill stencil bits to 1
 	
 	// find bounding box
-	min_x: f32(1000000.)
+	/*min_x: f32(1000000.)
 	min_y: f32(1000000.)
 	max_x: f32(-1000000.)
 	max_y: f32(-1000000.)
@@ -318,7 +319,7 @@ void main() {
 		max_y = Basic.min[f32](., p.y)
 	}
 	
-	apply_rect(c, {min: {min_x, min_y}, max: {max_x, max_y}}, color)
+	apply_rect(c, {min: {min_x, min_y}, max: {max_x, max_y}}, color)*/
 }
 
 #apply_rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
@@ -361,6 +362,59 @@ void main() {
 		c.index_buf[base.i + u32(i)*3 + 1] = base.v + u32(i)
 		c.index_buf[base.i + u32(i)*3 + 2] = base.v + u32(i) + 1
 	}
+}
+
+#rune: u32
+
+#Font: struct {
+	data: []u8
+}
+
+#build_font_atlas: proc(fonts: []Font) {
+	
+	// Padding between glyphs within texture in pixels.
+	// If your rendering method doesn't rely on bilinear filtering you may set this to 0.
+	/*glyph_padding: s32(1)
+	
+	total_surface: s32(0)
+	
+	#Range: struct {lo: u32, hi: u32}
+	
+	codepoint_ranges: []Range{{32, 127}}
+	
+	#Glyph: struct {
+		codepoint: rune
+		font_id: u16
+		glyph_index: s32
+		w: s32, h: s32
+	}
+	
+	allocator: Basic.temp_alc() // TODO
+	
+	glyphs: Array.make[Glyph](allocator)
+	font_infos: Basic.make_slice_undef[stbtt.fontinfo](fonts.len, allocator)
+	glyph_ranges: Basic.make_slice_undef[Range](fonts.len, allocator)
+	
+	oversample_h: s32(1)
+	oversample_v: s32(1)
+	
+	for font_id: 0, font_id < fonts.len, font_id = .+1 {
+		font: &fonts[font_id] // ^Font
+		font_info: &font_infos[font_id] // ^stbtt.fontinfo
+		
+		glyph_ranges[font_id].lo = glyphs.len
+		
+		font_offset: stbtt.GetFontOffsetForIndex(font.data.ptr, 0)
+		Basic.assert(font_offset >= 0)
+		Basic.assert(stbtt.InitFont(font_info, font.data.ptr, font_offset) == 1)
+		
+		scale: stbtt.ScaleForPixelHeight(font_info, font.size)
+		
+		{
+		}
+		
+		glyph_ranges[font_id].hi = glyphs.len
+	}*/
 }
 
 

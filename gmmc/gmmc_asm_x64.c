@@ -725,7 +725,6 @@ static void gen_comparison(ProcGen* p, gmmcOpData* op) {
 	GPR a = use_op_value(p, op->operands[0], GPR_NONE);
 	GPR b = use_op_value(p, op->operands[1], GPR_NONE);
 	
-
 	if (p->stage == Stage_Emit) {
 		gmmcType type = gmmc_get_op_type(p->proc, op->operands[0]);
 		bool is_float = gmmc_type_is_float(type);

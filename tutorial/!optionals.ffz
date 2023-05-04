@@ -2,11 +2,11 @@
 
 /*
 could we say that ?T is the same as struct{value: T, is: b1}
-with the exception of pointers, slices, strings, int and uint?
+with the exception of pointers, slices, strings, bool, int and uint?
 
 Then maybe you could say foo: ?u31 if you wanted to be smart
 
-- on 64-bit, ?int would be ?s63 and ?uint would be ?u63
+- ?int could be ?s63 and ?uint could be ?u63
 */
 
 #read_file_1: proc(filepath: string) => ?string {
@@ -15,13 +15,14 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 	ret "hello"
 }
 
-#Error: enum { FileDoesNotExist, NoPrivilige, FileIsLocked }
+#Error: enum{FileDoesNotExist, NoPrivilige, FileIsLocked}
 #Result: union{string, Error}
 
 #read_file_2: proc(filepath: string) => Result {
 	...
 }
 
+/*
 #outer: proc(filepath: string) => Result {
 	file: read_file_2(filepath)
 	file as string or_ret
@@ -29,32 +30,108 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 	// shorthand for before could be:
 	file: read_file_2(filepath) as string or_ret
 }
+*/
+
+#outer: proc(filepath: string) => Result {
+	file_: read_file_2(filepath)
+	if file_.string == nil {
+		ret file_
+	}
+	file: file_.string!
+	
+	// shorthand for before could be:
+	file2_: read_file_2(filepath)
+	file2: file2_.string! if file2_.string? else ret file2_
+	
+	// another shorthand: 
+	file2_: read_file_2(filepath)
+	file2: file2_.string !: ret file2_  // unwrap-or-statement
+	
+	file2: file2_.string !: "failed..."  // unwrap-or-expression
+	
+	my_optional: ?int(nil)
+	
+	err: ?Error(nil)
+	
+	my_block: {
+		file2_: read_file_2(filepath)
+		/*
+		file2: file2_.string !: {
+			err = file2_.Error?
+			break my_block
+		}
+		*/
+		/*
+		if file2_ == nil {
+			err = file2_.Error
+			break my_block
+		}
+		file2: file2_.string?
+		*/
+		
+		file2: file2_.string! if file2_.string? else break my_block
+		
+		file2: {break my_block} if file2_.string == nil else file2_.string!
+		
+		my_array: []int
+		first: my_array[0] if my_array.len > 0 else break my_block
+		
+		// to have it be as ergonomic in the other way too, maybe we should allow
+		if my_array.len > 0, first: my_array[0] {
+		}
+		
+		// yeah, this would be pretty nice.
+		if node.kind == .Keyword, keyword: my_node.Keyword {
+		}
+		
+		if my_optional?, thing: my_optional! {
+		}
+		
+		if _foo: thing(), _foo?, foo: _foo! {
+		}
+		
+		// shorthand for before:
+		if foo in thing() {
+		}
+		
+		if my_array.len > 0 {
+			
+		}
+		
+		//file2: file2_.string != nil or_ret file2_
+	}
+	
+	{
+		if !check_node(c, left, 0); ret false
+		
+		info: check_node(c, left, 0) !: ret nil
+	}
+}
 
 #bar: proc() {
 	// `as` keyword can be used to get to a more specific type
 	{
 		b: union{int, f32, bool}
-		b as int
-		// now b will be int. if it's not, a runtime assert will fail.
+		b_int: b.int!
+		// b_int will be int. if it's not, a runtime assert will fail.
 		
 		c: union{int, f32, bool}
-		c as f32 or_ret
+		c_f32: c.f32 !: ret
 		
 		d: union{int, f32, bool}
-		if c as f32 {
+		if d_f32 in d.f32 {
 			...
 		}
 		
-		e: d as f32
-		f: d as int or_ret
+		e_maybe: d.f32
+		f: d.int !: ret
 		
-		if e: d as f32 {...}
-		if (e: d) as f32 {...} // maybe it's like this?
+		if e in e_maybe {...}
+		if e in d.f32 {...}
 		
 		g: d.bool // g will be ?bool
 		
-		if d.int != nil {
-			d as int
+		if d_int in d.int {
 		}
 	}
 	
@@ -62,18 +139,11 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 	{
 		foo: ?^int
 		
-		if foo != nil {
-			foo as ^int
+		if foo_ptr in foo {
 		}
 		
-		// another way to write:
-		
-		if foo as ^int {
-		}
-		// maybe ?T is semantically equivelant to union{T}
-		
-		color: ?Color
-		if color as Color {
+		color: ?Color(nil)
+		if color_known in color {
 		}
 		
 		color = Color{50, 50, 20, 0} // assigning a direct value to an optional should be ok
@@ -82,13 +152,14 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 		}
 	}
 	
-	a: read_file("aaa.txt") // a will be ?string
-	if a as string {...}
+	maybe_text: read_file("aaa.txt") // a will be ?string
+	if text in maybe_text {...}
 	
-	if b: read_file("hello.txt") as string {
+	if text in read_file("hello.txt") {
 	}
 	
-	c: read_file("hello.txt") as string or_ret
+	text: read_file("hello.txt") !: ret
+	// ...
 }
 
 /*
