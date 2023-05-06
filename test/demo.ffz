@@ -1,30 +1,37 @@
 
-//#Map: import(":Map")
-//#Basic: import(":Basic")
+// hmm, what should happen with
 
-#MyProc: proc(a: int, b: int) => int
+#assign: poly[T] proc(a: ^T, b: T) {
+	a^ = b
+}
 
 #main: proc {
 	
-	aa: MyProc {
-		dbgbreak
-		ret in.a + in.b
-	}
 	
-	test: aa(1, 2)
+	// Simpler idea / no type inference for arguments:
+	// 1. check the arguments with no infer targets.
+	// 2. loop through/recurse into the parameters, while keeping track of the correct type according to the argument. If we hit
+	//    a poly-parameter identifier, then assign the constant to it if it hasn't been assigned yet, otherwise make sure that it matches.
 	
-	aa = proc(a: int, b: int) => int {
-		dbgbreak
-		ret a - b
-	}
+	foo: int(50)
+	assign(&foo, int(200))
 	
-	test2: aa(1, 2)
+	//f: MyGenericPtr[MyGenericPtr[int]]
+	// ^ ^ int
+	
+	//f: MyGenericPtr[^int, f32]
 	
 	//alc: Basic.arena_alc(Basic.tla())
-	
 	//my_map: Map.make[Map.Key_u32, u32](alc)
 	
+	//#Foo: struct {}
 }
+
+// OLD IDEA:
+// 1. try to check the parameter without knowing the argument
+// 2. now we may or may not have an infer target. check the argument
+// 3. if the parameter checking failed, check it again while binding types using the argument.
+// The order for this is left to right for parameters, and lastly the return type.
 
 /*#Basic: import(":Basic")
 

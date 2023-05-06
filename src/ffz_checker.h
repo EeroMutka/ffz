@@ -75,12 +75,6 @@
 #define F_DEF_MINIMAL_INCLUDE
 #include "foundation/foundation.h"
 
-#ifdef __cplusplus
-#define FFZ_CAPI extern "C"
-#else
-#define FFZ_CAPI
-#endif
-
 // When FFZ_DEBUG_USE_POINTERS is enabled, disable caching and also use deterministic addresses (allocate everything from one arena)
 //#define FFZ_DEBUG_USE_POINTERS
 
@@ -155,7 +149,7 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	ffzNodeKind_Blank,
 
 	ffzNodeKind_Identifier,
-	ffzNodeKind_PolyExpr,      // poly[X, Y, ...] Z
+	ffzNodeKind_PolyDef,  // poly[X, Y, ...] Z
 	ffzNodeKind_Keyword,
 	ffzNodeKind_ThisDot,  // .
 	ffzNodeKind_ProcType,
@@ -320,17 +314,16 @@ struct ffzNode {
 
 	ffzPolymorphID is_instantiation_root_of_poly; // by default this is FFZ_POLYMORPH_ID_NONE
 	
-	fOpt(ffzSource*) loc_source; // could be an index.
+	// We could make this into an index. The following two members are optional, because some nodes
+	// do not have a location, i.e. ffz_constant_to_node()
+	fOpt(ffzSource*) loc_source;
 	ffzLocRange loc;
 
 	// ************* A huge goal of FFZ is to be simple. So let's do the simple thing for pointers. *************
-	ffzNode* first_tag;
-	ffzNode* parent;
-	ffzNode* next;
-	ffzNode* first_child; // first main child
-
-	bool has_checked; // TODO: have a flip-flop re-checking
-	ffzCheckInfo checked;
+	fOpt(ffzNode*) first_tag;
+	fOpt(ffzNode*) parent;
+	fOpt(ffzNode*) next;
+	fOpt(ffzNode*) first_child; // first main child
 
 	// There is one benefit from having the node be a union, which is that we can do easy in-place replacement of nodes without having to store the
 	// prev - pointer. Maybe we should just store the prev pointer.
@@ -358,7 +351,7 @@ struct ffzNode {
 
 		struct {
 			ffzNode* expr;
-		} PolyExpr;
+		} PolyDef;
 
 		struct {
 			ffzKeyword keyword;
@@ -442,7 +435,10 @@ typedef enum ffzTypeTag {
 	ffzTypeTag_Undefined, // the type of the expression `~~`
 
 	ffzTypeTag_Type,
-	ffzTypeTag_PolyExpr,
+	
+	ffzTypeTag_PolyDef,   // i.e. #Array: poly[T] struct{...}
+	//ffzTypeTag_PolyUse,   // i.e. Array[int]
+
 	ffzTypeTag_Module,
 
 	ffzTypeTag_Bool,
@@ -461,6 +457,8 @@ typedef enum ffzTypeTag {
 	ffzTypeTag_Slice,
 	ffzTypeTag_String, // string has the semantics of `#string: distinct []u8` with a custom iterator attached
 	ffzTypeTag_FixedArray,
+	
+	ffzTypeTag_Extra,
 } ffzTypeTag;
 
 struct ffzDefinitionPath {
@@ -468,7 +466,9 @@ struct ffzDefinitionPath {
 	fString name;
 };
 
-// if we wanted to pack the ffzConstantData structure down, then we would read bad memory in a few places :PackConstantTroubles
+// A constant is a packed representation of a compile-time known value. A constant can
+// always be converted into an AST tree (see `ffz_constant_to_node`).
+// If we wanted to pack the ffzConstantData structure down, then we would read bad memory in a few places :PackConstantTroubles
 // NOTE: to initialize this to a default value, use `ffzConstantData` instead of ffzConstantData{}! It seems like some
 //  members won't get initialized to zero otherwised.
 typedef struct ffzConstantData {
@@ -516,10 +516,12 @@ typedef struct ffzPolymorph {
 // A "field" can mean any of the following: a struct member, an enum member, or a procedure parameter.
 typedef struct ffzField {
 	fString name;
-	fOpt(ffzNodeOpDeclare*) decl; // not always used, i.e. for slice type fields
+	//fOpt(ffzNodeOpDeclare*) decl; // not always used, i.e. for slice type fields
 	
 	ffzConstantData default_value;
 	bool has_default_value;
+
+	bool has_using; // only for struct members
 
 	uint32_t offset; // ignored for procedure parameters / enum members
 	ffzType* type;
@@ -548,11 +550,14 @@ typedef struct ffzType {
 	// With cached modules, I guess we could treat the ModuleIDs as a slot array, where when creating a new module we make sure to not take
 	// an index that has already been taken.
 	// hmm... but do we then need it? we could then just do unique_node->module_id instead
-	ffzModuleID checker_id;
+	// ffzModuleID checker_id;
 
-	fOpt(ffzNode*) unique_node; // available for struct, union, enum, poly-def, and proc types.
+	//fOpt(ffzNode*) _unique_node; // Available for struct, union, enum, poly-def
 
 	fSlice(ffzField) record_fields; // available for struct, union, slice types and the string type.
+
+	// If this type is i.e. Array[int], then `polymorphed_from` is a way to represent that information.
+	fOpt(ffzPolymorph*) polymorphed_from;
 
 	union {
 		struct {
@@ -581,6 +586,10 @@ typedef struct ffzType {
 		struct {
 			ffzType* pointer_to;
 		} Pointer;
+
+		struct {
+			uint32_t id;
+		} Extra;
 	};
 } ffzType;
 
@@ -599,16 +608,61 @@ typedef struct ffzProject {
 
 	fArray(ffzModule*) checkers; // key: ffzCheckerID
 	
-	fArray(ffzModule*) checkers_dependency_sorted; // topologically sorted from leaf modules towards higher-level modules
+	//fArray(ffzModule*) checkers_dependency_sorted; // topologically sorted from leaf modules towards higher-level modules
 	
 	uint32_t pointer_size;
 
-	fMap64(ffzKeyword) keyword_from_string;
+	fMap64(ffzKeyword) keyword_from_string; // Constant lookup table
 	
 	struct {
 		fMap64(ffzModule*) module_from_directory;
 	} filesystem_helpers;
+
+	fMap64(ffzType*) type_from_hash; // key: TypeHash
+
+	ffzType* type_type;
+	ffzType* module_type;
+	ffzType* builtin_types[ffzKeyword_COUNT];
+	u32 next_extra_type_id;
 } ffzProject;
+
+// Context and cache for type checking / analysing the tree.
+// NOTE: when checking, we also are allowed to modify the project by adding new types and constants.
+typedef struct ffzCheckerContext {
+	ffzProject* project;
+	ffzModule* mod;
+
+	ffzError error;
+
+	fMap64(ffzCheckInfo) infos; // key: ffzNode*
+
+	// In order to be able to quickly lookup in any scope for a variable by its name,
+	// we need to build a hash map for this purpose.
+	// We could build this during parsing, but then we couldn't easily do stuff like
+	// 1. parse 2. check 3. modify 4. check again, because the definitions would be filled in the parsing stage.
+
+	//fMap64Raw checked_identifiers; // key: ffz_hash_poly_inst. This is to detect cycles. We could reduce the memory footprint here by removing things as we go...
+	
+	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
+	
+	fArray(ffzNode*) pending_import_keywords;
+
+	fMap64(ffzPolymorphID) poly_from_hash;
+	fArray(ffzPolymorph) polymorphs; // index into this using ffzPolymorphID
+
+	// Contains a list of all tags within this module for any given type.
+	fMap64(fArray(ffzNode*)) all_tags_of_type; // key: TypeHash
+
+	fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
+
+	// Only required during checking.
+	fMap64(u64) enum_value_from_name; // key: FieldHash.
+	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
+
+	// Array of all 'extern' keywords in the module
+	fArray(ffzNode*) _extern_libraries;
+} ffzCheckerContext;
+
 
 struct ffzModule {
 	ffzProject* project;
@@ -619,51 +673,8 @@ struct ffzModule {
 
 	fString directory; // imports in this module will be relative to this directory
 
-	ffzError error;
-
-	// In order to be able to quickly lookup in any scope for a variable by its name,
-	// we need to build a hash map for this purpose.
-	// We could build this during parsing, but then we couldn't easily do stuff like
-	// 1. parse 2. check 3. modify 4. check again, because the definitions would be filled in the parsing stage.
-
-	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
-	uint32_t next_flat_index;
-
-	fArray(ffzNode*) pending_import_keywords;
-
 	ffzNode* root;
 	ffzNode* root_last_child;
-
-	//ffzSource* extra_nodes;
-
-	// implicit state for the current checker invocation
-	//ffzCheckerScope* current_scope;
-	
-	fMap64Raw checked_identifiers; // key: ffz_hash_poly_inst. This is to detect cycles. We could reduce the memory footprint here by removing things as we go...
-
-	// * key: ffz_hash_node_inst
-	// * Statements have NULL entries, except declarations, which cache the type
-	//   (and maybe constant value) of the declaration.
-	//fMap64(ffzCheckedInst) cache;
-
-	//fMap64(ffzPolymorph*) poly_instantiation_sites; // key: ffz_hash_node_inst
-	
-	fMap64(ffzType*) type_from_hash; // key: TypeHash
-	
-	fMap64(ffzPolymorphID) poly_from_hash; // key: ffz_hash_poly_inst
-	fArray(ffzPolymorph) polymorphs; // index into this using ffzPolymorphID
-	
-	// Contains a list of all tags, within this module, of each type.
-	fMap64(fArray(ffzNode*)) all_tags_of_type; // key: TypeHash
-	
-	fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
-	
-	// Only required during checking.
-	fMap64(u64) enum_value_from_name; // key: FieldHash.
-	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
-
-	// Array of all 'extern' keywords in the module
-	fArray(ffzNode*) _extern_libraries;
 
 	// An `import` node must always be part of a declaration, and must uniquely import a module that
 	// hasn't been imported previously. This restriction exists, so that we have a way
@@ -672,13 +683,11 @@ struct ffzModule {
 
 	fMap64(ffzNode*) import_decl_from_module;   // key: ffzModule*
 	fMap64(ffzModule*) module_from_import_decl; // key: ffzNode*
-
-	ffzType* type_type;
-	ffzType* module_type;
-	//ffzParserLocalID next_pseudo_node_idx;
-	ffzType* builtin_types[ffzKeyword_COUNT];
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // -- Node utilities ------------------------------------
 
@@ -688,28 +697,28 @@ inline ffzModule* ffz_module_of_node(ffzNode* n) { return n->_module; }
 
 //inline fOpt(ffzNode*) _ffz_skip_standalone_tags(fOpt(ffzNode*) node);
 #define FFZ_EACH_CHILD(n, parent) (ffzNode* n = (parent) ? parent->first_child : NULL; \
-	(ffz_skip_standalone_tags(&n), n); n = n->next)
+(ffz_skip_standalone_tags(&n), n); n = n->next)
 
 // -- Builder -------------------------------------------
 
 inline fOpt(ffzNode*) ffz_get_node_at_cursor(ffzCursor* at) { return *at->pp_node; }
 
 // Replace the node at the cursor with another node, and update the cursor keeping it in place.
-FFZ_CAPI void ffz_replace_node(ffzCursor* at, ffzNode* with);
+void ffz_replace_node(ffzCursor* at, ffzNode* with);
 
 // Insert a new node at the cursor, and update the cursor keeping it in place.
-FFZ_CAPI void ffz_insert_node(ffzCursor* at, ffzNode* node);
+void ffz_insert_node(ffzCursor* at, ffzNode* node);
 
 // Remove a node at the cursor, and update the cursor keeping it in place.
-FFZ_CAPI void ffz_remove_node(ffzCursor* at);
+void ffz_remove_node(ffzCursor* at);
 
 // clones `node` into the module `m`. It will be added to the `extra_nodes` source.
-FFZ_CAPI ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node);
+ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node);
 
-FFZ_CAPI ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind);
+ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind);
 
 // Helper functions for getting a cursor to a secondary child node
-inline ffzCursor ffz_cursor_poly_expr(ffzNode* node) { ffzCursor c = { node, &node->PolyExpr.expr }; return c; }
+inline ffzCursor ffz_cursor_poly_def(ffzNode* node) { ffzCursor c = { node, &node->PolyDef.expr }; return c; }
 inline ffzCursor ffz_cursor_op_left(ffzNode* node) { ffzCursor c = { node, &node->Op.left }; return c; }
 inline ffzCursor ffz_cursor_op_right(ffzNode* node) { ffzCursor c = { node, &node->Op.right }; return c; }
 inline ffzCursor ffz_cursor_if_condition(ffzNode* node) { ffzCursor c = { node, &node->If.condition }; return c; }
@@ -736,8 +745,8 @@ inline ffzLocRange ffz_loc_range_union(ffzLocRange a, ffzLocRange b) {
 }
 
 // 0 is returned if not a bracket operator
-FFZ_CAPI uint8_t ffz_get_bracket_op_open_char(ffzNodeKind kind);
-FFZ_CAPI uint8_t ffz_get_bracket_op_close_char(ffzNodeKind kind);
+uint8_t ffz_get_bracket_op_open_char(ffzNodeKind kind);
+uint8_t ffz_get_bracket_op_close_char(ffzNodeKind kind);
 
 inline bool ffz_keyword_is_extended(ffzKeyword keyword) { return keyword >= ffzKeyword_FIRST_EXTENDED; }
 
@@ -748,37 +757,39 @@ inline bool ffz_op_is_postfix(ffzNodeKind kind) { return kind >= ffzNodeKind_Pos
 inline bool ffz_op_is_comparison(ffzNodeKind kind) { return kind >= ffzNodeKind_Equal && kind <= ffzNodeKind_GreaterOrEqual; }
 //inline bool ffz_operator_is_arithmetic(ffzNodeKind kind) { return kind >= ffzNodeKind_Add && kind <= ffzNodeKind_Modulo; }
 
+inline bool ffz_node_is_top_level(ffzNode* node) { return node->parent->parent == NULL; }
+
 // These both return an empty string if the node's parent is not a declaration, or the node itself is NULL
-FFZ_CAPI fString ffz_get_parent_decl_name(fOpt(ffzNode*) node); 
-FFZ_CAPI fString ffz_get_parent_decl_pretty_name(fOpt(ffzNode*) node);
+fString ffz_get_parent_decl_name(fOpt(ffzNode*) node);
+fString ffz_get_parent_decl_pretty_name(fOpt(ffzNode*) node);
 
-FFZ_CAPI uint32_t ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
-FFZ_CAPI ffzNode* ffz_get_child(ffzNode* parent, uint32_t idx);
-FFZ_CAPI uint32_t ffz_get_child_count(fOpt(ffzNode*) parent); // returns 0 if parent is NULL
+uint32_t ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
+ffzNode* ffz_get_child(ffzNode* parent, uint32_t idx);
+uint32_t ffz_get_child_count(fOpt(ffzNode*) parent); // returns 0 if parent is NULL
 
-FFZ_CAPI fString ffz_keyword_to_string(ffzKeyword keyword);
+fString ffz_keyword_to_string(ffzKeyword keyword);
 
-FFZ_CAPI fString ffz_node_kind_to_string(ffzNodeKind kind);
+fString ffz_node_kind_to_string(ffzNodeKind kind);
 
-FFZ_CAPI fString ffz_node_kind_to_op_string(ffzNodeKind kind);
+fString ffz_node_kind_to_op_string(ffzNodeKind kind);
 
 // ffz_parse_scope is for parsing i.e. a source code file that has multiple nodes in it, whereas
 // ffz_parse_node is for parsing a single node.
-FFZ_CAPI ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file_path);
-FFZ_CAPI ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_path);
+ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file_path);
+ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_path);
 
-FFZ_CAPI void ffz_skip_standalone_tags(fOpt(ffzNode*)* node);
+void ffz_skip_standalone_tags(fOpt(ffzNode*)* node);
 
-FFZ_CAPI void ffz_print_ast(fWriter* w, ffzNode* node);
-FFZ_CAPI fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc);
+void ffz_print_ast(fWriter* w, ffzNode* node);
+fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc);
 
 // ------------------------------------------------------
 
-fOpt(ffzType*) ffz_builtin_type(ffzModule* c, ffzKeyword keyword);
+inline fOpt(ffzType*) ffz_builtin_type(ffzProject* p, ffzKeyword keyword) { return p->builtin_types[keyword]; }
 
 //void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline);
 
-bool ffz_parse_and_check_directory(ffzProject* p, fString directory);
+//bool ffz_parse_and_check_directory(ffzProject* p, fString directory);
 
 inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
 
@@ -806,24 +817,26 @@ inline bool ffz_type_is_concrete(ffzType* type) { return type->is_concrete.x; }
 bool ffz_type_is_comparable_for_equality(ffzType* type); // supports ==, !=
 bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.
 
-fString ffz_type_to_string(ffzProject* p, ffzType* type);
+fString ffz_type_to_string(ffzType* type, fAllocator* alc);
 //char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
 
-fString ffz_constant_to_string(ffzProject* p, ffzConstantData* constant, ffzType* type);
+fString ffz_constant_to_string(ffzProject* p, ffzConstant constant);
 //char* ffz_constant_to_cstring(ffzProject* p, ffzConstantData* constant, ffzType* type);
 
-FFZ_CAPI ffzNode* ffz_constant_to_node(ffzModule* m, ffzNode* parent, ffzConstant constant);
+ffzNode* ffz_constant_to_node(ffzModule* m, ffzConstant constant);
+
+ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type);
 
 //ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
 //ffzNodeHash ffz_hash_node(ffzNode* node);
-FFZ_CAPI ffzExpressionHash ffz_hash_expression(ffzNode* node);
+ffzExpressionHash ffz_hash_expression(ffzNode* node);
 //u64 ffz_hash_declaration_path(ffzDefinitionPath path);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
 //ffzConstantHash ffz_hash_constant(ffzCheckedInst constant);
 
 // -- High level compiler API --------------------------------------------------------------
 
-FFZ_CAPI ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
+ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
 
 // So metaprogramming - I'd like to
 // 
@@ -846,7 +859,7 @@ FFZ_CAPI ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
 // 
 //
 
-FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
+ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
 
 //ffzParser* ffz_module_add_parser(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb);
 
@@ -855,12 +868,12 @@ FFZ_CAPI ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
 //bool ffz_module_add_code_string(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb);
 
 // The node must be a top-level node and have it's parent field set to NULL.
-FFZ_CAPI ffzOk ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
+void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 
-FFZ_CAPI ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from_path)(fString path, void* userdata), void* userdata);
+ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule* (*module_from_path)(fString path, void* userdata), void* userdata);
 
 // When you call ffz_module_check_single, all imported modules must have already been checked.
-FFZ_CAPI ffzOk ffz_module_check_single_(ffzModule* m);
+ffzOk ffz_module_check_single_(ffzModule* m, ffzCheckerContext* out_checker_ctx);
 
 
 // --- OS layer helpers ---
@@ -868,7 +881,7 @@ FFZ_CAPI ffzOk ffz_module_check_single_(ffzModule* m);
 // This automatically adds all files in the directory into the module.
 // If this has already been called before with identical directory, then that previously created module is returned.
 // Returns NULL if the directory does not exist, or if any of the source code files failed to parse.
-FFZ_CAPI fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, fArena* module_arena, ffzError* out_error);
+fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, fArena* module_arena, ffzError* out_error);
 
 //void ffz_module_resolve_imports_using_fileystem(ffzModule* m, fSlice(ffzModule*)* out_imports);
 
@@ -882,11 +895,18 @@ FFZ_CAPI fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, 
 //ffzOk ffz_check_toplevel_statement(ffzModule* c, ffzNode* node);
 //ffzOk ffz_instanceless_check(ffzModule* c, ffzNode* node, bool recursive);
 
-// -- Accessing cached data -----------------------------------------------------------
+// -- Accessing data cached by the checker ------------------------------------------------------
 
 //bool ffz_find_top_level_declaration(ffzModule* c, fString name, ffzNodeOpDeclare* out_decl);
 
-bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
+//ffzCheckerContext* ffz_module_get_finished_checker_ctx(ffzModule* m) {
+//	f_assert(m->checked);
+//	return &m->checker_ctx;
+//}
+
+ffzCheckInfo ffz_checked_get_info(ffzCheckerContext* ctx, ffzNode* node);
+
+bool ffz_type_find_record_field_use(ffzCheckerContext* ctx, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
 
 // Find the field that is tagged @using and has type []T or [N]T. Returns true if exactly one such field is found.
 // e.g. with `struct{a: int, @using b: []int}`, the field `b` would be returned.
@@ -897,7 +917,7 @@ bool ffz_find_subscriptable_base_type(ffzType* type, ffzTypeRecordFieldUse* out)
 
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in `foo: int`, the foo identifier would be a definition.
-fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzNodeIdentifier* ident);
+fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzCheckerContext* c, ffzNodeIdentifier* ident);
 
 bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, uint32_t* out_index);
 
@@ -920,19 +940,22 @@ ffzConstantData* ffz_zero_value_constant();
 
 inline fString ffz_decl_get_name(ffzNodeOpDeclare* decl) { return decl->Op.left->Identifier.name; }
 
-//bool ffz_decl_is_runtime_variable(ffzNodeOpDeclare* decl);
-bool ffz_decl_is_local_variable(ffzNodeOpDeclare* decl);
+bool ffz_checked_decl_is_local_variable(ffzCheckerContext* ctx, ffzNodeOpDeclare* decl);
 bool ffz_decl_is_global_variable(ffzNodeOpDeclare* decl);
 inline bool ffz_decl_is_parameter(ffzNodeOpDeclare* decl) { return decl->parent != NULL && decl->parent->kind == ffzNodeKind_ProcType; }
 
-inline bool ffz_decl_is_variable(ffzNodeOpDeclare* decl) {
-	return ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl) || ffz_decl_is_local_variable(decl);
+inline bool ffz_checked_decl_is_variable(ffzCheckerContext* ctx, ffzNodeOpDeclare* decl) {
+	return ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl) || ffz_checked_decl_is_local_variable(ctx, decl);
 }
 
-bool ffz_is_code_scope(ffzNode* node);
+//bool ffz_is_code_scope(ffzNode* node);
 
-fOpt(ffzNode*) ffz_this_dot_get_assignee(ffzNodeThisValueDot* dot);
+fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 
-fOpt(ffzConstantData*) ffz_get_tag_of_type(ffzNode* node, ffzType* tag_type);
-fOpt(ffzConstantData*) ffz_get_tag(ffzNode* node, ffzKeyword tag);
+fOpt(ffzConstantData*) ffz_checked_get_tag_of_type(ffzNode* node, ffzType* tag_type);
+fOpt(ffzConstantData*) ffz_checked_get_tag(ffzNode* node, ffzKeyword tag);
 
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

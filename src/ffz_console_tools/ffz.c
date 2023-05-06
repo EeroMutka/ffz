@@ -17,10 +17,9 @@ const bool DEBUG_PRINT_AST = false;
 //
 //#include "gmmc/gmmc.h" // for gmmc_test
 
-bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name);
+bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module, fString build_dir, fString name);
 
-static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString directory);
-
+static bool parse_and_check_directory(ffzProject* project, fString directory, ffzCheckerContext* out_checker_ctx);
 
 void log_pretty_error(ffzError error, fString kind) {
 	// C-style error messages can be useful in Visual Studio output console, to be able to double click the code location
@@ -128,27 +127,27 @@ static void dump_module_ast(ffzModule* m, fString dir) {
 	f_flush_buffered_writer(&console_writer);
 }
 
-static fOpt(ffzModule*) resolve_import(fString path, void* userdata) {
-	ffzModule* module = (ffzModule*)userdata;
+//static fOpt(ffzModule*) resolve_import(fString path, void* userdata) {
+//	ffzModule* module = (ffzModule*)userdata;
+//
+//	// `:` means that the path is relative to the modules directory shipped with the compiler
+//	if (f_str_starts_with(path, F_LIT(":"))) {
+//		fString slash = F_LIT("/");
+//		
+//		path = f_str_join_tmp(module->project->modules_directory, slash, f_str_slice_after(path, 1));
+//	}
+//	else {
+//		// let's make the import path absolute
+//		if (!f_files_path_to_canonical(module->directory, path, f_temp_alc(), &path)) {
+//			f_trap();
+//		}
+//	}
+//
+//	fOpt(ffzModule*) imported = parse_and_check_directory(module->project, path);
+//	return imported;
+//}
 
-	// `:` means that the path is relative to the modules directory shipped with the compiler
-	if (f_str_starts_with(path, F_LIT(":"))) {
-		fString slash = F_LIT("/");
-		
-		path = f_str_join_tmp(module->project->modules_directory, slash, f_str_slice_after(path, 1));
-	}
-	else {
-		// let's make the import path absolute
-		if (!f_files_path_to_canonical(module->directory, path, f_temp_alc(), &path)) {
-			f_trap();
-		}
-	}
-
-	fOpt(ffzModule*) imported = parse_and_check_directory(module->project, path);
-	return imported;
-}
-
-static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString directory) {
+static bool parse_and_check_directory(ffzProject* project, fString directory, ffzCheckerContext* out_checker_ctx) {
 	TracyCZone(tr, true);
 	fArena* module_arena = _f_temp_arena; // TODO
 
@@ -161,13 +160,13 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 
 	if (module && !module->checked) {
 		
-		if (!ffz_module_resolve_imports_(module, resolve_import, module).ok) {
-			err = module->error;
-			module = NULL;
-		}
+		//if (!ffz_module_resolve_imports_(module, resolve_import, module).ok) {
+		//	f_trap();//err = module->error;
+		//	module = NULL;
+		//}
 
-		if (module && !ffz_module_check_single_(module).ok) {
-			err = module->error;
+		if (module && !ffz_module_check_single_(module, out_checker_ctx).ok) {
+			f_trap(); //err = module->error;
 			module = NULL;
 		}
 		
@@ -178,7 +177,7 @@ static fOpt(ffzModule*) parse_and_check_directory(ffzProject* project, fString d
 	}
 
 	TracyCZoneEnd(tr);
-	return module;
+	return module != NULL;
 }
 
 int main(int argc, const char* argv[]) {
@@ -201,7 +200,7 @@ int main(int argc, const char* argv[]) {
 	}
 
 	fString dir;
-	ffzModule* root_module;
+	ffzCheckerContext root_module_checker;
 	if (ok) {
 		fSliceRaw my_strings = f_slice_lit(fString, F_LIT("heyy"), F_LIT("sailor"));
 		F_UNUSED(my_strings);
@@ -214,8 +213,7 @@ int main(int argc, const char* argv[]) {
 		fArena* arena = _f_temp_arena;
 		ffzProject* p = ffz_init_project(arena, modules_dir);
 
-		root_module = parse_and_check_directory(p, dir);
-		ok = root_module != NULL;
+		ok = parse_and_check_directory(p, dir, &root_module_checker);
 	}
 
 	if (ok) {
@@ -231,7 +229,7 @@ int main(int argc, const char* argv[]) {
 		// consider building a procedure after right after checking it, then throwing away the AST nodes.
 		// Or maybe only do that for GMMC nodes.
 
-		ok = ffz_backend_gen_executable_gmmc(root_module, build_dir, project_name);
+		ok = ffz_backend_gen_executable_gmmc(root_module_checker, build_dir, project_name);
 	#else
 	#error
 	#endif

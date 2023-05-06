@@ -149,7 +149,7 @@
 
 #primitive_hash: poly[T] proc(x: T) => u32 {
 	hash: Hash.knuth64(u64(x))
-	ret hash
+	ret u32(hash)
 	//h: &Hash.begin()
 	//Hash.add(h, u64(x^))
 	//ret u32(Hash.end(h))

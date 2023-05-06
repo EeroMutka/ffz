@@ -71,7 +71,8 @@ struct Gen {
 	ffzModule* root_module;
 
 	fAllocator* alc;
-	ffzModule* checker;
+	//ffzModule* checker;
+	ffzCheckerContext* checker_ctx;
 
 	gmmcModule* gmmc;
 
@@ -108,7 +109,7 @@ static fString make_name(Gen* g, ffzNode* node = NULL, bool pretty = true) {
 	f_init_string_builder(&name, f_temp_alc());
 
 	if (node) {
-		fOpt(ffzConstantData*) extern_tag = ffz_get_tag(node->parent, ffzKeyword_extern);
+		fOpt(ffzConstantData*) extern_tag = ffz_checked_get_tag(node->parent, ffzKeyword_extern);
 		if (extern_tag) {
 			f_prints(name.w, extern_tag->record_fields[1].string_zero_terminated); // name_prefix
 		}
@@ -120,7 +121,7 @@ static fString make_name(Gen* g, ffzNode* node = NULL, bool pretty = true) {
 			// Currently, we're giving these symbols unique ids and exporting them anyway, because
 			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
 			
-			bool is_module_defined_entry = ffz_get_tag(node->parent, ffzKeyword_module_defined_entry);
+			bool is_module_defined_entry = ffz_checked_get_tag(node->parent, ffzKeyword_module_defined_entry);
 			if (extern_tag == NULL && !is_module_defined_entry) {
 				f_print(name.w, "$$~u32", node->_module->self_id);
 				//f_prints(name.w, g->checker->_dbg_module_import_name);
@@ -254,7 +255,7 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 		
 		cv_type.Record.name = type->tag == ffzTypeTag_String ? F_LIT("string") :
 			type->tag == ffzTypeTag_Slice ? make_name(g) : // TODO
-			make_name(g, type->unique_node);
+			make_name(g/*, type->unique_node*/);
 	} break;
 
 	//case ffzTypeTag_Enum: {} break;
@@ -295,7 +296,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	auto insertion = f_map64_insert(&g->proc_from_hash, (u64)node, (ProcInfo*)0, fMapInsert_DoNotOverride);
 	if (!insertion.added) return (*insertion._unstable_ptr)->gmmc_proc;
 
-	ffzType* proc_type = node->checked.type;
+	ffzType* proc_type = ffz_checked_get_info(g->checker_ctx, node).type;
 	f_assert(proc_type->tag == ffzTypeTag_Proc);
 
 	fOpt(ffzType*) ret_type = proc_type->Proc.return_type;
@@ -354,7 +355,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 		for FFZ_EACH_CHILD(param_decl, node->Op.left) {
 			f_assert(param_decl->kind == ffzNodeKind_Declare);
 			gmmcOpIdx param_addr = gmmc_op_addr_of_param(proc, i + (u32)big_return);
-			ffzType* param_type = param_decl->checked.type;
+			ffzType* param_type = ffz_checked_get_info(g->checker_ctx, param_decl).type;
 
 			Variable val = {};
 			val.local_addr = param_addr;
@@ -551,7 +552,7 @@ static Value gen_constant(Gen* g, ffzType* type, ffzConstantData* data, ffzLocRa
 static Value gen_call(Gen* g, ffzNodeOp* node) {
 	ffzNode* left = node->Op.left;
 	
-	ffzType* proc_type = left->checked.type;
+	ffzType* proc_type = ffz_checked_get_info(g->checker_ctx, left).type;
 	f_assert(proc_type->tag == ffzTypeTag_Proc);
 
 	fOpt(ffzType*) ret_type = proc_type->Proc.return_type;
@@ -686,9 +687,10 @@ static gmmcOpIdx gen_curly_initializer(Gen* g, ffzType* type, ffzNode* node) {
 				src = gen_constant(g, field.type, &field.default_value, node->loc);
 			}
 			else {
-				if (arg->checked.constant) {
-					if (ffz_constant_is_zero(*arg->checked.constant)) continue;
-					src = gen_constant(g, field.type, arg->checked.constant, arg->loc);
+				fOpt(ffzConstantData*) arg_constant = ffz_checked_get_info(g->checker_ctx, arg).constant;
+				if (arg_constant) {
+					if (ffz_constant_is_zero(*arg_constant)) continue;
+					src = gen_constant(g, field.type, arg_constant, arg->loc);
 				}
 				else {
 					src = gen_expr(g, arg, false);
@@ -708,19 +710,20 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	Value out = {};
 
 	//if (node->loc.start.line_num == 13) f_trap();
-
-	f_assert(ffz_type_is_concrete(node->checked.type));
+	ffzCheckInfo checked = ffz_checked_get_info(g->checker_ctx, node);
+	f_assert(ffz_type_is_concrete(checked.type));
 	f_assert(node->kind != ffzNodeKind_Declare);
 
 	bool needs_dereference = false;
 
-	if (node->checked.constant) {
+	if (checked.constant) {
 		// if you take an address of constant, it should make a copy.
-		out = gen_constant(g, node->checked.type, node->checked.constant, node->loc);
+		out = gen_constant(g, checked.type, checked.constant, node->loc);
 	}
 	else if (ffz_node_is_operator(node->kind)) {
 		ffzNode* left = node->Op.left;
 		ffzNode* right = node->Op.right;
+		ffzCheckInfo left_checked = ffz_checked_get_info(g->checker_ctx, left);
 
 		switch (node->kind) {
 
@@ -731,7 +734,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater:
 		case ffzNodeKind_GreaterOrEqual:
 		{
-			ffzType* input_type = left->checked.type;
+			ffzType* input_type = left_checked.type;
 			bool is_signed = ffz_type_is_signed_integer(input_type->tag);
 			
 			// TODO: more operator defines. I guess we should do this together with the fix for vector math
@@ -773,7 +776,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		} break;
 
 		case ffzNodeKind_UnaryMinus: {
-			gmmcType type = get_gmmc_trivial_type(g, node->checked.type);
+			gmmcType type = get_gmmc_trivial_type(g, checked.type);
 
 			u64 zero = 0;
 			out.op = gen_expr(g, right, false).op;
@@ -811,49 +814,49 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 			}
 			else {
 				//ffzCheckedInst left_chk = ffz_get_checked(g->project, left);
-				if (left->checked.type->tag == ffzTypeTag_Type) {
+				if (left_checked.type->tag == ffzTypeTag_Type) {
 					// type cast, e.g. u32(520.32)
 
-					ffzType* dst_type = left->checked.constant->type;
+					ffzType* dst_type = left_checked.constant->type;
 
 					ffzNode* arg = ffz_get_child(node, 0);
-					ffzType* arg_type = arg->checked.type;
-
-					if (arg_type->tag == ffzTypeTag_Type && arg->checked.constant->type->tag == ffzTypeTag_Undefined) {
+					ffzCheckInfo arg_checked = ffz_checked_get_info(g->checker_ctx, arg);
+					
+					if (arg_checked.type->tag == ffzTypeTag_Type && arg_checked.constant->type->tag == ffzTypeTag_Undefined) {
 						out.op = UNDEFINED_VALUE;
 						return out;
 					}
 
 					out = gen_expr(g, arg, false);
 					
-					if (ffz_type_is_slice_ish(dst_type->tag) && ffz_type_is_slice_ish(arg_type->tag)) {} // no-op
+					if (ffz_type_is_slice_ish(dst_type->tag) && ffz_type_is_slice_ish(arg_checked.type->tag)) {} // no-op
 					else if (ffz_type_is_pointer_ish(dst_type->tag)) { // cast to pointer
-						if (ffz_type_is_pointer_ish(arg_type->tag)) {} // no-op
-						else if (ffz_type_is_integer_ish(arg_type->tag)) {
+						if (ffz_type_is_pointer_ish(arg_checked.type->tag)) {} // no-op
+						else if (ffz_type_is_integer_ish(arg_checked.type->tag)) {
 							out.op = gmmc_op_int2ptr(g->bb, out.op);
 						}
 					}
 					else if (ffz_type_is_integer_ish(dst_type->tag)) { // cast to integer
 						gmmcType dt = get_gmmc_trivial_type(g, dst_type);
-						if (ffz_type_is_pointer_ish(arg_type->tag)) {
+						if (ffz_type_is_pointer_ish(arg_checked.type->tag)) {
 							out.op = gmmc_op_ptr2int(g->bb, out.op);
 						}
-						else if (ffz_type_is_integer_ish(arg_type->tag)) {
+						else if (ffz_type_is_integer_ish(arg_checked.type->tag)) {
 							out.op = gmmc_op_int2int(g->bb, out.op, dt, ffz_type_is_signed_integer(dst_type->tag));
 						}
-						else if (ffz_type_is_float(arg_type->tag)) {
+						else if (ffz_type_is_float(arg_checked.type->tag)) {
 							out.op = gmmc_op_float2int(g->bb, out.op, dt/*, ffz_type_is_signed_integer(dst_type->tag)*/);
 						}
 					}
 					else if (ffz_type_is_float(dst_type->tag)) {
 						gmmcType dt = get_gmmc_trivial_type(g, dst_type);
-						if (ffz_type_is_float(arg_type->tag)) {
-							if (arg_type->size != dst_type->size) {
+						if (ffz_type_is_float(arg_checked.type->tag)) {
+							if (arg_checked.type->size != dst_type->size) {
 								out.op = gmmc_op_float2float(g->bb, out.op, dt);
 							}
 						}
-						else if (ffz_type_is_integer_ish(arg_type->tag)) {
-							out.op = gmmc_op_int2float(g->bb, out.op, dt, ffz_type_is_signed_integer(arg_type->tag));
+						else if (ffz_type_is_integer_ish(arg_checked.type->tag)) {
+							out.op = gmmc_op_int2float(g->bb, out.op, dt, ffz_type_is_signed_integer(arg_checked.type->tag));
 						}
 					}
 					else todo;
@@ -890,11 +893,11 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				f_assert(found);
 			}
 			else {
-				ffzType* left_type = left->checked.type;
+				ffzType* left_type = left_checked.type;
 				ffzType* struct_type = left_type->tag == ffzTypeTag_Pointer ? left_type->Pointer.pointer_to : left_type; // NOTE: implicit dereference
 
 				ffzTypeRecordFieldUse field;
-				f_assert(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
+				f_assert(ffz_type_find_record_field_use(g->checker_ctx, struct_type, member_name, &field));
 
 				gmmcOpIdx addr_of_struct = gen_expr(g, left, left_type->tag != ffzTypeTag_Pointer).op;
 				f_assert(addr_of_struct != UNDEFINED_VALUE);
@@ -905,13 +908,13 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		} break;
 
 		case ffzNodeKind_PostCurlyBrackets: {
-			out.op = gen_curly_initializer(g, node->checked.type, node);
+			out.op = gen_curly_initializer(g, checked.type, node);
 			needs_dereference = true;// should_dereference = !address_of;
 		} break;
 
 		case ffzNodeKind_PostSquareBrackets: {
-			bool implicit_dereference = left->checked.type->tag == ffzTypeTag_Pointer;
-			ffzType* subscriptable_type = implicit_dereference ? left->checked.type->Pointer.pointer_to : left->checked.type;
+			bool implicit_dereference = left_checked.type->tag == ffzTypeTag_Pointer;
+			ffzType* subscriptable_type = implicit_dereference ? left_checked.type->Pointer.pointer_to : left_checked.type;
 
 			u32 offset = 0;
 			if (subscriptable_type->tag == ffzTypeTag_FixedArray || subscriptable_type->tag == ffzTypeTag_Slice) {}
@@ -1009,11 +1012,11 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		switch (node->kind) {
 		case ffzNodeKind_Scope: {
 			// type-inferred initializer
-			out.op = gen_curly_initializer(g, node->checked.type, node);
+			out.op = gen_curly_initializer(g, checked.type, node);
 			needs_dereference = true; //should_dereference = !address_of;
 		} break;
 		case ffzNodeKind_Identifier: {
-			ffzNodeIdentifier* def = ffz_find_definition(node);
+			ffzNodeIdentifier* def = ffz_find_definition(g->checker_ctx, node);
 			if (def->Identifier.is_constant) f_trap();
 
 			Variable* var = f_map64_get(&g->variable_from_definition, (u64)def);
@@ -1028,7 +1031,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		} break;
 
 		case ffzNodeKind_ThisDot: {
-			ffzNode* assignee = ffz_this_dot_get_assignee(node);
+			ffzNode* assignee = ffz_checked_this_dot_get_assignee(node);
 			out = gen_expr(g, assignee, address_of);
 		} break;
 
@@ -1043,16 +1046,16 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		if (address_of) {}
 		else {
 			// Dereference the indirect value
-			if (value_is_direct(node->checked.type)) {
-				out.op = gmmc_op_load(g->bb, get_gmmc_trivial_type(g, node->checked.type), out.op);
+			if (value_is_direct(checked.type)) {
+				out.op = gmmc_op_load(g->bb, get_gmmc_trivial_type(g, checked.type), out.op);
 				set_loc(g, out.op, node->loc);
 			}
 		}
 	}
 	else if (address_of) {
 		// Take address to copy
-		if (value_is_direct(node->checked.type)) {
-			gmmcOpIdx tmp = gmmc_op_local(g->proc, node->checked.type->size, node->checked.type->align);
+		if (value_is_direct(checked.type)) {
+			gmmcOpIdx tmp = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 			gmmc_op_store(g->bb, tmp, out.op);
 			set_loc(g, tmp, node->loc);
 			out.op = tmp;
@@ -1081,42 +1084,46 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		}
 	}
 	
+	ffzCheckInfo checked = ffz_checked_get_info(g->checker_ctx, node);
+
 	switch (node->kind) {
 		
 	case ffzNodeKind_Declare: {
 		ffzNodeIdentifier* definition = node->Op.left;
 		//F_HITS(__c, 2);
-		if (ffz_decl_is_variable(node)) {
+		if (ffz_checked_decl_is_variable(g->checker_ctx, node)) {
 			ffzNode* rhs = node->Op.right;
+			ffzCheckInfo rhs_checked = ffz_checked_get_info(g->checker_ctx, rhs);
+			
 			Variable var = {};
-			if (ffz_get_tag(node, ffzKeyword_global)) {
-				f_assert(rhs->checked.type == node->checked.type);
+			if (ffz_checked_get_tag(node, ffzKeyword_global)) {
+				//f_assert(rhs_checked.type == checked.type);
 
 				void* global_data;
-				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs->checked.type->size, rhs->checked.type->align, gmmcSection_Data, &global_data);
+				gmmcGlobal* global = gmmc_make_global(g->gmmc, rhs_checked.type->size, rhs_checked.type->align, gmmcSection_Data, &global_data);
 
 				f_array_push(&g->globals, { node, global });
 				
-				if (rhs->checked.constant != NULL) { // Could be an undefined (~~) global
-					fill_global_constant_data(g, global, (u8*)global_data, 0, rhs->checked.type, rhs->checked.constant);
+				if (rhs_checked.constant != NULL) { // Could be an undefined (~~) global
+					fill_global_constant_data(g, global, (u8*)global_data, 0, rhs_checked.type, rhs_checked.constant);
 				}
 		
 				var.symbol = gmmc_global_as_symbol(global);
 			}
 			else {
 				Value rhs_value = gen_expr(g, rhs, false);
-				var.local_addr = gmmc_op_local(g->proc, node->checked.type->size, node->checked.type->align);
-				add_dbginfo_local(g, definition->Identifier.name, var.local_addr, node->checked.type);
+				var.local_addr = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
+				add_dbginfo_local(g, definition->Identifier.name, var.local_addr, checked.type);
 		
 				if (rhs_value.op != UNDEFINED_VALUE) {
-					gen_store(g, var.local_addr, rhs_value.op, node->checked.type, node);
+					gen_store(g, var.local_addr, rhs_value.op, checked.type, node);
 				}
 			}
 			f_map64_insert(&g->variable_from_definition, (u64)definition, var);
 		}
 		else {
 			// need to still generate exported procs
-			if (node->checked.type->tag == ffzTypeTag_Proc) {
+			if (checked.type->tag == ffzTypeTag_Proc) {
 				ffzNode* rhs = node->Op.right;
 				if (rhs->kind == ffzNodeKind_PostCurlyBrackets) { // @extern procs also have the type ffzTypeTag_Proc so we need to ignore those
 					gen_procedure(g, rhs);
@@ -1133,7 +1140,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 
 		if (!ffz_node_is_keyword(lhs, ffzKeyword_Eater)) {
 			gmmcOpIdx lhs_addr = gen_expr(g, lhs, true).op;
-			gen_store(g, lhs_addr, rhs_value, rhs->checked.type, node);
+			gen_store(g, lhs_addr, rhs_value, ffz_checked_get_info(g->checker_ctx, rhs).type, node);
 		}
 	} break;
 
@@ -1213,7 +1220,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		gmmcOpIdx val = GMMC_OP_IDX_INVALID;
 
 		if (node->Return.value) {
-			ffzType* ret_type = node->Return.value->checked.type;
+			ffzType* ret_type = ffz_checked_get_info(g->checker_ctx, node->Return.value).type;
 			Value return_value = gen_expr(g, node->Return.value, false);
 			if (ret_type->size > 8) {
 				val = gmmc_op_load(g->bb, gmmcType_ptr, gmmc_op_addr_of_param(g->proc, 0)); // :BigReturn
@@ -1492,7 +1499,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 			
 			cviewGlobal cv_global;
 			cv_global.name = name;
-			cv_global.type_idx = get_debuginfo_type(g, global_info.node->checked.type);
+			cv_global.type_idx = get_debuginfo_type(g, ffz_checked_get_info(g->checker_ctx, global_info.node).type);
 			cv_global.sym_index = sym_idx;
 			f_array_push(&cv_globals, cv_global);
 		}
@@ -1687,9 +1694,9 @@ static bool build_c(Gen* g, fString build_dir) {
 	return exit_code == 0;
 }
 
-FFZ_CAPI bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name) {
+extern "C" bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module_checker, fString build_dir, fString name) {
 	ZoneScoped;
-	ffzProject* project = root_module->project;
+	ffzProject* project = root_module_checker.project;
 
 	//fArenaMark temp_base = f_temp_get_mark();
 	gmmcModule* gmmc = gmmc_init(f_temp_alc());
@@ -1697,7 +1704,7 @@ FFZ_CAPI bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString bu
 	Gen g = {};
 	g.project = project;
 	g.pointer_size = project->pointer_size;
-	g.root_module = root_module;
+	g.root_module = root_module_checker.mod;
 	g.gmmc = gmmc;
 	g.alc = f_temp_alc();
 	g.variable_from_definition = f_map64_make<Variable>(g.alc);
@@ -1721,29 +1728,38 @@ FFZ_CAPI bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString bu
 		f_array_push(&g.cv_file_from_parser_idx, file);
 	}
 
-	for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
-		ffzModule* checker = project->checkers_dependency_sorted[i];
-		g.checker = checker;
+	//for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
+	//	ffzModule* mod = project->checkers_dependency_sorted[i];
+	{
+		g.checker_ctx = &root_module_checker;
+		ffzModule* mod = root_module_checker.mod;
+		
+		// hmm........ so should a ffzProject be responsible for holding analysis about the program?
+		// or should it just be responsible for holding the program itself?
+		// I think it makes sense to separate the analysis. That way you could make an arena for analysis/checking, modify the program, clear the arena, etc.
+		// Separating dependencies is good I think.
+
+		//g.checker = checker;
 
 		// check for the "link_against_libc" build option
-		ffzType* build_option_type = ffz_builtin_type(checker, ffzKeyword_build_option);
-		fArray(ffzNode*)* build_opts = f_map64_get(&checker->all_tags_of_type, build_option_type->hash);
-		if (build_opts) {
-			for (uint i = 0; i < build_opts->len; i++) {
-				ffzNode* decl = (*build_opts)[i]->parent;
-				
-				// TODO: error reporting. The question is, is this a valid FFZ program if this fails? If it's a valid FFZ program,
-				// then it should be catched in the checker phase. But should we allow passing isolated flags to the backend?
-				f_assert(decl->kind == ffzNodeKind_Declare);
-				
-				if (ffz_decl_get_name(decl) == F_LIT("link_against_libc")) {
-					g.link_against_libc = true;
-					break;
-				}
-			}
-		}
+		//ffzType* build_option_type = ffz_builtin_type(mod, ffzKeyword_build_option);
+		//fArray(ffzNode*)* build_opts = f_map64_get(&mod->all_tags_of_type, build_option_type->hash);
+		//if (build_opts) {
+		//	for (uint i = 0; i < build_opts->len; i++) {
+		//		ffzNode* decl = (*build_opts)[i]->parent;
+		//		
+		//		// TODO: error reporting. The question is, is this a valid FFZ program if this fails? If it's a valid FFZ program,
+		//		// then it should be catched in the checker phase. But should we allow passing isolated flags to the backend?
+		//		f_assert(decl->kind == ffzNodeKind_Declare);
+		//		
+		//		if (ffz_decl_get_name(decl) == F_LIT("link_against_libc")) {
+		//			g.link_against_libc = true;
+		//			break;
+		//		}
+		//	}
+		//}
 		
-		for FFZ_EACH_CHILD(n, checker->root) {
+		for FFZ_EACH_CHILD(n, mod->root) {
 			gen_statement(&g, n);
 		}
 	}

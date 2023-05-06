@@ -1,7 +1,13 @@
 [x] Finish futuregames application / CV
 [x] Visual studio extension for FFZ
 
-[] allow 'type' in structs
+[x] allow 'type' in structs
+[] implicit polymorphic parameter binding for calls would be really nice...
+	BROKE/TODO:
+	[] figure out default values for parameters again
+	[] link_against_libc
+
+
 [] Get Map to work
 
 [] fix the situation with commas and newlines
@@ -25,11 +31,10 @@
 
 --------------- Keith release candidate ---------------
 [] optionals
-[] hash procedure type based on its contents, not its unique node
+[x] hash procedure type based on its contents, not its unique node
 [] break, continue, to_else, named scopes
 [] module ' declaration
 
-[] implicit polymorphic parameter latching for calls would be really nice...
 [] typed poly-parameters
 
 [] any + type info and module caching. These need to be solved at the same time I think.

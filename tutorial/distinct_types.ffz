@@ -1,0 +1,20 @@
+
+// In FFZ, all types by default are non-distinct.
+// This means that:
+
+foo: struct{a: int, b: int}{1, 2}
+foo = struct{a: int, b: int}{3, 3}
+
+// is allowed.
+// The reason for this is that we need to be able to convert constants with anonymous types to AST and to string.
+// and... why do we want this? 
+
+// TODO:
+// Having distinct types is very useful. A distinct type is a type associated with an identifier.
+// When declaring a type as a constant, an identity is given to it and it is no longer anonymous.
+
+#MyType: struct{a: int, b: int}
+foo: MyType{3, 4}
+// the following is illegal, because MyType is distinct:
+// foo = struct{a: int, b: int}{1, 2}
+

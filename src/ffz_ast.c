@@ -463,14 +463,14 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_Blank: { f_print(w, "_"); } break;
 	case ffzNodeKind_ThisDot: { f_print(w, "."); } break;
 
-	case ffzNodeKind_PolyExpr: {
+	case ffzNodeKind_PolyDef: {
 		f_print(w, "poly[");
 		for (ffzNode* n = node->first_child; n; n = n->next) {
 			if (n != node->first_child) f_print(w, ", ");
 			print_ast(w, n, tab_level);
 		}
 		f_print(w, "] ");
-		print_ast(w, node->PolyExpr.expr, tab_level);
+		print_ast(w, node->PolyDef.expr, tab_level);
 	} break;
 
 	default: {
@@ -496,7 +496,7 @@ void ffz_print_ast(fWriter* w, ffzNode* node) {
 	print_ast(w, node, 0);
 }
 
-FFZ_CAPI fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc) {
+fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc) {
 	if (node->loc_source && try_to_use_source) {
 		fString source_code = node->loc_source->source_code;
 		return f_str_slice(source_code, node->loc.start.offset, node->loc.end.offset);
@@ -704,8 +704,6 @@ ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
 // This is a weird procedure, because you need to be careful with the children as we're not doing a deep copy.
 // Idk if we should have it here
 ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node) {
-	f_assert(!node->has_checked);
-
 	ffzNode* new_node = f_mem_clone(*node, m->alc);
 	new_node->_module = m;
 	new_node->parent = NULL;
@@ -1188,7 +1186,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				}
 			}
 			else if (f_str_equals(tok.str, F_LIT("poly"))) {
-				node = new_node(p, parent, tok.range, ffzNodeKind_PolyExpr);
+				node = new_node(p, parent, tok.range, ffzNodeKind_PolyDef);
 
 				tok = maybe_eat_next_token(p, loc, (ParseFlags)0); // With return statements, newlines do matter!
 				if (tok.small != '[') {
@@ -1196,7 +1194,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 				}
 				
 				TRY(parse_children(p, loc, node, ']'));
-				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->PolyExpr.expr));
+				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->PolyDef.expr));
 			}
 			else if (f_str_equals(tok.str, F_LIT("proc"))) {
 				TRY(parse_proc_type(p, loc, parent, tok.range, &node));
