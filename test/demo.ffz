@@ -4,9 +4,8 @@
 // I'm thinking - we should check the imaginary things too, because that would give us the go-to-definition functionality too.
 // AND, there might be errors that we can catch even when reasoning about the polymorphic form, such as unknown identifier.
 
-#assign: poly[T] proc(a: T, b: T) {
-	//a^ = b
-	dbgbreak
+#assign: poly[T] proc(a: ^T, value: T) {
+	a^ = value
 }
 
 //#assign_int: assign[int]
@@ -19,10 +18,11 @@
 	// 2. loop through/recurse into the parameters, while keeping track of the correct type according to the argument. If we hit
 	//    a poly-parameter identifier, then assign the constant to it if it hasn't been assigned yet, otherwise make sure that it matches.
 	
+	my_value: int(20)
+	my_value_2: int(32)
+	assign(&my_value, int(250))
 	
-	assign(int(1), int(2))
-	
-	assign(u32(1), u32(2))
+	//assign(u32(1), u32(2))
 	
 	//assign2(int(5), int(2))
 	

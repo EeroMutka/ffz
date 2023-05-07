@@ -18,6 +18,7 @@
 
 #define FFZ_CAPI extern "C"
 
+
 static void report_checker_error(ffzCheckerContext* c, fOpt(ffzNode*) node, fString msg) {
 	c->error.node = node;
 	c->error.message = msg;
@@ -1148,6 +1149,33 @@ static ffzOk instantiate_poly_def(ffzCheckerContext* c, ffzNode* poly_def, fSlic
 	return FFZ_OK;
 }
 
+static ffzOk try_to_infer_poly_param(ffzCheckerContext* c, ffzType* source, ffzType* target, fMap64(ffzConstant)* poly_param_to_constant, ffzNode* err_node) {
+	switch (target->tag) {
+	default: break;
+	case ffzTypeTag_PolyParam: {
+		ffzNode* poly_param = target->PolyParam.param; // which polymorphic parameter is this?
+
+		fOpt(ffzConstant*) deduced = f_map64_get(poly_param_to_constant, (u64)poly_param);
+		if (deduced == NULL) {
+			f_map64_insert(poly_param_to_constant, (u64)poly_param, make_type_constant(c->pr, source));
+		}
+		else {
+			ffzConstant source_constant = make_type_constant(c->pr, source);
+			if (!ffz_constants_match(deduced->value, source_constant.value)) {
+				ERR(c, err_node, "Multiple mismatching values for polymorphic parameter `~s` were inferred from the procedure call site.", poly_param->Identifier.name);
+			}
+		}
+	} break;
+	case ffzTypeTag_Pointer: {
+		if (source->tag == ffzTypeTag_Pointer) {
+			TRY(try_to_infer_poly_param(c, source->Pointer.pointer_to, target->Pointer.pointer_to, poly_param_to_constant, err_node));
+		}
+	} break;
+	
+	}
+	return FFZ_OK;
+}
+
 static ffzOk check_post_round_brackets(ffzCheckerContext* c, ffzNode* node, ffzType* require_type, InferFlags flags, ffzCheckInfo* result) {
 	ffzNode* left = node->Op.left;
 	bool fall = true;
@@ -1260,25 +1288,13 @@ static ffzOk check_post_round_brackets(ffzCheckerContext* c, ffzNode* node, ffzT
 
 				fMap64(ffzConstant) poly_param_to_constant = f_map64_make<ffzConstant>(c->alc);
 				
+				// Loop through the procedure call arguments and try to infer the polymorphic parameters from them
+
 				u32 i = 0;
 				for FFZ_EACH_CHILD(arg, node) {
-					ffzField param_field = param_fields[i];
+					ffzType* target = param_fields[i].type;
 					ffzType* source = ffz_checked_get_info(c, arg).type;
-					
-					if (param_field.type->tag == ffzTypeTag_PolyParam) {
-						ffzNode* poly_param = param_field.type->PolyParam.param; // which polymorphic parameter is this?
-						
-						fOpt(ffzConstant*) associated = f_map64_get(&poly_param_to_constant, (u64)poly_param);
-						if (associated == NULL) {
-							f_map64_insert(&poly_param_to_constant, (u64)poly_param, make_type_constant(c->pr, source));
-						}
-						else {
-							ffzConstant source_constant = make_type_constant(c->pr, source);
-							if (!ffz_constants_match(associated->value, source_constant.value)) {
-								f_trap(); // types do not match!
-							}
-						}
-					}
+					TRY(try_to_infer_poly_param(c, source, target, &poly_param_to_constant, node));
 					i++;
 				}
 
@@ -1286,8 +1302,13 @@ static ffzOk check_post_round_brackets(ffzCheckerContext* c, ffzNode* node, ffzT
 
 				fArray(ffzConstant) args = f_array_make<ffzConstant>(c->alc);
 				for FFZ_EACH_CHILD(param, poly_def) {
-					ffzConstant arg_value = *f_map64_get(&poly_param_to_constant, (u64)param);
-					f_array_push(&args, arg_value);
+					fOpt(ffzConstant*) deduced = f_map64_get(&poly_param_to_constant, (u64)param);
+					if (deduced == NULL) {
+						ERR(c, node, "Polymorphic argument `~s` could not be inferred from the procedure call site.", param->Identifier.name);
+					}
+					else {
+						f_array_push(&args, *deduced);
+					}
 				}
 				
 				ffzPolymorphID poly_id;

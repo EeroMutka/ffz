@@ -722,9 +722,10 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		out = gen_constant(g, checked.type, checked.const_val, node->loc);
 	}
 	else if (ffz_node_is_operator(node->kind)) {
-		ffzNode* left = node->Op.left;
+		fOpt(ffzNode*) left = node->Op.left;
 		ffzNode* right = node->Op.right;
-		ffzCheckInfo left_checked = ffz_checked_get_info(g->checker_ctx, left);
+		ffzCheckInfo left_checked;
+		if (left) left_checked = ffz_checked_get_info(g->checker_ctx, left);
 
 		switch (node->kind) {
 
