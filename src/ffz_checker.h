@@ -143,7 +143,7 @@ typedef ffzHash ffzEnumValueHash;
 typedef struct ffzOk { bool ok; } ffzOk;
 const static ffzOk FFZ_OK = { true };
 
-typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
+typedef enum ffzNodeKind {
 	ffzNodeKind_INVALID,
 
 	ffzNodeKind_Blank,
@@ -162,6 +162,7 @@ typedef enum ffzNodeKind { // synced with `ffzNodeKind_to_string`
 	ffzNodeKind_IntLiteral,
 	ffzNodeKind_StringLiteral,
 	ffzNodeKind_FloatLiteral,
+	ffzNodeKind_GeneratedConstant, // this is an imaginary node, as it cannot be represented in source code form.
 
 	// -- Operators ----------------------
 	// :ffz_node_is_operator
@@ -291,14 +292,19 @@ typedef struct ffzCheckInfo {
 // "secondary children". For example, an If-node has two secondary children - one for the true scope and another for the false scope.
 // Secondary children are always one-off nodes and cannot be lists (A secondary child slot can hold 0 or 1 nodes).
 //
-// ffzCursor is a way to refer to a location in the AST where a node can be inserted,
-// i.e. between two nodes. It can also be at the beginning or end of a (potentially empty) child node list.
-// A cursor may also point to the beginning/left side of a secondary child slot.
+// ffzCursor is a way to point to a location in the AST where a node can be inserted,
+// i.e. between two nodes. It can also point to the beginning or end of a (potentially empty) child node list.
+// A cursor may also point to a secondary child field.
 //
 typedef struct ffzCursor {
 	ffzNode* parent;
-	ffzNode** pp_node; // This will point either to the `first_child` or `next` field, or to one of the secondary child fields.
+	ffzNode** pp_node; // This will point either to the `first_child` or `next` field, or to a secondary child field.
 } ffzCursor;
+
+typedef struct ffzConstant {
+	ffzType* type;
+	ffzConstantData* data;
+} ffzConstant;
 
 struct ffzNode {
 	ffzNodeKind kind;
@@ -333,20 +339,6 @@ struct ffzNode {
 		struct {
 			fString name;
 			bool is_constant; // has # in front?
-
-			// When instantiating a polymorphic definition, i.e. Array[int], that node will be replaced with an identifier referring
-			// to the copied instance. It might look something like "Array__poly_12". This way of instantiating polymorphs is nice, because
-			// it means that any tools that deal with the FFZ tree don't have to worry about polymorphism at all, except of course the checker which
-			// generates the instantiations. But it also means that using the generated name, we would get bad error messages.
-			// So, the checker also generates an optional `pretty_name`, which will be displayed in error messages over `name` when it's non-empty.
-			fString pretty_name;
-			
-			// hmm... Or maybe we could do something like prefix generated names with `\`, so it'd be like `\Array[u32]` and parse things starting with \
-			// in the parser until whitespace into a single identifier. Then the backend could see that it starts with \ and wrangle a name for it.
-			// Just an idea.
-
-			// ffzNode* chk_definition; // resolved during the checker stage
-			// ffzNode* chk_next_use;   // resolved during the checker stage
 		} Identifier;
 
 		struct {
@@ -401,6 +393,10 @@ struct ffzNode {
 		struct {
 			fString zero_terminated_string;
 		} StringLiteral;
+
+		struct {
+			ffzConstant constant;
+		} GeneratedConstant;
 	};
 };
 
@@ -435,20 +431,21 @@ typedef enum ffzTypeTag {
 	ffzTypeTag_Undefined, // the type of the expression `~~`
 
 	ffzTypeTag_Type,
-	
-	ffzTypeTag_PolyDef,   // i.e. #Array: poly[T] struct{...}
-	//ffzTypeTag_PolyUse,   // i.e. Array[int]
 
+	// NOTE: only polymorphic regions in the AST can contain these Poly* types.
+	ffzTypeTag_PolyDef,   // i.e. #Array: poly[T] struct{...}
+	ffzTypeTag_PolyParam, // i.e. the type of `foo` in `#X: poly[T] proc(foo: T)` would be `PolyParam`
+	
 	ffzTypeTag_Module,
 
 	ffzTypeTag_Bool,
 	ffzTypeTag_Pointer,
 
 	// :type_is_integer
-	ffzTypeTag_Sint, // 's8', 's16', ...
-	ffzTypeTag_Uint, // 'u8', 'u16', ...
-	ffzTypeTag_DefaultSint, // 'int'
-	ffzTypeTag_DefaultUint, // 'uint'
+	ffzTypeTag_Sint, // `s8`, `s16`, ...
+	ffzTypeTag_Uint, // `u8`, `u16`, ...
+	ffzTypeTag_DefaultSint, // `int`
+	ffzTypeTag_DefaultUint, // `uint`
 
 	ffzTypeTag_Float,
 	ffzTypeTag_Proc,
@@ -502,11 +499,6 @@ typedef struct ffzConstantData {
 		fSlice(ffzConstantData) record_fields; // or empty for zero-initialized
 	};
 } ffzConstantData;
-
-typedef struct ffzConstant {
-	ffzType* type;
-	ffzConstantData* data;
-} ffzConstant;
 
 typedef struct ffzPolymorph {
 	ffzNode* poly_def;
@@ -580,12 +572,19 @@ typedef struct ffzType {
 
 		struct {
 			ffzType* elem_type;
-			int32_t length; // -1 means length is inferred by [?]
+			
+			// -1 means length is inferred by [?].
+			// In polymorphic nodes (ffz_node_is_polymorphic), this may be of type PolyParam. Otherwise must be an integer.
+			ffzConstant length;
 		} FixedArray;
 
 		struct {
 			ffzType* pointer_to;
 		} Pointer;
+
+		struct {
+			ffzNode* param;
+		} PolyParam;
 
 		struct {
 			uint32_t id;
@@ -595,7 +594,7 @@ typedef struct ffzType {
 
 typedef struct ffzProject {
 	fAllocator* persistent_allocator;
-	
+
 	// `modules_directory` can be an empty string, in which case
 	// importing modules using the `:` prefix is not allowed.
 	fString modules_directory;
@@ -607,21 +606,20 @@ typedef struct ffzProject {
 	fArray(ffzSource*) sources; // key: ffzSourceID
 
 	fArray(ffzModule*) checkers; // key: ffzCheckerID
-	
+
 	//fArray(ffzModule*) checkers_dependency_sorted; // topologically sorted from leaf modules towards higher-level modules
-	
+
 	uint32_t pointer_size;
 
 	fMap64(ffzKeyword) keyword_from_string; // Constant lookup table
-	
+
 	struct {
 		fMap64(ffzModule*) module_from_directory;
 	} filesystem_helpers;
 
 	fMap64(ffzType*) type_from_hash; // key: TypeHash
 
-	ffzType* type_type;
-	ffzType* module_type;
+	ffzType* type_module;
 	ffzType* builtin_types[ffzKeyword_COUNT];
 	u32 next_extra_type_id;
 } ffzProject;
@@ -631,8 +629,12 @@ typedef struct ffzProject {
 typedef struct ffzCheckerContext {
 	ffzProject* project;
 	ffzModule* mod;
+	bool checked;
+
+	fAllocator* alc;
 
 	ffzError error;
+	bool is_inside_polymorphic_node;
 
 	fMap64(ffzCheckInfo) infos; // key: ffzNode*
 
@@ -663,12 +665,9 @@ typedef struct ffzCheckerContext {
 	fArray(ffzNode*) _extern_libraries;
 } ffzCheckerContext;
 
-
 struct ffzModule {
 	ffzProject* project;
-	bool checked;
 
-	fAllocator* alc;
 	ffzModuleID self_id;
 
 	fString directory; // imports in this module will be relative to this directory
@@ -701,16 +700,16 @@ inline ffzModule* ffz_module_of_node(ffzNode* n) { return n->_module; }
 
 // -- Builder -------------------------------------------
 
-inline fOpt(ffzNode*) ffz_get_node_at_cursor(ffzCursor* at) { return *at->pp_node; }
+inline fOpt(ffzNode*) ffz_get_node_at_cursor(ffzCursor at) { return *at.pp_node; }
 
 // Replace the node at the cursor with another node, and update the cursor keeping it in place.
-void ffz_replace_node(ffzCursor* at, ffzNode* with);
+void ffz_replace_node(ffzCursor at, ffzNode* with);
 
 // Insert a new node at the cursor, and update the cursor keeping it in place.
-void ffz_insert_node(ffzCursor* at, ffzNode* node);
+void ffz_insert_node(ffzCursor at, ffzNode* node);
 
 // Remove a node at the cursor, and update the cursor keeping it in place.
-void ffz_remove_node(ffzCursor* at);
+void ffz_remove_node(ffzCursor at);
 
 // clones `node` into the module `m`. It will be added to the `extra_nodes` source.
 ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node);
@@ -761,7 +760,7 @@ inline bool ffz_node_is_top_level(ffzNode* node) { return node->parent->parent =
 
 // These both return an empty string if the node's parent is not a declaration, or the node itself is NULL
 fString ffz_get_parent_decl_name(fOpt(ffzNode*) node);
-fString ffz_get_parent_decl_pretty_name(fOpt(ffzNode*) node);
+//fString ffz_get_parent_decl_pretty_name(fOpt(ffzNode*) node);
 
 uint32_t ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
 ffzNode* ffz_get_child(ffzNode* parent, uint32_t idx);
@@ -859,7 +858,7 @@ ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
 // 
 //
 
-ffzModule* ffz_project_add_module(ffzProject* p, fArena* module_arena);
+ffzModule* ffz_project_add_module(ffzProject* p);
 
 //ffzParser* ffz_module_add_parser(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb);
 
@@ -872,8 +871,10 @@ void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 
 ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule* (*module_from_path)(fString path, void* userdata), void* userdata);
 
-// When you call ffz_module_check_single, all imported modules must have already been checked.
-ffzOk ffz_module_check_single_(ffzModule* m, ffzCheckerContext* out_checker_ctx);
+ffzCheckerContext ffz_make_checker_ctx(ffzModule* mod);
+
+// When you call this, all imported modules must have already been checked.
+ffzOk ffz_check_module(ffzCheckerContext* c);
 
 
 // --- OS layer helpers ---
@@ -881,7 +882,7 @@ ffzOk ffz_module_check_single_(ffzModule* m, ffzCheckerContext* out_checker_ctx)
 // This automatically adds all files in the directory into the module.
 // If this has already been called before with identical directory, then that previously created module is returned.
 // Returns NULL if the directory does not exist, or if any of the source code files failed to parse.
-fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, fArena* module_arena, ffzError* out_error);
+fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, ffzError* out_error);
 
 //void ffz_module_resolve_imports_using_fileystem(ffzModule* m, fSlice(ffzModule*)* out_imports);
 
@@ -937,6 +938,8 @@ void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(f
 bool ffz_constant_is_zero(ffzConstantData constant);
 
 ffzConstantData* ffz_zero_value_constant();
+
+bool ffz_node_is_polymorphic(ffzNode* node);
 
 inline fString ffz_decl_get_name(ffzNodeOpDeclare* decl) { return decl->Op.left->Identifier.name; }
 

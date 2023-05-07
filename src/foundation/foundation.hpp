@@ -81,13 +81,13 @@ inline bool operator == (fString a, fString b) { return f_str_equals(a, b); }
 inline bool operator != (fString a, fString b) { return !f_str_equals(a, b); }
 
 template<typename T>
-inline fSlice(T) f_make_slice_garbage(uint len, fAllocator* alc) {
+inline fSlice(T) f_make_slice_undef(uint len, fAllocator* alc) {
 	return fSlice(T){ (T*)(alc)->_proc((alc), NULL, 0, (len) * sizeof(T)), len };
 }
 
 template<typename T>
 inline fSlice(T) f_make_slice(uint len, const T& initial_value, fAllocator* alc) {
-	fSlice(T) result = f_make_slice_garbage<T>(len, alc);
+	fSlice(T) result = f_make_slice_undef<T>(len, alc);
 	for (uint i = 0; i < len; i++) result[i] = initial_value;
 	return result;
 }

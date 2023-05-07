@@ -65,61 +65,56 @@ typedef struct Token {
 	u32 small;
 } Token;
 
-#define NODE_KIND_TO_STRING \
-	X("", "invalid")\
-	X("", "blank")\
-	X("", "identifier")\
-	X("", "poly-definition")\
-	X("", "keyword")\
-	X("", "this-value-dot")\
-	X("", "proc-type")\
-	X("", "struct")\
-	X("", "enum")\
-	X("", "return")\
-	X("", "if")\
-	X("", "for")\
-	X("", "scope")\
-	X("", "int-literal")\
-	X("", "string-literal")\
-	X("", "float-literal")\
-	X(":", "declaration")\
-	X("=", "assignment")\
-	X("+", "addition")\
-	X("-", "subtraction")\
-	X("*", "multiplication")\
-	X("/", "division")\
-	X("%", "modulo")\
-	X(".", "member-access")\
-	X("==", "equal-to")\
-	X("!=", "not-equal-to")\
-	X("<", "less-than")\
-	X("<=", "less-than-or-equal")\
-	X(">", "greater-than")\
-	X(">=", "greater-than-or-equal")\
-	X("&&", "logical-AND")\
-	X("||", "logical-OR")\
-	X("", "pre-square-brackets")\
-	X("-", "unary-minus")\
-	X("+", "unary-plus")\
-	X("&", "address-of")\
-	X("^", "pointer-to")\
-	X("!", "logical-NOT")\
-	X("", "post-square-brackets")\
-	X("", "post-round-brackets")\
-	X("", "post-curly-brackets")\
-	X("^", "dereference")
-
-static const fString ffzNodeKind_to_name[] = {
-#define X(op_string, name) F_LIT_COMP(name),
-	NODE_KIND_TO_STRING
-#undef X
-};
-
-static const fString ffzNodeKind_to_op_string[] = {
-#define X(op_string, name) F_LIT_COMP(op_string),
-	NODE_KIND_TO_STRING
-#undef X
-};
+typedef struct ffzNodeKindInfo { fString op_string; fString name; } ffzNodeKindInfo;
+ffzNodeKindInfo node_get_kind_info(ffzNodeKind kind) {
+	switch (kind) {
+	case ffzNodeKind_INVALID:            return (ffzNodeKindInfo){ F_LIT(""), F_LIT("") };
+	case ffzNodeKind_Blank:              return (ffzNodeKindInfo){ F_LIT(""), F_LIT("blank") };
+	case ffzNodeKind_Identifier:         return (ffzNodeKindInfo){ F_LIT(""), F_LIT("identifier") };
+	case ffzNodeKind_PolyDef:            return (ffzNodeKindInfo){ F_LIT(""), F_LIT("poly-def") };
+	case ffzNodeKind_Keyword:            return (ffzNodeKindInfo){ F_LIT(""), F_LIT("keyword") };
+	case ffzNodeKind_ThisDot:            return (ffzNodeKindInfo){ F_LIT(""), F_LIT("this-value-dot") };
+	case ffzNodeKind_ProcType:           return (ffzNodeKindInfo){ F_LIT(""), F_LIT("proc-type") };
+	case ffzNodeKind_Record:             return (ffzNodeKindInfo){ F_LIT(""), F_LIT("record") };
+	case ffzNodeKind_Enum:               return (ffzNodeKindInfo){ F_LIT(""), F_LIT("enum") };
+	case ffzNodeKind_Return:             return (ffzNodeKindInfo){ F_LIT(""), F_LIT("ret") };
+	case ffzNodeKind_If:                 return (ffzNodeKindInfo){ F_LIT(""), F_LIT("if") };
+	case ffzNodeKind_For:                return (ffzNodeKindInfo){ F_LIT(""), F_LIT("for") };
+	case ffzNodeKind_Scope:              return (ffzNodeKindInfo){ F_LIT(""), F_LIT("scope") };
+	case ffzNodeKind_IntLiteral:         return (ffzNodeKindInfo){ F_LIT(""), F_LIT("int-literal") };
+	case ffzNodeKind_StringLiteral:      return (ffzNodeKindInfo){ F_LIT(""), F_LIT("string-literal") };
+	case ffzNodeKind_FloatLiteral:       return (ffzNodeKindInfo){ F_LIT(""), F_LIT("float-literal") };
+	case ffzNodeKind_GeneratedConstant:  return (ffzNodeKindInfo){ F_LIT(""), F_LIT("generated-constant") };
+	case ffzNodeKind_Declare:            return (ffzNodeKindInfo){ F_LIT(":"), F_LIT("declaration") };
+	case ffzNodeKind_Assign:             return (ffzNodeKindInfo){ F_LIT("="), F_LIT("assignment") };
+	case ffzNodeKind_Add:                return (ffzNodeKindInfo){ F_LIT("+"), F_LIT("addition") };
+	case ffzNodeKind_Sub:                return (ffzNodeKindInfo){ F_LIT("-"), F_LIT("subtraction") };
+	case ffzNodeKind_Mul:                return (ffzNodeKindInfo){ F_LIT("*"), F_LIT("multiplication") };
+	case ffzNodeKind_Div:                return (ffzNodeKindInfo){ F_LIT("/"), F_LIT("division") };
+	case ffzNodeKind_Modulo:             return (ffzNodeKindInfo){ F_LIT("%"), F_LIT("modulo") };
+	case ffzNodeKind_MemberAccess:       return (ffzNodeKindInfo){ F_LIT("."), F_LIT("member-access") };
+	case ffzNodeKind_Equal:              return (ffzNodeKindInfo){ F_LIT("=="), F_LIT("equal-to") };
+	case ffzNodeKind_NotEqual:           return (ffzNodeKindInfo){ F_LIT("!="), F_LIT("not-equal") };
+	case ffzNodeKind_Less:               return (ffzNodeKindInfo){ F_LIT("<"), F_LIT("less-than") };
+	case ffzNodeKind_LessOrEqual:        return (ffzNodeKindInfo){ F_LIT("<="), F_LIT("less-than-or-equal") };
+	case ffzNodeKind_Greater:            return (ffzNodeKindInfo){ F_LIT(">"), F_LIT("greater-than") };
+	case ffzNodeKind_GreaterOrEqual:     return (ffzNodeKindInfo){ F_LIT(">="), F_LIT("greater-than-or-equal") };
+	case ffzNodeKind_LogicalAND:         return (ffzNodeKindInfo){ F_LIT("&&"), F_LIT("logical-and") };
+	case ffzNodeKind_LogicalOR:          return (ffzNodeKindInfo){ F_LIT("||"), F_LIT("logical-or") };
+	case ffzNodeKind_PreSquareBrackets:  return (ffzNodeKindInfo){ F_LIT(""), F_LIT("pre-square-brackets") };
+	case ffzNodeKind_UnaryMinus:         return (ffzNodeKindInfo){ F_LIT("-"), F_LIT("unary-minus") };
+	case ffzNodeKind_UnaryPlus:          return (ffzNodeKindInfo){ F_LIT("+"), F_LIT("unary-plus") };
+	case ffzNodeKind_AddressOf:          return (ffzNodeKindInfo){ F_LIT("&"), F_LIT("address-of") };
+	case ffzNodeKind_PointerTo:          return (ffzNodeKindInfo){ F_LIT("^"), F_LIT("pointer-to") };
+	case ffzNodeKind_LogicalNOT:         return (ffzNodeKindInfo){ F_LIT("!"), F_LIT("logical-not") };
+	case ffzNodeKind_PostSquareBrackets: return (ffzNodeKindInfo){ F_LIT(""), F_LIT("post-square-brackets") };
+	case ffzNodeKind_PostRoundBrackets:  return (ffzNodeKindInfo){ F_LIT(""), F_LIT("post-round-brackets") };
+	case ffzNodeKind_PostCurlyBrackets:  return (ffzNodeKindInfo){ F_LIT(""), F_LIT("post-curly-brackets") };
+	case ffzNodeKind_Dereference:        return (ffzNodeKindInfo){ F_LIT("^"), F_LIT("dereference") };
+	}
+	f_trap();
+	return (ffzNodeKindInfo){0};
+}
 
 fString ffz_keyword_to_string(ffzKeyword keyword) {
 	switch (keyword) {
@@ -166,13 +161,11 @@ fString ffz_keyword_to_string(ffzKeyword keyword) {
 
 char* ffz_keyword_to_cstring(ffzKeyword keyword) { return (char*)ffz_keyword_to_string(keyword).data; }
 
-F_STATIC_ASSERT(F_LEN(ffzNodeKind_to_name) == ffzNodeKind_COUNT);
+fString ffz_node_kind_to_string(ffzNodeKind kind) { return node_get_kind_info(kind).name; }
+fString ffz_node_kind_to_op_string(ffzNodeKind kind) { return node_get_kind_info(kind).op_string; }
+//char* ffz_node_kind_to_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_name[kind].data; }
 
-fString ffz_node_kind_to_string(ffzNodeKind kind) { return ffzNodeKind_to_name[kind]; }
-char* ffz_node_kind_to_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_name[kind].data; }
-
-fString ffz_node_kind_to_op_string(ffzNodeKind kind) { return ffzNodeKind_to_op_string[kind]; }
-char* ffz_node_kind_to_op_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_op_string[kind].data;}
+//char* ffz_node_kind_to_op_cstring(ffzNodeKind kind) { return (char*)ffzNodeKind_to_op_string[kind].data;}
 
 // NOTE: The operators that exist in C have the same precedence as in C.
 ffzOperatorPrecedence ffz_operator_get_precedence(ffzNodeKind kind) {
@@ -308,7 +301,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_PointerTo: // fallthrough
 	case ffzNodeKind_LogicalNOT: {
 		//f_str_print_rune(builder,'(');
-		f_prints(w, ffzNodeKind_to_op_string[node->kind]);
+		f_prints(w, ffz_node_kind_to_op_string(node->kind));
 		print_ast(w, node->Op.right, tab_level);
 		//f_str_print_rune(builder,')');
 	} break;
@@ -317,7 +310,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 	case ffzNodeKind_Dereference: {
 		//f_str_print_rune(builder,'(');
 		print_ast(w, node->Op.left, tab_level);
-		f_prints(w, ffzNodeKind_to_op_string[node->kind]);
+		f_prints(w, ffz_node_kind_to_op_string(node->kind));
 		//f_str_print_rune(builder,')');
 	} break;
 	
@@ -480,7 +473,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 			print_ast(w, node->Op.left, tab_level);
 
 			f_print(w, " ");
-			f_prints(w, ffzNodeKind_to_op_string[node->kind]);
+			f_prints(w, ffz_node_kind_to_op_string(node->kind));
 			f_print(w, " ");
 
 			print_ast(w, node->Op.right, tab_level);
@@ -668,15 +661,15 @@ static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 }
 
 
-void ffz_replace_node(ffzCursor* at, ffzNode* with) {
+void ffz_replace_node(ffzCursor at, ffzNode* with) {
 	f_assert(with->parent == NULL && with->next == NULL);
 	
 	fOpt(ffzNode*) replaced = ffz_get_node_at_cursor(at);
 	if (replaced) {
 		with->next = replaced->next;
 	}
-	with->parent = at->parent;
-	*at->pp_node = with;
+	with->parent = at.parent;
+	*at.pp_node = with;
 }
 
 //#ifdef _DEBUG
@@ -695,7 +688,7 @@ ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange loc, ffzNodeKind ki
 }
 
 ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
-	ffzNode* node = f_mem_clone(_ffz_node_default, m->alc);
+	ffzNode* node = f_mem_clone(_ffz_node_default, m->project->persistent_allocator);
 	node->_module = m;
 	node->kind = kind;
 	return node;
@@ -704,7 +697,7 @@ ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
 // This is a weird procedure, because you need to be careful with the children as we're not doing a deep copy.
 // Idk if we should have it here
 ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node) {
-	ffzNode* new_node = f_mem_clone(*node, m->alc);
+	ffzNode* new_node = f_mem_clone(*node, m->project->persistent_allocator);
 	new_node->_module = m;
 	new_node->parent = NULL;
 	new_node->next = NULL;
@@ -1332,7 +1325,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 }
 
 ffzSource* ffz_new_source(ffzModule* m, fString code, fString filepath) {
-	ffzSource* source = f_mem_clone((ffzSource){0}, m->alc);
+	ffzSource* source = f_mem_clone((ffzSource){0}, m->project->persistent_allocator);
 	source->self_id = (ffzSourceID)f_array_push(&m->project->sources, source); // TODO: mutex
 	source->_module = m;
 	source->source_code = code;
@@ -1344,7 +1337,7 @@ ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_
 	TracyCZone(tr, true);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
-	parser.alc = m->alc;
+	parser.alc = m->project->persistent_allocator;
 	parser.import_keywords = f_array_make(parser.alc);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
@@ -1364,7 +1357,7 @@ ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file
 	TracyCZone(tr, true);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
-	parser.alc = m->alc;
+	parser.alc = m->project->persistent_allocator;
 	parser.import_keywords = f_array_make(parser.alc);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
@@ -1422,9 +1415,9 @@ fString ffz_get_parent_decl_name(OPT(ffzNode*) node) {
 	return decl ? decl->Op.left->Identifier.name : (fString) { 0 };
 }
 
-fString ffz_get_pretty_name(ffzNodeIdentifier* n) { return n->Identifier.pretty_name.len ? n->Identifier.pretty_name : n->Identifier.name; }
+//fString ffz_get_pretty_name(ffzNodeIdentifier* n) { return n->Identifier.pretty_name.len ? n->Identifier.pretty_name : n->Identifier.name; }
 
-fString ffz_get_parent_decl_pretty_name(OPT(ffzNode*) node) {
-	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
-	return decl ? ffz_get_pretty_name(decl->Op.left) : (fString){0};
-}
+//fString ffz_get_parent_decl_pretty_name(OPT(ffzNode*) node) {
+//	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
+//	return decl ? ffz_get_pretty_name(decl->Op.left) : (fString){0};
+//}

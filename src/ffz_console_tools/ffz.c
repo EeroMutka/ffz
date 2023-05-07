@@ -149,35 +149,35 @@ static void dump_module_ast(ffzModule* m, fString dir) {
 
 static bool parse_and_check_directory(ffzProject* project, fString directory, ffzCheckerContext* out_checker_ctx) {
 	TracyCZone(tr, true);
-	fArena* module_arena = _f_temp_arena; // TODO
 
 	ffzError err;
-	fOpt(ffzModule*) module = ffz_project_add_module_from_filesystem(project, directory, module_arena, &err);
+	fOpt(ffzModule*) mod = ffz_project_add_module_from_filesystem(project, directory, &err);
 
-	if (module && DEBUG_PRINT_AST) {
-		dump_module_ast(module, directory);
+	if (mod && DEBUG_PRINT_AST) {
+		dump_module_ast(mod, directory);
 	}
 
-	if (module && !module->checked) {
+	if (mod/* && !module->checked*/) {
 		
 		//if (!ffz_module_resolve_imports_(module, resolve_import, module).ok) {
 		//	f_trap();//err = module->error;
 		//	module = NULL;
 		//}
+		*out_checker_ctx = ffz_make_checker_ctx(mod);
 
-		if (module && !ffz_module_check_single_(module, out_checker_ctx).ok) {
-			f_trap(); //err = module->error;
-			module = NULL;
+		if (mod && !ffz_check_module(out_checker_ctx).ok) {
+			err = out_checker_ctx->error;
+			mod = NULL;
 		}
 		
 	}
 
-	if (!module) {
+	if (!mod) {
 		log_pretty_error(err, F_LIT("Error"));
 	}
 
 	TracyCZoneEnd(tr);
-	return module != NULL;
+	return mod != NULL;
 }
 
 int main(int argc, const char* argv[]) {

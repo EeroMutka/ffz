@@ -1,20 +1,26 @@
 
 // hmm, what should happen with
 
-#assign: poly[T] proc(a: ^T, b: T) {
-	a^ = b
+// I'm thinking - we should check the imaginary things too, because that would give us the go-to-definition functionality too.
+// AND, there might be errors that we can catch even when reasoning about the polymorphic form, such as unknown identifier.
+
+#assign: poly[T] proc(a: T, b: T) {
+	//a^ = b
+	dbgbreak
 }
 
+#assign_int: assign[int]
+
 #main: proc {
-	
 	
 	// Simpler idea / no type inference for arguments:
 	// 1. check the arguments with no infer targets.
 	// 2. loop through/recurse into the parameters, while keeping track of the correct type according to the argument. If we hit
 	//    a poly-parameter identifier, then assign the constant to it if it hasn't been assigned yet, otherwise make sure that it matches.
 	
-	foo: int(50)
-	assign(&foo, int(200))
+	
+	//foo: int(50)
+	//assign(foo, int(200))
 	
 	//f: MyGenericPtr[MyGenericPtr[int]]
 	// ^ ^ int

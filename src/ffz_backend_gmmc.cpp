@@ -239,7 +239,7 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_Record: {
 		if (type->tag == ffzTypeTag_Record && type->Record.is_union) f_trap();
 
-		fSlice(cviewStructMember) cv_fields = f_make_slice_garbage<cviewStructMember>(type->record_fields.len, g->alc);
+		fSlice(cviewStructMember) cv_fields = f_make_slice_undef<cviewStructMember>(type->record_fields.len, g->alc);
 		for (uint i = 0; i < type->record_fields.len; i++) {
 			ffzField& field = type->record_fields[i];
 			cviewStructMember& cv_field = cv_fields[i];
@@ -435,10 +435,10 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 
 	case ffzTypeTag_FixedArray: {
 		ffzType* elem_type = type->FixedArray.elem_type;
-		for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
-			ffzConstantData elem_constant_data = ffz_constant_array_get_elem(ffzConstant{ type, data }, i);
-			fill_global_constant_data(g, global, base, offset + i*elem_type->size, elem_type, &elem_constant_data);
-		}
+		f_trap();//for (u32 i = 0; i < (u32)type->FixedArray.length; i++) {
+		//	ffzConstantData elem_constant_data = ffz_constant_array_get_elem(ffzConstant{ type, data }, i);
+		//	fill_global_constant_data(g, global, base, offset + i*elem_type->size, elem_type, &elem_constant_data);
+		//}
 	} break;
 
 	case ffzTypeTag_Slice: {
@@ -945,7 +945,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				gmmcOpIdx hi;
 				if (hi_node->kind == ffzNodeKind_Blank) {
 					if (subscriptable_type->tag == ffzTypeTag_FixedArray) {
-						hi = gmmc_op_i64(g->proc, subscriptable_type->FixedArray.length);
+						f_trap(); //hi = gmmc_op_i64(g->proc, subscriptable_type->FixedArray.length);
 					}
 					else {
 						// load the 'len' field of a slice
@@ -1281,7 +1281,7 @@ static void build_x64_add_section_relocs(Gen* g, gmmcAsmModule* asm_mod, gmmcSec
 	fSlice(gmmcRelocation) relocs;
 	gmmc_asm_get_section_relocations(asm_mod, gmmc_section, &relocs);
 
-	fSlice(coffRelocation) coff_relocs = f_make_slice_garbage<coffRelocation>(relocs.len, g->alc);
+	fSlice(coffRelocation) coff_relocs = f_make_slice_undef<coffRelocation>(relocs.len, g->alc);
 
 	for (uint i = 0; i < relocs.len; i++) {
 		gmmcRelocation reloc = relocs[i];
