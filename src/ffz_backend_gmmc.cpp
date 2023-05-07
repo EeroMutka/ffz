@@ -109,7 +109,7 @@ static fString make_name(Gen* g, ffzNode* node = NULL, bool pretty = true) {
 	f_init_string_builder(&name, f_temp_alc());
 
 	if (node) {
-		fOpt(ffzConstantData*) extern_tag = ffz_checked_get_tag(node->parent, ffzKeyword_extern);
+		fOpt(ffzConstantValue*) extern_tag = ffz_checked_get_tag(node->parent, ffzKeyword_extern);
 		if (extern_tag) {
 			f_prints(name.w, extern_tag->record_fields[1].string_zero_terminated); // name_prefix
 		}
@@ -409,7 +409,7 @@ static gmmcSymbol* get_proc_symbol(Gen* g, ffzNode* proc_node) {
 	}
 }
 
-static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstantData* data) {
+static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 offset, ffzType* type, ffzConstantValue* data) {
 	switch (type->tag) {
 	case ffzTypeTag_Float: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
@@ -449,7 +449,7 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 			elem_type->align, gmmcSection_RData, &slice_data);
 
 		for (u32 i = 0; i < data->array_elems.len; i++) {
-			ffzConstantData elem_constant_data = ffz_constant_array_get_elem({ type, data }, i);
+			ffzConstantValue elem_constant_data = ffz_constant_array_get_elem({ type, data }, i);
 			fill_global_constant_data(g, slice_data_global, (u8*)slice_data, i*elem_type->size, elem_type, &elem_constant_data);
 		}
 		
@@ -478,7 +478,7 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 		for (u32 i = 0; i < type->record_fields.len; i++) {
 			ffzField* field = &type->record_fields[i];
 			
-			ffzConstantData* field_data = data->record_fields.len == 0 ? ffz_zero_value_constant() : &data->record_fields[i];
+			ffzConstantValue* field_data = data->record_fields.len == 0 ? ffz_zero_value_constant() : &data->record_fields[i];
 			fill_global_constant_data(g, global, base, offset + field->offset, field->type, field_data);
 		}
 	} break;
@@ -488,7 +488,7 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 }
 
 // If non-trivial type, the returned op-value will point to a stack copy.
-static Value gen_constant(Gen* g, ffzType* type, ffzConstantData* data, ffzLocRange loc) {
+static Value gen_constant(Gen* g, ffzType* type, ffzConstantValue* data, ffzLocRange loc) {
 	Value out = {};
 
 	switch (type->tag) {
@@ -550,9 +550,10 @@ static Value gen_constant(Gen* g, ffzType* type, ffzConstantData* data, ffzLocRa
 }
 
 static Value gen_call(Gen* g, ffzNodeOp* node) {
-	ffzNode* left = node->Op.left;
+	ffzNode* proc_node = ffz_call_get_target_procedure(g->checker_ctx, node);
+	//ffzNode* left = node->Op.left;
 	
-	ffzType* proc_type = ffz_checked_get_info(g->checker_ctx, left).type;
+	ffzType* proc_type = ffz_checked_get_info(g->checker_ctx, proc_node).type;
 	f_assert(proc_type->tag == ffzTypeTag_Proc);
 
 	fOpt(ffzType*) ret_type = proc_type->Proc.return_type;
@@ -613,7 +614,7 @@ static Value gen_call(Gen* g, ffzNodeOp* node) {
 		f_array_push(&args, arg_value.op);
 	}
 
-	Value target = gen_expr(g, left, false);
+	Value target = gen_expr(g, proc_node, false);
 	f_assert(target.op != UNDEFINED_VALUE);
 
 	gmmcOpIdx call = gmmc_op_call(g->bb, ret_type_gmmc, target.op, args.data, (u32)args.len);
@@ -687,7 +688,7 @@ static gmmcOpIdx gen_curly_initializer(Gen* g, ffzType* type, ffzNode* node) {
 				src = gen_constant(g, field.type, &field.default_value, node->loc);
 			}
 			else {
-				fOpt(ffzConstantData*) arg_constant = ffz_checked_get_info(g->checker_ctx, arg).constant;
+				fOpt(ffzConstantValue*) arg_constant = ffz_checked_get_info(g->checker_ctx, arg).const_val;
 				if (arg_constant) {
 					if (ffz_constant_is_zero(*arg_constant)) continue;
 					src = gen_constant(g, field.type, arg_constant, arg->loc);
@@ -716,9 +717,9 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 
 	bool needs_dereference = false;
 
-	if (checked.constant) {
+	if (checked.const_val) {
 		// if you take an address of constant, it should make a copy.
-		out = gen_constant(g, checked.type, checked.constant, node->loc);
+		out = gen_constant(g, checked.type, checked.const_val, node->loc);
 	}
 	else if (ffz_node_is_operator(node->kind)) {
 		ffzNode* left = node->Op.left;
@@ -817,12 +818,12 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				if (left_checked.type->tag == ffzTypeTag_Type) {
 					// type cast, e.g. u32(520.32)
 
-					ffzType* dst_type = left_checked.constant->type;
+					ffzType* dst_type = left_checked.const_val->type;
 
 					ffzNode* arg = ffz_get_child(node, 0);
 					ffzCheckInfo arg_checked = ffz_checked_get_info(g->checker_ctx, arg);
 					
-					if (arg_checked.type->tag == ffzTypeTag_Type && arg_checked.constant->type->tag == ffzTypeTag_Undefined) {
+					if (arg_checked.type->tag == ffzTypeTag_Type && arg_checked.const_val->type->tag == ffzTypeTag_Undefined) {
 						out.op = UNDEFINED_VALUE;
 						return out;
 					}
@@ -1104,8 +1105,8 @@ static void gen_statement(Gen* g, ffzNode* node) {
 
 				f_array_push(&g->globals, { node, global });
 				
-				if (rhs_checked.constant != NULL) { // Could be an undefined (~~) global
-					fill_global_constant_data(g, global, (u8*)global_data, 0, rhs_checked.type, rhs_checked.constant);
+				if (rhs_checked.const_val != NULL) { // Could be an undefined (~~) global
+					fill_global_constant_data(g, global, (u8*)global_data, 0, rhs_checked.type, rhs_checked.const_val);
 				}
 		
 				var.symbol = gmmc_global_as_symbol(global);
@@ -1696,7 +1697,7 @@ static bool build_c(Gen* g, fString build_dir) {
 
 extern "C" bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module_checker, fString build_dir, fString name) {
 	ZoneScoped;
-	ffzProject* project = root_module_checker.project;
+	ffzProject* project = root_module_checker.pr;
 
 	//fArenaMark temp_base = f_temp_get_mark();
 	gmmcModule* gmmc = gmmc_init(f_temp_alc());

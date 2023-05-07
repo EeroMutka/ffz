@@ -82,7 +82,7 @@ typedef struct ffzProject ffzProject;
 typedef struct ffzModule ffzModule;
 typedef struct ffzSource ffzSource;
 typedef struct ffzType ffzType;
-typedef struct ffzConstantData ffzConstantData;
+typedef struct ffzConstantValue ffzConstantValue;
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
 //typedef struct ffzPolymorph ffzPolymorph;
 
@@ -277,14 +277,21 @@ typedef struct ffzLocRange {
 	ffzLoc end;
 } ffzLocRange;
 
+typedef struct ffzConstant {
+	ffzType* type;
+	ffzConstantValue* value;
+} ffzConstant;
+
 typedef struct ffzCheckInfo {
 	// TODO: turn these into flags
 	bool is_local_variable;
 	bool is_undefined;
 
+	ffzPolymorphID call_implicit_poly_id;
+
 	// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
 	fOpt(ffzType*) type;
-	fOpt(ffzConstantData*) constant;
+	fOpt(ffzConstantValue*) const_val;
 } ffzCheckInfo;
 
 //
@@ -301,10 +308,6 @@ typedef struct ffzCursor {
 	ffzNode** pp_node; // This will point either to the `first_child` or `next` field, or to a secondary child field.
 } ffzCursor;
 
-typedef struct ffzConstant {
-	ffzType* type;
-	ffzConstantData* data;
-} ffzConstant;
 
 struct ffzNode {
 	ffzNodeKind kind;
@@ -468,7 +471,7 @@ struct ffzDefinitionPath {
 // If we wanted to pack the ffzConstantData structure down, then we would read bad memory in a few places :PackConstantTroubles
 // NOTE: to initialize this to a default value, use `ffzConstantData` instead of ffzConstantData{}! It seems like some
 //  members won't get initialized to zero otherwised.
-typedef struct ffzConstantData {
+typedef struct ffzConstantValue {
 	union {
 		uint64_t  _uint;
 		int64_t   _sint;
@@ -479,7 +482,7 @@ typedef struct ffzConstantData {
 		// A constant pointer value can be either a pointer to another constant, or a literal integer value.
 		struct {
 			uint64_t as_integer; // :ReinterpretIntegerConstantAsPointer
-			fOpt(ffzConstantData*) as_ptr_to_constant; // if NULL, `as_integer` is used instead
+			fOpt(ffzConstantValue*) as_ptr_to_constant; // if NULL, `as_integer` is used instead
 		} ptr;
 
 		ffzType* type;
@@ -496,13 +499,14 @@ typedef struct ffzConstantData {
 		// since there is no procedure body.
 		ffzNode* node;
 
-		fSlice(ffzConstantData) record_fields; // or empty for zero-initialized
+		fSlice(ffzConstantValue) record_fields; // or empty for zero-initialized
 	};
-} ffzConstantData;
+} ffzConstantValue;
 
 typedef struct ffzPolymorph {
-	ffzNode* poly_def;
 	fSlice(ffzConstant) parameters;
+	ffzNode* poly_def;
+	ffzNode* instantiated_node; // This will be the deep-copied node tree, with references to the polymorphic parameters replaced with GeneratedConstant-nodes
 } ffzPolymorph;
 
 // A "field" can mean any of the following: a struct member, an enum member, or a procedure parameter.
@@ -510,7 +514,7 @@ typedef struct ffzField {
 	fString name;
 	//fOpt(ffzNodeOpDeclare*) decl; // not always used, i.e. for slice type fields
 	
-	ffzConstantData default_value;
+	ffzConstantValue default_value;
 	bool has_default_value;
 
 	bool has_using; // only for struct members
@@ -536,7 +540,7 @@ typedef struct ffzType {
 	uint32_t size;
 	uint32_t align;
 
-	ffzTypeHash hash;
+	//ffzTypeHash hash;
 	
 	// This is here so that it's possible to, for example, get to the enum field map (stored per module) from just a checked node.
 	// With cached modules, I guess we could treat the ModuleIDs as a slot array, where when creating a new module we make sure to not take
@@ -618,8 +622,10 @@ typedef struct ffzProject {
 	} filesystem_helpers;
 
 	fMap64(ffzType*) type_from_hash; // key: TypeHash
+	fMap64(ffzConstantValue*) constant_from_hash; // key: ConstantHash
 
 	ffzType* type_module;
+	ffzType* type_poly_def;
 	ffzType* builtin_types[ffzKeyword_COUNT];
 	u32 next_extra_type_id;
 } ffzProject;
@@ -627,7 +633,7 @@ typedef struct ffzProject {
 // Context and cache for type checking / analysing the tree.
 // NOTE: when checking, we also are allowed to modify the project by adding new types and constants.
 typedef struct ffzCheckerContext {
-	ffzProject* project;
+	ffzProject* pr;
 	ffzModule* mod;
 	bool checked;
 
@@ -808,7 +814,7 @@ inline bool ffz_type_is_slice_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Sli
 inline bool ffz_type_is_pointer_sized_integer(ffzProject* p, ffzType* type) { return ffz_type_is_integer(type->tag) && type->size == p->pointer_size; }
 
 uint32_t ffz_get_encoded_constant_size(ffzType* type);
-ffzConstantData ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
+ffzConstantValue ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
 
 // a type is grounded when a runtime variable may have that type.
 inline bool ffz_type_is_concrete(ffzType* type) { return type->is_concrete.x; }
@@ -935,9 +941,9 @@ fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module);
 // 
 void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(fOpt(ffzNode*))* out_arguments, fAllocator* alc);
 
-bool ffz_constant_is_zero(ffzConstantData constant);
+bool ffz_constant_is_zero(ffzConstantValue constant);
 
-ffzConstantData* ffz_zero_value_constant();
+ffzConstantValue* ffz_zero_value_constant();
 
 bool ffz_node_is_polymorphic(ffzNode* node);
 
@@ -951,12 +957,17 @@ inline bool ffz_checked_decl_is_variable(ffzCheckerContext* ctx, ffzNodeOpDeclar
 	return ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl) || ffz_checked_decl_is_local_variable(ctx, decl);
 }
 
-//bool ffz_is_code_scope(ffzNode* node);
+/*
+ With procedure calls, it seems easy to get the target procedure, i.e. `print` in `print("Hi")` - just take the left-hand side child node!
+ However, it's not as easy as that, because you might be implicitly calling a polymorphic procedure. To solve this, you can
+ use `ffz_call_get_target_procedure`, which always gives you the instantiated procedure node of a call.
+*/
+ffzNode* ffz_call_get_target_procedure(ffzCheckerContext* ctx, ffzNode* call);
 
 fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 
-fOpt(ffzConstantData*) ffz_checked_get_tag_of_type(ffzNode* node, ffzType* tag_type);
-fOpt(ffzConstantData*) ffz_checked_get_tag(ffzNode* node, ffzKeyword tag);
+fOpt(ffzConstantValue*) ffz_checked_get_tag_of_type(ffzNode* node, ffzType* tag_type);
+fOpt(ffzConstantValue*) ffz_checked_get_tag(ffzNode* node, ffzKeyword tag);
 
 
 #ifdef __cplusplus

@@ -9,7 +9,8 @@
 	dbgbreak
 }
 
-#assign_int: assign[int]
+//#assign_int: assign[int]
+//#assign_int2: assign[int]
 
 #main: proc {
 	
@@ -18,6 +19,12 @@
 	// 2. loop through/recurse into the parameters, while keeping track of the correct type according to the argument. If we hit
 	//    a poly-parameter identifier, then assign the constant to it if it hasn't been assigned yet, otherwise make sure that it matches.
 	
+	
+	assign(int(1), int(2))
+	
+	assign(u32(1), u32(2))
+	
+	//assign2(int(5), int(2))
 	
 	//foo: int(50)
 	//assign(foo, int(200))
