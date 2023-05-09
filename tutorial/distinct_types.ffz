@@ -7,7 +7,7 @@ foo = struct{a: int, b: int}{3, 3}
 
 // is allowed.
 // The reason for this is that we need to be able to convert constants with anonymous types to AST and to string.
-// and... why do we want this? 
+// and... why do we want this?
 
 // TODO:
 // Having distinct types is very useful. A distinct type is a type associated with an identifier.

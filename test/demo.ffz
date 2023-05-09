@@ -4,12 +4,19 @@
 // I'm thinking - we should check the imaginary things too, because that would give us the go-to-definition functionality too.
 // AND, there might be errors that we can catch even when reasoning about the polymorphic form, such as unknown identifier.
 
-#assign: poly[T] proc(a: ^T, value: T) {
-	a^ = value
-}
+//#Array: poly[T] 
 
-//#assign_int: assign[int]
-//#assign_int2: assign[int]
+/*#Vector3: poly[T] struct {
+	x: T
+	y: T
+	z: T
+}*/
+
+#set_x_to_2: poly[T] proc(test: [T]int) {
+	
+	dbgbreak
+	//a.x = T(2)
+}
 
 #main: proc {
 	
@@ -18,9 +25,18 @@
 	// 2. loop through/recurse into the parameters, while keeping track of the correct type according to the argument. If we hit
 	//    a poly-parameter identifier, then assign the constant to it if it hasn't been assigned yet, otherwise make sure that it matches.
 	
-	my_value: int(20)
-	my_value_2: int(32)
-	assign(&my_value, int(250))
+	foo: [3]int{5, 6, 7}
+	set_x_to_2(foo)
+	
+	//bar: Vector3[u32]{4, 5, 6}
+	//set_x_to_2(bar)
+	
+	
+	//foo: Array[u32](50)
+	
+	//my_value: int(20)
+	//my_value_2: int(32)
+	//assign(&my_value, int(250))
 	
 	//assign(u32(1), u32(2))
 	

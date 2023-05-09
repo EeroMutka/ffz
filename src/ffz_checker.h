@@ -82,19 +82,11 @@ typedef struct ffzProject ffzProject;
 typedef struct ffzModule ffzModule;
 typedef struct ffzSource ffzSource;
 typedef struct ffzType ffzType;
-typedef struct ffzConstantValue ffzConstantValue;
+typedef struct ffzConstantData ffzConstantData;
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
-//typedef struct ffzPolymorph ffzPolymorph;
 
-typedef uint32_t ffzSourceID;
-//#define FFZ_SOURCE_ID_NONE 0xFFFFFFFF
-
-//typedef uint32_t ffzParserLocalID;
-typedef uint32_t ffzModuleID;
-typedef uint32_t ffzCheckerLocalID;
-
-typedef uint32_t ffzPolymorphID;
-#define FFZ_POLYMORPH_ID_NONE 0xFFFFFFFF
+//typedef uint32_t ffzPolymorphID;
+//#define FFZ_POLYMORPH_ID_NONE 0
 
 typedef struct ffzNode ffzNode;
 typedef ffzNode ffzNodeOpDeclare;
@@ -120,19 +112,17 @@ typedef uint64_t ffzHash; // TODO: increase this to 128 bits.
 // We could make hashes fully deterministic across multiple compilations (not dependend on any runtime addresses),
 // but right now they do depend on runtime addresses. See `ffz_hash_node`
 
-// * project-global (different nodes in different modules must not share a hash). This is so that
-//   types that use the node hash as their identity can be checked compatibility across modules.
-
 typedef ffzHash ffzNodeHash;
 
+// VERY OLD COMMENT:
 // ffzExpressionHash is usually the same thing as ffzNodeHash. But there is an exception:
 // Say module X defines and instantiates a polymorphic expression. Module Y imports X, and makes an identical
 // instantiation to the one in module X. The instantiations are copied into both modules and will get their own nodes.
 // This is done so that we can individually cache the modules and still have it all work (i.e. say the module exposes a struct that uses a local instantiation as a field).
-// So in this case, ffzExpressionHash will hash to the same thing for the instantiated node in both modules.    
+// So in this case, ffzExpressionHash will hash to the same thing for the instantiated node in both modules.
 // 
 // NOTE: currently the child nodes of the instantations will get different hashes in different instantiations/modules.
-typedef ffzHash ffzExpressionHash;
+//typedef ffzHash ffzExpressionHash;
 
 typedef ffzHash ffzPolymorphHash;  // project-global (e.g. if module X and Y instantiate identical polymorph from module Z, they will have the same hash)
 typedef ffzHash ffzTypeHash;       // project-global (e.g. if module X and Y both use the type [15]^int, they will have the same hash)
@@ -215,7 +205,7 @@ typedef enum ffzKeyword {
 	ffzKeyword_INVALID,
 
 	ffzKeyword_Eater,        // _
-	ffzKeyword_QuestionMark, // ?
+	//ffzKeyword_QuestionMark, // ?
 	ffzKeyword_Undefined,    // ~~
 	ffzKeyword_dbgbreak,
 	ffzKeyword_size_of,
@@ -279,19 +269,26 @@ typedef struct ffzLocRange {
 
 typedef struct ffzConstant {
 	ffzType* type;
-	ffzConstantValue* value;
+	ffzConstantData* value;
 } ffzConstant;
+
+typedef struct ffzPolymorph {
+	fSlice(ffzConstant) parameters;
+	ffzNode* poly_def;
+	ffzNode* instantiated_node; // This will be the deep-copied node tree, with references to the polymorphic parameters replaced with GeneratedConstant-nodes
+} ffzPolymorph;
 
 typedef struct ffzCheckInfo {
 	// TODO: turn these into flags
 	bool is_local_variable;
 	bool is_undefined;
 
-	ffzPolymorphID call_implicit_poly_id;
+	fOpt(ffzPolymorph*) call_implicit_poly;
+	//ffzPolymorphID call_implicit_poly_id;
 
 	// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
 	fOpt(ffzType*) type;
-	fOpt(ffzConstantValue*) const_val;
+	fOpt(ffzConstantData*) const_val;
 } ffzCheckInfo;
 
 //
@@ -321,10 +318,10 @@ struct ffzNode {
 	// will be added to module X, but they will still refer to the source from module Y, as that will be used for their source code location.
 	ffzModule* _module;
 
-	ffzPolymorphID is_instantiation_root_of_poly; // by default this is FFZ_POLYMORPH_ID_NONE
+	//ffzPolymorphID is_instantiation_root_of_poly; // by default this is FFZ_POLYMORPH_ID_NONE
 	
-	// We could make this into an index. The following two members are optional, because some nodes
-	// do not have a location, i.e. ffz_constant_to_node()
+	// We could make `loc_source` into an index. The following two members are optional, because you may generate
+	// nodes on the fly.
 	fOpt(ffzSource*) loc_source;
 	ffzLocRange loc;
 
@@ -415,13 +412,15 @@ typedef struct ffzError {
 
 typedef struct ffzSource {
 	ffzModule* _module;
-	ffzSourceID self_id; // TODO: remove this
+	//ffzSourceID self_id; // TODO: remove this
 
 	fString source_code;
 	fString source_code_filepath;
 } ffzSource;
 
+// hmm, maybe we should merge ffzParseResult and ffzSource
 typedef struct ffzParseResult {
+	ffzSource* source;
 	fOpt(ffzNode*) node; // if NULL, the parsing failed
 	fSlice(ffzNode*) import_keywords;
 	ffzError error;
@@ -466,12 +465,13 @@ struct ffzDefinitionPath {
 	fString name;
 };
 
-// A constant is a packed representation of a compile-time known value. A constant can
-// always be converted into an AST tree (see `ffz_constant_to_node`).
-// If we wanted to pack the ffzConstantData structure down, then we would read bad memory in a few places :PackConstantTroubles
-// NOTE: to initialize this to a default value, use `ffzConstantData` instead of ffzConstantData{}! It seems like some
-//  members won't get initialized to zero otherwised.
-typedef struct ffzConstantValue {
+/*
+ A constant is a packed representation of a compile-time known value.
+ ffzType* can be casted to and from ffzConstantData*, if the constant is a type (see `ffz_type_as_constant` and `ffz_constant_as_type`).
+ NOTE: to initialize this to a default value, use `ffz_zero_value_constant` instead of ffzConstantData{}! It seems like some
+ members won't get initialized to zero otherwised.
+*/
+typedef struct ffzConstantData {
 	union {
 		uint64_t  _uint;
 		int64_t   _sint;
@@ -482,10 +482,9 @@ typedef struct ffzConstantValue {
 		// A constant pointer value can be either a pointer to another constant, or a literal integer value.
 		struct {
 			uint64_t as_integer; // :ReinterpretIntegerConstantAsPointer
-			fOpt(ffzConstantValue*) as_ptr_to_constant; // if NULL, `as_integer` is used instead
+			fOpt(ffzConstantData*) as_ptr_to_constant; // if NULL, `as_integer` is used instead
 		} ptr;
 
-		ffzType* type;
 		ffzModule* module;
 		fString string_zero_terminated; // length doesn't contain the zero termination.
 
@@ -494,27 +493,21 @@ typedef struct ffzConstantValue {
 		// You can use ffz_constant_array_get_elem() to get an element from it.
 		struct { void* data; uint32_t len; } array_elems;
 
-		// for procedures and poly-expressions.
+		// for procedures, poly-expressions and poly-params.
 		// NOTE: When an extern procedure, `node` will point to the ProcType node that is tagged @extern,
 		// since there is no procedure body.
 		ffzNode* node;
 
-		fSlice(ffzConstantValue) record_fields; // or empty for zero-initialized
+		fSlice(ffzConstantData) record_fields; // or empty for zero-initialized
 	};
-} ffzConstantValue;
-
-typedef struct ffzPolymorph {
-	fSlice(ffzConstant) parameters;
-	ffzNode* poly_def;
-	ffzNode* instantiated_node; // This will be the deep-copied node tree, with references to the polymorphic parameters replaced with GeneratedConstant-nodes
-} ffzPolymorph;
+} ffzConstantData;
 
 // A "field" can mean any of the following: a struct member, an enum member, or a procedure parameter.
 typedef struct ffzField {
 	fString name;
 	//fOpt(ffzNodeOpDeclare*) decl; // not always used, i.e. for slice type fields
 	
-	ffzConstantValue default_value;
+	ffzConstantData default_value;
 	bool has_default_value;
 
 	bool has_using; // only for struct members
@@ -536,7 +529,7 @@ typedef struct ffzTypeEnumField {
 
 typedef struct ffzType {
 	ffzTypeTag tag;
-	struct { bool x; } is_concrete;
+	struct { bool x; } is_concrete; // Concrete types are types which can be used as runtime values. i.e. `type`, `module`, are not concrete.
 	uint32_t size;
 	uint32_t align;
 
@@ -548,11 +541,10 @@ typedef struct ffzType {
 	// hmm... but do we then need it? we could then just do unique_node->module_id instead
 	// ffzModuleID checker_id;
 
-	//fOpt(ffzNode*) _unique_node; // Available for struct, union, enum, poly-def
-
+	fOpt(ffzNode*) distinct_node; // Available for struct, union, enum
+	
 	fSlice(ffzField) record_fields; // available for struct, union, slice types and the string type.
-
-	// If this type is i.e. Array[int], then `polymorphed_from` is a way to represent that information.
+	
 	fOpt(ffzPolymorph*) polymorphed_from;
 
 	union {
@@ -577,7 +569,6 @@ typedef struct ffzType {
 		struct {
 			ffzType* elem_type;
 			
-			// -1 means length is inferred by [?].
 			// In polymorphic nodes (ffz_node_is_polymorphic), this may be of type PolyParam. Otherwise must be an integer.
 			ffzConstant length;
 		} FixedArray;
@@ -587,16 +578,33 @@ typedef struct ffzType {
 		} Pointer;
 
 		struct {
-			ffzNode* param;
-		} PolyParam;
-
-		struct {
 			uint32_t id;
 		} Extra;
 	};
 } ffzType;
 
+// ffzProject contains read-only information about the project.
 typedef struct ffzProject {
+	uint32_t pointer_size;
+	fMap64(ffzKeyword) keyword_from_string; // Constant lookup table
+
+	ffzType* type_module;
+	ffzType* type_poly_def;
+	ffzType* builtin_types[ffzKeyword_COUNT];
+	u32 next_extra_type_id;
+	
+	uint32_t next_module_id;
+
+	// The bank is a global cache for semantic information across a project.
+	// Sharing a cache means that comparing two types/constants for equality is a matter of comparing the pointers.
+	struct {
+		fAllocator* alc; // maybe switch this to Arena?
+		fMap64(ffzType*) type_from_hash; // key: TypeHash
+		fMap64(ffzConstantData*) constant_from_hash; // key: ConstantHash
+		fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
+	} bank;
+
+	/*
 	fAllocator* persistent_allocator;
 
 	// `modules_directory` can be an empty string, in which case
@@ -613,34 +621,37 @@ typedef struct ffzProject {
 
 	//fArray(ffzModule*) checkers_dependency_sorted; // topologically sorted from leaf modules towards higher-level modules
 
-	uint32_t pointer_size;
-
-	fMap64(ffzKeyword) keyword_from_string; // Constant lookup table
-
 	struct {
 		fMap64(ffzModule*) module_from_directory;
 	} filesystem_helpers;
-
-	fMap64(ffzType*) type_from_hash; // key: TypeHash
-	fMap64(ffzConstantValue*) constant_from_hash; // key: ConstantHash
-
-	ffzType* type_module;
-	ffzType* type_poly_def;
-	ffzType* builtin_types[ffzKeyword_COUNT];
-	u32 next_extra_type_id;
+	
+	// Types and constants are stored into a project-wide cache. The benefit of this is that
+	// comparing types / constants can be done by just testing pointers for equality.
+	//
+	// Hmm. ffzNode shouldn't ever get bound to a type/polymorph/constant info, it should rather be ffzNode + checker id, since that's
+	// the combination that refers to the semantic info.
+	//
+	// Hmm, right now we're hashing the ffzNode pointers into some of the types, but that's a bit error prone if we were to
+	// check, then free the nodes, create new nodes, and check again. I guess when hashing a node, we should hash the checker id
+	// as well, and just say that you can't delete individual nodes from a module - you may wipe the entire module at once.
+	*/
 } ffzProject;
 
 // Context and cache for type checking / analysing the tree.
 // NOTE: when checking, we also are allowed to modify the project by adding new types and constants.
 typedef struct ffzCheckerContext {
-	ffzProject* pr;
+	ffzProject* project;
 	ffzModule* mod;
+
 	bool checked;
+	uint32_t id;
 
 	fAllocator* alc;
 
-	ffzError error;
+	// Immediate checker state
+	fOpt(ffzPolymorph*) instantiating_poly;
 	bool is_inside_polymorphic_node;
+	ffzError error;
 
 	fMap64(ffzCheckInfo) infos; // key: ffzNode*
 
@@ -655,13 +666,11 @@ typedef struct ffzCheckerContext {
 	
 	fArray(ffzNode*) pending_import_keywords;
 
-	fMap64(ffzPolymorphID) poly_from_hash;
-	fArray(ffzPolymorph) polymorphs; // index into this using ffzPolymorphID
+	fMap64(ffzPolymorph*) poly_from_hash;
+	//fArray(ffzPolymorph) polymorphs; // index into this using ffzPolymorphID
 
 	// Contains a list of all tags within this module for any given type.
 	fMap64(fArray(ffzNode*)) all_tags_of_type; // key: TypeHash
-
-	fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
 
 	// Only required during checking.
 	fMap64(u64) enum_value_from_name; // key: FieldHash.
@@ -673,8 +682,10 @@ typedef struct ffzCheckerContext {
 
 struct ffzModule {
 	ffzProject* project;
+	fAllocator* alc;
 
-	ffzModuleID self_id;
+	uint32_t self_id;
+	uint32_t next_checker_ctx_id;
 
 	fString directory; // imports in this module will be relative to this directory
 
@@ -790,7 +801,8 @@ fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source,
 
 // ------------------------------------------------------
 
-inline fOpt(ffzType*) ffz_builtin_type(ffzProject* p, ffzKeyword keyword) { return p->builtin_types[keyword]; }
+ffzType* ffz_builtin_type_type();
+inline ffzType* ffz_builtin_type(ffzProject* p, ffzKeyword keyword) { return p->builtin_types[keyword]; }
 
 //void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline);
 
@@ -814,7 +826,7 @@ inline bool ffz_type_is_slice_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Sli
 inline bool ffz_type_is_pointer_sized_integer(ffzProject* p, ffzType* type) { return ffz_type_is_integer(type->tag) && type->size == p->pointer_size; }
 
 uint32_t ffz_get_encoded_constant_size(ffzType* type);
-ffzConstantValue ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
+ffzConstantData ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
 
 // a type is grounded when a runtime variable may have that type.
 inline bool ffz_type_is_concrete(ffzType* type) { return type->is_concrete.x; }
@@ -834,7 +846,7 @@ ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type);
 
 //ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
 //ffzNodeHash ffz_hash_node(ffzNode* node);
-ffzExpressionHash ffz_hash_expression(ffzNode* node);
+//ffzExpressionHash ffz_hash_expression(ffzNode* node);
 //u64 ffz_hash_declaration_path(ffzDefinitionPath path);
 //ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
 //ffzConstantHash ffz_hash_constant(ffzCheckedInst constant);
@@ -864,7 +876,7 @@ ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
 // 
 //
 
-ffzModule* ffz_project_add_module(ffzProject* p);
+ffzModule* ffz_new_module(ffzProject* p, fAllocator* alc);
 
 //ffzParser* ffz_module_add_parser(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb);
 
@@ -877,20 +889,14 @@ void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 
 ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule* (*module_from_path)(fString path, void* userdata), void* userdata);
 
-ffzCheckerContext ffz_make_checker_ctx(ffzModule* mod);
+ffzCheckerContext ffz_make_checker_ctx(ffzModule* mod, fAllocator* alc);
 
 // When you call this, all imported modules must have already been checked.
 ffzOk ffz_check_module(ffzCheckerContext* c);
 
 
 // --- OS layer helpers ---
-
-// This automatically adds all files in the directory into the module.
-// If this has already been called before with identical directory, then that previously created module is returned.
-// Returns NULL if the directory does not exist, or if any of the source code files failed to parse.
-fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString directory, ffzError* out_error);
-
-//void ffz_module_resolve_imports_using_fileystem(ffzModule* m, fSlice(ffzModule*)* out_imports);
+// hmm, at least for now, let's try to keep the filesystem completely away from the FFZ library itself.
 
 // ---
 
@@ -911,9 +917,12 @@ fOpt(ffzModule*) ffz_project_add_module_from_filesystem(ffzProject* p, fString d
 //	return &m->checker_ctx;
 //}
 
+inline ffzConstant ffz_as_constant(ffzType* type) { ffzConstant c = {ffz_builtin_type_type(), (ffzConstantData*)type}; return c; }
+inline ffzType* ffz_as_type(ffzConstantData* constant) { return (ffzType*)constant;}
+
 ffzCheckInfo ffz_checked_get_info(ffzCheckerContext* ctx, ffzNode* node);
 
-bool ffz_type_find_record_field_use(ffzCheckerContext* ctx, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
+bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
 
 // Find the field that is tagged @using and has type []T or [N]T. Returns true if exactly one such field is found.
 // e.g. with `struct{a: int, @using b: []int}`, the field `b` would be returned.
@@ -941,9 +950,9 @@ fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module);
 // 
 void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(fOpt(ffzNode*))* out_arguments, fAllocator* alc);
 
-bool ffz_constant_is_zero(ffzConstantValue constant);
+bool ffz_constant_is_zero(ffzConstantData constant);
 
-ffzConstantValue* ffz_zero_value_constant();
+ffzConstantData* ffz_zero_value_constant();
 
 bool ffz_node_is_polymorphic(ffzNode* node);
 
@@ -966,8 +975,8 @@ ffzNode* ffz_call_get_target_procedure(ffzCheckerContext* ctx, ffzNode* call);
 
 fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 
-fOpt(ffzConstantValue*) ffz_checked_get_tag_of_type(ffzNode* node, ffzType* tag_type);
-fOpt(ffzConstantValue*) ffz_checked_get_tag(ffzNode* node, ffzKeyword tag);
+fOpt(ffzConstantData*) ffz_checked_get_tag_of_type(ffzNode* node, ffzType* tag_type);
+fOpt(ffzConstantData*) ffz_checked_get_tag(ffzNode* node, ffzKeyword tag);
 
 
 #ifdef __cplusplus

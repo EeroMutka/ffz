@@ -404,6 +404,7 @@ GMMC_API gmmcOpIdx gmmc_op_memset(gmmcBasicBlock* bb, gmmcOpIdx dst_ptr, gmmcOpI
 GMMC_API gmmcOpIdx gmmc_op_if(gmmcBasicBlock* bb, gmmcOpIdx cond_bool, gmmcBasicBlock* true_bb, gmmcBasicBlock* false_bb);
 GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to);
 // TODO: gmmc_op_select
+// TODO: gmmc_op_switch. https://citeseerx.ist.psu.edu/viewdoc/download;jsessionid=968AE756567863243AC7B1728915861A?doi=10.1.1.602.1875&rep=rep1&type=pdf
 
 // value should be GMMC_OP_IDX_INVALID if the procedure returns no value
 GMMC_API gmmcOpIdx gmmc_op_return(gmmcBasicBlock* bb, gmmcOpIdx value);

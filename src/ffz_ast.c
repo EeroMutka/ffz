@@ -47,7 +47,7 @@ ffzProject* project_from_parser(ffzParser* p) { return p->source->_module->proje
 #define CHAR2(a, b) ((u32)a | (u32)b << 8)
 
 const static ffzNode _ffz_node_default = {
-	.is_instantiation_root_of_poly = FFZ_POLYMORPH_ID_NONE,
+	//.is_instantiation_root_of_poly = FFZ_POLYMORPH_ID_NONE,
 	.first_tag = NULL,
 	.parent = NULL,
 	.next = NULL,
@@ -119,7 +119,7 @@ ffzNodeKindInfo node_get_kind_info(ffzNodeKind kind) {
 fString ffz_keyword_to_string(ffzKeyword keyword) {
 	switch (keyword) {
 	case ffzKeyword_Eater:                return F_LIT("_");
-	case ffzKeyword_QuestionMark:         return F_LIT("?");
+	//case ffzKeyword_QuestionMark:         return F_LIT("?");
 	case ffzKeyword_Undefined:            return F_LIT("~~");
 	case ffzKeyword_dbgbreak:             return F_LIT("dbgbreak");
 	case ffzKeyword_size_of:              return F_LIT("size_of");
@@ -688,7 +688,7 @@ ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange loc, ffzNodeKind ki
 }
 
 ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
-	ffzNode* node = f_mem_clone(_ffz_node_default, m->project->persistent_allocator);
+	ffzNode* node = f_mem_clone(_ffz_node_default, m->alc);
 	node->_module = m;
 	node->kind = kind;
 	return node;
@@ -697,7 +697,7 @@ ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
 // This is a weird procedure, because you need to be careful with the children as we're not doing a deep copy.
 // Idk if we should have it here
 ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node) {
-	ffzNode* new_node = f_mem_clone(*node, m->project->persistent_allocator);
+	ffzNode* new_node = f_mem_clone(*node, m->alc);
 	new_node->_module = m;
 	new_node->parent = NULL;
 	new_node->next = NULL;
@@ -1325,8 +1325,8 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 }
 
 ffzSource* ffz_new_source(ffzModule* m, fString code, fString filepath) {
-	ffzSource* source = f_mem_clone((ffzSource){0}, m->project->persistent_allocator);
-	source->self_id = (ffzSourceID)f_array_push(&m->project->sources, source); // TODO: mutex
+	ffzSource* source = f_mem_clone((ffzSource){0}, m->alc);
+	//source->self_id = (ffzSourceID)f_array_push(&m->project->sources, source);
 	source->_module = m;
 	source->source_code = code;
 	source->source_code_filepath = filepath;
@@ -1337,7 +1337,7 @@ ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_
 	TracyCZone(tr, true);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
-	parser.alc = m->project->persistent_allocator;
+	parser.alc = m->alc;
 	parser.import_keywords = f_array_make(parser.alc);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
@@ -1345,6 +1345,7 @@ ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_
 	ffzNode* node;
 	ffzOk ok = parse_node(&parser, &loc, NULL, (ParseFlags)0, &node);
 	ffzParseResult result = {
+		.source = parser.source,
 		.node = ok.ok ? node : NULL,
 		.import_keywords = parser.import_keywords.slice,
 		.error = parser.error
@@ -1357,7 +1358,7 @@ ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file
 	TracyCZone(tr, true);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
-	parser.alc = m->project->persistent_allocator;
+	parser.alc = m->alc;
 	parser.import_keywords = f_array_make(parser.alc);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
@@ -1365,6 +1366,7 @@ ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file
 
 	ffzOk ok = parse_children(&parser, &loc, root, 0);
 	ffzParseResult result = {
+		.source = parser.source,
 		.node = ok.ok ? root : NULL,
 		.import_keywords = parser.import_keywords.slice,
 		.error = parser.error

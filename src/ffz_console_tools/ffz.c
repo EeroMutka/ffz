@@ -17,9 +17,15 @@ const bool DEBUG_PRINT_AST = false;
 //
 //#include "gmmc/gmmc.h" // for gmmc_test
 
-bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module, fString build_dir, fString name);
+typedef struct Build {
+	fArray(ffzSource*) sources;
+	fMap64(ffzModule*) module_from_directory;
+	ffzProject* project;
+} Build;
 
-static bool parse_and_check_directory(ffzProject* project, fString directory, ffzCheckerContext* out_checker_ctx);
+bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module_checker, fSlice(ffzSource*) sources, fString build_dir, fString name);
+
+static bool parse_and_check_directory(Build* build, fString directory, ffzCheckerContext* out_checker_ctx);
 
 void log_pretty_error(ffzError error, fString kind) {
 	// C-style error messages can be useful in Visual Studio output console, to be able to double click the code location
@@ -111,6 +117,77 @@ void log_pretty_error(ffzError error, fString kind) {
 
 //inline void log_pretty_syntax_error(ffzError error) { log_pretty_error(error, F_LIT("Syntax error ")); }
 //inline void log_pretty_semantic_error(ffzError error) { log_pretty_error(error, F_LIT("Semantic error ")); }
+typedef struct FileVisitData {
+	fArray(fString) files;
+	fString directory;
+} FileVisitData;
+
+static fVisitDirectoryResult file_visitor(const fVisitDirectoryInfo* info, void* userptr) {
+	FileVisitData* visit = userptr;
+
+	if (!info->is_directory &&
+		f_str_equals(f_str_path_extension(info->name), F_LIT("ffz")) &&
+		info->name.data[0] != '!')
+	{
+		fString filepath = f_str_join(visit->files.alc, visit->directory, F_LIT("\\"), info->name);
+		f_array_push(&visit->files, filepath);
+	}
+
+	return fVisitDirectoryResult_Continue;
+}
+
+fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffzError* out_error) {
+
+	// Canonicalize the path to deduplicate modules that have the same absolute path, but were imported with different path strings.
+	if (!f_files_path_to_canonical((fString){0}, directory, f_temp_alc(), &directory)) {
+		return NULL; // TODO: error report
+	}
+
+	fMapInsertResult module_exists = f_map64_insert(&build->module_from_directory, f_hash64_str_ex(directory, 0), (ffzModule*){0}, fMapInsert_DoNotOverride);
+	if (!module_exists.added) {
+		return *(ffzModule**)module_exists._unstable_ptr;
+	}
+
+	ffzModule* module = ffz_new_module(build->project, build->project->bank.alc);
+	*(ffzModule**)module_exists._unstable_ptr = module;
+	module->directory = directory;
+
+	FileVisitData visit;
+	visit.files = f_array_make(f_temp_alc());
+	visit.directory = directory;
+
+	if (!f_files_visit_directory(directory, file_visitor, &visit)) {
+		return NULL; // TODO: error report
+	}
+
+	for (uint i = 0; i < visit.files.len; i++) {
+		fString file_data = f_array_get(fString, visit.files, i);
+		fString file_contents;
+		f_assert(f_files_read_whole(file_data, f_temp_alc(), &file_contents));
+
+		ffzParseResult parse_result = ffz_parse_scope(module, file_contents, file_data);
+		f_array_push(&build->sources, parse_result.source);
+
+		if (parse_result.node == NULL) {
+			*out_error = parse_result.error;
+			return NULL;
+		}
+
+		// What we could then do is have a queue for top-level nodes that need to be (re)checked.
+		// When expanding polymorph nodes, push those nodes to the end of the queue. Or if the
+		// user wants to modify the tree, they can push the modified nodes to the end of the queue
+		// to be re-checked.
+
+		for (ffzNode* n = parse_result.node->first_child; n; n = n->next) {
+			n->parent = NULL; // ffz_module_add_top_level_node requires the parent to be NULL
+			ffz_module_add_top_level_node_(module, n);
+		}
+
+		//f_array_push_n(&module->pending_import_keywords, parse_result.import_keywords);
+	}
+
+	return module;
+}
 
 static void dump_module_ast(ffzModule* m, fString dir) {
 	u8 console_buf[4096];
@@ -147,11 +224,11 @@ static void dump_module_ast(ffzModule* m, fString dir) {
 //	return imported;
 //}
 
-static bool parse_and_check_directory(ffzProject* project, fString directory, ffzCheckerContext* out_checker_ctx) {
+static bool parse_and_check_directory(Build* build, fString directory, ffzCheckerContext* out_checker_ctx) {
 	TracyCZone(tr, true);
 
 	ffzError err;
-	fOpt(ffzModule*) mod = ffz_project_add_module_from_filesystem(project, directory, &err);
+	fOpt(ffzModule*) mod = add_module_from_filesystem(build, directory, &err);
 
 	if (mod && DEBUG_PRINT_AST) {
 		dump_module_ast(mod, directory);
@@ -163,7 +240,7 @@ static bool parse_and_check_directory(ffzProject* project, fString directory, ff
 		//	f_trap();//err = module->error;
 		//	module = NULL;
 		//}
-		*out_checker_ctx = ffz_make_checker_ctx(mod);
+		*out_checker_ctx = ffz_make_checker_ctx(mod, mod->alc);
 
 		if (mod && !ffz_check_module(out_checker_ctx).ok) {
 			err = out_checker_ctx->error;
@@ -199,6 +276,11 @@ int main(int argc, const char* argv[]) {
 		ok = false;
 	}
 
+	Build build = {
+		.sources = f_array_make(f_temp_alc()),
+		.module_from_directory = f_map64_make_raw(sizeof(ffzModule*), f_temp_alc()),
+	};
+
 	fString dir;
 	ffzCheckerContext root_module_checker;
 	if (ok) {
@@ -211,9 +293,9 @@ int main(int argc, const char* argv[]) {
 		fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
 
 		fArena* arena = _f_temp_arena;
-		ffzProject* p = ffz_init_project(arena, modules_dir);
+		build.project = ffz_init_project(arena, modules_dir);
 
-		ok = parse_and_check_directory(p, dir, &root_module_checker);
+		ok = parse_and_check_directory(&build, dir, &root_module_checker);
 	}
 
 	if (ok) {
@@ -229,7 +311,7 @@ int main(int argc, const char* argv[]) {
 		// consider building a procedure after right after checking it, then throwing away the AST nodes.
 		// Or maybe only do that for GMMC nodes.
 
-		ok = ffz_backend_gen_executable_gmmc(root_module_checker, build_dir, project_name);
+		ok = ffz_backend_gen_executable_gmmc(root_module_checker, build.sources.slice, build_dir, project_name);
 	#else
 	#error
 	#endif
