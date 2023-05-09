@@ -1,20 +1,29 @@
+// NEXT UP: untyped integers
+
 
 // hmm, what should happen with
+
 
 // I'm thinking - we should check the imaginary things too, because that would give us the go-to-definition functionality too.
 // AND, there might be errors that we can catch even when reasoning about the polymorphic form, such as unknown identifier.
 
-//#Array: poly[T] 
+//#Array: poly[T]
 
-/*#Vector3: poly[T] struct {
-	x: T
-	y: T
-	z: T
-}*/
+//#Vector3: poly[T] struct {
+//	x: T
+//	y: T
+//	z: T
+//}
 
-#set_x_to_2: poly[T] proc(test: [T]int) {
+#FixedArray: poly[N, T] struct {
+	elems: [N]T
+}
+
+#print: poly[N, T] proc(test: FixedArray[N, T]) {
 	
-	dbgbreak
+	x: N
+	//y:
+	//dbgbreak
 	//a.x = T(2)
 }
 
@@ -25,8 +34,8 @@
 	// 2. loop through/recurse into the parameters, while keeping track of the correct type according to the argument. If we hit
 	//    a poly-parameter identifier, then assign the constant to it if it hasn't been assigned yet, otherwise make sure that it matches.
 	
-	foo: [3]int{5, 6, 7}
-	set_x_to_2(foo)
+	my_array: FixedArray[5, int]{{5, 6, 7, 8, 9}}
+	print(my_array)
 	
 	//bar: Vector3[u32]{4, 5, 6}
 	//set_x_to_2(bar)

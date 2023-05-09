@@ -156,7 +156,7 @@ ffzPolymorphHash ffz_hash_polymorph(ffzCheckerContext* c, ffzPolymorph poly) {
 	fHasher h = f_hasher_begin();
 	f_hasher_add(&h, ffz_hash_node(c, poly.poly_def));
 	for (uint i = 0; i < poly.parameters.len; i++) {
-		f_hasher_add(&h, ffz_hash_constant(c, poly.parameters[i]));
+		f_hasher_add(&h, PTR2HASH(poly.parameters[i].value));
 	}
 	return f_hasher_end(&h);
 }
@@ -603,7 +603,9 @@ FFZ_CAPI bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fStri
 }
 
 static ffzOk verify_is_type_expression(ffzCheckerContext* c, ffzNode* node, ffzType* type) {
-	if (type->tag != ffzTypeTag_Type) ERR(c, node, "Expected a type, but got a value.");
+	if (type->tag != ffzTypeTag_Type && type->tag != ffzTypeTag_PolyParam) {
+		ERR(c, node, "Expected a type, but got a value.");
+	}
 	return FFZ_OK;
 }
 
@@ -1146,15 +1148,6 @@ static ffzOk instantiate_poly_def(ffzCheckerContext* c, ffzNode* poly_def, fSlic
 
 static ffzOk try_to_infer_poly_param(ffzCheckerContext* c, ffzConstant known, ffzConstant unknown, fMap64(ffzConstant)* poly_param_to_constant, ffzNode* err_node) {
 
-	//fOpt(ffzPolymorph*) source_poly = known->polymorphed_from;
-	//fOpt(ffzPolymorph*) target_poly = unknown->polymorphed_from;
-	//if (source_poly && target_poly && source_poly->poly_def == target_poly->poly_def) {
-	//	f_assert(source_poly->parameters.len == target_poly->parameters.len);
-	//	for (uint i=0; i < source_poly->parameters.len; i++) {
-	//		TRY(try_to_infer_poly_param(c, source_poly->parameters[i].type, target_poly->parameters[i].type, poly_param_to_constant, err_node));
-	//	}
-	//}
-
 	if (unknown.type->tag == ffzTypeTag_PolyParam) {
 		ffzNode* poly_param = unknown.value->node; // which polymorphic parameter is this?
 		
@@ -1172,6 +1165,16 @@ static ffzOk try_to_infer_poly_param(ffzCheckerContext* c, ffzConstant known, ff
 	if (unknown.type->tag == ffzTypeTag_Type && known.type->tag == ffzTypeTag_Type) {
 		ffzType* known_t = ffz_as_type(known.value);
 		ffzType* unknown_t = ffz_as_type(unknown.value);
+		
+		fOpt(ffzPolymorph*) source_poly = known_t->polymorphed_from;
+		fOpt(ffzPolymorph*) target_poly = unknown_t->polymorphed_from;
+		if (source_poly && target_poly && source_poly->poly_def == target_poly->poly_def) {
+			f_assert(source_poly->parameters.len == target_poly->parameters.len);
+			for (uint i=0; i < source_poly->parameters.len; i++) {
+				TRY(try_to_infer_poly_param(c, source_poly->parameters[i], target_poly->parameters[i], poly_param_to_constant, err_node));
+			}
+		}
+
 		switch (unknown_t->tag) {
 		default: break;
 		case ffzTypeTag_Pointer: {
