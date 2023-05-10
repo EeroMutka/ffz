@@ -54,6 +54,8 @@ enum InferFlag {
 	// If the checker finds no type, it's okay with this flag. This can be useful to just peek which type
 	// an expression WOULD get given an infer target, if at all.
 	//InferFlag_TypeIsNotRequired_ = 1 << 2,
+	
+	InferFlag_IgnoreUncertainTypes = 1 << 2,
 
 	//InferFlag_CacheOnlyIfGotType = 1 << 3,
 
@@ -133,7 +135,6 @@ ffzConstantHash ffz_hash_constant(fOpt(ffzCheckerContext*) ctx, ffzConstant cons
 	// -- For the following, `ctx` must be set-------------
 
 	case ffzTypeTag_PolyDef: // fallthrough
-	case ffzTypeTag_PolyParam: // fallthrough
 	case ffzTypeTag_Proc: {
 		ffzNode* node = constant.value->node;
 		f_hasher_add(&h, ffz_hash_node(ctx, node));
@@ -658,7 +659,9 @@ FFZ_CAPI void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields,
 	}
 }
 
-static ffzOk check_argument_list(ffzCheckerContext* c, ffzNode* node, fSlice(ffzField) fields, fOpt(ffzCheckInfo*) record_literal, bool no_infer) {
+static ffzOk check_argument_list(ffzCheckerContext* c, ffzNode* node, fSlice(ffzField) fields,
+	fOpt(ffzCheckInfo*) record_literal, bool no_infer, InferFlags flags)
+{
 	bool all_fields_are_constant = true;
 	fSlice(ffzConstantData) field_constants;
 	if (record_literal) field_constants = f_make_slice_undef<ffzConstantData>(fields.len, c->alc);
@@ -688,7 +691,7 @@ static ffzOk check_argument_list(ffzCheckerContext* c, ffzNode* node, fSlice(ffz
 		}
 
 		ffzCheckInfo checked;
-		TRY(check_node(c, arg_value, no_infer ? NULL : fields[i].type, 0, &checked));
+		TRY(check_node(c, arg_value, no_infer ? NULL : fields[i].type, flags, &checked));
 
 		if (record_literal) {
 			if (checked.const_val) field_constants[i] = *checked.const_val;
@@ -724,41 +727,37 @@ static ffzOk check_argument_list(ffzCheckerContext* c, ffzNode* node, fSlice(ffz
 //	return false;
 //}
 
-static ffzOk check_two_sided(ffzCheckerContext* c, ffzNode* left, ffzNode* right, OPT(ffzType*)* out_type) {
+static ffzOk check_two_sided(ffzCheckerContext* c, ffzNode* left, ffzNode* right, fOpt(ffzType*) require_type, InferFlags flags, OPT(ffzType*)* out_type) {
 	// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
-	f_trap();
-#if 0
-	InferFlags child_flags = InferFlag_TypeIsNotRequired_ /*| InferFlag_CacheOnlyIfGotType*/;
-	ffzCheckInfo left_chk, right_chk;
 	
-	for (int i = 0; i < 2; i++) {
-		TRY(check_node(c, left, NULL, child_flags, &left_chk));
-		TRY(check_node(c, right, NULL, child_flags, &right_chk));
-		if (left_chk.type && right_chk.type) break;
-		
-		child_flags = 0;
-		if (!left_chk.type && right_chk.type) {
-			TRY(check_node(c, left, right_chk.type, child_flags, &left_chk));
-			break;
-		}
-		else if (!right_chk.type && left_chk.type) {
-			TRY(check_node(c, right, left_chk.type, child_flags, &right_chk));
-			break;
-		}
-		continue;
+	// First try to check if we can get a concrete integer type
+	ffzCheckInfo left_chk, right_chk;
+	TRY(check_node(c, left, NULL, InferFlag_IgnoreUncertainTypes, &left_chk));
+	TRY(check_node(c, right, NULL, InferFlag_IgnoreUncertainTypes, &right_chk));
+
+	if (left_chk.type && right_chk.type) {}
+	else if (!left_chk.type && right_chk.type) {
+		TRY(check_node(c, left, right_chk.type, 0, &left_chk));
+	}
+	else if (!right_chk.type && left_chk.type) {
+		TRY(check_node(c, right, left_chk.type, 0, &right_chk));
+	}
+	else if (!(flags & InferFlag_IgnoreUncertainTypes)) {
+		TRY(check_node(c, left, require_type, 0, &left_chk));
+		TRY(check_node(c, right, require_type, 0, &right_chk));
 	}
 
 	OPT(ffzType*) result = NULL;
 	if (right_chk.type && left_chk.type) {
-		if (type_is_a_bit_by_bit(c->project, left_chk.type, right_chk.type))      result = right_chk.type;
-		else if (type_is_a_bit_by_bit(c->project, right_chk.type, left_chk.type)) result = left_chk.type;
+		if (types_match(left_chk.type, right_chk.type)) {
+			result = left_chk.type;
+		}
 		else {
 			ERR(c, left->parent, "Types do not match.\n    left:    ~s\n    right:   ~s",
-				ffz_type_to_string(c->project, left_chk.type), ffz_type_to_string(c->project, right_chk.type));
+				ffz_type_to_string(left_chk.type, c->alc), ffz_type_to_string(right_chk.type, c->alc));
 		}
 	}
 	*out_type = result;
-#endif
 	return { true };
 }
 
@@ -836,7 +835,6 @@ ffzTypeHash ffz_hash_type(fOpt(ffzCheckerContext*) ctx, ffzType* type) {
 	case ffzTypeTag_Type: break;
 	case ffzTypeTag_String: break;
 	case ffzTypeTag_PolyDef: break;
-	case ffzTypeTag_PolyParam: break;
 	case ffzTypeTag_Extra: { f_hasher_add(&h, type->Extra.id); } break;
 
 	case ffzTypeTag_Enum: // fallthrough
@@ -847,6 +845,8 @@ ffzTypeHash ffz_hash_type(fOpt(ffzCheckerContext*) ctx, ffzType* type) {
 	} break;
 
 	case ffzTypeTag_Pointer: { f_hasher_add(&h, PTR2HASH(type->Pointer.pointer_to)); } break;
+
+	case ffzTypeTag_PolyParam: { f_hasher_add(&h, ffz_hash_node(ctx, type->PolyParam.param_node)); } break;
 
 	case ffzTypeTag_Proc: {
 		for (uint i = 0; i < type->Proc.in_params.len; i++) {
@@ -863,10 +863,6 @@ ffzTypeHash ffz_hash_type(fOpt(ffzCheckerContext*) ctx, ffzType* type) {
 		f_hasher_add(&h, PTR2HASH(type->FixedArray.elem_type));
 		f_hasher_add(&h, PTR2HASH(type->FixedArray.length.value));
 	} break;
-
-	//case ffzTypeTag_PolyParam: {
-	//	f_hasher_add(&h, ffz_hash_node(ctx, type->PolyParam.param));
-	//} break;
 
 	case ffzTypeTag_Bool: // fallthrough
 	case ffzTypeTag_Sint: // fallthrough
@@ -1146,10 +1142,10 @@ static ffzOk instantiate_poly_def(ffzCheckerContext* c, ffzNode* poly_def, fSlic
 	return FFZ_OK;
 }
 
-static ffzOk try_to_infer_poly_param(ffzCheckerContext* c, ffzConstant known, ffzConstant unknown, fMap64(ffzConstant)* poly_param_to_constant, ffzNode* err_node) {
+static ffzOk infer_poly_param(ffzCheckerContext* c, ffzConstant known, ffzConstant unknown, fMap64(ffzConstant)* poly_param_to_constant, ffzNode* err_node) {
 
 	if (unknown.type->tag == ffzTypeTag_PolyParam) {
-		ffzNode* poly_param = unknown.value->node; // which polymorphic parameter is this?
+		ffzNode* poly_param = unknown.type->PolyParam.param_node;
 		
 		fOpt(ffzConstant*) deduced = f_map64_get(poly_param_to_constant, (u64)poly_param);
 		if (deduced == NULL) {
@@ -1166,31 +1162,126 @@ static ffzOk try_to_infer_poly_param(ffzCheckerContext* c, ffzConstant known, ff
 		ffzType* known_t = ffz_as_type(known.value);
 		ffzType* unknown_t = ffz_as_type(unknown.value);
 		
-		fOpt(ffzPolymorph*) source_poly = known_t->polymorphed_from;
-		fOpt(ffzPolymorph*) target_poly = unknown_t->polymorphed_from;
-		if (source_poly && target_poly && source_poly->poly_def == target_poly->poly_def) {
-			f_assert(source_poly->parameters.len == target_poly->parameters.len);
-			for (uint i=0; i < source_poly->parameters.len; i++) {
-				TRY(try_to_infer_poly_param(c, source_poly->parameters[i], target_poly->parameters[i], poly_param_to_constant, err_node));
-			}
+		if (unknown_t->tag == ffzTypeTag_PolyParam) {
+			TRY(infer_poly_param(c, known, {unknown_t, unknown.value}, poly_param_to_constant, err_node));
 		}
 
-		switch (unknown_t->tag) {
-		default: break;
-		case ffzTypeTag_Pointer: {
-			if (known_t->tag == ffzTypeTag_Pointer) {
-				TRY(try_to_infer_poly_param(c, ffz_as_constant(known_t->Pointer.pointer_to), ffz_as_constant(unknown_t->Pointer.pointer_to),
-					poly_param_to_constant, err_node));
+		if (known_t->tag == unknown_t->tag) {
+
+			fOpt(ffzPolymorph*) source_poly = known_t->polymorphed_from;
+			fOpt(ffzPolymorph*) target_poly = unknown_t->polymorphed_from;
+			if (source_poly && target_poly && source_poly->poly_def == target_poly->poly_def) {
+				f_assert(source_poly->parameters.len == target_poly->parameters.len);
+				for (uint i=0; i < source_poly->parameters.len; i++) {
+					TRY(infer_poly_param(c, source_poly->parameters[i], target_poly->parameters[i], poly_param_to_constant, err_node));
+				}
 			}
-		} break;
-		case ffzTypeTag_FixedArray: {
-			if (known_t->tag == ffzTypeTag_FixedArray) {
-				TRY(try_to_infer_poly_param(c, known_t->FixedArray.length, unknown_t->FixedArray.length, poly_param_to_constant, err_node));
+
+			switch (unknown_t->tag) {
+			default: break;
+			case ffzTypeTag_Pointer: {
+				TRY(infer_poly_param(c, ffz_as_constant(known_t->Pointer.pointer_to), ffz_as_constant(unknown_t->Pointer.pointer_to), poly_param_to_constant, err_node));
+			} break;
+			case ffzTypeTag_FixedArray: {
+				TRY(infer_poly_param(c, known_t->FixedArray.length, unknown_t->FixedArray.length, poly_param_to_constant, err_node));
+				TRY(infer_poly_param(c, ffz_as_constant(known_t->FixedArray.elem_type), ffz_as_constant(unknown_t->FixedArray.elem_type), poly_param_to_constant, err_node));
+			} break;
 			}
-		} break;
-	
 		}
 	}
+	return FFZ_OK;
+}
+
+static ffzOk check_call(ffzCheckerContext* c, ffzNode* node, ffzNode* left, ffzCheckInfo left_info, ffzCheckInfo* result) {
+
+	// hmm, so we need to inspect the polymorphic AST tree, because we don't want to duplicate the nodes yet.
+	// That means that we don't want to write to anything. Only analyze.
+	// Only AFTER we have figured out the poly-args, we may deep copy or (use existing copy for this argument set) nodes, similarly to doing it explicitly.
+
+	ffzType* proc_type = left_info.type;
+
+	if (proc_type->tag == ffzTypeTag_PolyDef) {
+		// implicit polymorphic instantiation
+
+		// Simple strategy:
+		// 1. check the arguments with no infer targets.
+		// 2. infer poly params: loop through/recurse into the parameters, while keeping track of the correct type according to the argument.
+		//    If we hit a poly-parameter identifier, then assign the constant to it if it hasn't been assigned yet, otherwise make sure that it matches.
+		// 
+		// This works, but the problem is with integer literals: how do we deal with i.e. `max(0, my_u32_value)`? If we give `0` the type
+		// `int`, then the arguments would have mismatching types.
+		// 
+		// So, more complicated strategy:
+		// 1. Check the argument list with InferFlag_IgnoreUncertainTypes flag
+		// 2. infer poly params
+		// 3. If there's a poly param missing, then check the argument list again without the flag and infer again.
+		// Note that after all of this, we're still checking the arguments once more, so if there were any uncertain types, those will be decided then.
+
+		fMap64(ffzConstant) poly_param_to_constant = f_map64_make<ffzConstant>(c->alc);
+
+		for (int i=0;; i++) {
+			ffzNode* poly_def = left_info.const_val->node;
+			ffzCheckInfo poly_expr_info = ffz_checked_get_info(c, poly_def->PolyDef.expr);
+			if (poly_expr_info.type->tag != ffzTypeTag_Proc) {
+				ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->alc));
+			}
+
+			fSlice(ffzField) param_fields = poly_expr_info.type->Proc.in_params;
+			TRY(check_argument_list(c, node, param_fields, NULL, true, i == 0 ? InferFlag_IgnoreUncertainTypes : 0));
+
+			// Loop through the procedure call arguments and try to infer the polymorphic parameters from them
+
+			u32 arg_i = 0;
+			for FFZ_EACH_CHILD(arg, node) {
+				if (ffz_checked_has_info(c, arg)) {
+					ffzConstant unknown = ffz_as_constant(param_fields[arg_i].type); // there's no way to go from here to the poly param...
+
+					ffzConstant known = ffz_as_constant(ffz_checked_get_info(c, arg).type);
+
+					// we can get the checked constant
+					TRY(infer_poly_param(c, known, unknown, &poly_param_to_constant, node));
+				}
+				arg_i++;
+			}
+
+			// Now we know the parameter types and we can instantiate the polymorph!
+
+			fArray(ffzConstant) args = f_array_make<ffzConstant>(c->alc);
+			bool inferred_all = true;
+			
+			for FFZ_EACH_CHILD(param, poly_def) {
+				fOpt(ffzConstant*) deduced = f_map64_get(&poly_param_to_constant, (u64)param);
+				if (deduced == NULL) {
+					if (i == 0) {
+						inferred_all = false;
+						break;
+					}
+					ERR(c, node, "Polymorphic argument `~s` could not be inferred from the procedure call site.", param->Identifier.name);
+				}
+				else {
+					f_array_push(&args, *deduced);
+				}
+			}
+			
+			if (!inferred_all) {
+				continue; // Try again without InferFlag_IgnoreUncertainTypes
+			}
+
+			ffzPolymorph* poly;
+			TRY(instantiate_poly_def(c, poly_def, args.slice, &poly));
+			proc_type = ffz_checked_get_info(c, poly->instantiated_node).type;
+
+			result->call_implicit_poly = poly;
+			break;
+		}
+	}
+
+	if (proc_type->tag != ffzTypeTag_Proc) {
+		ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->alc));
+	}
+
+	result->type = proc_type->Proc.return_type;
+	TRY(check_argument_list(c, node, proc_type->Proc.in_params, NULL, false, 0));
 	return FFZ_OK;
 }
 
@@ -1212,7 +1303,7 @@ static ffzOk check_post_round_brackets(ffzCheckerContext* c, ffzNode* node, ffzT
 			}
 			else {
 				ffzNode* second = ffz_get_child(node, 1);
-				TRY(check_two_sided(c, first, second, &result->type));
+				TRY(check_two_sided(c, first, second, require_type, 0, &result->type));
 			}
 			
 			if (result->type && !is_basic_type_size(result->type->size)) {
@@ -1286,64 +1377,7 @@ static ffzOk check_post_round_brackets(ffzCheckerContext* c, ffzNode* node, ffzT
 			}
 		}
 		else {
-			// Procedure call
-
-			// hmm, so we need to inspect the polymorphic AST tree, because we don't want to duplicate the nodes yet.
-			// That means that we don't want to write to anything. Only analyze.
-			// Only AFTER we have figured out the poly-args, we may deep copy or (use existing copy for this argument set) nodes, similarly to doing it explicitly.
-
-			ffzType* proc_type = left_type;
-
-			if (proc_type->tag == ffzTypeTag_PolyDef) {
-				// implicit polymorphic instantiation
-				
-				ffzNode* poly_def = left_info.const_val->node;
-				ffzCheckInfo poly_expr_info = ffz_checked_get_info(c, poly_def->PolyDef.expr);
-				if (poly_expr_info.type->tag != ffzTypeTag_Proc) {
-					ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->alc));
-				}
-
-				fSlice(ffzField) param_fields = poly_expr_info.type->Proc.in_params;
-				TRY(check_argument_list(c, node, param_fields, NULL, true));
-
-				fMap64(ffzConstant) poly_param_to_constant = f_map64_make<ffzConstant>(c->alc);
-				
-				// Loop through the procedure call arguments and try to infer the polymorphic parameters from them
-
-				u32 i = 0;
-				for FFZ_EACH_CHILD(arg, node) {
-					ffzConstant unknown = ffz_as_constant(param_fields[i].type);
-					ffzConstant known = ffz_as_constant(ffz_checked_get_info(c, arg).type);
-					TRY(try_to_infer_poly_param(c, known, unknown, &poly_param_to_constant, node));
-					i++;
-				}
-
-				// Now we know the parameter types and we can instantiate the polymorph!
-
-				fArray(ffzConstant) args = f_array_make<ffzConstant>(c->alc);
-				for FFZ_EACH_CHILD(param, poly_def) {
-					fOpt(ffzConstant*) deduced = f_map64_get(&poly_param_to_constant, (u64)param);
-					if (deduced == NULL) {
-						ERR(c, node, "Polymorphic argument `~s` could not be inferred from the procedure call site.", param->Identifier.name);
-					}
-					else {
-						f_array_push(&args, *deduced);
-					}
-				}
-				
-				ffzPolymorph* poly;
-				TRY(instantiate_poly_def(c, poly_def, args.slice, &poly));
-				proc_type = ffz_checked_get_info(c, poly->instantiated_node).type;
-				
-				result->call_implicit_poly = poly;
-			}
-			
-			if (proc_type->tag != ffzTypeTag_Proc) {
-				ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->alc));
-			}
-
-			result->type = proc_type->Proc.return_type;
-			TRY(check_argument_list(c, node, proc_type->Proc.in_params, NULL, false));
+			TRY(check_call(c, node, left, left_info, result));
 		}
 	}
 	return FFZ_OK;
@@ -1401,7 +1435,7 @@ static ffzOk check_curly_initializer(ffzCheckerContext* c, ffzType* type, ffzNod
 		}
 		
 		// TODO: see what happens if you try to declare normally `123: 5215`
-		TRY(check_argument_list(c, node, type->record_fields, result, false));
+		TRY(check_argument_list(c, node, type->record_fields, result, false, 0));
 	}
 	else {
 		ERR(c, node, "{}-initializer is not allowed for `~s`.", ffz_type_to_string(type, c->alc));
@@ -1840,6 +1874,8 @@ FFZ_CAPI fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzCheckerContext* c, ffzN
 	return NULL;
 }
 
+FFZ_CAPI bool ffz_checked_has_info(ffzCheckerContext* ctx, ffzNode* node) { return f_map64_get(&ctx->infos, (u64)node) != NULL; }
+
 FFZ_CAPI ffzCheckInfo ffz_checked_get_info(ffzCheckerContext* ctx, ffzNode* node) {
 	ffzCheckInfo* info = f_map64_get(&ctx->infos, (u64)node);
 	f_assert(info != NULL);
@@ -1859,10 +1895,11 @@ static ffzOk check_identifier(ffzCheckerContext* c, ffzNodeIdentifier* node, ffz
 
 	if (def->parent->kind == ffzNodeKind_PolyDef) {
 		if (def == node) {
+			// The PolyParam type is weird. The value that it stores is its own type.
 			ffzType type_desc = {ffzTypeTag_PolyParam};
-			ffzConstantData constant; constant.node = node;
+			type_desc.PolyParam.param_node = node;
 			result->type = make_type(c, type_desc);
-			result->const_val = ffz_make_constant_ex(c->project, c, constant, result->type).value;
+			result->const_val = ffz_as_constant(result->type).value;
 		}
 		else {
 			*result = ffz_checked_get_info(c, def);
@@ -1992,7 +2029,7 @@ static ffzOk check_node(ffzCheckerContext* c, ffzNode* node, OPT(ffzType*) requi
 	//F_HITS(_c, 357);
 
 	ffzCheckInfo result = {};
-
+	
 	switch (node->kind) {
 	case ffzNodeKind_Declare: {
 		ffzNode* lhs = node->Op.left;
@@ -2216,10 +2253,15 @@ static ffzOk check_node(ffzCheckerContext* c, ffzNode* node, OPT(ffzType*) requi
 	} break;
 
 	case ffzNodeKind_IntLiteral: {
-		//if (!(flags & InferFlag_TypeIsNotRequired_)) {
-		//}
-		ffzConstant constant = make_constant_int(c->project, node->IntLiteral.value, ffz_builtin_type(c->project, ffzKeyword_uint));
-		set_result_constant(&result, constant);
+		if (require_type == NULL) {
+			if (!(flags & InferFlag_IgnoreUncertainTypes)) {
+				ffzConstant constant = make_constant_int(c->project, node->IntLiteral.value, ffz_builtin_type(c->project, ffzKeyword_int));
+				set_result_constant(&result, constant);
+			}
+		} else {
+			ffzConstant constant = make_constant_int(c->project, node->IntLiteral.value, require_type);
+			set_result_constant(&result, constant);
+		}
 	} break;
 
 	case ffzNodeKind_StringLiteral: {
@@ -2322,22 +2364,21 @@ static ffzOk check_node(ffzCheckerContext* c, ffzNode* node, OPT(ffzType*) requi
 	
 	case ffzNodeKind_Add: case ffzNodeKind_Sub: case ffzNodeKind_Mul:
 	case ffzNodeKind_Div: case ffzNodeKind_Modulo: {
-		f_trap();//OPT(ffzType*) type;
-		f_trap();//TRY(check_two_sided(c, node->Op.left, node->Op.right, &type));
-		f_trap();//f_assert(type); // TODO
-		f_trap();//
-		f_trap();//if (node->kind == ffzNodeKind_Modulo) {
-		f_trap();//	if (type && !ffz_type_is_integer(type->tag)) {
-		f_trap();//		ERR(c, node, "Incorrect type with modulo operator; expected an integer.\n    received: ~s", ffz_type_to_string(c->project, type));
-		f_trap();//	}
-		f_trap();//}
-		f_trap();//else {
-		f_trap();//	if (type && !ffz_type_is_integer(type->tag) && !ffz_type_is_float(type->tag)) {
-		f_trap();//		ERR(c, node, "Incorrect arithmetic type; expected an integer or a float.\n    received: ~s", ffz_type_to_string(c->project, type));
-		f_trap();//	}
-		f_trap();//}
-		f_trap();//
-		f_trap();//result.type = type;
+		OPT(ffzType*) type;
+		TRY(check_two_sided(c, node->Op.left, node->Op.right, require_type, flags, &type));
+		
+		if (node->kind == ffzNodeKind_Modulo) {
+			if (type && !ffz_type_is_integer(type->tag)) {
+				ERR(c, node, "Incorrect type with modulo operator; expected an integer.\n    received: ~s", ffz_type_to_string(type, c->alc));
+			}
+		}
+		else {
+			if (type && !ffz_type_is_integer(type->tag) && !ffz_type_is_float(type->tag)) {
+				ERR(c, node, "Incorrect arithmetic type; expected an integer or a float.\n    received: ~s", ffz_type_to_string(type, c->alc));
+			}
+		}
+		
+		result.type = type;
 	} break;
 
 	case ffzNodeKind_GeneratedConstant: {
@@ -2357,9 +2398,7 @@ static ffzOk check_node(ffzCheckerContext* c, ffzNode* node, OPT(ffzType*) requi
 	else {
 		if (node->kind == ffzNodeKind_Declare) ERR(c, node, "Expected an expression, but got a declaration.");
 
-		//if (!(flags & InferFlag_TypeIsNotRequired_)) { // type is required
-		//}
-		if (!result.type && !c->is_inside_polymorphic_node) {
+		if (!result.type && !c->is_inside_polymorphic_node && !(flags & InferFlag_IgnoreUncertainTypes)) {
 			ERR(c, node, "Expression has no type, or it cannot be inferred.");
 		}
 	}
@@ -2425,8 +2464,7 @@ static ffzOk check_node(ffzCheckerContext* c, ffzNode* node, OPT(ffzType*) requi
 	// Let the children do the work for us!
 
 	bool child_already_fully_checked_us = false;
-	//if (!(flags & InferFlag_CacheOnlyIfGotType) || result.type) {
-	{
+	if (!(flags & InferFlag_IgnoreUncertainTypes) || result.type) {
 		//if (node->has_checked) {
 		//	child_already_fully_checked_us = true;
 		//}

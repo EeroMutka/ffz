@@ -493,7 +493,7 @@ typedef struct ffzConstantData {
 		// You can use ffz_constant_array_get_elem() to get an element from it.
 		struct { void* data; uint32_t len; } array_elems;
 
-		// for procedures, poly-expressions and poly-params.
+		// for procedures and poly-expressions.
 		// NOTE: When an extern procedure, `node` will point to the ProcType node that is tagged @extern,
 		// since there is no procedure body.
 		ffzNode* node;
@@ -576,6 +576,10 @@ typedef struct ffzType {
 		struct {
 			ffzType* pointer_to;
 		} Pointer;
+
+		struct {
+			ffzNode* param_node;
+		} PolyParam;
 
 		struct {
 			uint32_t id;
@@ -920,6 +924,7 @@ ffzOk ffz_check_module(ffzCheckerContext* c);
 inline ffzConstant ffz_as_constant(ffzType* type) { ffzConstant c = {ffz_builtin_type_type(), (ffzConstantData*)type}; return c; }
 inline ffzType* ffz_as_type(ffzConstantData* constant) { return (ffzType*)constant;}
 
+bool ffz_checked_has_info(ffzCheckerContext* ctx, ffzNode* node);
 ffzCheckInfo ffz_checked_get_info(ffzCheckerContext* ctx, ffzNode* node);
 
 bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);

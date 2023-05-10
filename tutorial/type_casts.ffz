@@ -8,15 +8,17 @@
 		
 		// b: u8(a)
 		
-		// If you want to disable cast bounds checks for performance, you can use the *no_bc tag.
-		// *no_bc disables the cast checks both in DEBUG and RELEASE builds, but still keeps
+		// If you want to disable cast bounds checks for performance, you can use the @cast_no_check tag.
+		// @cast_no_check disables the cast checks both in DEBUG and RELEASE builds, but still keeps
 		// them on in the PARANOID build mode.
 		
-		// c: @no_bc u8(a)
+		// c: @cast_no_check u8(a)
 		
-		// If you want your cast to wrap, you can use the *trunc tag which truncates the value
+		// @index_no_check
+		
+		// If you want your cast to wrap, you can use the @cast_wrap tag which truncates the value
 		// and disables all checks.
-		d: @trunc u8(a)
+		d: @cast_wrap u8(a)
 	}
 	
 	{
@@ -39,4 +41,21 @@
 		// b = size_of(big_array)
 	}
 }
+
+
+/*
+
+hmm, should we make casting between unsigned and signed types implicit?
+I kinda feel like we should. That would promote the correct usage of unsigned/signed types, as it'd be less friction to do so.
+
+The explicit cast from int -> uint seems kinda dumb in retrospect. If you're calling a procedure that expects an integer,
+then that procedure already expects it to be in some arbitrary range that can't be typechecked. Sure, putting a `uint(x)` cast
+signifies that `x` cannot be negative - but it still doesn't say anything about any upper bound or specify a lower bound.
+You already need to think about the range of the integer no matter what, and this cast is just unnecessary noise.
+
+So then, we might as well make `i: 0` an `int` by default. You can still use `uint` everywhere you want to without worrying.
+
+Yeah, lets do this. Less unnecessary friction to do the better thing!
+
+*/
 
