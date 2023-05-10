@@ -468,13 +468,14 @@ struct ffzDefinitionPath {
 /*
  A constant is a packed representation of a compile-time known value.
  ffzType* can be casted to and from ffzConstantData*, if the constant is a type (see `ffz_type_as_constant` and `ffz_constant_as_type`).
- NOTE: to initialize this to a default value, use `ffz_zero_value_constant` instead of ffzConstantData{}! It seems like some
- members won't get initialized to zero otherwised.
 */
 typedef struct ffzConstantData {
 	union {
+		// NOTE: for unsigned integers, the unused bits of _uint should be 0 (if the type is `u8`, there would be 48 unused bits).
+		// For signed integers, unused bits of _sint should be 1.  :ffzConstantDataIntUnusedBits
 		uint64_t  _uint;
 		int64_t   _sint;
+
 		float      _f32;
 		double     _f64;
 		bool      _bool;

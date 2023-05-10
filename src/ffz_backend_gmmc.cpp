@@ -98,6 +98,7 @@ struct Gen {
 
 	// debug info
 	fArray(cviewType) cv_types;
+	fMap64(cviewTypeIdx) cv_type_from_ffz_type; // key: ffzType*
 	fArray(cviewSourceFile) cv_file_from_parser_idx;
 };
 
@@ -196,6 +197,14 @@ static void set_loc(Gen* g, gmmcOpIdx op, ffzLocRange loc) {
 }
 
 static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
+	auto existing = f_map64_insert(&g->cv_type_from_ffz_type, (u64)type, (cviewTypeIdx)0xFFFFFFFF, fMapInsert_DoNotOverride);
+	if (!existing.added) {
+		return *existing._unstable_ptr;
+	}
+
+	cviewTypeIdx cv_type_idx = (cviewTypeIdx)f_array_push(&g->cv_types, {});
+	*existing._unstable_ptr = cv_type_idx;
+
 	cviewType cv_type = {};
 	cv_type.size = type->size;
 
@@ -268,9 +277,8 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 	default: f_trap();
 	}
 
-	f_assert(cv_type.tag);
-	// TODO: deduplicate types?
-	return (u32)f_array_push(&g->cv_types, cv_type);
+	g->cv_types[cv_type_idx] = cv_type;
+	return cv_type_idx;
 }
 
 
@@ -1719,6 +1727,7 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module_ch
 	g.globals = f_array_make<GlobalInfo>(g.alc);
 	g.cv_file_from_parser_idx = f_array_make<cviewSourceFile>(g.alc);
 	g.cv_types = f_array_make<cviewType>(g.alc);
+	g.cv_type_from_ffz_type = f_map64_make<cviewTypeIdx>(g.alc);
 
 	for (u32 i = 0; i < sources.len; i++) {
 		ffzSource* source = sources[i];

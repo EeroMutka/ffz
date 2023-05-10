@@ -103,7 +103,10 @@ ffzConstantHash ffz_hash_constant(fOpt(ffzCheckerContext*) ctx, ffzConstant cons
 
 	switch (constant.type->tag) {
 	case ffzTypeTag_Raw: break;
-	case ffzTypeTag_Pointer: { f_trap(); } break;
+	case ffzTypeTag_Pointer: {
+		if (constant.value->ptr.as_ptr_to_constant != NULL) f_trap();
+		f_hasher_add(&h, constant.value->ptr.as_integer);
+	} break;
 
 	case ffzTypeTag_Slice: { f_trap(); } break;
 	case ffzTypeTag_FixedArray: {
@@ -1359,17 +1362,13 @@ static ffzOk check_post_round_brackets(ffzCheckerContext* c, ffzNode* node, ffzT
 				ERR(c, arg, "Invalid place for an undefined value. Undefined values are only allowed in variable declarations.");
 			}
 			
-			if (!result->is_undefined && /*!ffz_type_is_pointer_ish(result->type->tag) && */
-				!ffz_type_is_pointer_ish(arg_info.type->tag)) {
-				// the following shouldn't be allowed:
-				// #foo: false
-				// #bar: uint(&foo)
-				// This is because given a constant integer, we want to be able to trivially ask what its value is.
-				// However, the other way is allowed (i.e. ^int(0))
-				
-				// NOTE: when casting integer constants to pointer constants, we use the integer constant directly. This is ok,
-				// because their layouts are identical. :ReinterpretIntegerConstantAsPointer
-				result->const_val = arg_info.const_val;
+			/*
+			 Constant cast - For now, let's only allow constant cast from integer to pointer.
+			*/
+			if (!result->is_undefined && ffz_type_is_integer(result->type->tag) && !ffz_type_is_pointer_ish(arg_info.type->tag)) {
+				ffzConstantData ptr_constant;
+				ptr_constant.ptr = {arg_info.const_val->_uint, NULL};
+				result->const_val = make_constant(c, ptr_constant, result->type).value;
 			}
 
 			if (!result->is_undefined && !type_can_be_casted_to(c->project, arg_info.type, result->type)) {
@@ -2253,14 +2252,15 @@ static ffzOk check_node(ffzCheckerContext* c, ffzNode* node, OPT(ffzType*) requi
 	} break;
 
 	case ffzNodeKind_IntLiteral: {
-		if (require_type == NULL) {
+		if (require_type && ffz_type_is_integer(require_type->tag)) {
+			ffzConstant constant = make_constant_int(c->project, node->IntLiteral.value, require_type);
+			set_result_constant(&result, constant);
+		}
+		else {
 			if (!(flags & InferFlag_IgnoreUncertainTypes)) {
 				ffzConstant constant = make_constant_int(c->project, node->IntLiteral.value, ffz_builtin_type(c->project, ffzKeyword_int));
 				set_result_constant(&result, constant);
 			}
-		} else {
-			ffzConstant constant = make_constant_int(c->project, node->IntLiteral.value, require_type);
-			set_result_constant(&result, constant);
 		}
 	} break;
 
@@ -2465,14 +2465,16 @@ static ffzOk check_node(ffzCheckerContext* c, ffzNode* node, OPT(ffzType*) requi
 
 	bool child_already_fully_checked_us = false;
 	if (!(flags & InferFlag_IgnoreUncertainTypes) || result.type) {
+		auto insertion = f_map64_insert(&c->infos, (u64)node, result, fMapInsert_DoNotOverride);
+		if (!insertion.added) {
+			child_already_fully_checked_us = true;
+		}
 		//if (node->has_checked) {
-		//	child_already_fully_checked_us = true;
 		//}
 		//else {
-		//	node->has_checked = true;
-		//	node->checked = result;
+		//	//node->has_checked = true;
+		//	//node->checked = result;
 		//}
-		f_map64_insert(&c->infos, (u64)node, result);
 	}
 
 	// post-check. The idea is to check the children AFTER we have cached the CheckInfo for this node.
