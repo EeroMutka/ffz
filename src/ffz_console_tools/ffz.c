@@ -20,13 +20,13 @@ const bool DEBUG_PRINT_AST = false;
 typedef struct Build {
 	fArray(ffzSource*) sources;
 	fMap64(ffzModule*) module_from_directory;
-	fMap64(ffzCheckerContext*) module_from_import_op; // key: ffzNode*
+	fMap64(ffzModule*) module_from_import_op; // key: ffzNode*
 	ffzProject* project;
 } Build;
 
-bool ffz_backend_gen_executable_gmmc(ffzCheckerContext* root_module_checker, fSlice(ffzSource*) sources, fString build_dir, fString name);
+bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fSlice(ffzSource*) sources, fString build_dir, fString name);
 
-static fOpt(ffzCheckerContext*) parse_and_check_directory(Build* build, fString directory);
+static fOpt(ffzModule*) parse_and_check_directory(Build* build, fString directory);
 
 void log_pretty_error(ffzError error, fString kind) {
 	// C-style error messages can be useful in Visual Studio output console, to be able to double click the code location
@@ -137,7 +137,7 @@ static fVisitDirectoryResult file_visitor(const fVisitDirectoryInfo* info, void*
 	return fVisitDirectoryResult_Continue;
 }
 
-static fOpt(ffzCheckerContext*) module_from_path(Build* build, fString path, ffzModule* mod) {
+static fOpt(ffzModule*) module_from_path(Build* build, fString path, ffzModule* mod) {
 
 	// `:` means that the path is relative to the modules directory shipped with the compiler
 	if (f_str_starts_with(path, F_LIT(":"))) {
@@ -220,7 +220,7 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 			f_assert(import_name_node->kind == ffzNodeKind_StringLiteral); // TODO: error report
 			fString import_path = import_name_node->StringLiteral.zero_terminated_string;
 			
-			fOpt(ffzCheckerContext*) imported_module = module_from_path(build, import_path, mod);
+			fOpt(ffzModule*) imported_module = module_from_path(build, import_path, mod);
 			if (!imported_module) {
 				//ERR(c, import_op, "Imported module contains errors.");
 				return NULL;
@@ -257,40 +257,39 @@ static void dump_module_ast(ffzModule* m, fString dir) {
 	f_flush_buffered_writer(&console_writer);
 }
 
-static fOpt(ffzCheckerContext*) module_from_import(ffzCheckerContext* c, ffzNode* import_node) {
-	Build* build = c->userdata;
-	fOpt(ffzCheckerContext**) mod = f_map64_get_raw(&build->module_from_import_op, (u64)import_node);
-	return mod ? *mod : NULL;
+static fOpt(ffzModule*) module_from_import(ffzModule* mod, ffzNode* import_node) {
+	Build* build = mod->userdata;
+	fOpt(ffzModule**) imported = f_map64_get_raw(&build->module_from_import_op, (u64)import_node);
+	return imported ? *imported : NULL;
 }
 
-static fOpt(ffzCheckerContext*) parse_and_check_directory(Build* build, fString directory) {
+static fOpt(ffzModule*) parse_and_check_directory(Build* build, fString directory) {
 	TracyCZone(tr, true);
 
 	ffzError err;
 	fOpt(ffzModule*) mod = add_module_from_filesystem(build, directory, &err);
+	mod->userdata = build;
 	
 	if (mod && DEBUG_PRINT_AST) {
 		dump_module_ast(mod, directory);
 	}
-	
-	fOpt(ffzCheckerContext*) result = NULL;
 
 	if (mod/* && !module->checked*/) {
-		result = ffz_make_checker_ctx(mod, module_from_import, mod->alc);
-		result->userdata = build;
+		//result = ffz_make_checker_ctx(mod, module_from_import, mod->alc);
 		
-		if (!ffz_check_module(result).ok) {
-			err = result->error;
-			result = NULL;
+		ffzError check_err;
+		if (!ffz_check_module(mod, module_from_import, mod->alc, &check_err).ok) {
+			err = check_err;
+			mod = NULL;
 		}
 	}
 
-	if (!result) {
+	if (mod == NULL) {
 		log_pretty_error(err, F_LIT("Error"));
 	}
 
 	TracyCZoneEnd(tr);
-	return result;
+	return mod;
 }
 
 int main(int argc, const char* argv[]) {
@@ -315,11 +314,11 @@ int main(int argc, const char* argv[]) {
 	Build build = {
 		.sources = f_array_make(f_temp_alc()),
 		.module_from_directory = f_map64_make_raw(sizeof(ffzModule*), f_temp_alc()),
-		.module_from_import_op = f_map64_make_raw(sizeof(ffzCheckerContext*), f_temp_alc()),
+		.module_from_import_op = f_map64_make_raw(sizeof(ffzModuleChecker*), f_temp_alc()),
 	};
 
 	fString dir;
-	fOpt(ffzCheckerContext*) root_module_checker;
+	fOpt(ffzModule*) root_module;
 	if (ok) {
 		fSliceRaw my_strings = f_slice_lit(fString, F_LIT("heyy"), F_LIT("sailor"));
 		F_UNUSED(my_strings);
@@ -332,8 +331,8 @@ int main(int argc, const char* argv[]) {
 		fArena* arena = _f_temp_arena;
 		build.project = ffz_init_project(arena/*, modules_dir*/);
 
-		root_module_checker = parse_and_check_directory(&build, dir);
-		ok = root_module_checker != NULL;
+		root_module = parse_and_check_directory(&build, dir);
+		ok = root_module != NULL;
 	}
 
 	if (ok) {
@@ -349,7 +348,7 @@ int main(int argc, const char* argv[]) {
 		// consider building a procedure after right after checking it, then throwing away the AST nodes.
 		// Or maybe only do that for GMMC nodes.
 
-		ok = ffz_backend_gen_executable_gmmc(root_module_checker, build.sources.slice, build_dir, project_name);
+		ok = ffz_backend_gen_executable_gmmc(root_module, build.sources.slice, build_dir, project_name);
 	#else
 	#error
 	#endif

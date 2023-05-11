@@ -80,7 +80,7 @@
 
 typedef struct ffzProject ffzProject;
 typedef struct ffzModule ffzModule;
-typedef struct ffzCheckerContext ffzCheckerContext;
+typedef struct ffzModuleChecker ffzModuleChecker;
 typedef struct ffzSource ffzSource;
 typedef struct ffzType ffzType;
 typedef struct ffzConstantData ffzConstantData;
@@ -491,7 +491,7 @@ typedef struct ffzConstantData {
 			fOpt(ffzConstantData*) as_ptr_to_constant; // if NULL, `as_integer` is used instead
 		} ptr;
 
-		ffzCheckerContext* module;
+		ffzModule* module;
 		fString string_zero_terminated; // length doesn't contain the zero termination.
 
 		// Tightly packed array of ffzConstantData, used for constant array and slice initializers.
@@ -611,8 +611,6 @@ typedef struct ffzProject {
 		fAllocator* alc; // maybe switch this to Arena?
 		fMap64(ffzType*) type_from_hash; // key: TypeHash
 		fMap64(ffzConstantData*) constant_from_hash; // key: ConstantHash
-		
-		// We could put this to be per-checker-context...
 		fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
 	} bank;
 
@@ -649,18 +647,16 @@ typedef struct ffzProject {
 	*/
 } ffzProject;
 
-// Context and cache for type checking / analysing the tree.
-// NOTE: when checking, we also are allowed to modify the project by adding new types and constants.
-typedef struct ffzCheckerContext {
-	ffzProject* project;
+typedef struct ffzModuleChecker {
 	ffzModule* mod;
+	ffzProject* project;
 
-	fOpt(ffzCheckerContext*)(*module_from_import)(struct ffzCheckerContext*, ffzNode*);
+	fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*);
 
-	bool checked;
+	fAllocator* alc; // maybe replace this with arena?
 	uint32_t id;
 
-	fAllocator* alc;
+	bool finished;
 
 	// Immediate checker state
 	fOpt(ffzPolymorph*) instantiating_poly;
@@ -698,9 +694,7 @@ typedef struct ffzCheckerContext {
 
 	//fMap64(ffzNode*) import_decl_from_module;   // key: ffzModule*
 	//fMap64(ffzModule*) module_from_import_decl; // key: ffzNode*
-
-	void* userdata; // unused by the library
-} ffzCheckerContext;
+} ffzModuleChecker;
 
 struct ffzModule {
 	ffzProject* project;
@@ -711,12 +705,14 @@ struct ffzModule {
 
 	fString directory; // imports in this module will be relative to this directory. ...Should we even have this here? maybe not. Though its a good debug string.
 	
-	// So a module has an "active checker context". When you do`ffz_checked_get_info(node)`, it will implicitly use the
+	// So a module has an associated checker. When you do`ffz_checked_get_info(node)`, it will implicitly use the
 	// active context to look for the checked info.
-	fOpt(ffzCheckerContext*) active_ctx;
+	fOpt(ffzModuleChecker*) checker;
 
 	ffzNode* root;
 	ffzNode* root_last_child;
+
+	void* userdata; // ignored by the library
 };
 
 #ifdef __cplusplus
@@ -908,12 +904,9 @@ void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule* (*module_from_path)(fString path, void* userdata), void* userdata);
 
 /*
- `module_from_import` should give a back the finished checker context of the module imported by an import node.
+ `module_from_import` should return the fully-checked module imported by an import node.
 */
-ffzCheckerContext* ffz_make_checker_ctx(ffzModule* mod, fOpt(ffzCheckerContext*)(*module_from_import)(ffzCheckerContext*, ffzNode*), fAllocator* alc);
-
-// When you call this, all imported modules must have already been checked.
-ffzOk ffz_check_module(ffzCheckerContext* c);
+ffzOk ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fAllocator* alc, ffzError* out_error);
 
 
 // --- OS layer helpers ---
@@ -929,7 +922,6 @@ ffzOk ffz_check_module(ffzCheckerContext* c);
 //ffzOk ffz_check_toplevel_statement(ffzModule* c, ffzNode* node);
 //ffzOk ffz_instanceless_check(ffzModule* c, ffzNode* node, bool recursive);
 
-// -- Accessing data cached by the checker ------------------------------------------------------
 
 //bool ffz_find_top_level_declaration(ffzModule* c, fString name, ffzNodeOpDeclare* out_decl);
 
@@ -941,10 +933,14 @@ ffzOk ffz_check_module(ffzCheckerContext* c);
 inline ffzConstant ffz_as_constant(ffzType* type) { ffzConstant c = {ffz_builtin_type_type(), (ffzConstantData*)type}; return c; }
 inline ffzType* ffz_as_type(ffzConstantData* constant) { return (ffzType*)constant;}
 
-bool ffz_checked_has_info(ffzCheckerContext* ctx, ffzNode* node);
-ffzCheckInfo ffz_checked_get_info(ffzCheckerContext* ctx, ffzNode* node);
+// -- Accessing data cached by the checker ------------------------------------------------------
 
-bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, ffzTypeRecordFieldUse* out);
+// When calling any of the following functions, any modules that the parameters might be referring to must have been already checked.
+
+bool ffz_checked_has_info(ffzNode* node);
+ffzCheckInfo ffz_checked_get_info(ffzNode* node);
+
+bool ffz_type_find_record_field_use(ffzType* type, fString name, ffzTypeRecordFieldUse* out);
 
 // Find the field that is tagged @using and has type []T or [N]T. Returns true if exactly one such field is found.
 // e.g. with `struct{a: int, @using b: []int}`, the field `b` would be returned.
@@ -952,24 +948,25 @@ bool ffz_type_find_record_field_use(ffzProject* p, ffzType* type, fString name, 
 // Currently, this does not do a recursive search (i.e. it won't detect a field that is inside another field with @using.)
 bool ffz_find_subscriptable_base_type(ffzType* type, ffzTypeRecordFieldUse* out);
 
-
 // "definition" is the identifier of a value that defines the name of the value.
 // e.g. in `foo: int`, the foo identifier would be a definition.
-fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzCheckerContext* c, ffzNodeIdentifier* ident);
+fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzNodeIdentifier* ident);
 
 bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, uint32_t* out_index);
 
-// * Return the name of an import declaration, given an imported module.
-//     e.g. if module `m` contains `#Foo: import("imported_module")`, then the returned value would be "Foo"
-// * If `imported_module` is not imported by `m`, an empty string is returned.
-fString ffz_get_import_name(ffzCheckerContext* c, ffzModule* imported_module);
+/*
+ Return the name of an import declaration, given an imported module.
+    e.g. if module `m` contains `#Foo: import("imported_module")`, then the returned value would be "Foo"
+ If `imported_module` is not imported by `m`, an empty string is returned.
+*/
+fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module);
 
-// 
-// Given an argument list (either a post-curly-brackets initializer or a procedure call) that might contain
-// both unnamed as well as named arguments, this procedure will give the arguments
-// in a flat list in the same order as the `fields` array. Note that some arguments might not exist -
-// those elements will be set to NULL.
-// 
+/*
+ Given an argument list (either a post-curly-brackets initializer or a procedure call) that might contain
+ both unnamed as well as named arguments, this procedure will give the arguments
+ in a flat list in the same order as the `fields` array. Note that some arguments might not exist -
+ those elements will be set to NULL.
+*/
 void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(fOpt(ffzNode*))* out_arguments, fAllocator* alc);
 
 bool ffz_constant_is_zero(ffzConstantData constant);
@@ -980,12 +977,12 @@ bool ffz_node_is_polymorphic(ffzNode* node);
 
 inline fString ffz_decl_get_name(ffzNodeOpDeclare* decl) { return decl->Op.left->Identifier.name; }
 
-bool ffz_checked_decl_is_local_variable(ffzCheckerContext* ctx, ffzNodeOpDeclare* decl);
+bool ffz_checked_decl_is_local_variable(ffzNodeOpDeclare* decl);
 bool ffz_decl_is_global_variable(ffzNodeOpDeclare* decl);
 inline bool ffz_decl_is_parameter(ffzNodeOpDeclare* decl) { return decl->parent != NULL && decl->parent->kind == ffzNodeKind_ProcType; }
 
-inline bool ffz_checked_decl_is_variable(ffzCheckerContext* ctx, ffzNodeOpDeclare* decl) {
-	return ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl) || ffz_checked_decl_is_local_variable(ctx, decl);
+inline bool ffz_checked_decl_is_variable(ffzNodeOpDeclare* decl) {
+	return ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl) || ffz_checked_decl_is_local_variable(decl);
 }
 
 /*
@@ -993,7 +990,7 @@ inline bool ffz_checked_decl_is_variable(ffzCheckerContext* ctx, ffzNodeOpDeclar
  However, it's not as easy as that, because you might be implicitly calling a polymorphic procedure. To solve this, you can
  use `ffz_call_get_target_procedure`, which always gives you the instantiated procedure node of a call.
 */
-ffzNode* ffz_call_get_target_procedure(ffzCheckerContext* ctx, ffzNode* call);
+ffzNode* ffz_call_get_target_procedure(ffzNode* call);
 
 fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 
