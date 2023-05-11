@@ -14,16 +14,10 @@
 
 #define TRY(x) { if ((x).ok == false) return ffzOk{false}; }
 
-#define OPT(ptr) ptr
 
 #define FFZ_CAPI extern "C"
 
 #define PTR2HASH(x) ((u64)x)
-
-static ffzModuleChecker* get_checker(ffzNode* node) {
-	f_assert(node->_module->checker != NULL);
-	return node->_module->checker;
-}
 
 static void report_checker_error(ffzModuleChecker* c, fOpt(ffzNode*) node, fString msg) {
 	c->error.node = node;
@@ -80,7 +74,7 @@ enum InferFlag {
 
 static bool is_basic_type_size(u32 size) { return size == 1 || size == 2 || size == 4 || size == 8; }
 //static void print_constant(ffzProject* p, fWriter* w, ffzConstant* constant);
-static ffzOk check_node(ffzModuleChecker* c, ffzNode* node, OPT(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result);
+static ffzOk check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result);
 
 // ------------------------------
 
@@ -113,6 +107,10 @@ ffzConstantHash ffz_hash_constant(fOpt(ffzModuleChecker*) ctx, ffzConstant const
 		f_hasher_add(&h, constant.value->ptr.as_integer);
 	} break;
 
+	case ffzTypeTag_String: {
+		f_hasher_add(&h, f_hash64_str(constant.value->string_zero_terminated));
+	} break;
+
 	case ffzTypeTag_Slice: { f_trap(); } break;
 	case ffzTypeTag_FixedArray: {
 		ffzConstant length = constant.type->FixedArray.length;
@@ -128,7 +126,6 @@ ffzConstantHash ffz_hash_constant(fOpt(ffzModuleChecker*) ctx, ffzConstant const
 	case ffzTypeTag_Module: { f_hasher_add(&h, (u64)constant.value->module->self_id); } break;
 	case ffzTypeTag_Type: { f_trap(); } break;//{ f_hasher_add(&h, PTR2HASH(constant.value)); } break;
 	case ffzTypeTag_Enum: // fallthrough
-	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Bool: // fallthrough
 	case ffzTypeTag_Sint: // fallthrough
 	case ffzTypeTag_Uint: // fallthrough
@@ -268,7 +265,8 @@ void print_type(fWriter* w, ffzType* type) {
 	case ffzTypeTag_PolyDef: { f_print(w, "<poly-def>"); } break;
 	case ffzTypeTag_PolyParam: { f_print(w, "<poly-param>"); } break;
 	case ffzTypeTag_Module: { f_print(w, "<module>"); } break;
-	case ffzTypeTag_Bool: { f_print(w, "bool"); } break;
+	//case ffzTypeTag_Extra: { f_print(w, "<extra>"); } break;
+	//case ffzTypeTag_Bool: { f_print(w, "bool"); } break;
 	case ffzTypeTag_Pointer: {
 		f_print(w, "^");
 		print_type(w, type->Pointer.pointer_to);
@@ -556,7 +554,7 @@ FFZ_CAPI bool ffz_decl_is_global_variable(ffzNodeOpDeclare* decl) {
 }
 
 fOpt(ffzNodeIdentifier*) ffz_checked_find_definition_in_scope(ffzNode* scope, fString name) {
-	ffzModuleChecker* c = get_checker(scope);
+	ffzModuleChecker* c = ffz_get_checker(scope);
 	ffzDefinitionPath def_path = { scope, name };
 
 	ffzNodeIdentifier** def = f_map64_get(&c->definition_map, ffz_hash_definition_path(c, def_path));
@@ -737,7 +735,7 @@ static ffzOk check_argument_list(ffzModuleChecker* c, ffzNode* node, fSlice(ffzF
 //	return false;
 //}
 
-static ffzOk check_two_sided(ffzModuleChecker* c, ffzNode* left, ffzNode* right, fOpt(ffzType*) require_type, InferFlags flags, OPT(ffzType*)* out_type) {
+static ffzOk check_two_sided(ffzModuleChecker* c, ffzNode* left, ffzNode* right, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzType*)* out_type) {
 	// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
 	
 	// First try to check if we can get a concrete integer type
@@ -757,7 +755,7 @@ static ffzOk check_two_sided(ffzModuleChecker* c, ffzNode* left, ffzNode* right,
 		TRY(check_node(c, right, require_type, 0, &right_chk));
 	}
 
-	OPT(ffzType*) result = NULL;
+	fOpt(ffzType*) result = NULL;
 	if (right_chk.type && left_chk.type) {
 		if (types_match(left_chk.type, right_chk.type)) {
 			result = left_chk.type;
@@ -845,7 +843,7 @@ ffzTypeHash ffz_hash_type(fOpt(ffzModuleChecker*) ctx, ffzType* type) {
 	case ffzTypeTag_Type: break;
 	case ffzTypeTag_String: break;
 	case ffzTypeTag_PolyDef: break;
-	case ffzTypeTag_Extra: { f_hasher_add(&h, type->Extra.id); } break;
+	//case ffzTypeTag_Extra: { f_hasher_add(&h, type->Extra.id); } break;
 
 	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_Record: {
@@ -1342,6 +1340,13 @@ static ffzOk check_post_round_brackets(ffzModuleChecker* c, ffzNode* node, ffzTy
 			
 			ffzConstantData constant;
 			constant.module = c->module_from_import(c->mod, node);
+			
+			for (uint i=0; i<c->imported_modules.len; i++) {
+				if (c->imported_modules[i] == constant.module) f_trap(); // modules should be imported only once!!
+			}
+
+			f_array_push(&c->imported_modules, constant.module);
+
 			f_assert(constant.module != NULL);
 			result->const_val = make_constant(c, constant, result->type).value;
 			fall = false;
@@ -1356,7 +1361,7 @@ static ffzOk check_post_round_brackets(ffzModuleChecker* c, ffzNode* node, ffzTy
 			if (left_info.const_val == NULL) ERR(c, left, "Target type for type-cast was not a constant.");
 
 			result->type = ffz_as_type(left_info.const_val);
-			if (ffz_get_child_count(node) != 1) ERR(c, node, "Incorrect number of arguments in type initializer.");
+			if (ffz_get_child_count(node) != 1) ERR(c, node, "Incorrect number of arguments in type-cast; should be 1.");
 
 			ffzNode* arg = ffz_get_child(node, 0);
 			
@@ -1704,24 +1709,21 @@ static ffzOk check_member_access(ffzModuleChecker* c, ffzNode* node, ffzCheckInf
 }
 
 static ffzOk check_tag(ffzModuleChecker* c, ffzNode* tag) {
-	f_trap();
-#if 0
-	TRY(check_node(c, tag, NULL, InferFlag_TypeMeansZeroValue | InferFlag_RequireConstant));
-	if (tag->checked.type->tag != ffzTypeTag_Record) {
+	ffzCheckInfo info;
+	TRY(check_node(c, tag, NULL, InferFlag_TypeMeansZeroValue | InferFlag_RequireConstant, &info));
+	if (info.type->tag != ffzTypeTag_Record) {
 		ERR(c, tag, "Tag was not a struct literal.", "");
 	}
 
-	auto tags = f_map64_insert(&c->all_tags_of_type, tag->checked.type->hash, {}, fMapInsert_DoNotOverride);
+	auto tags = f_map64_insert(&c->all_tags_of_type, PTR2HASH(info.type), {}, fMapInsert_DoNotOverride);
 	if (tags.added) *tags._unstable_ptr = f_array_make<ffzNode*>(c->alc);
 	f_array_push(tags._unstable_ptr, tag);
-#endif
 	return FFZ_OK;
 }
 
 static ffzType* ffz_make_extra_type(ffzProject* p) {
-	ffzType t = { ffzTypeTag_Extra };
-	t.Extra.id = p->next_extra_type_id++;
-	return ffz_make_type_ex(p, NULL, t);
+	// NOTE: we're not interning this type using `ffz_make_type_ex`, because we always want an unique instance.
+	return f_mem_clone(ffzType{ ffzTypeTag_Record }, p->bank.alc);
 }
 
 FFZ_CAPI ffzModuleChecker* make_checker_ctx(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fAllocator* alc) {
@@ -1735,11 +1737,12 @@ FFZ_CAPI ffzModuleChecker* make_checker_ctx(ffzModule* mod, fOpt(ffzModule*)(*mo
 	c->definition_map = f_map64_make<ffzNodeIdentifier*>(alc);
 	c->enum_value_from_name = f_map64_make<u64>(alc);
 	c->enum_value_is_taken = f_map64_make<ffzNode*>(alc);
+	c->imported_modules = f_array_make<ffzModule*>(alc);
 	//c.pending_import_keywords = f_array_make<ffzNode*>(c.alc);
 	c->all_tags_of_type = f_map64_make<fArray(ffzNode*)>(alc);
 	c->poly_from_hash = f_map64_make<ffzPolymorph*>(alc);
 	//c.polymorphs = f_array_make<ffzPolymorph>(c.alc); f_array_push(&c.polymorphs, {}); // FFZ_POLYMORPH_ID_NONE
-	c->_extern_libraries = f_array_make<ffzNode*>(alc);
+	//c->_extern_libraries = f_array_make<ffzNode*>(alc);
 	//c.import_decl_from_module = f_map64_make<ffzNode*>(c.alc);
 	//c.module_from_import_decl = f_map64_make<ffzModule*>(c.alc);
 	return c;
@@ -1765,12 +1768,12 @@ FFZ_CAPI fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* d
 }
 
 FFZ_CAPI fOpt(ffzConstantData*) ffz_checked_get_tag_of_type(ffzNode* node, ffzType* tag_type) {
-	//for (ffzNode* tag_n = node->first_tag; tag_n; tag_n = tag_n->next) {
-	//	//f_assert(tag_n->has_checked);
-	//	if (type_is_a_bit_by_bit(node->_module->project, tag_n->checked.type, tag_type)) {
-	//		return tag_n->checked.constant;
-	//	}
-	//}
+	for (ffzNode* tag_n = node->first_tag; tag_n; tag_n = tag_n->next) {
+		ffzCheckInfo info = ffz_checked_get_info(tag_n);
+		if (types_match(info.type, tag_type)) {
+			return info.const_val;
+		}
+	}
 	return NULL;
 }
 
@@ -1886,12 +1889,12 @@ FFZ_CAPI fOpt(ffzNodeIdentifier*) ffz_find_definition(ffzNodeIdentifier* ident) 
 }
 
 FFZ_CAPI bool ffz_checked_has_info(ffzNode* node) {
-	ffzModuleChecker* c = get_checker(node);
+	ffzModuleChecker* c = ffz_get_checker(node);
 	return f_map64_get(&c->infos, (u64)node) != NULL;
 }
 
 FFZ_CAPI ffzCheckInfo ffz_checked_get_info(ffzNode* node) {
-	ffzModuleChecker* c = get_checker(node);
+	ffzModuleChecker* c = ffz_get_checker(node);
 	ffzCheckInfo* info = f_map64_get(&c->infos, (u64)node);
 	f_assert(info != NULL);
 	return *info;
@@ -1943,19 +1946,19 @@ static ffzOk check_identifier(ffzModuleChecker* c, ffzNodeIdentifier* node, ffzC
 	return FFZ_OK;
 }
 
-static ffzOk check_return(ffzModuleChecker* c, ffzNode* node, ffzCheckInfo* result) {
-	f_trap();//ffzNode* return_val = node->Return.value;
-	//
-	//ffzNode* proc = ffz_checked_get_parent_proc(node);
-	//f_assert(proc->checked.type);
-	//
-	//fOpt(ffzType*) ret_type = proc->checked.type->Proc.return_type;
-	//if (!return_val && ret_type) ERR(c, node, "Expected a return value, but got none.");
-	//if (return_val && !ret_type) ERR(c, return_val, "Expected no return value, but got one.");
-	//
-	//if (return_val) {
-	//	TRY(check_node(c, return_val, ret_type, 0));
-	//}
+static ffzOk check_return(ffzModuleChecker* c, ffzNode* node) {
+	ffzNode* return_val = node->Return.value;
+	
+	ffzNode* proc = ffz_checked_get_parent_proc(node);
+	ffzCheckInfo proc_info = ffz_checked_get_info(proc);
+
+	fOpt(ffzType*) ret_type = proc_info.type->Proc.return_type;
+	if (!return_val && ret_type) ERR(c, node, "Expected a return value, but got none.");
+	if (return_val && !ret_type) ERR(c, return_val, "Expected no return value, but got one.");
+	
+	if (return_val) {
+		TRY(check_node(c, return_val, ret_type, 0, NULL));
+	}
 	return FFZ_OK;
 }
 
@@ -2030,7 +2033,7 @@ static bool integer_is_negative(void* bits, u32 size) {
 	return false;
 }
 
-static ffzOk check_node(ffzModuleChecker* c, ffzNode* node, OPT(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result) {
+static ffzOk check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result) {
 	ZoneScoped;
 	if (fOpt(ffzCheckInfo*) existing = f_map64_get(&c->infos, (u64)node)) {
 		if (out_result) *out_result = *existing;
@@ -2067,7 +2070,7 @@ static ffzOk check_node(ffzModuleChecker* c, ffzNode* node, OPT(ffzType*) requir
 		if (!is_parameter && !lhs->Identifier.is_constant) {
 			// check if this declaration is a local variable
 
-			for (ffzNode* n = node->parent; n; n = n->parent) {
+			for (ffzNode* n = node->parent; n && n->parent; n = n->parent) {
 				ffzCheckInfo n_chk = ffz_checked_get_info(n);
 
 				if (n->kind == ffzNodeKind_Enum) break;
@@ -2116,7 +2119,7 @@ static ffzOk check_node(ffzModuleChecker* c, ffzNode* node, OPT(ffzType*) requir
 	} break;
 
 	case ffzNodeKind_Assign: { TRY(check_assign(c, node, &result)); } break;
-	case ffzNodeKind_Return: { TRY(check_return(c, node, &result)); } break;
+	case ffzNodeKind_Return: { TRY(check_return(c, node)); } break;
 
 	case ffzNodeKind_Scope: {
 		if (require_type == NULL) {
@@ -2201,11 +2204,11 @@ static ffzOk check_node(ffzModuleChecker* c, ffzNode* node, OPT(ffzType*) requir
 	
 	case ffzNodeKind_Keyword: {
 		ffzKeyword keyword = node->Keyword.keyword;
-		OPT(ffzType*) type_expr = ffz_builtin_type(c->project, keyword);
+		fOpt(ffzType*) type_expr = ffz_builtin_type(c->project, keyword);
 		
-		if (keyword == ffzKeyword_extern) {
-			f_array_push(&c->_extern_libraries, node);
-		}
+		//if (keyword == ffzKeyword_extern) {
+		//	f_array_push(&c->_extern_libraries, node);
+		//}
 
 		if (type_expr) {
 			set_result_constant(&result, ffz_as_constant(type_expr));
@@ -2364,23 +2367,24 @@ static ffzOk check_node(ffzModuleChecker* c, ffzNode* node, OPT(ffzType*) requir
 	
 	case ffzNodeKind_Equal: case ffzNodeKind_NotEqual: case ffzNodeKind_Less:
 	case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater: case ffzNodeKind_GreaterOrEqual: {
-		f_trap();//OPT(ffzType*) type;
-		f_trap();//TRY(check_two_sided(c, node->Op.left, node->Op.right, &type));
-		f_trap();//f_assert(type); // TODO
-		f_trap();//
-		f_trap();//bool is_equality_check = node->kind == ffzNodeKind_Equal || node->kind == ffzNodeKind_NotEqual;
-		f_trap();//if (ffz_type_is_comparable(type) || (is_equality_check && ffz_type_is_comparable_for_equality(type))) {
-		f_trap();//	result.type = ffz_builtin_type(c, ffzKeyword_bool);
-		f_trap();//}
-		f_trap();//else {
-		f_trap();//	ERR(c, node, "Operator '~s' is not defined for type '~s'",
-		f_trap();//		ffz_node_kind_to_op_string(node->kind), ffz_type_to_string(c->project, type));
-		f_trap();//}
+		fOpt(ffzType*) type;
+		TRY(check_two_sided(c, node->Op.left, node->Op.right, require_type, flags, &type));
+		
+		if (type) { // hmm, maybe we shouldn't allow propagating NULL types from check_two_sided.
+			bool is_equality_check = node->kind == ffzNodeKind_Equal || node->kind == ffzNodeKind_NotEqual;
+			if (ffz_type_is_comparable(type) || (is_equality_check && ffz_type_is_comparable_for_equality(type))) {
+				result.type = ffz_builtin_type(c->project, ffzKeyword_bool);
+			}
+			else {
+				ERR(c, node, "Operator '~s' is not defined for type '~s'",
+					ffz_node_kind_to_op_string(node->kind), ffz_type_to_string(type, c->alc));
+			}
+		}
 	} break;
 	
 	case ffzNodeKind_Add: case ffzNodeKind_Sub: case ffzNodeKind_Mul:
 	case ffzNodeKind_Div: case ffzNodeKind_Modulo: {
-		OPT(ffzType*) type;
+		fOpt(ffzType*) type;
 		TRY(check_two_sided(c, node->Op.left, node->Op.right, require_type, flags, &type));
 		
 		if (node->kind == ffzNodeKind_Modulo) {
@@ -2652,22 +2656,23 @@ FFZ_CAPI ffzProject* ffz_init_project(fArena* arena) {
 			p->type_poly_def = ffz_make_basic_type(p, ffzTypeTag_PolyDef, 0, false);
 
 			ffzConstantData* zero = ffz_zero_value_constant();
-			//{
-			//	ffzType* string = ffz_make_basic_type(p, ffzTypeTag_String, 16, true);
-			//	p->builtin_types[ffzKeyword_string] = string;
-			//
-			//	ffzRecordBuilder b = ffz_record_builder_init(p, 2);
-			//	ffz_record_builder_add_member(&b, F_LIT("ptr"), ffz_make_type_ptr(p, ffz_builtin_type(p, ffzKeyword_u8)), zero, {});
-			//	ffz_record_builder_add_member(&b, F_LIT("len"), ffz_builtin_type(p, ffzKeyword_uint), zero, {});
-			//	ffz_record_builder_finish_to_existing(&b, string);
-			//}
+			
+			{
+				p->builtin_types[ffzKeyword_string] = ffz_make_basic_type(p, ffzTypeTag_String, 16, true);
+			
+				ffzRecordBuilder b = ffz_record_builder_init(p, 2);
+				ffz_record_builder_add_member(&b, F_LIT("ptr"), ffz_make_type_ptr(p, ffz_builtin_type(p, ffzKeyword_u8)), zero, {});
+				ffz_record_builder_add_member(&b, F_LIT("len"), ffz_builtin_type(p, ffzKeyword_uint), zero, {});
+				ffz_record_builder_finish(&b, p->builtin_types[ffzKeyword_string]);
+			}
 
-			//{
-			//	ffzRecordBuilder b = ffz_record_builder_init(p, 1);
-			//	ffz_record_builder_add_member(&b, F_LIT("library"), ffz_builtin_type(p, ffzKeyword_string), NULL, {});
-			//	ffz_record_builder_add_member(&b, F_LIT("name_prefix"), ffz_builtin_type(p, ffzKeyword_string), zero, {});
-			//	ffz_record_builder_finish(&b, &p->builtin_types[ffzKeyword_extern]);
-			//}
+			{
+				p->builtin_types[ffzKeyword_extern] = ffz_make_extra_type(p);
+				ffzRecordBuilder b = ffz_record_builder_init(p, 1);
+				ffz_record_builder_add_member(&b, F_LIT("library"), ffz_builtin_type(p, ffzKeyword_string), NULL, {});
+				ffz_record_builder_add_member(&b, F_LIT("name_prefix"), ffz_builtin_type(p, ffzKeyword_string), zero, {});
+				ffz_record_builder_finish(&b, p->builtin_types[ffzKeyword_extern]);
+			}
 
 			p->builtin_types[ffzKeyword_using] = ffz_make_extra_type(p);
 			p->builtin_types[ffzKeyword_global] = ffz_make_extra_type(p);
@@ -2743,25 +2748,6 @@ FFZ_CAPI ffzOk ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_im
 			*out_error = c->error;
 			return { false };
 		}
-	}
-
-	f_for_array(ffzNode*, c->_extern_libraries, it) {
-		f_trap(); //ffzNode* lit = it.elem->parent;
-		//ffzCheckInfo lit_info = ffz_checked_get_info(c, lit);
-		//if (lit_info.const_val == NULL) ERR(c, lit, "`extern` has no {} after it.");
-		//
-		//fString library = lit_info.const_val->record_fields[0].string_zero_terminated;
-		//if (library == F_LIT("?")) continue;
-		//
-		//if (f_str_cut_start(&library, F_LIT(":"))) {
-		//	f_array_push(&c->project->link_system_libraries, library);
-		//}
-		//else {
-		//	if (!f_files_path_to_canonical(c->mod->directory, library, f_temp_alc(), &library)) {
-		//		ERR(c, lit, "Failed to import external library \"~s\" relative to module base directory \"~s\"", library, c->mod->directory);
-		//	}
-		//	f_array_push(&c->mod->project->link_libraries, library);
-		//}
 	}
 
 	//f_array_push(&m->project->checkers_dependency_sorted, m);

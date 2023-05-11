@@ -26,7 +26,8 @@
 
 #ENABLE_DEBUG_CHECKS: true
 
-// globals shouldn't really be allowed in modules, but only for the basic module an exception is made
+// Globals shouldn't really be allowed in modules, but for the basic module an exception is made, because
+// getting scratch memory should be a basic programmer right.
 @global
 _tl_arena_tls_index: u32(0)
 
@@ -102,7 +103,7 @@ _tl_arena_tls_index: u32(0)
 	}
 	else {
 		if ENABLE_DEBUG_CHECKS { // erase the top
-			_debug_clear_memory(^u8(uint(in.old_ptr) + in.size), in.old_size - in.size) 
+			_debug_clear_memory(^u8(uint(in.old_ptr) + in.size), in.old_size - in.size)
 		}
 	}
 	

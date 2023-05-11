@@ -543,10 +543,9 @@ void f_leak_tracker_deinit() {
 	f_assert(_f_leak_tracker.active);
 	_f_leak_tracker.active = false;
 	
-	fLeakTracker_Entry* entry;
-	for f_map64_each_raw(&_f_leak_tracker.active_allocations, key, &entry) {
+	f_for_map64(fLeakTracker_Entry*, _f_leak_tracker.active_allocations, it) {
 		__debugbreak();//printf("Leak tracker still has an active entry! Original callstack:\n");
-		for (uint i = 0; i < entry->callstack.len; i++) {
+		for (uint i = 0; i < it.elem->callstack.len; i++) {
 			//fLeakTrackerCallstackEntry stackframe = ARRAY_IDX(fLeakTrackerCallstackEntry, entry->callstack, i);
 			__debugbreak(); //printf("   - file: %s, line: %u\n", f_str_t_to_cstr(stackframe.file), stackframe.line);
 		}

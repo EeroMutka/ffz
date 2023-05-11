@@ -71,9 +71,7 @@ struct Gen {
 	ffzModule* root_module;
 
 	fAllocator* alc;
-	//ffzModule* checker;
-	//ffzModuleChecker* checker_ctx;
-
+	
 	gmmcModule* gmmc;
 
 	struct {
@@ -1367,7 +1365,7 @@ static u32 get_fileid_of_source(Gen* g, ffzSource* source) {
 	return *insertion._unstable_ptr;
 }
 
-static bool build_x64(Gen* g, fString build_dir) {
+static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries, fMap64(fString) link_system_libraries) {
 	ZoneScoped;
 	fString obj_filename = F_LIT("a.obj");
 	fString obj_file_path = f_str_join_tmp(build_dir, F_LIT("/"), obj_filename);
@@ -1610,12 +1608,12 @@ static bool build_x64(Gen* g, fString build_dir) {
 		f_array_push(&ms_linker_args, F_LIT("/DEBUG"));
 		f_array_push(&ms_linker_args, F_LIT("/DYNAMICBASE:NO")); // to get deterministic pointers
 
-		//for (uint i = 0; i < g->project->link_libraries.len; i++) {
-		//	f_array_push(&ms_linker_args, g->project->link_libraries[i]);
-		//}
-		//for (uint i = 0; i < g->project->link_system_libraries.len; i++) {
-		//	f_array_push(&ms_linker_args, g->project->link_system_libraries[i]);
-		//}
+		f_for_map64(fString, link_libraries, it) {
+			f_array_push(&ms_linker_args, it.elem);
+		}
+		f_for_map64(fString, link_system_libraries, it) {
+			f_array_push(&ms_linker_args, it.elem);
+		}
 
 		// specify reserve and commit for the stack.
 		f_array_push(&ms_linker_args, F_LIT("/STACK:0x200000,200000"));
@@ -1723,6 +1721,22 @@ static bool build_c(Gen* g, fString build_dir) {
 	return exit_code == 0;
 }
 
+static void topological_sort_import_tree(fArray(ffzModule*)* modules, ffzModule* m) {
+	f_for_array(ffzModule*, m->checker->imported_modules, imported) {
+		bool exists = false;
+		f_for_array(ffzModule*, (*modules), it) {
+			if (it.elem == imported.elem) {
+				exists = true;
+				break;
+			}
+		}
+		if (!exists) {
+			topological_sort_import_tree(modules, imported.elem);
+		}
+	}
+	f_array_push(modules, m);
+}
+
 extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name) {
 	ZoneScoped;
 	ffzProject* project = root_module->project;
@@ -1745,9 +1759,54 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString 
 	g.cv_types = f_array_make<cviewType>(g.alc);
 	g.cv_type_from_ffz_type = f_map64_make<cviewTypeIdx>(g.alc);
 
-	//for (u32 i = 0; i < sources.len; i++) {
-	//	
-	//}
+	fArray(ffzModule*) modules = f_array_make<ffzModule*>(g.alc);
+	topological_sort_import_tree(&modules, root_module);
+
+	fMap64(fString) link_libraries = f_map64_make<fString>(g.alc);
+	fMap64(fString) link_system_libraries = f_map64_make<fString>(g.alc);
+
+	f_for_array(ffzModule*, modules, it) {
+		ffzModuleChecker* checker = it.elem->checker;
+		fArray(ffzNode*)* extern_tags = f_map64_get(&checker->all_tags_of_type, (u64)ffz_builtin_type(g.project, ffzKeyword_extern));
+		
+		if (extern_tags) {
+			f_for_array(ffzNode*, *extern_tags, tag) {
+				ffzCheckInfo check_info = ffz_checked_get_info(tag.elem);
+				f_assert(check_info.const_val != NULL);
+			
+				fString library = check_info.const_val->record_fields[0].string_zero_terminated;
+				if (library == F_LIT("?")) continue;
+
+				if (f_str_cut_start(&library, F_LIT(":"))) {
+					f_map64_insert(&link_system_libraries, f_hash64_str(library), library, fMapInsert_DoNotOverride);
+				}
+				else {
+					if (!f_files_path_to_canonical(checker->mod->directory, library, f_temp_alc(), &library)) {
+						f_trap(); //ERR(c, lit, "Failed to import external library \"~s\" relative to module base directory \"~s\"", library, c->mod->directory);
+					}
+					f_map64_insert(&link_libraries, f_hash64_str(library), library, fMapInsert_DoNotOverride);
+				}
+			}
+		}
+
+		// check for the "link_against_libc" build option
+		ffzType* build_option_type = ffz_builtin_type(g.project, ffzKeyword_build_option);
+		fArray(ffzNode*)* build_opts = f_map64_get(&checker->all_tags_of_type, (u64)build_option_type);
+		if (build_opts) {
+			for (uint i = 0; i < build_opts->len; i++) {
+				ffzNode* decl = (*build_opts)[i]->parent;
+				
+				// TODO: error reporting. The question is, is this a valid FFZ program if this fails? If it's a valid FFZ program,
+				// then it should be catched in the checker phase. But should we allow passing isolated flags to the backend?
+				f_assert(decl->kind == ffzNodeKind_Declare);
+				
+				if (ffz_decl_get_name(decl) == F_LIT("link_against_libc")) {
+					g.link_against_libc = true;
+					break;
+				}
+			}
+		}
+	}
 
 	//for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
 	//	ffzModule* mod = project->checkers_dependency_sorted[i];
@@ -1758,28 +1817,7 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString 
 		// hmm........ so should a ffzProject be responsible for holding analysis about the program?
 		// or should it just be responsible for holding the program itself?
 		// I think it makes sense to separate the analysis. That way you could make an arena for analysis/checking, modify the program, clear the arena, etc.
-		// Separating dependencies is good I think.
 
-		//g.checker = checker;
-
-		// check for the "link_against_libc" build option
-		//ffzType* build_option_type = ffz_builtin_type(mod, ffzKeyword_build_option);
-		//fArray(ffzNode*)* build_opts = f_map64_get(&mod->all_tags_of_type, build_option_type->hash);
-		//if (build_opts) {
-		//	for (uint i = 0; i < build_opts->len; i++) {
-		//		ffzNode* decl = (*build_opts)[i]->parent;
-		//		
-		//		// TODO: error reporting. The question is, is this a valid FFZ program if this fails? If it's a valid FFZ program,
-		//		// then it should be catched in the checker phase. But should we allow passing isolated flags to the backend?
-		//		f_assert(decl->kind == ffzNodeKind_Declare);
-		//		
-		//		if (ffz_decl_get_name(decl) == F_LIT("link_against_libc")) {
-		//			g.link_against_libc = true;
-		//			break;
-		//		}
-		//	}
-		//}
-		
 		for FFZ_EACH_CHILD(n, mod->root) {
 			gen_statement(&g, n);
 		}
@@ -1787,7 +1825,7 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString 
 
 	bool x64 = true;
 	if (x64) {
-		return build_x64(&g, build_dir);
+		return build_x64(&g, build_dir, link_libraries, link_system_libraries);
 	}
 	else {
 		return build_c(&g, build_dir);

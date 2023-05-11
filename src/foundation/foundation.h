@@ -367,20 +367,48 @@ inline bool _f_array_each_ptr_condition(void* array, uint* i, void** elem, uint 
 	return false;
 }
 
-// Magical array iteration macro - works both on fArray and fSlice types.
-// e.g.
-//    fArray(float) foo;
-//    f_for_array(float, foo, it) {
-//       printf("foo at index %d has the value of %f\n", it.i, it.elem);
-//    }
-// 
+/*
+ Magical array iteration macro - works both on fArray and fSlice types.
+ e.g.
+    fArray(float) foo;
+    f_for_array(float, foo, it) {
+       printf("foo at index %d has the value of %f\n", it.i, it.elem);
+    }
+*/
 #define f_for_array(T, array, it_name) \
 	struct F_CONCAT(f_, __LINE__) {uint i; T elem;}; \
-	for (struct F_CONCAT(f_, __LINE__) it_name = {0}; \
-		_f_array_each_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
+	for (struct F_CONCAT(f_, __LINE__) it_name = {0}; _f_array_each_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
 
 //#define f_for_array_ptr(T, array, it_name) (struct f_##__LINE__{uint i; T* elem;} it_name = {0}; \
 //	_f_array_each_ptr_condition(&(array), &it_name.i, &it_name.elem, sizeof(T)); it_name.i++)
+
+
+#define F_MAP64_EMPTY_KEY (0xFFFFFFFFFFFFFFFF)
+#define F_MAP64_DEAD_BUT_REQUIRED_FOR_CHAIN_KEY (0xFFFFFFFFFFFFFFFE)
+#define F_MAP64_LAST_VALID_KEY (0xFFFFFFFFFFFFFFFD)
+
+inline bool _f_for_map64_condition(void* _map, uint* i, u64* key, void* elem) {
+	fMap64Raw* map = (fMap64Raw*)_map;
+	if (!map->slots) return false;
+
+	u32 slot_size = map->value_size + 8;
+	for (;;) {
+		if (*i >= map->slot_count) return false;
+
+		u64* key_ptr = (u64*)((u8*)map->slots + (*i) * slot_size);
+
+		if (*key_ptr <= F_MAP64_LAST_VALID_KEY) {
+			*key = *key_ptr;
+			memcpy(elem, key_ptr + 1, map->value_size);
+			return true;
+		}
+		(*i)++;
+	}
+}
+
+#define f_for_map64(T, map, it_name) \
+	struct F_CONCAT(f_, __LINE__) {uint i; u64 key; T elem;}; \
+	for (struct F_CONCAT(f_, __LINE__) it_name = {0}; _f_for_map64_condition(&(map), &it_name.i, &it_name.key, &it_name.elem); it_name.i++)
 
 
 // c helper macros
@@ -607,31 +635,6 @@ inline fArenaMark f_temp_get_mark() { return f_arena_get_mark(_f_temp_arena); }
 inline void f_temp_set_mark(fArenaMark mark) { f_arena_set_mark(_f_temp_arena, mark); }
 
 uint_pow2 f_round_up_power_of_2(uint v); // todo: move this into the macros section as an inline function?
-
-#define F_MAP64_EMPTY_KEY (0xFFFFFFFFFFFFFFFF)
-#define F_MAP64_DEAD_BUT_REQUIRED_FOR_CHAIN_KEY (0xFFFFFFFFFFFFFFFE)
-#define F_MAP64_LAST_VALID_KEY (0xFFFFFFFFFFFFFFFD)
-
-inline bool f_map64_iterate(fMap64Raw* map, uint* i, uint* key, void** value_ptr) {
-	if (!map->slots) return false;
-	u32 slot_size = map->value_size + 8;
-
-	for (;;) {
-		if (*i >= map->slot_count) return false;
-
-		u64* key_ptr = (u64*)((u8*)map->slots + (*i) * slot_size);
-		(*i)++;
-
-		if (*key_ptr <= F_MAP64_LAST_VALID_KEY) {
-			*key = *key_ptr;
-			*value_ptr = key_ptr + 1;
-			return true;
-		}
-	}
-}
-
-#define f_map64_each_raw(map, key, value_ptr) (uint _i=0, key=0; f_map64_iterate((fMap64Raw*)map, &_i, &key, (void**)value_ptr); )
-
 
 
 // WARNING: The largest 2 key values (see HASHMAP64_LAST_VALID_KEY)

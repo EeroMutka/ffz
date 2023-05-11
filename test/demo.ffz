@@ -1,16 +1,11 @@
 // NEXT UP: get modules back to working
 
-#Lettuce: import("Lettuce")
-
-//#MyStruct: struct {
-//	ptr: ^MyStruct
-//}
+#Basic: import(":Basic")
 
 //#array_set: poly[N, T] proc(array: [N]T, elem: T) {
 //	testing: N
 //	dbgbreak
 //}
-
 
 //#print: poly[N, T] proc(test: FixedArray[N, T]) {
 //	
@@ -20,9 +15,7 @@
 //	//a.x = T(2)
 //}
 
-#main: proc {
-	
-	Lettuce.adder(25)
+#entry: proc {
 	
 	dbgbreak
 	

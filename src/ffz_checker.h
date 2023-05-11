@@ -458,7 +458,7 @@ typedef enum ffzTypeTag {
 	ffzTypeTag_String, // string has the semantics of `#string: distinct []u8` with a custom iterator attached
 	ffzTypeTag_FixedArray,
 	
-	ffzTypeTag_Extra,
+	//ffzTypeTag_Extra,
 } ffzTypeTag;
 
 struct ffzDefinitionPath {
@@ -651,42 +651,46 @@ typedef struct ffzModuleChecker {
 	ffzModule* mod;
 	ffzProject* project;
 
-	fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*);
-
 	fAllocator* alc; // maybe replace this with arena?
 	uint32_t id;
 
 	bool finished;
+	ffzError error;
+	
+	fArray(ffzModule*) imported_modules;
+
+	// -- internal --------------------------------
+	
+	fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*);
 
 	// Immediate checker state
 	fOpt(ffzPolymorph*) instantiating_poly;
 	bool is_inside_polymorphic_node;
-	ffzError error;
 
 	fMap64(ffzCheckInfo) infos; // key: ffzNode*
 
-	// In order to be able to quickly lookup in any scope for a variable by its name,
-	// we need to build a hash map for this purpose.
-	// We could build this during parsing, but then we couldn't easily do stuff like
-	// 1. parse 2. check 3. modify 4. check again, because the definitions would be filled in the parsing stage.
+	/*
+	 In order to be able to quickly lookup in any scope for a variable by its name,
+	 we need to build a hash map for this purpose.
+	 We could build this during parsing, but then we couldn't easily do stuff like
+	 1. parse 2. check 3. modify 4. check again, because the definitions would be filled in the parsing stage.
+	*/
+	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
 
 	//fMap64Raw checked_identifiers; // key: ffz_hash_poly_inst. This is to detect cycles. We could reduce the memory footprint here by removing things as we go...
 	
-	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
-	
-	//fArray(ffzNode*) pending_import_keywords;
-
 	fMap64(ffzPolymorph*) poly_from_hash;
 	//fArray(ffzPolymorph) polymorphs; // index into this using ffzPolymorphID
 
 	// Contains a list of all tags within this module for any given type.
-	fMap64(fArray(ffzNode*)) all_tags_of_type; // key: TypeHash
+	// NOTE: all nodes in this array must contain a checked constant
+	fMap64(fArray(ffzNode*)) all_tags_of_type;
 
 	// Only required during checking.
 	fMap64(u64) enum_value_from_name; // key: FieldHash.
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
-	fArray(ffzNode*) _extern_libraries; // Array of all `extern` keywords in the module
+	//fArray(ffzNode*) _extern_libraries; // Array of all `extern` keywords in the module
 
 	// An `import` node must always be part of a declaration, and must uniquely import a module that
 	// hasn't been imported previously. This restriction exists, so that we have a way of mapping
@@ -936,6 +940,10 @@ inline ffzType* ffz_as_type(ffzConstantData* constant) { return (ffzType*)consta
 // -- Accessing data cached by the checker ------------------------------------------------------
 
 // When calling any of the following functions, any modules that the parameters might be referring to must have been already checked.
+
+inline ffzModuleChecker* ffz_get_checker(ffzNode* node) {
+	f_assert(node->_module->checker != NULL); return node->_module->checker;
+}
 
 bool ffz_checked_has_info(ffzNode* node);
 ffzCheckInfo ffz_checked_get_info(ffzNode* node);

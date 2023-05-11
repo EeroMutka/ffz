@@ -21,6 +21,7 @@ typedef struct Build {
 	fMap64(ffzModule*) module_from_directory;
 	fMap64(ffzModule*) module_from_import_op; // key: ffzNode*
 	ffzProject* project;
+	fString modules_directory;
 } Build;
 
 bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name);
@@ -140,9 +141,8 @@ static fOpt(ffzModule*) module_from_path(Build* build, fString path, ffzModule* 
 
 	// `:` means that the path is relative to the modules directory shipped with the compiler
 	if (f_str_starts_with(path, F_LIT(":"))) {
-		//fString slash = F_LIT("/");
-
-		f_trap(); //path = f_str_join_tmp(mod->project->modules_directory, slash, f_str_slice_after(path, 1));
+		fString slash = F_LIT("/");
+		path = f_str_join_tmp(build->modules_directory, slash, f_str_slice_after(path, 1));
 	}
 	else {
 		// let's make the import path absolute
@@ -154,11 +154,11 @@ static fOpt(ffzModule*) module_from_path(Build* build, fString path, ffzModule* 
 	return parse_and_check_directory(build, path);
 }
 
-
 fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffzError* out_error) {
 
 	// Canonicalize the path to deduplicate modules that have the same absolute path, but were imported with different path strings.
 	if (!f_files_path_to_canonical((fString){0}, directory, f_temp_alc(), &directory)) {
+		f_trap();
 		return NULL; // TODO: error report
 	}
 
@@ -176,6 +176,7 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 	visit.directory = directory;
 
 	if (!f_files_visit_directory(directory, file_visitor, &visit)) {
+		f_trap();
 		return NULL; // TODO: error report
 	}
 
@@ -219,6 +220,7 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 			
 			fOpt(ffzModule*) imported_module = module_from_path(build, import_path, mod);
 			if (!imported_module) {
+				f_trap();
 				//ERR(c, import_op, "Imported module contains errors.");
 				return NULL;
 			}
@@ -263,17 +265,16 @@ static fOpt(ffzModule*) module_from_import(ffzModule* mod, ffzNode* import_node)
 static fOpt(ffzModule*) parse_and_check_directory(Build* build, fString directory) {
 	TracyCZone(tr, true);
 
+	F_HITS(_c, 2);
 	ffzError err;
 	fOpt(ffzModule*) mod = add_module_from_filesystem(build, directory, &err);
-	mod->userdata = build;
 	
 	if (mod && DEBUG_PRINT_AST) {
 		dump_module_ast(mod, directory);
 	}
 
-	if (mod/* && !module->checked*/) {
-		//result = ffz_make_checker_ctx(mod, module_from_import, mod->alc);
-		
+	if (mod && mod->checker == NULL) {
+		mod->userdata = build;
 		ffzError check_err;
 		if (!ffz_check_module(mod, module_from_import, mod->alc, &check_err).ok) {
 			err = check_err;
@@ -307,11 +308,16 @@ int main(int argc, const char* argv[]) {
 		f_cprint("Please provide a directory to compile!\n");
 		ok = false;
 	}
+	
+	fString exe_path = f_os_get_executable_path(f_temp_alc());
+	fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
+	fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
 
 	Build build = {
 		//.sources = f_array_make(f_temp_alc()),
 		.module_from_directory = f_map64_make_raw(sizeof(ffzModule*), f_temp_alc()),
 		.module_from_import_op = f_map64_make_raw(sizeof(ffzModuleChecker*), f_temp_alc()),
+		.modules_directory = modules_dir,
 	};
 
 	fString dir;
@@ -321,9 +327,6 @@ int main(int argc, const char* argv[]) {
 		F_UNUSED(my_strings);
 
 		dir = f_str_from_cstr(argv[1]);
-		//fString exe_path = f_os_get_executable_path(f_temp_alc());
-		//fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
-		//fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
 
 		fArena* arena = _f_temp_arena;
 		build.project = ffz_init_project(arena/*, modules_dir*/);

@@ -151,7 +151,7 @@ inline void f_slice_copy(fSlice(T) dst, fSlice(T) src) {
 	f_mem_copy(dst.data, src.data, src.len * sizeof(T));
 }
 
-#define MAP64_EACH(map, key, value_ptr) f_map64_each_raw((fMap64Raw*)map, key, (void**)value_ptr)
+//#define MAP64_EACH(map, key, value_ptr) f_for_map64((fMap64Raw*)map, key, (void**)value_ptr)
 
 template<typename T>
 inline fMap64(T) f_map64_make(fAllocator* alc) {
