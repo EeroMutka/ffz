@@ -181,7 +181,7 @@ _tl_arena_tls_index: u32(0)
 }
 
 #get_alignment_for_size: proc(size: uint) => uint {
-	#small_aligns: [?]uint{0, 1, 2, 4, 4, 8, 8, 8, 8}
+	#small_aligns: [9]uint{0, 1, 2, 4, 4, 8, 8, 8, 8}
 	if size <= 8 {
 		ret small_aligns[size]
 	}
@@ -296,7 +296,7 @@ _tl_arena_tls_index: u32(0)
 }
 
 #free_slice: poly[T] proc(slice: []T, alc: ^Allocator) {
-	alc._proc(alc, (^raw)(slice.ptr), slice.len, 0, 0)
+	_ = alc._proc(alc, (^raw)(slice.ptr), slice.len, 0, 0)
 }
 
 #assert: proc(x: bool) {

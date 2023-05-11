@@ -103,35 +103,36 @@ struct Gen {
 static void gen_statement(Gen* g, ffzNode* node);
 static Value gen_expr(Gen* g, ffzNode* node, bool address_of);
 
-static fString make_name(Gen* g, ffzNode* node = NULL, bool pretty = true) {
+static fString make_name(Gen* g, fOpt(ffzNode*) node = NULL, bool pretty = true) {
 	// @memory; we could reuse the names
 	fStringBuilder name;
 	f_init_string_builder(&name, f_temp_alc());
 
+	fOpt(ffzConstantData*) extern_tag;
 	if (node) {
-		fOpt(ffzConstantData*) extern_tag = ffz_checked_get_tag(node->parent, ffzKeyword_extern);
+		extern_tag = ffz_checked_get_tag(node->parent, ffzKeyword_extern);
 		if (extern_tag) {
 			f_prints(name.w, extern_tag->record_fields[1].string_zero_terminated); // name_prefix
 		}
 
 		f_prints(name.w, ffz_get_parent_decl_name(node));
-		
-		if (node->_module != g->root_module) {
-			// We don't want to export symbols from imported modules.
-			// Currently, we're giving these symbols unique ids and exporting them anyway, because
-			// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
-			
-			bool is_module_defined_entry = ffz_checked_get_tag(node->parent, ffzKeyword_module_defined_entry);
-			if (extern_tag == NULL && !is_module_defined_entry) {
-				f_print(name.w, "$$~u32", node->_module->self_id);
-				//f_prints(name.w, g->checker->_dbg_module_import_name);
-			}
-		}
 	}
 	
 	if (name.str.len == 0) {
 		f_print(name.w, "_ffz_~x64", g->dummy_name_counter);
 		g->dummy_name_counter++;
+	}
+
+	if (node && node->_module != g->root_module) {
+		// We don't want to export symbols from imported modules.
+		// Currently, we're giving these symbols unique ids and exporting them anyway, because
+		// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
+			
+		bool is_module_defined_entry = ffz_checked_get_tag(node->parent, ffzKeyword_module_defined_entry);
+		if (extern_tag == NULL && !is_module_defined_entry) {
+			f_print(name.w, "$$~u32", node->_module->self_id);
+			//f_prints(name.w, g->checker->_dbg_module_import_name);
+		}
 	}
 
 	return name.buffer.slice;
@@ -733,8 +734,6 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	else if (ffz_node_is_operator(node->kind)) {
 		fOpt(ffzNode*) left = node->Op.left;
 		ffzNode* right = node->Op.right;
-		ffzCheckInfo left_checked;
-		if (left) left_checked = ffz_checked_get_info(left);
 
 		switch (node->kind) {
 
@@ -745,6 +744,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		case ffzNodeKind_LessOrEqual: case ffzNodeKind_Greater:
 		case ffzNodeKind_GreaterOrEqual:
 		{
+			ffzCheckInfo left_checked = ffz_checked_get_info(left);
 			ffzType* input_type = left_checked.type;
 			bool is_signed = ffz_type_is_signed_integer(input_type->tag);
 			
@@ -824,7 +824,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				}
 			}
 			else {
-				//ffzCheckedInst left_chk = ffz_get_checked(g->project, left);
+				ffzCheckInfo left_checked = ffz_checked_get_info(left);
 				if (left_checked.type->tag == ffzTypeTag_Type) {
 					// type cast, e.g. u32(520.32)
 
@@ -904,11 +904,11 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				f_assert(found);
 			}
 			else {
-				ffzType* left_type = left_checked.type;
+				ffzType* left_type = ffz_checked_get_info(left).type;
 				ffzType* struct_type = left_type->tag == ffzTypeTag_Pointer ? left_type->Pointer.pointer_to : left_type; // NOTE: implicit dereference
 
 				ffzTypeRecordFieldUse field;
-				f_assert(ffz_type_find_record_field_use(struct_type, member_name, &field));
+				f_assert(ffz_type_find_record_field_use(g->project, struct_type, member_name, &field));
 
 				gmmcOpIdx addr_of_struct = gen_expr(g, left, left_type->tag != ffzTypeTag_Pointer).op;
 				f_assert(addr_of_struct != UNDEFINED_VALUE);
@@ -924,8 +924,9 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		} break;
 
 		case ffzNodeKind_PostSquareBrackets: {
-			bool implicit_dereference = left_checked.type->tag == ffzTypeTag_Pointer;
-			ffzType* subscriptable_type = implicit_dereference ? left_checked.type->Pointer.pointer_to : left_checked.type;
+			ffzType* left_type = ffz_checked_get_info(left).type;
+			bool implicit_dereference = left_type->tag == ffzTypeTag_Pointer;
+			ffzType* subscriptable_type = implicit_dereference ? left_type->Pointer.pointer_to : left_type;
 
 			u32 offset = 0;
 			if (subscriptable_type->tag == ffzTypeTag_FixedArray || subscriptable_type->tag == ffzTypeTag_Slice) {}
@@ -1808,17 +1809,19 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString 
 		}
 	}
 
+	// @speed
+	// hmm... doing this just on `root_module` seems to be all we need to do, EXCEPT for the `main` function in Basic module that is marked @module_defined_entry.
+	
 	//for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
 	//	ffzModule* mod = project->checkers_dependency_sorted[i];
-	{
+	f_for_array(ffzModule*, modules, it) {
 		//g.checker_ctx = root_module_checker;
-		ffzModule* mod = root_module;
 		
 		// hmm........ so should a ffzProject be responsible for holding analysis about the program?
 		// or should it just be responsible for holding the program itself?
 		// I think it makes sense to separate the analysis. That way you could make an arena for analysis/checking, modify the program, clear the arena, etc.
 
-		for FFZ_EACH_CHILD(n, mod->root) {
+		for FFZ_EACH_CHILD(n, it.elem->root) {
 			gen_statement(&g, n);
 		}
 	}

@@ -19,7 +19,7 @@ typedef struct ffzParser {
 
 	bool stop_at_curly_brackets;
 
-	ffzError error;
+	//ffzError error;
 } ffzParser;
 
 typedef struct ffzOperatorPrecedence {
@@ -27,17 +27,14 @@ typedef struct ffzOperatorPrecedence {
 	bool right_associative; // most operators are left-associative, i.e. 1/2/3 means ((1/2)/3)
 } ffzOperatorPrecedence;
 
-#define TRY(x) { if ((x).ok == false) return (ffzOk){false}; }
+// hmm, if we want profiling here, we could do something like
+// #define TRY(x) if (!x) _err = x; goto END;
 
-#define OPT(ptr) ptr
+#define TRY(x) FFZ_TRY(x)
 
-inline fAllocator* parser_allocator(ffzParser* p) { return p->alc; }
 ffzProject* project_from_parser(ffzParser* p) { return p->source->_module->project; }
 
-#define ERR(p, at, fmt, ...) { \
-	p->error = (ffzError){.source = p->source, .location = at, .message = f_aprint(parser_allocator(p), fmt, __VA_ARGS__)}; \
-	return (ffzOk){false}; \
-}
+#define ERR(p, at, fmt, ...) return f_mem_clone(((ffzError){.source = p->source, .location = at, .message = f_aprint(p->alc, fmt, __VA_ARGS__)}), p->alc);
 
 #define SLICE_BEFORE(T, slice, mid) (fSliceRaw){(T*)slice.data, (mid)}
 #define SLICE_AFTER(T, slice, mid) (fSliceRaw){(T*)slice.data + (mid), (slice.len) - (mid)}
@@ -512,7 +509,7 @@ typedef enum ParseFlags {
 	ParseFlag_NoPostCurlyBrackets = 1 << 1,
 } ParseFlags;
 
-static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out);
+static fOpt(ffzError*) parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out);
 
 // https://justine.lol/endian.html
 #define READ32BE(p) (u32)(255 & p[0]) << 24 | (255 & p[1]) << 16 | (255 & p[2]) << 8 | (255 & p[3])
@@ -646,18 +643,18 @@ static Token maybe_eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags) {
 	return tok;
 }
 
-static ffzOk eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags, const char* task_verb, Token* out) {
+static fOpt(ffzError*) eat_next_token(ffzParser* p, ffzLoc* loc, ParseFlags flags, const char* task_verb, Token* out) {
 	*out = maybe_eat_next_token(p, loc, flags);
 	if (out->str.len == 0) {
 		ERR(p, ffz_loc_to_range(*loc), "File ended unexpectedly when ~c.", task_verb);
 	}
-	return FFZ_OK;
+	return NULL;
 }
 
-static ffzOk eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
+static fOpt(ffzError*) eat_expected_token(ffzParser* p, ffzLoc* loc, fString expected) {
 	Token tok = maybe_eat_next_token(p, loc, ParseFlag_SkipNewlines);
 	if (!f_str_equals(tok.str, expected)) ERR(p, tok.range, "Expected '~s'; got '~s'", expected, tok.str);
-	return FFZ_OK;
+	return NULL;
 }
 
 
@@ -704,8 +701,8 @@ ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node) {
 	return new_node;
 }
 
-static ffzOk parse_children(ffzParser* p, ffzLoc* loc, ffzNode* parent, u8 bracket_close_char) {
-	OPT(ffzNode*) prev = NULL;
+static fOpt(ffzError*) parse_children(ffzParser* p, ffzLoc* loc, ffzNode* parent, u8 bracket_close_char) {
+	fOpt(ffzNode*) prev = NULL;
 
 	for (u32 i = 0;; i++) {
 		ffzLoc new_loc = *loc;
@@ -743,7 +740,7 @@ static ffzOk parse_children(ffzParser* p, ffzLoc* loc, ffzNode* parent, u8 brack
 		prev = n;
 	}
 	parent->loc.end = *loc;
-	return FFZ_OK;
+	return NULL;
 }
 
 static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
@@ -812,7 +809,7 @@ static ffzNodeOp* merge_operator_chain(fSlice(ffzNodeOp*) chain) {
 	return root;
 }
 
-static ffzOk parse_proc_type(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
+static fOpt(ffzError*) parse_proc_type(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, ffzNodeProcType** out) {
 	ffzNodeProcType* node = new_node(p, parent, range, ffzNodeKind_ProcType);
 	
 	ffzLoc new_loc = *loc;
@@ -832,17 +829,17 @@ static ffzOk parse_proc_type(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocR
 
 	node->loc.end = *loc;
 	*out = node;
-	return FFZ_OK;
+	return NULL;
 }
 
-static void assign_possible_tags(ffzNode* node, OPT(ffzNode*) first_tag) {
+static void assign_possible_tags(ffzNode* node, fOpt(ffzNode*) first_tag) {
 	node->first_tag = first_tag;
 	for (ffzNode* tag = first_tag; tag; tag = tag->next) {
 		tag->parent = node;
 	}
 }
 
-static ffzOk parse_possible_tags(ffzParser* p, ffzLoc* loc, OPT(ffzNode*)* out_first_tag) {
+static fOpt(ffzError*) parse_possible_tags(ffzParser* p, ffzLoc* loc, fOpt(ffzNode*)* out_first_tag) {
 	ffzNode* first = NULL;
 	ffzNode* prev = NULL;
 	for (;;) {
@@ -859,12 +856,12 @@ static ffzOk parse_possible_tags(ffzParser* p, ffzLoc* loc, OPT(ffzNode*)* out_f
 		prev = tag;
 	}
 	*out_first_tag = first;
-	return FFZ_OK;
+	return NULL;
 }
 
-static ffzOk parse_string_literal(ffzParser* p, ffzLoc* loc, fString* out) {
+static fOpt(ffzError*) parse_string_literal(ffzParser* p, ffzLoc* loc, fString* out) {
 	fStringBuilder builder;
-	f_init_string_builder(&builder, parser_allocator(p));
+	f_init_string_builder(&builder, p->alc);
 
 	ffzLoc start_pos = *loc;
 	for (;;) {
@@ -930,10 +927,10 @@ static ffzOk parse_string_literal(ffzParser* p, ffzLoc* loc, fString* out) {
 
 	f_printb(builder.w, '\0');
 	*out = f_str_slice_before(builder.str, builder.str.len - 1);
-	return FFZ_OK;
+	return NULL;
 }
 
-static ffzOk parse_enum(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, ffzNodeEnum** out) {
+static fOpt(ffzError*) parse_enum(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, ffzNodeEnum** out) {
 	ffzNodeEnum* node = new_node(p, parent, range, ffzNodeKind_Enum);
 	Token tok = maybe_eat_next_token(p, loc, 0);
 
@@ -946,10 +943,10 @@ static ffzOk parse_enum(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange 
 	TRY(parse_children(p, loc, node, '}'));
 
 	*out = node;
-	return FFZ_OK;
+	return NULL;
 }
 
-static ffzOk parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, bool is_union, ffzNodeRecord** out) {
+static fOpt(ffzError*) parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRange range, bool is_union, ffzNodeRecord** out) {
 	ffzNodeRecord* node = new_node(p, parent, range, ffzNodeKind_Record);
 
 	TRY(eat_expected_token(p, loc, F_LIT("{")));
@@ -957,16 +954,16 @@ static ffzOk parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, ffzLocRang
 
 	node->Record.is_union = is_union;
 	*out = node;
-	return FFZ_OK;
+	return NULL;
 }
 
-static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out) {
+static fOpt(ffzError*) parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out) {
 	TracyCZone(tr, true);
-	fArray(ffzNodeOp*) operator_chain = f_array_make(parser_allocator(p));
+	fArray(ffzNodeOp*) operator_chain = f_array_make(p->alc);
 	
 	// We want to first parse the tags for the entire node.
 	// i.e. in `@using a: int`, the tag should be attached to the entire node, not to the left-hand-side.
-	OPT(ffzNode*) first_tag;
+	fOpt(ffzNode*) first_tag;
 	TRY(parse_possible_tags(p, loc, &first_tag));
 
 	bool standalone_tag = false;
@@ -991,7 +988,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 		// i.e. in `foo: @hello proc() {}`, the tag should be attached to the post-curly-brackets, NOT
 		// the procedure type!!!
 		// 
-		//OPT(ffzNode*) operand_first_tag;
+		//fOpt(ffzNode*) operand_first_tag;
 		//TRY(parse_possible_tags(p, loc, &operand_first_tag));
 
 		// skip newlines when NOT parsing for post/infix operators.
@@ -1321,7 +1318,7 @@ static ffzOk parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags f
 
 	*out = node;
 	TracyCZoneEnd(tr);
-	return FFZ_OK;
+	return NULL;
 }
 
 ffzSource* ffz_new_source(ffzModule* m, fString code, fString filepath) {
@@ -1333,8 +1330,9 @@ ffzSource* ffz_new_source(ffzModule* m, fString code, fString filepath) {
 	return source;
 }
 
-ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_path) {
-	TracyCZone(tr, true);
+fOpt(ffzError*) ffz_parse_node(ffzModule* m, fString file_contents, fString file_path, ffzParseResult* out_result) {
+	//TracyCZone(tr, true);
+	//TracyCZoneEnd(tr);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
 	parser.alc = m->alc;
@@ -1343,19 +1341,19 @@ ffzParseResult ffz_parse_node(ffzModule* m, fString file_contents, fString file_
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
 	
 	ffzNode* node;
-	ffzOk ok = parse_node(&parser, &loc, NULL, (ParseFlags)0, &node);
-	ffzParseResult result = {
+	TRY(parse_node(&parser, &loc, NULL, (ParseFlags)0, &node));
+	
+	*out_result = (ffzParseResult){
 		.source = parser.source,
-		.node = ok.ok ? node : NULL,
+		.node = node,
 		.import_keywords = parser.import_keywords.slice,
-		.error = parser.error
 	};
-	TracyCZoneEnd(tr);
-	return result;
+	return NULL;
 }
 
-ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file_path) {
-	TracyCZone(tr, true);
+fOpt(ffzError*) ffz_parse_scope(ffzModule* m, fString file_contents, fString file_path, ffzParseResult* out_result) {
+	//TracyCZone(tr, true);
+	//TracyCZoneEnd(tr);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
 	parser.alc = m->alc;
@@ -1364,18 +1362,17 @@ ffzParseResult ffz_parse_scope(ffzModule* m, fString file_contents, fString file
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
 	ffzNode* root = new_node(&parser, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
 
-	ffzOk ok = parse_children(&parser, &loc, root, 0);
-	ffzParseResult result = {
+	TRY(parse_children(&parser, &loc, root, 0));
+
+	*out_result = (ffzParseResult){
 		.source = parser.source,
-		.node = ok.ok ? root : NULL,
+		.node = root,
 		.import_keywords = parser.import_keywords.slice,
-		.error = parser.error
 	};
-	TracyCZoneEnd(tr);
-	return result;
+	return NULL;
 }
 
-void ffz_skip_standalone_tags(OPT(ffzNode*)* node) {
+void ffz_skip_standalone_tags(fOpt(ffzNode*)* node) {
 	while (*node && (*node)->flags & ffzNodeFlag_IsStandaloneTag) {
 		*node = (*node)->next;
 	}
@@ -1391,7 +1388,7 @@ ffzNode* ffz_get_child(ffzNode* parent, u32 idx) {
 	return NULL;
 }
 
-u32 ffz_get_child_count(OPT(ffzNode*) parent) {
+u32 ffz_get_child_count(fOpt(ffzNode*) parent) {
 	if (!parent) return 0;
 	u32 i = 0;
 	for FFZ_EACH_CHILD(n, parent) i++;
@@ -1408,18 +1405,18 @@ u32 ffz_get_child_index(ffzNode* child) {
 	return F_U32_MAX;
 }
 
-OPT(ffzNodeOpDeclare*) ffz_get_parent_decl(OPT(ffzNode*) node) {
+fOpt(ffzNodeOpDeclare*) ffz_get_parent_decl(fOpt(ffzNode*) node) {
 	return (node && node->parent->kind == ffzNodeKind_Declare) ? (ffzNodeOpDeclare*)node->parent : NULL;
 }
 
-fString ffz_get_parent_decl_name(OPT(ffzNode*) node) {
+fString ffz_get_parent_decl_name(fOpt(ffzNode*) node) {
 	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
 	return decl ? decl->Op.left->Identifier.name : (fString) { 0 };
 }
 
 //fString ffz_get_pretty_name(ffzNodeIdentifier* n) { return n->Identifier.pretty_name.len ? n->Identifier.pretty_name : n->Identifier.name; }
 
-//fString ffz_get_parent_decl_pretty_name(OPT(ffzNode*) node) {
+//fString ffz_get_parent_decl_pretty_name(fOpt(ffzNode*) node) {
 //	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
 //	return decl ? ffz_get_pretty_name(decl->Op.left) : (fString){0};
 //}

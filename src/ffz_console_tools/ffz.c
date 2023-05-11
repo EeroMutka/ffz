@@ -12,6 +12,8 @@
 
 const bool DEBUG_PRINT_AST = false;
 
+#define TRY(x) FFZ_TRY(x)
+
 //#include <Windows.h>
 //#include <math.h>
 //
@@ -24,9 +26,10 @@ typedef struct Build {
 	fString modules_directory;
 } Build;
 
+
 bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name);
 
-static fOpt(ffzModule*) parse_and_check_directory(Build* build, fString directory);
+static fOpt(ffzError*) parse_and_check_directory(Build* build, fString directory, ffzModule** out_module);
 
 void log_pretty_error(ffzError error, fString kind) {
 	// C-style error messages can be useful in Visual Studio output console, to be able to double click the code location
@@ -137,7 +140,7 @@ static fVisitDirectoryResult file_visitor(const fVisitDirectoryInfo* info, void*
 	return fVisitDirectoryResult_Continue;
 }
 
-static fOpt(ffzModule*) module_from_path(Build* build, fString path, ffzModule* mod) {
+static fOpt(ffzError*) module_from_path(Build* build, fString path, ffzModule* mod, ffzModule** out_module) {
 
 	// `:` means that the path is relative to the modules directory shipped with the compiler
 	if (f_str_starts_with(path, F_LIT(":"))) {
@@ -151,10 +154,11 @@ static fOpt(ffzModule*) module_from_path(Build* build, fString path, ffzModule* 
 		}
 	}
 
-	return parse_and_check_directory(build, path);
+	TRY(parse_and_check_directory(build, path, out_module));
+	return NULL;
 }
 
-fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffzError* out_error) {
+fOpt(ffzError*) add_module_from_filesystem(Build* build, fString directory, ffzModule** out_module) {
 
 	// Canonicalize the path to deduplicate modules that have the same absolute path, but were imported with different path strings.
 	if (!f_files_path_to_canonical((fString){0}, directory, f_temp_alc(), &directory)) {
@@ -164,7 +168,8 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 
 	fMapInsertResult module_exists = f_map64_insert(&build->module_from_directory, f_hash64_str_ex(directory, 0), (ffzModule*){0}, fMapInsert_DoNotOverride);
 	if (!module_exists.added) {
-		return *(ffzModule**)module_exists._unstable_ptr;
+		*out_module = *(ffzModule**)module_exists._unstable_ptr;
+		return NULL;
 	}
 
 	ffzModule* mod = ffz_new_module(build->project, build->project->bank.alc);
@@ -185,12 +190,8 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 		fString file_contents;
 		f_assert(f_files_read_whole(file_data, f_temp_alc(), &file_contents));
 
-		ffzParseResult parse_result = ffz_parse_scope(mod, file_contents, file_data);
-
-		if (parse_result.node == NULL) {
-			*out_error = parse_result.error;
-			return NULL;
-		}
+		ffzParseResult parse_result;
+		TRY(ffz_parse_scope(mod, file_contents, file_data, &parse_result));
 
 		// What we could then do is have a queue for top-level nodes that need to be (re)checked.
 		// When expanding polymorph nodes, push those nodes to the end of the queue. Or if the
@@ -218,12 +219,8 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 			f_assert(import_name_node->kind == ffzNodeKind_StringLiteral); // TODO: error report
 			fString import_path = import_name_node->StringLiteral.zero_terminated_string;
 			
-			fOpt(ffzModule*) imported_module = module_from_path(build, import_path, mod);
-			if (!imported_module) {
-				f_trap();
-				//ERR(c, import_op, "Imported module contains errors.");
-				return NULL;
-			}
+			fOpt(ffzModule*) imported_module;
+			TRY(module_from_path(build, import_path, mod, &imported_module));
 
 			f_map64_insert(&build->module_from_import_op, (u64)import_op, imported_module, fMapInsert_AssertUnique);
 			//f_map64_insert(&m->module_from_import_decl, (u64)import_decl, imported_module, fMapInsert_AssertUnique);
@@ -238,7 +235,8 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 		//f_array_push_n(&module->pending_import_keywords, parse_result.import_keywords);
 	}
 
-	return mod;
+	*out_module = mod;
+	return NULL;
 }
 
 static void dump_module_ast(ffzModule* m, fString dir) {
@@ -262,32 +260,24 @@ static fOpt(ffzModule*) module_from_import(ffzModule* mod, ffzNode* import_node)
 	return imported ? *imported : NULL;
 }
 
-static fOpt(ffzModule*) parse_and_check_directory(Build* build, fString directory) {
-	TracyCZone(tr, true);
+static fOpt(ffzError*) parse_and_check_directory(Build* build, fString directory, ffzModule** out_module) {
+	//TracyCZone(tr, true);
 
-	F_HITS(_c, 2);
-	ffzError err;
-	fOpt(ffzModule*) mod = add_module_from_filesystem(build, directory, &err);
+	ffzModule* mod;
+	TRY(add_module_from_filesystem(build, directory, &mod));
 	
-	if (mod && DEBUG_PRINT_AST) {
+	if (DEBUG_PRINT_AST) {
 		dump_module_ast(mod, directory);
 	}
 
-	if (mod && mod->checker == NULL) {
+	if (mod->checker == NULL) {
 		mod->userdata = build;
-		ffzError check_err;
-		if (!ffz_check_module(mod, module_from_import, mod->alc, &check_err).ok) {
-			err = check_err;
-			mod = NULL;
-		}
+		TRY(ffz_check_module(mod, module_from_import, mod->alc));
 	}
 
-	if (mod == NULL) {
-		log_pretty_error(err, F_LIT("Error"));
-	}
-
-	TracyCZoneEnd(tr);
-	return mod;
+	//TracyCZoneEnd(tr);
+	*out_module = mod;
+	return NULL;
 }
 
 int main(int argc, const char* argv[]) {
@@ -331,8 +321,11 @@ int main(int argc, const char* argv[]) {
 		fArena* arena = _f_temp_arena;
 		build.project = ffz_init_project(arena/*, modules_dir*/);
 
-		root_module = parse_and_check_directory(&build, dir);
-		ok = root_module != NULL;
+		fOpt(ffzError*) err = parse_and_check_directory(&build, dir, &root_module);
+		if (err) {
+			log_pretty_error(*err, F_LIT("Error"));
+			ok = false;
+		}
 	}
 
 	if (ok) {
