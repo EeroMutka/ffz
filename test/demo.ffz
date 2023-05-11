@@ -1,22 +1,15 @@
-//#Array: poly[T]
+// NEXT UP: get modules back to working
 
+#Lettuce: import("Lettuce")
 
-//#MyStruct2: struct {
-//	Yaax: int
+//#MyStruct: struct {
+//	ptr: ^MyStruct
 //}
 
-#MyStruct: struct {
-	ptr: ^MyStruct
-}
-
-//#max: poly[T] proc(a: T, b: T) {
+//#array_set: poly[N, T] proc(array: [N]T, elem: T) {
+//	testing: N
 //	dbgbreak
 //}
-
-#array_set: poly[N, T] proc(array: [N]T, elem: T) {
-	testing: N
-	dbgbreak
-}
 
 
 //#print: poly[N, T] proc(test: FixedArray[N, T]) {
@@ -29,18 +22,9 @@
 
 #main: proc {
 	
-	foo: MyStruct{^MyStruct(0)}
-
-	//my_array: [4]u8{5, 6, 7, 8}
-	//array_set(my_array, 20)
+	Lettuce.adder(25)
 	
-	//max(u32(50), 52)
-	
-	//bar: Vector3[u32]{4, 5, 6}
-	//set_x_to_2(bar)
-	
-	
-	//foo: Array[u32](50)
+	dbgbreak
 	
 	//my_value: int(20)
 	//my_value_2: int(32)

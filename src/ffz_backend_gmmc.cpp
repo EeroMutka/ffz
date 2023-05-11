@@ -563,7 +563,7 @@ static Value gen_constant(Gen* g, ffzType* type, ffzConstantData* data, ffzLocRa
 static Value gen_call(Gen* g, ffzNodeOp* node) {
 	ffzNode* proc_node = ffz_call_get_target_procedure(g->checker_ctx, node);
 	//ffzNode* left = node->Op.left;
-	
+
 	ffzType* proc_type = ffz_checked_get_info(g->checker_ctx, proc_node).type;
 	f_assert(proc_type->tag == ffzTypeTag_Proc);
 
@@ -1707,9 +1707,9 @@ static bool build_c(Gen* g, fString build_dir) {
 	return exit_code == 0;
 }
 
-extern "C" bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module_checker, fSlice(ffzSource*) sources, fString build_dir, fString name) {
+extern "C" bool ffz_backend_gen_executable_gmmc(ffzCheckerContext* root_module_checker, fSlice(ffzSource*) sources, fString build_dir, fString name) {
 	ZoneScoped;
-	ffzProject* project = root_module_checker.project;
+	ffzProject* project = root_module_checker->project;
 
 	//fArenaMark temp_base = f_temp_get_mark();
 	gmmcModule* gmmc = gmmc_init(f_temp_alc());
@@ -1717,7 +1717,7 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module_ch
 	Gen g = {};
 	g.project = project;
 	g.pointer_size = project->pointer_size;
-	g.root_module = root_module_checker.mod;
+	g.root_module = root_module_checker->mod;
 	g.gmmc = gmmc;
 	g.alc = f_temp_alc();
 	g.variable_from_definition = f_map64_make<Variable>(g.alc);
@@ -1747,8 +1747,8 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module_ch
 	//for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
 	//	ffzModule* mod = project->checkers_dependency_sorted[i];
 	{
-		g.checker_ctx = &root_module_checker;
-		ffzModule* mod = root_module_checker.mod;
+		g.checker_ctx = root_module_checker;
+		ffzModule* mod = root_module_checker->mod;
 		
 		// hmm........ so should a ffzProject be responsible for holding analysis about the program?
 		// or should it just be responsible for holding the program itself?

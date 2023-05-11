@@ -80,6 +80,7 @@
 
 typedef struct ffzProject ffzProject;
 typedef struct ffzModule ffzModule;
+typedef struct ffzCheckerContext ffzCheckerContext;
 typedef struct ffzSource ffzSource;
 typedef struct ffzType ffzType;
 typedef struct ffzConstantData ffzConstantData;
@@ -480,13 +481,17 @@ typedef struct ffzConstantData {
 		double     _f64;
 		bool      _bool;
 		
+		// We could do this:
+		//ffzType type;
+		// which might be nicer than `ffz_constant_as_type`
+
 		// A constant pointer value can be either a pointer to another constant, or a literal integer value.
 		struct {
 			uint64_t as_integer; // :ReinterpretIntegerConstantAsPointer
 			fOpt(ffzConstantData*) as_ptr_to_constant; // if NULL, `as_integer` is used instead
 		} ptr;
 
-		ffzModule* module;
+		ffzCheckerContext* module;
 		fString string_zero_terminated; // length doesn't contain the zero termination.
 
 		// Tightly packed array of ffzConstantData, used for constant array and slice initializers.
@@ -606,6 +611,8 @@ typedef struct ffzProject {
 		fAllocator* alc; // maybe switch this to Arena?
 		fMap64(ffzType*) type_from_hash; // key: TypeHash
 		fMap64(ffzConstantData*) constant_from_hash; // key: ConstantHash
+		
+		// We could put this to be per-checker-context...
 		fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
 	} bank;
 
@@ -648,6 +655,8 @@ typedef struct ffzCheckerContext {
 	ffzProject* project;
 	ffzModule* mod;
 
+	fOpt(ffzCheckerContext*)(*module_from_import)(struct ffzCheckerContext*, ffzNode*);
+
 	bool checked;
 	uint32_t id;
 
@@ -669,7 +678,7 @@ typedef struct ffzCheckerContext {
 	
 	fMap64(ffzNodeIdentifier*) definition_map; // key: ffz_hash_declaration_path
 	
-	fArray(ffzNode*) pending_import_keywords;
+	//fArray(ffzNode*) pending_import_keywords;
 
 	fMap64(ffzPolymorph*) poly_from_hash;
 	//fArray(ffzPolymorph) polymorphs; // index into this using ffzPolymorphID
@@ -681,8 +690,16 @@ typedef struct ffzCheckerContext {
 	fMap64(u64) enum_value_from_name; // key: FieldHash.
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
-	// Array of all 'extern' keywords in the module
-	fArray(ffzNode*) _extern_libraries;
+	fArray(ffzNode*) _extern_libraries; // Array of all `extern` keywords in the module
+
+	// An `import` node must always be part of a declaration, and must uniquely import a module that
+	// hasn't been imported previously. This restriction exists, so that we have a way of mapping
+	// imported module to an import name. This is useful for instance in error messages.
+
+	//fMap64(ffzNode*) import_decl_from_module;   // key: ffzModule*
+	//fMap64(ffzModule*) module_from_import_decl; // key: ffzNode*
+
+	void* userdata; // unused by the library
 } ffzCheckerContext;
 
 struct ffzModule {
@@ -692,18 +709,14 @@ struct ffzModule {
 	uint32_t self_id;
 	uint32_t next_checker_ctx_id;
 
-	fString directory; // imports in this module will be relative to this directory
+	fString directory; // imports in this module will be relative to this directory. ...Should we even have this here? maybe not. Though its a good debug string.
+	
+	// So a module has an "active checker context". When you do`ffz_checked_get_info(node)`, it will implicitly use the
+	// active context to look for the checked info.
+	fOpt(ffzCheckerContext*) active_ctx;
 
 	ffzNode* root;
 	ffzNode* root_last_child;
-
-	// An `import` node must always be part of a declaration, and must uniquely import a module that
-	// hasn't been imported previously. This restriction exists, so that we have a way
-	// of mapping from module import to an import name. This property is useful for instance in error
-	// reporting, and polymorph instantiation code.
-
-	fMap64(ffzNode*) import_decl_from_module;   // key: ffzModule*
-	fMap64(ffzModule*) module_from_import_decl; // key: ffzNode*
 };
 
 #ifdef __cplusplus
@@ -858,7 +871,7 @@ ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type);
 
 // -- High level compiler API --------------------------------------------------------------
 
-ffzProject* ffz_init_project(fArena* arena, fString modules_directory);
+ffzProject* ffz_init_project(fArena* arena);
 
 // So metaprogramming - I'd like to
 // 
@@ -894,7 +907,10 @@ void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 
 ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule* (*module_from_path)(fString path, void* userdata), void* userdata);
 
-ffzCheckerContext ffz_make_checker_ctx(ffzModule* mod, fAllocator* alc);
+/*
+ `module_from_import` should give a back the finished checker context of the module imported by an import node.
+*/
+ffzCheckerContext* ffz_make_checker_ctx(ffzModule* mod, fOpt(ffzCheckerContext*)(*module_from_import)(ffzCheckerContext*, ffzNode*), fAllocator* alc);
 
 // When you call this, all imported modules must have already been checked.
 ffzOk ffz_check_module(ffzCheckerContext* c);
@@ -946,7 +962,7 @@ bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, uint32_t* out
 // * Return the name of an import declaration, given an imported module.
 //     e.g. if module `m` contains `#Foo: import("imported_module")`, then the returned value would be "Foo"
 // * If `imported_module` is not imported by `m`, an empty string is returned.
-fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module);
+fString ffz_get_import_name(ffzCheckerContext* c, ffzModule* imported_module);
 
 // 
 // Given an argument list (either a post-curly-brackets initializer or a procedure call) that might contain

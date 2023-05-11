@@ -120,7 +120,7 @@ ffzConstantHash ffz_hash_constant(fOpt(ffzCheckerContext*) ctx, ffzConstant cons
 		}
 	} break;
 
-	case ffzTypeTag_Module: { f_hasher_add(&h, (u64)constant.value->module->self_id); } break;
+	case ffzTypeTag_Module: { f_hasher_add(&h, (u64)constant.value->module->id); } break;
 	case ffzTypeTag_Type: { f_trap(); } break;//{ f_hasher_add(&h, PTR2HASH(constant.value)); } break;
 	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_String: // fallthrough
@@ -1329,13 +1329,15 @@ static ffzOk check_post_round_brackets(ffzCheckerContext* c, ffzNode* node, ffzT
 			//fall = false;
 		}
 		else if (keyword == ffzKeyword_import) {
-			//result->type = c->module_type;
-			//result->constant = make_constant(c);
-			//
-			//// `ffz_module_resolve_imports` already makes sure that the import node is part of a declaration
+			result->type = c->project->type_module;
 			//ffzNode* import_decl = node->parent;
-			//result->constant->module = *f_map64_get(&c->module_from_import_decl, (u64)import_decl);
-			f_trap();//fall = false;
+			//constant.module = *f_map64_get(&c->module_from_import_decl, (u64)import_decl);
+			
+			ffzConstantData constant;
+			constant.module = c->module_from_import(c, node);
+			f_assert(constant.module != NULL);
+			result->const_val = make_constant(c, constant, result->type).value;
+			fall = false;
 		}
 	}
 	if (fall) {
@@ -1585,11 +1587,11 @@ static ffzOk check_post_square_brackets(ffzCheckerContext* c, ffzNode* node, ffz
 	return FFZ_OK;
 }
 
-FFZ_CAPI fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module) {
-	fOpt(ffzNode**) module_import_decl = f_map64_get(&m->import_decl_from_module, (u64)imported_module);
-	if (module_import_decl) {
-		return (*module_import_decl)->Op.left->Identifier.name;
-	}
+FFZ_CAPI fString ffz_get_import_name(ffzCheckerContext* c, ffzModule* imported_module) {
+	f_trap();//fOpt(ffzNode**) module_import_decl = f_map64_get(&c->import_decl_from_module, (u64)imported_module);
+	//if (module_import_decl) {
+	//	return (*module_import_decl)->Op.left->Identifier.name;
+	//}
 	return {};
 }
 
@@ -1635,57 +1637,60 @@ static ffzOk check_member_access(ffzCheckerContext* c, ffzNode* node, ffzCheckIn
 #endif
 	}
 	else {
-		f_trap();
-#if 0
-		TRY(check_node(c, left, NULL, 0));
-		ffzType* left_type = left->checked.type;
-		fOpt(ffzConstantData*) left_constant = left->checked.constant;
+		ffzCheckInfo left_info;
+		TRY(check_node(c, left, NULL, 0, &left_info));
+		fOpt(ffzConstantData*) left_constant = left_info.const_val;
 		
-		if (left_type->tag == ffzTypeTag_Module) {
-			ffzModule* left_module = left_constant->module;
+		if (left_info.type->tag == ffzTypeTag_Module) {
+			ffzCheckerContext* left_module = left_constant->module;
+			// we also need a way to go from module to checker context...
 
-			fOpt(ffzNode*) def = ffz_find_definition_in_scope(left_module->root, member_name);
+			fOpt(ffzNode*) def = ffz_find_definition_in_scope(left_module, left_module->mod->root, member_name);
 			if (def && def->parent->kind == ffzNodeKind_Declare) {
-				*result = def->parent->checked;
+				*result = ffz_checked_get_info(left_module, def->parent);
 			}
 			else {
-				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_get_import_name(c, left_module));
+				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_get_import_name(c, left_module->mod));
 			}
 		}
-		else if (left_type->tag == ffzTypeTag_Type && left_constant->type->tag == ffzTypeTag_Enum) {
-			ffzType* enum_type = left_constant->type;
+		else if (left_info.type->tag == ffzTypeTag_Type && ffz_as_type(left_constant)->tag == ffzTypeTag_Enum) {
+			ffzType* enum_type = ffz_as_type(left_constant);
 
-			ffzModule* enum_type_module = c->project->checkers[enum_type->checker_id];
-			ffzFieldHash member_key = ffz_hash_field(left_constant->type, member_name);
+			// hmm, what to do with crap like this? Maybe store the map in the enum type itself. But by pointer, to not pollute the size.
+			// Or just store a pointer to the ffzCheckerContext...?
+			// But then again, we're storing a pointer in the type to the `unique_node`. And from there, we can get the module.
+			// So maybe we ask for a `ffzModule*` -> `ffzCheckerContext*` callback?
 
-			if (u64* val = f_map64_get(&enum_type_module->enum_value_from_name, member_key)) {
-				result->type = left_constant->type;
-				result->constant = make_constant_int(c, *val);
-			}
-			else {
-				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_type_to_string(c->project, enum_type));
-			}
+			f_trap(); //ffzModule* enum_type_module = c->project->checkers[enum_type->checker_id];
+			//ffzFieldHash member_key = ffz_hash_field(left_constant->type, member_name);
+			//
+			//if (u64* val = f_map64_get(&enum_type_module->enum_value_from_name, member_key)) {
+			//	result->type = left_constant->type;
+			//	result->constant = make_constant_int(c, *val);
+			//}
+			//else {
+			//	ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_type_to_string(c->project, enum_type));
+			//}
 		}
 		else {
-			ffzType* dereferenced_type = left_type->tag == ffzTypeTag_Pointer ? left_type->Pointer.pointer_to : left_type;
+			ffzType* dereferenced_type = left_info.type->tag == ffzTypeTag_Pointer ? left_info.type->Pointer.pointer_to : left_info.type;
 			ffzTypeRecordFieldUse field;
 			if (ffz_type_find_record_field_use(c->project, dereferenced_type, member_name, &field)) {
 				result->type = field.src_field->type;
 				
 				// Find the constant value for this member
 				if (left_constant != NULL) {
-					result->constant = left_constant;
+					result->const_val = left_constant;
 					for (u32 i = 0; i < field.index_path.len; i++) {
 						u32 member_idx = field.index_path[i];
-						result->constant = &result->constant->record_fields[member_idx];
+						result->const_val = &result->const_val->record_fields[member_idx];
 					}
 				}
 			}
 			else {
-				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_type_to_string(c->project, dereferenced_type));
+				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_type_to_string(dereferenced_type, c->alc));
 			}
 		}
-#endif
 	}
 
 	return FFZ_OK;
@@ -1712,21 +1717,24 @@ static ffzType* ffz_make_extra_type(ffzProject* p) {
 	return ffz_make_type_ex(p, NULL, t);
 }
 
-FFZ_CAPI ffzCheckerContext ffz_make_checker_ctx(ffzModule* mod, fAllocator* alc) {
-	ffzCheckerContext c = {};
-	c.id = mod->next_checker_ctx_id++;
-	c.project = mod->project;
-	c.mod = mod;
-	c.alc = alc;
-	c.infos = f_map64_make<ffzCheckInfo>(c.alc);
-	c.definition_map = f_map64_make<ffzNodeIdentifier*>(c.alc);
-	c.enum_value_from_name = f_map64_make<u64>(c.alc);
-	c.enum_value_is_taken = f_map64_make<ffzNode*>(c.alc);
-	c.pending_import_keywords = f_array_make<ffzNode*>(c.alc);
-	c.all_tags_of_type = f_map64_make<fArray(ffzNode*)>(c.alc);
-	c.poly_from_hash = f_map64_make<ffzPolymorph*>(c.alc);
+FFZ_CAPI ffzCheckerContext* ffz_make_checker_ctx(ffzModule* mod, fOpt(ffzCheckerContext*)(*module_from_import)(ffzCheckerContext*, ffzNode*), fAllocator* alc) {
+	ffzCheckerContext* c = f_mem_clone(ffzCheckerContext{}, alc);
+	c->id = mod->next_checker_ctx_id++;
+	c->project = mod->project;
+	c->mod = mod;
+	c->module_from_import = module_from_import;
+	c->alc = alc;
+	c->infos = f_map64_make<ffzCheckInfo>(alc);
+	c->definition_map = f_map64_make<ffzNodeIdentifier*>(alc);
+	c->enum_value_from_name = f_map64_make<u64>(alc);
+	c->enum_value_is_taken = f_map64_make<ffzNode*>(alc);
+	//c.pending_import_keywords = f_array_make<ffzNode*>(c.alc);
+	c->all_tags_of_type = f_map64_make<fArray(ffzNode*)>(alc);
+	c->poly_from_hash = f_map64_make<ffzPolymorph*>(alc);
 	//c.polymorphs = f_array_make<ffzPolymorph>(c.alc); f_array_push(&c.polymorphs, {}); // FFZ_POLYMORPH_ID_NONE
-	c._extern_libraries = f_array_make<ffzNode*>(c.alc);
+	c->_extern_libraries = f_array_make<ffzNode*>(alc);
+	//c.import_decl_from_module = f_map64_make<ffzNode*>(c.alc);
+	//c.module_from_import_decl = f_map64_make<ffzModule*>(c.alc);
 	return c;
 }
 
@@ -1735,8 +1743,6 @@ FFZ_CAPI ffzModule* ffz_new_module(ffzProject* p, fAllocator* alc) {
 	c->self_id = p->next_module_id++;
 	c->project = p;
 	c->alc = alc;
-	c->import_decl_from_module = f_map64_make<ffzNode*>(alc);
-	c->module_from_import_decl = f_map64_make<ffzModule*>(alc);
 	c->root = ffz_new_node(c, ffzNodeKind_Scope);
 	return c;
 }
@@ -2578,7 +2584,7 @@ ffzType* ffz_builtin_type_type() {
 	return (ffzType*)&tt;
 }
 
-FFZ_CAPI ffzProject* ffz_init_project(fArena* arena, fString modules_directory) {
+FFZ_CAPI ffzProject* ffz_init_project(fArena* arena) {
 	fAllocator* alc = &arena->alc;
 	ffzProject* p = f_mem_clone(ffzProject{}, alc);
 	//p->persistent_allocator = &arena->alc;
@@ -2694,23 +2700,6 @@ FFZ_CAPI ffzOk ffz_module_resolve_imports_(ffzModule* m, ffzModule*(*module_from
 	//for (uint i = 0; i < m->checker_ctx.pending_import_keywords.len; i++) {
 	//	ffzNode* import_keyword = m->checker_ctx.pending_import_keywords[i];
 	//	
-	//	ffzNodeOp* import_op = import_keyword->parent;
-	//	f_assert(import_op && import_op->kind == ffzNodeKind_PostRoundBrackets && ffz_get_child_count(import_op) == 1); // TODO: error report
-	//
-	//	ffzNode* import_decl = import_op->parent;
-	//	f_assert(import_decl && import_decl->kind == ffzNodeKind_Declare); // TODO: error report
-	//
-	//	ffzNode* import_name_node = ffz_get_child(import_op, 0);
-	//	f_assert(import_name_node->kind == ffzNodeKind_StringLiteral); // TODO: error report
-	//	fString import_path = import_name_node->StringLiteral.zero_terminated_string;
-	//		
-	//	fOpt(ffzModule*) imported_module = module_from_path(import_path, userdata);
-	//	if (!imported_module) {
-	//		ERR(c, import_op, "Imported module contains errors.");
-	//	}
-	//
-	//	f_map64_insert(&m->module_from_import_decl, (u64)import_decl, imported_module, fMapInsert_AssertUnique);
-	//	f_map64_insert(&m->import_decl_from_module, (u64)imported_module, import_decl, fMapInsert_AssertUnique); // TODO: error report
 	//}
 	//
 	//m->checker_ctx.pending_import_keywords.len = 0;

@@ -20,12 +20,13 @@ const bool DEBUG_PRINT_AST = false;
 typedef struct Build {
 	fArray(ffzSource*) sources;
 	fMap64(ffzModule*) module_from_directory;
+	fMap64(ffzCheckerContext*) module_from_import_op; // key: ffzNode*
 	ffzProject* project;
 } Build;
 
-bool ffz_backend_gen_executable_gmmc(ffzCheckerContext root_module_checker, fSlice(ffzSource*) sources, fString build_dir, fString name);
+bool ffz_backend_gen_executable_gmmc(ffzCheckerContext* root_module_checker, fSlice(ffzSource*) sources, fString build_dir, fString name);
 
-static bool parse_and_check_directory(Build* build, fString directory, ffzCheckerContext* out_checker_ctx);
+static fOpt(ffzCheckerContext*) parse_and_check_directory(Build* build, fString directory);
 
 void log_pretty_error(ffzError error, fString kind) {
 	// C-style error messages can be useful in Visual Studio output console, to be able to double click the code location
@@ -136,6 +137,25 @@ static fVisitDirectoryResult file_visitor(const fVisitDirectoryInfo* info, void*
 	return fVisitDirectoryResult_Continue;
 }
 
+static fOpt(ffzCheckerContext*) module_from_path(Build* build, fString path, ffzModule* mod) {
+
+	// `:` means that the path is relative to the modules directory shipped with the compiler
+	if (f_str_starts_with(path, F_LIT(":"))) {
+		//fString slash = F_LIT("/");
+
+		f_trap(); //path = f_str_join_tmp(mod->project->modules_directory, slash, f_str_slice_after(path, 1));
+	}
+	else {
+		// let's make the import path absolute
+		if (!f_files_path_to_canonical(mod->directory, path, f_temp_alc(), &path)) {
+			f_trap();
+		}
+	}
+
+	return parse_and_check_directory(build, path);
+}
+
+
 fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffzError* out_error) {
 
 	// Canonicalize the path to deduplicate modules that have the same absolute path, but were imported with different path strings.
@@ -148,9 +168,9 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 		return *(ffzModule**)module_exists._unstable_ptr;
 	}
 
-	ffzModule* module = ffz_new_module(build->project, build->project->bank.alc);
-	*(ffzModule**)module_exists._unstable_ptr = module;
-	module->directory = directory;
+	ffzModule* mod = ffz_new_module(build->project, build->project->bank.alc);
+	*(ffzModule**)module_exists._unstable_ptr = mod;
+	mod->directory = directory;
 
 	FileVisitData visit;
 	visit.files = f_array_make(f_temp_alc());
@@ -165,7 +185,7 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 		fString file_contents;
 		f_assert(f_files_read_whole(file_data, f_temp_alc(), &file_contents));
 
-		ffzParseResult parse_result = ffz_parse_scope(module, file_contents, file_data);
+		ffzParseResult parse_result = ffz_parse_scope(mod, file_contents, file_data);
 		f_array_push(&build->sources, parse_result.source);
 
 		if (parse_result.node == NULL) {
@@ -180,13 +200,46 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 
 		for (ffzNode* n = parse_result.node->first_child; n; n = n->next) {
 			n->parent = NULL; // ffz_module_add_top_level_node requires the parent to be NULL
-			ffz_module_add_top_level_node_(module, n);
+			ffz_module_add_top_level_node_(mod, n);
 		}
 
+
+		// Loop through the imports and check the imported modules. Hmm, this is a weird middle ground between the parser stage and checker stage.
+		// Maybe we should put the checking in the parser or make it its own AST node kind, i.e. `#Basic: import "Basic"`. That might be the wisest.
+		
+		// The checker needs to fill the maps from ident -> module and module -> ident.
+
+		f_for_array(ffzNode*, parse_result.import_keywords, it) {
+			ffzNodeOp* import_op = it.elem->parent;
+			f_assert(import_op && import_op->kind == ffzNodeKind_PostRoundBrackets && ffz_get_child_count(import_op) == 1); // TODO: error report
+			
+			ffzNode* import_decl = import_op->parent;
+			f_assert(import_decl && import_decl->kind == ffzNodeKind_Declare); // TODO: error report
+			
+			ffzNode* import_name_node = ffz_get_child(import_op, 0);
+			f_assert(import_name_node->kind == ffzNodeKind_StringLiteral); // TODO: error report
+			fString import_path = import_name_node->StringLiteral.zero_terminated_string;
+			
+			fOpt(ffzCheckerContext*) imported_module = module_from_path(build, import_path, mod);
+			if (!imported_module) {
+				//ERR(c, import_op, "Imported module contains errors.");
+				return NULL;
+			}
+
+			f_map64_insert(&build->module_from_import_op, (u64)import_op, imported_module, fMapInsert_AssertUnique);
+			//f_map64_insert(&m->module_from_import_decl, (u64)import_decl, imported_module, fMapInsert_AssertUnique);
+			//f_map64_insert(&m->import_decl_from_module, (u64)imported_module, import_decl, fMapInsert_AssertUnique); // TODO: error report
+		}
+
+		//if (!ffz_module_resolve_imports_(module, resolve_import, module).ok) {
+		//	f_trap();//err = module->error;
+		//	module = NULL;
+		//}
+		
 		//f_array_push_n(&module->pending_import_keywords, parse_result.import_keywords);
 	}
 
-	return module;
+	return mod;
 }
 
 static void dump_module_ast(ffzModule* m, fString dir) {
@@ -204,57 +257,40 @@ static void dump_module_ast(ffzModule* m, fString dir) {
 	f_flush_buffered_writer(&console_writer);
 }
 
-//static fOpt(ffzModule*) resolve_import(fString path, void* userdata) {
-//	ffzModule* module = (ffzModule*)userdata;
-//
-//	// `:` means that the path is relative to the modules directory shipped with the compiler
-//	if (f_str_starts_with(path, F_LIT(":"))) {
-//		fString slash = F_LIT("/");
-//		
-//		path = f_str_join_tmp(module->project->modules_directory, slash, f_str_slice_after(path, 1));
-//	}
-//	else {
-//		// let's make the import path absolute
-//		if (!f_files_path_to_canonical(module->directory, path, f_temp_alc(), &path)) {
-//			f_trap();
-//		}
-//	}
-//
-//	fOpt(ffzModule*) imported = parse_and_check_directory(module->project, path);
-//	return imported;
-//}
+static fOpt(ffzCheckerContext*) module_from_import(ffzCheckerContext* c, ffzNode* import_node) {
+	Build* build = c->userdata;
+	fOpt(ffzCheckerContext**) mod = f_map64_get_raw(&build->module_from_import_op, (u64)import_node);
+	return mod ? *mod : NULL;
+}
 
-static bool parse_and_check_directory(Build* build, fString directory, ffzCheckerContext* out_checker_ctx) {
+static fOpt(ffzCheckerContext*) parse_and_check_directory(Build* build, fString directory) {
 	TracyCZone(tr, true);
 
 	ffzError err;
 	fOpt(ffzModule*) mod = add_module_from_filesystem(build, directory, &err);
-
+	
 	if (mod && DEBUG_PRINT_AST) {
 		dump_module_ast(mod, directory);
 	}
+	
+	fOpt(ffzCheckerContext*) result = NULL;
 
 	if (mod/* && !module->checked*/) {
+		result = ffz_make_checker_ctx(mod, module_from_import, mod->alc);
+		result->userdata = build;
 		
-		//if (!ffz_module_resolve_imports_(module, resolve_import, module).ok) {
-		//	f_trap();//err = module->error;
-		//	module = NULL;
-		//}
-		*out_checker_ctx = ffz_make_checker_ctx(mod, mod->alc);
-
-		if (mod && !ffz_check_module(out_checker_ctx).ok) {
-			err = out_checker_ctx->error;
-			mod = NULL;
+		if (!ffz_check_module(result).ok) {
+			err = result->error;
+			result = NULL;
 		}
-		
 	}
 
-	if (!mod) {
+	if (!result) {
 		log_pretty_error(err, F_LIT("Error"));
 	}
 
 	TracyCZoneEnd(tr);
-	return mod != NULL;
+	return result;
 }
 
 int main(int argc, const char* argv[]) {
@@ -279,23 +315,25 @@ int main(int argc, const char* argv[]) {
 	Build build = {
 		.sources = f_array_make(f_temp_alc()),
 		.module_from_directory = f_map64_make_raw(sizeof(ffzModule*), f_temp_alc()),
+		.module_from_import_op = f_map64_make_raw(sizeof(ffzCheckerContext*), f_temp_alc()),
 	};
 
 	fString dir;
-	ffzCheckerContext root_module_checker;
+	fOpt(ffzCheckerContext*) root_module_checker;
 	if (ok) {
 		fSliceRaw my_strings = f_slice_lit(fString, F_LIT("heyy"), F_LIT("sailor"));
 		F_UNUSED(my_strings);
 
 		dir = f_str_from_cstr(argv[1]);
-		fString exe_path = f_os_get_executable_path(f_temp_alc());
-		fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
-		fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
+		//fString exe_path = f_os_get_executable_path(f_temp_alc());
+		//fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
+		//fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
 
 		fArena* arena = _f_temp_arena;
-		build.project = ffz_init_project(arena, modules_dir);
+		build.project = ffz_init_project(arena/*, modules_dir*/);
 
-		ok = parse_and_check_directory(&build, dir, &root_module_checker);
+		root_module_checker = parse_and_check_directory(&build, dir);
+		ok = root_module_checker != NULL;
 	}
 
 	if (ok) {

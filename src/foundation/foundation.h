@@ -393,7 +393,6 @@ inline bool _f_array_each_ptr_condition(void* array, uint* i, void** elem, uint 
 #define f_array_get_ptr(T, array_or_slice, i) (&((T*)array_or_slice.data)[i])
 #define f_array_set(T, array_or_slice, i, value) ((T*)array_or_slice.data)[i] = value
 
-
 #define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
 
 inline fSliceRaw f_clone_slice_raw(fSliceRaw slice, fAllocator* alc, uint elem_size) {

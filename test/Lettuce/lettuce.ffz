@@ -1,8 +1,7 @@
 
 
-#number_of_lettuces: u32(50)
+//#number_of_lettuces: u32(50)
 
-#adder: poly[T] proc(a: T) => T {
-	
-	ret a + number_of_lettuces
+#adder: proc(a: int) {
+	dbgbreak
 }
