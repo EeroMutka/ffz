@@ -18,13 +18,12 @@ const bool DEBUG_PRINT_AST = false;
 //#include "gmmc/gmmc.h" // for gmmc_test
 
 typedef struct Build {
-	fArray(ffzSource*) sources;
 	fMap64(ffzModule*) module_from_directory;
 	fMap64(ffzModule*) module_from_import_op; // key: ffzNode*
 	ffzProject* project;
 } Build;
 
-bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fSlice(ffzSource*) sources, fString build_dir, fString name);
+bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name);
 
 static fOpt(ffzModule*) parse_and_check_directory(Build* build, fString directory);
 
@@ -186,7 +185,6 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 		f_assert(f_files_read_whole(file_data, f_temp_alc(), &file_contents));
 
 		ffzParseResult parse_result = ffz_parse_scope(mod, file_contents, file_data);
-		f_array_push(&build->sources, parse_result.source);
 
 		if (parse_result.node == NULL) {
 			*out_error = parse_result.error;
@@ -202,7 +200,6 @@ fOpt(ffzModule*) add_module_from_filesystem(Build* build, fString directory, ffz
 			n->parent = NULL; // ffz_module_add_top_level_node requires the parent to be NULL
 			ffz_module_add_top_level_node_(mod, n);
 		}
-
 
 		// Loop through the imports and check the imported modules. Hmm, this is a weird middle ground between the parser stage and checker stage.
 		// Maybe we should put the checking in the parser or make it its own AST node kind, i.e. `#Basic: import "Basic"`. That might be the wisest.
@@ -312,7 +309,7 @@ int main(int argc, const char* argv[]) {
 	}
 
 	Build build = {
-		.sources = f_array_make(f_temp_alc()),
+		//.sources = f_array_make(f_temp_alc()),
 		.module_from_directory = f_map64_make_raw(sizeof(ffzModule*), f_temp_alc()),
 		.module_from_import_op = f_map64_make_raw(sizeof(ffzModuleChecker*), f_temp_alc()),
 	};
@@ -348,7 +345,7 @@ int main(int argc, const char* argv[]) {
 		// consider building a procedure after right after checking it, then throwing away the AST nodes.
 		// Or maybe only do that for GMMC nodes.
 
-		ok = ffz_backend_gen_executable_gmmc(root_module, build.sources.slice, build_dir, project_name);
+		ok = ffz_backend_gen_executable_gmmc(root_module, build_dir, project_name);
 	#else
 	#error
 	#endif

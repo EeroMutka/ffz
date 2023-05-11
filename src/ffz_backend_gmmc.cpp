@@ -89,7 +89,6 @@ struct Gen {
 
 	uint dummy_name_counter;
 	
-	fMap64(u32) file_id_from_source; // key: ffzSource*
 	fMap64(ProcInfo*) proc_from_hash;
 	fArray(ProcInfo*) procs_sorted;
 	fMap64(Variable) variable_from_definition; // key: ffzNode*
@@ -99,7 +98,8 @@ struct Gen {
 	// debug info
 	fArray(cviewType) cv_types;
 	fMap64(cviewTypeIdx) cv_type_from_ffz_type; // key: ffzType*
-	fArray(cviewSourceFile) cv_file_from_parser_idx;
+	fMap64(u32) cv_fileid_from_source; // key: ffzSource*
+	fArray(cviewSourceFile) cv_files;
 };
 
 static void gen_statement(Gen* g, ffzNode* node);
@@ -1351,6 +1351,22 @@ static int cviewLine_compare_fn(const void* a, const void* b) {
 	return ((cviewLine*)a)->offset - ((cviewLine*)b)->offset;
 }
 
+static u32 get_fileid_of_source(Gen* g, ffzSource* source) {
+	auto insertion = f_map64_insert(&g->cv_fileid_from_source, (u64)source, (u32)0, fMapInsert_DoNotOverride);
+	if (insertion.added) {
+		cviewSourceFile file = {};
+		file.filepath = source->source_code_filepath;
+
+		SHA256_CTX sha256;
+		sha256_init(&sha256);
+		sha256_update(&sha256, source->source_code.data, source->source_code.len);
+		sha256_final(&sha256, &file.hash.bytes[0]);
+
+		*insertion._unstable_ptr = (u32)f_array_push(&g->cv_files, file);
+	}
+	return *insertion._unstable_ptr;
+}
+
 static bool build_x64(Gen* g, fString build_dir) {
 	ZoneScoped;
 	fString obj_filename = F_LIT("a.obj");
@@ -1456,7 +1472,7 @@ static bool build_x64(Gen* g, fString build_dir) {
 			cv_func.section_sym_index = build_x64_section_get_sym_idx(SectionNum_Code);
 			cv_func.size_of_initial_sub_rsp_instruction = gmmc_asm_proc_get_prolog_size(asm_module, proc);
 			cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
-			cv_func.file_idx = *f_map64_get(&g->file_id_from_source, (u64)proc_info->node->loc_source);
+			cv_func.file_idx = get_fileid_of_source(g, proc_info->node->loc_source);
 
 			fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->alc);
 			for (uint i = 0; i < proc_info->dbginfo_locals.len; i++) {
@@ -1519,8 +1535,8 @@ static bool build_x64(Gen* g, fString build_dir) {
 
 		cviewGenerateDebugInfoDesc cv_desc = {};
 		cv_desc.obj_name = obj_filename;
-		cv_desc.files = g->cv_file_from_parser_idx.data;
-		cv_desc.files_count = (u32)g->cv_file_from_parser_idx.len;
+		cv_desc.files = g->cv_files.data;
+		cv_desc.files_count = (u32)g->cv_files.len;
 		cv_desc.functions = cv_functions.data;
 		cv_desc.functions_count = (u32)cv_functions.len;
 		cv_desc.xdata_section_sym_index = build_x64_section_get_sym_idx(SectionNum_xdata);
@@ -1707,7 +1723,7 @@ static bool build_c(Gen* g, fString build_dir) {
 	return exit_code == 0;
 }
 
-extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fSlice(ffzSource*) sources, fString build_dir, fString name) {
+extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, fString name) {
 	ZoneScoped;
 	ffzProject* project = root_module->project;
 
@@ -1721,28 +1737,17 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fSlice(f
 	g.gmmc = gmmc;
 	g.alc = f_temp_alc();
 	g.variable_from_definition = f_map64_make<Variable>(g.alc);
-	g.file_id_from_source = f_map64_make<u32>(g.alc);
+	g.cv_fileid_from_source = f_map64_make<u32>(g.alc);
 	g.proc_from_hash = f_map64_make<ProcInfo*>(g.alc);
 	g.procs_sorted = f_array_make<ProcInfo*>(g.alc);
 	g.globals = f_array_make<GlobalInfo>(g.alc);
-	g.cv_file_from_parser_idx = f_array_make<cviewSourceFile>(g.alc);
+	g.cv_files = f_array_make<cviewSourceFile>(g.alc);
 	g.cv_types = f_array_make<cviewType>(g.alc);
 	g.cv_type_from_ffz_type = f_map64_make<cviewTypeIdx>(g.alc);
 
-	for (u32 i = 0; i < sources.len; i++) {
-		ffzSource* source = sources[i];
-		f_map64_insert(&g.file_id_from_source, (u64)source, i);
-
-		cviewSourceFile file = {};
-		file.filepath = source->source_code_filepath;
-		
-		SHA256_CTX sha256;
-		sha256_init(&sha256);
-		sha256_update(&sha256, source->source_code.data, source->source_code.len);
-		sha256_final(&sha256, &file.hash.bytes[0]);
-		
-		f_array_push(&g.cv_file_from_parser_idx, file);
-	}
+	//for (u32 i = 0; i < sources.len; i++) {
+	//	
+	//}
 
 	//for (uint i = 0; i < project->checkers_dependency_sorted.len; i++) {
 	//	ffzModule* mod = project->checkers_dependency_sorted[i];
