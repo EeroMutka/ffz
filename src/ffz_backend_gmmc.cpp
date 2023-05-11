@@ -560,8 +560,8 @@ static Value gen_constant(Gen* g, ffzType* type, ffzConstantData* data, ffzLocRa
 }
 
 static Value gen_call(Gen* g, ffzNodeOp* node) {
-	ffzNode* proc_node = ffz_call_get_target_procedure(node);
-	//ffzNode* left = node->Op.left;
+	fOpt(ffzNode*) proc_node = ffz_call_get_constant_target_procedure(node);
+	if (!proc_node) proc_node = node->Op.left;
 
 	ffzType* proc_type = ffz_checked_get_info(proc_node).type;
 	f_assert(proc_type->tag == ffzTypeTag_Proc);

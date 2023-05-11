@@ -1,21 +1,23 @@
 // NEXT UP: get modules back to working
 
 #Basic: import(":Basic")
-
-//#array_set: poly[N, T] proc(array: [N]T, elem: T) {
-//	testing: N
-//	dbgbreak
-//}
-
-//#print: poly[N, T] proc(test: FixedArray[N, T]) {
-//	
-//	x: N
-//	//y:
-//	//dbgbreak
-//	//a.x = T(2)
-//}
+#arr: import(":Array")
 
 #entry: proc {
+	
+	alc: Basic.arena_alc(Basic.tla())
+	
+	my_array: arr.make[u32](alc)
+	
+	//foo: []int{1, 2, 3}
+	
+	arr.push(&my_array, 1)
+	arr.push(&my_array, 2)
+	arr.push(&my_array, 3)
+	
+	//my_int: u32(50)
+	//foo: Basic.max(my_int, 2)
+	//bar: Basic.max(my_int, 502)
 	
 	dbgbreak
 	

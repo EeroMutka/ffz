@@ -109,14 +109,13 @@ ffzConstantHash ffz_hash_constant(fOpt(ffzModuleChecker*) ctx, ffzConstant const
 		f_hasher_add(&h, f_hash64_str(constant.value->string_zero_terminated));
 	} break;
 
-	case ffzTypeTag_Slice: { f_trap(); } break;
+	case ffzTypeTag_Slice: // fallthrough
 	case ffzTypeTag_FixedArray: {
-		ffzConstant length = constant.type->FixedArray.length;
-		f_assert(length.type->tag != ffzTypeTag_PolyParam); // Having a constant with a fixed array type of undecided length is illegal
-
-		for (u32 i = 0; i < (u32)length.value->_uint; i++) {
+		ffzType* elem_type = constant.type->tag == ffzTypeTag_FixedArray ? constant.type->FixedArray.elem_type : constant.type->Slice.elem_type;
+		
+		for (u32 i = 0; i < (u32)constant.value->array_elems.len; i++) {
 			ffzConstantData elem_data = ffz_constant_array_get_elem(constant, i);
-			ffzConstant elem = { constant.type->FixedArray.elem_type, &elem_data };
+			ffzConstant elem = { elem_type, &elem_data };
 			f_hasher_add(&h, ffz_hash_constant(ctx, elem));
 		}
 	} break;
@@ -1138,9 +1137,19 @@ static fOpt(ffzError*) instantiate_poly_def(ffzModuleChecker* c, ffzNode* poly_d
 			i++;
 		}
 
+		// If we're in module X instantiating polymorphic definition Y defined in module Z, then
+		// the instantiation should see the definitions from module Z. But, we want to copy the nodes into module X, because
+		// we want to check it using the checker of module X (module Z has already been checked).
+		// We can easily solve this with a weird trick, where the nodes are copied into X, but the instation's parent node points
+		// to the scope in module Z - this works, since ffz_find_definition works by walking up the nodes and looking at cached
+		// definitions from those nodes.  :PolyInstantiationWeirdTrick
+
 		ffzNode* poly_expr = poly.poly_def->PolyDef.expr;
+		ffzNode* poly_expr_parent = poly_expr->parent;
 		deep_copy(c->mod, ffzCursor{ NULL, &poly_expr }, &ident_to_constant);
-		poly_expr->parent = c->mod->root; // The copied node will be an "invisible" top-level node
+		
+		poly_expr->parent = poly_expr_parent; // NOTE: don't modify the parent!!
+		//poly_expr->parent = c->mod->root; // The copied node will be an "invisible" top-level node
 
 		poly_ptr->instantiated_node = poly_expr;
 		
@@ -2036,7 +2045,10 @@ static bool integer_is_negative(void* bits, u32 size) {
 
 static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result) {
 	ZoneScoped;
-	if (fOpt(ffzCheckInfo*) existing = f_map64_get(&c->infos, (u64)node)) {
+
+	// NOTE: we're must use `ffz_maybe_get_checked_info` instead of `f_map64_get(&c->infos, (u64)node)`, because of a weird trick with polymorphs :PolyInstantiationWeirdTrick
+	// If we used c->infos, nothing would be cached into `c` when instantiating a poly-def from another module.
+	if (fOpt(ffzCheckInfo*) existing = ffz_maybe_get_checked_info(node)) {
 		if (out_result) *out_result = *existing;
 		return NULL;
 	}
@@ -2749,11 +2761,11 @@ FFZ_CAPI fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*modu
 	return NULL;
 }
 
-ffzNode* ffz_call_get_target_procedure(ffzNode* call) {
+fOpt(ffzNode*) ffz_call_get_constant_target_procedure(ffzNode* call) {
 	VALIDATE(call->kind = ffzNodeKind_PostRoundBrackets);
 	ffzCheckInfo left_info = ffz_checked_get_info(call->Op.left);
 	if (left_info.type->tag == ffzTypeTag_Proc) {
-		return left_info.const_val->node;
+		return left_info.const_val ? left_info.const_val->node : NULL;
 	}
 	VALIDATE(left_info.type->tag == ffzTypeTag_PolyDef);
 

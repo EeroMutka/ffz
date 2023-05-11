@@ -993,11 +993,12 @@ inline bool ffz_checked_decl_is_variable(ffzNodeOpDeclare* decl) {
 }
 
 /*
- With procedure calls, it seems easy to get the target procedure, i.e. `print` in `print("Hi")` - just take the left-hand side child node!
- However, it's not as easy as that, because you might be implicitly calling a polymorphic procedure. To solve this, you can
- use `ffz_call_get_target_procedure`, which always gives you the instantiated procedure node of a call.
+* With procedure calls, it seems easy to get the target procedure of a call, i.e. `print` in `print("Hi")` - just take the
+  left-hand side child node! However, it's not as easy as that, because you might be implicitly calling a polymorphic procedure.
+  To solve this, you can use `ffz_call_get_target_procedure`, which always gives you the instantiated procedure node of a call.
+* Returns NULL if the left side is not constant.
 */
-ffzNode* ffz_call_get_target_procedure(ffzNode* call);
+fOpt(ffzNode*) ffz_call_get_constant_target_procedure(ffzNode* call);
 
 fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 

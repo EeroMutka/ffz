@@ -260,7 +260,7 @@
 }
 
 #free: poly[T] proc(array: ^Array[T]) {
-	array.allocator._proc(array.allocator, array.ptr, array.capacity*size_of(T), 0, 0)
+	_ = array.allocator._proc(array.allocator, array.ptr, array.capacity*size_of(T), 0, 0)
 }
 
 #clear: poly[T] proc(array: ^Array[T]) {
