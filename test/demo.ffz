@@ -1,17 +1,11 @@
 
-#Test: struct { // ffz_0
-	x: int
-	y: int
-}
-
 #Array: struct { // ffz_1
-	slice: Test
+	slice: []u32
 	capacity: uint(0)
 	allocator: ^raw
 }
 
 #main: proc {
-	//test: Test{1, 2}
 	my_array: Array(~~)
 	dbgbreak
 }
