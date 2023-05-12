@@ -522,11 +522,23 @@ typedef struct DebugSectionGen {
 	cviewGenerateDebugInfoDesc* desc;
 } DebugSectionGen;
 
+#define OUTPUT_TYPE_IDX_NONE 0
+
 typedef struct TypeGen {
-	CV_typ_t* struct_forward_ref_idx;
-	CV_typ_t* to_output_type_idx;
+	fSlice(CV_typ_t) to_output_type_idx; // elements initially start out as OUTPUT_TYPE_IDX_NONE
+	fSlice(CV_typ_t) to_forward_ref_idx; // elements initially start out as OUTPUT_TYPE_IDX_NONE
+	
 	CV_typ_t next_cv_type_idx;
 } TypeGen;
+
+static CV_typ_t get_generated_cv_type_idx(TypeGen* types, cviewTypeIdx index) {
+	CV_typ_t actual = f_array_get(CV_typ_t, types->to_output_type_idx, index);
+	if (actual != OUTPUT_TYPE_IDX_NONE) return actual;
+
+	CV_typ_t forward_ref = f_array_get(CV_typ_t, types->to_forward_ref_idx, index);
+	f_assert(forward_ref != OUTPUT_TYPE_IDX_NONE);
+	return forward_ref;
+}
 
 static void add_locals(DebugSectionGen* ctx, TypeGen* types, cviewFunction* fn, cviewBlock* parent) {
 	for (u32 i = 0; i < parent->locals_count; i++) {
@@ -541,7 +553,7 @@ static void add_locals(DebugSectionGen* ctx, TypeGen* types, cviewFunction* fn, 
 
 		// Our API type index to codeview type index
 
-		sym.typind = types->to_output_type_idx[local.type_idx];
+		sym.typind = get_generated_cv_type_idx(types, local.type_idx);
 
 		f_prints(ctx->debugS.w, (fString){ (u8*)&sym, F_OFFSET_OF(REGREL32, name) });
 
@@ -609,17 +621,17 @@ static void write_variable_length_number(fStringBuilder* buf, u32 number) {
 	}
 }
 
-static CV_typ_t generate_cv_type(DebugSectionGen* ctx, TypeGen* types, cviewTypeIdx index, bool root/* = false*/) {
-	CV_typ_t existing = types->to_output_type_idx[index];
-	if (existing) return existing;
+static CV_typ_t generate_cv_type(DebugSectionGen* ctx, TypeGen* types, cviewTypeIdx index, bool recursing) {
+	CV_typ_t existing = f_array_get(CV_typ_t, types->to_output_type_idx, index);
+	if (existing != OUTPUT_TYPE_IDX_NONE) return existing;
 
 	cviewType type = ctx->desc->types[index];
 
-	CV_typ_t t = 0;
+	CV_typ_t t = OUTPUT_TYPE_IDX_NONE;
 	
 	switch (type.tag) {
 	case cviewTypeTag_Pointer: {
-		CV_typ_t pointer_to = generate_cv_type(ctx, types, type.Pointer.type_idx, false);
+		CV_typ_t pointer_to = generate_cv_type(ctx, types, type.Pointer.type_idx, true);
 
 		_lfPointer cv_pointer = {0};
 		u32 reclen_offset = (u32)ctx->debugT.buffer.len;
@@ -719,7 +731,7 @@ static CV_typ_t generate_cv_type(DebugSectionGen* ctx, TypeGen* types, cviewType
 	case cviewTypeTag_Array: {
 		// LF_ARRAY
 
-		CV_typ_t elem_type = generate_cv_type(ctx, types, type.Array.elem_type_idx, false);
+		CV_typ_t elem_type = generate_cv_type(ctx, types, type.Array.elem_type_idx, true);
 		
 		_lfArray cv_array = {0};
 		u32 reclen_offset = (u32)ctx->debugT.buffer.len;
@@ -737,23 +749,46 @@ static CV_typ_t generate_cv_type(DebugSectionGen* ctx, TypeGen* types, cviewType
 	} break;
 	
 	case cviewTypeTag_Record: {
-		
-		// When recursing, stop the recursion by using the forward reference
-		if (!root) {
-			t = types->struct_forward_ref_idx[index];
-		}
-		else {
-			// see `strForFieldList` in the microsoft pdb dump
+		// see `strForFieldList` in the microsoft pdb dump
 
-			// first generate the member types
-			for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
-				//F_HITS(___c, 2);
-				cviewStructMember* member = &type.Record.fields[member_i];
-				generate_cv_type(ctx, types, member->type_idx, false);
-				//u32 type_idx = types->to_codeview_type_idx[member->type_idx];
-				//f_assert(type_idx != 0);
+		// first generate the member types
+		for (u32 member_i = 0; member_i < type.Record.fields_count; member_i++) {
+			//F_HITS(___c, 2);
+			cviewStructMember* member = &type.Record.fields[member_i];
+			generate_cv_type(ctx, types, member->type_idx, true);
+				
+			//u32 type_idx = types->to_codeview_type_idx[member->type_idx];
+			//f_assert(type_idx != 0);
+		}
+
+		if (recursing) {
+			// If we're recursing, make/reuse a forward reference to this type instead of generating the actual definition
+			// to make sure we're not making an infinite loop
+
+			CV_typ_t forward_ref_idx = f_array_get(CV_typ_t, types->to_forward_ref_idx, index);
+			if (forward_ref_idx == OUTPUT_TYPE_IDX_NONE) { // Generate a forward reference if it hasn't been done before
+				/*_lfStructure cv_structure = {0};
+				u32 reclen_offset = (u32)ctx->debugT.buffer.len;
+				cv_structure.leaf = LF_STRUCTURE;
+				cv_structure.property.fwdref = true;
+				f_prints(ctx->debugT.w, F_AS_BYTES(cv_structure));
+				
+				u16 struct_size = 0;
+				f_prints(ctx->debugT.w, F_AS_BYTES(struct_size));
+				append_so_called_length_prefixed_name(&ctx->debugT, type.Record.name);
+				
+				patch_reclen(&ctx->debugT, reclen_offset);
+				
+				forward_ref_idx = types->next_cv_type_idx++;
+				f_array_set(CV_typ_t, types->to_forward_ref_idx, index, forward_ref_idx);*/
+				f_trap();
 			}
 
+			// NOTE: early return; we don't want to store the index into `to_output_type_idx`, because this is a forward reference. If we did,
+			//  when we'd get to generating the type, the algorithm would think it's already generated.
+			return forward_ref_idx;
+		}
+		else {
 			// LF_FIELDLIST
 			u32 fieldlist_type_idx = 0;
 			{
@@ -769,8 +804,7 @@ static CV_typ_t generate_cv_type(DebugSectionGen* ctx, TypeGen* types, cviewType
 					cv_member.leaf = LF_MEMBER;
 					cv_member.attr.access = CV_public;
 
-					cv_member.index = types->to_output_type_idx[member.type_idx]; // codeview type index
-					f_assert(cv_member.index != 0);
+					cv_member.index = get_generated_cv_type_idx(types, member.type_idx); // codeview type index
 					f_prints(ctx->debugT.w, F_AS_BYTES(cv_member));
 
 					write_variable_length_number(&ctx->debugT, member.offset_of_member);
@@ -792,10 +826,7 @@ static CV_typ_t generate_cv_type(DebugSectionGen* ctx, TypeGen* types, cviewType
 
 				cv_structure.leaf = LF_STRUCTURE;
 				cv_structure.count = (u16)type.Record.fields_count;
-				//cv_structure.property
 				cv_structure.field = fieldlist_type_idx;
-				//cv_structure.derived
-				//cv_structure.vshape
 				f_prints(ctx->debugT.w, F_AS_BYTES(cv_structure));
 
 				write_variable_length_number(&ctx->debugT, type.size);
@@ -811,8 +842,8 @@ static CV_typ_t generate_cv_type(DebugSectionGen* ctx, TypeGen* types, cviewType
 	default: f_trap();
 	}
 
-	f_assert(t != 0);
-	types->to_output_type_idx[index] = t;
+	f_assert(t != OUTPUT_TYPE_IDX_NONE);
+	f_array_set(CV_typ_t, types->to_output_type_idx, index, t);
 	return t;
 }
 
@@ -842,22 +873,21 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 	f_prints(gen->debugT.w, F_AS_BYTES(signature));
 
-	TypeGen types = {0};
-	// We have two different concepts of a type index. The first is the type index provided by the user of the API, pointing
-	// to an element in the `CodeView_GenerateDebugInfo_Desc.types` array.
-	// The second is the type index that's used in the actual compiled binary. We'll refer to the latter as "codeview type index"
-	types.to_output_type_idx = f_mem_alloc_n(CV_typ_t, gen->desc->types_count, temp);
-	memset(types.to_output_type_idx, 0, gen->desc->types_count * sizeof(CV_typ_t));
-	
-	types.struct_forward_ref_idx = f_mem_alloc_n(CV_typ_t, gen->desc->types_count, temp);
-	types.next_cv_type_idx = 0x1000;
+	// NOTE: We have two different concepts of a type index: an "input type index" (cviewTypeIdx) which is given by the user,
+	// and an "output type index" (CV_typ_t), which is the type index used in the codeview format.
 
-	// First create forward references for all the record types
+	TypeGen types = {0};
+	types.to_output_type_idx = f_make_slice(CV_typ_t, gen->desc->types_count, (CV_typ_t){OUTPUT_TYPE_IDX_NONE}, temp);
+	types.to_forward_ref_idx = f_make_slice(CV_typ_t, gen->desc->types_count, (CV_typ_t){OUTPUT_TYPE_IDX_NONE}, temp);
+	
+	types.next_cv_type_idx = 0x1000; // Codeview/output type indices start at 0x1000
+
+	// First create forward references for all the record types. This'd be one place to cut file size...
 
 	for (u32 i = 0; i < gen->desc->types_count; i++) {
 		cviewType* type = &gen->desc->types[i];
 		if (type->tag == cviewTypeTag_Record) {
-			_lfStructure cv_structure = {0};
+			_lfStructure cv_structure = { 0 };
 			u32 reclen_offset = (u32)gen->debugT.buffer.len;
 			cv_structure.leaf = LF_STRUCTURE;
 			cv_structure.property.fwdref = true;
@@ -869,14 +899,15 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 
 			patch_reclen(&gen->debugT, reclen_offset);
 
-			types.struct_forward_ref_idx[i] = types.next_cv_type_idx++;
+			CV_typ_t forward_ref_idx = types.next_cv_type_idx++;
+			f_array_set(CV_typ_t, types.to_forward_ref_idx, i, forward_ref_idx);
 		}
 	}
 
 	// DumpModTypC7 implementation is missing from the microsoft's PDB dump.
 
 	for (u32 i = 0; i < gen->desc->types_count; i++) {
-		generate_cv_type(gen, &types, i, true);
+		generate_cv_type(gen, &types, i, false);
 	}
 
 	// -- Symbols section --------------------------------------------------------
@@ -1082,7 +1113,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 			u32 reclen_offset = (u32)gen->debugS.buffer.len;
 			DATASYM32 sym = {0};
 			sym.rectyp = S_GDATA32;
-			sym.typind = types.to_output_type_idx[global->type_idx];
+			sym.typind = get_generated_cv_type_idx(&types, global->type_idx);
 
 			sym.seg = 0; // Section number of the procedure. To be relocated
 			{

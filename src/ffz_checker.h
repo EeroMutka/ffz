@@ -666,6 +666,7 @@ typedef struct ffzModuleChecker {
 	fOpt(ffzPolymorph*) instantiating_poly;
 	bool is_inside_polymorphic_node;
 
+	// Maybe instead of this `infos` map, we should store the info in the node along with a generational index that matches the id of the checker.
 	fMap64(ffzCheckInfo) infos; // key: ffzNode*
 
 	/*

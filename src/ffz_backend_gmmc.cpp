@@ -246,6 +246,7 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 	case ffzTypeTag_Slice: // fallthrough
 	case ffzTypeTag_String: // fallthrough
 	case ffzTypeTag_Record: {
+		//F_HITS(__c, 3);
 		if (type->tag == ffzTypeTag_Record && type->Record.is_union) f_trap();
 
 		fSlice(cviewStructMember) cv_fields = f_make_slice_undef<cviewStructMember>(type->record_fields.len, g->alc);
@@ -265,6 +266,7 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 		cv_type.Record.name = type->tag == ffzTypeTag_String ? F_LIT("string") :
 			type->tag == ffzTypeTag_Slice ? make_name(g) : // TODO
 			make_name(g/*, type->unique_node*/);
+		//if (cv_type.Record.name == F_LIT("_ffz_0")) f_trap();
 	} break;
 
 	//case ffzTypeTag_Enum: {} break;
