@@ -1401,7 +1401,7 @@ static fOpt(ffzError*) check_post_round_brackets(ffzModuleChecker* c, ffzNode* n
 				if (types_match(to, from)) {
 					result->constant = arg_info.constant;
 				}
-				else if (to->tag == ffzTypeTag_DefaultSint && ffz_type_is_pointer_ish(from->tag)) { // int to ptr
+				else if (ffz_type_is_pointer_ish(to->tag) && from->tag == ffzTypeTag_DefaultSint) { // int to ptr
 					result->constant = ffz_val_ptr_as_int(c->project, arg_info.const_val->__int, to);
 				}
 				//if (ffz_type_is_integer(to->tag) && ffz_type_is_integer(from->tag) &&
@@ -1856,7 +1856,6 @@ static fOpt(ffzError*) post_check_enum(ffzModuleChecker* c, ffzNode* node) {
 static fOpt(ffzError*) check_proc_type(ffzModuleChecker* c, ffzNode* node, ffzCheckInfo* result) {
 	ffzType proc_type = { ffzTypeTag_Proc };
 	proc_type.is_concrete.x = true;
-	//proc_type.unique_node = node;
 	proc_type.size = c->project->pointer_size;
 	
 	ffzNode* parameter_scope = node->parent->kind == ffzNodeKind_PostCurlyBrackets ? node->parent : node;
@@ -1868,9 +1867,7 @@ static fOpt(ffzError*) check_proc_type(ffzModuleChecker* c, ffzNode* node, ffzCh
 		
 		ffzCheckInfo param_chk;
 		TRY(check_node(c, param, NULL, InferFlag_Statement, &param_chk));
-		
-		// TODO: figure out default values for parameters again
-#if 0
+	
 		// Since the parameter is a runtime value, we need to access the rhs of it to
 		// distinguish between a type expression and a default value
 		ffzNode* rhs = param->Op.right;
@@ -1878,17 +1875,13 @@ static fOpt(ffzError*) check_proc_type(ffzModuleChecker* c, ffzNode* node, ffzCh
 		ffzField field = {};
 		field.name = ffz_decl_get_name(param);
 
-		if (rhs->checked.type->tag == ffzTypeTag_Type) {
-			field.type = rhs->checked.constant->type;
+		ffzCheckInfo rhs_info = ffz_checked_get_info(rhs);
+		if (rhs_info.type->tag == ffzTypeTag_Type) {
+			field.type = &rhs_info.const_val->type;
 		} else {
-			field.type = rhs->checked.type;
-			field.has_default_value = true;
-			field.default_value = *rhs->checked.constant;
+			field.type = rhs_info.type;
+			field.default_value = rhs_info.const_val;
 		}
-#endif
-		ffzField field = {};
-		field.name = ffz_decl_get_name(param);
-		field.type = param_chk.type;
 
 		f_array_push(&in_parameters, field);
 	}
@@ -2069,8 +2062,7 @@ static bool integer_is_negative(void* bits, u32 size) {
 static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result) {
 	ZoneScoped;
 
-	if (node == (void*)0x0000020000090100) f_trap(); // def
-	if (node == (void*)0x0000020000090500) f_trap();
+	//if (node == (void*)0x00000200006b4ce0) f_trap();
 
 	// NOTE: we're must use `ffz_maybe_get_checked_info` instead of `f_map64_get(&c->infos, (u64)node)`, because of a weird trick with polymorphs :PolyInstantiationWeirdTrick
 	// If we used c->infos, nothing would be cached into `c` when instantiating a poly-def from another module.

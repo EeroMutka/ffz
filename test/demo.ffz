@@ -45,6 +45,8 @@ g: Globals(~~)
 }
 
 #entry: proc {
+	temp_allocator: Basic.arena_alc(Basic.tla())
+	
 	foo: MyArray{20, {5, 6, 67}, 200}
 	
 	foo[1] = 423
@@ -57,12 +59,13 @@ g: Globals(~~)
 	gl: &g.gl
 	GL.load(gl, g.window, GL.Version._3_3)
 	
-	g.canvas = Draw2D.init(gl, Basic.temp_arena())
+	
+	g.canvas = Draw2D.init(gl, temp_allocator)
 	
 	
 	// load images
 	// we need a read-entire-file procedure
-	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", Basic.temp_alc())
+	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", temp_allocator)
 	Basic.assert(image_file.ok)
 	
 	
