@@ -83,7 +83,7 @@ typedef struct ffzModule ffzModule;
 typedef struct ffzModuleChecker ffzModuleChecker;
 typedef struct ffzSource ffzSource;
 typedef struct ffzType ffzType;
-typedef struct ffzConstantData ffzConstantData;
+typedef union ffzDatum ffzDatum;
 typedef struct ffzTypeRecordFieldUse ffzTypeRecordFieldUse;
 
 //typedef uint32_t ffzPolymorphID;
@@ -265,13 +265,13 @@ typedef struct ffzLocRange {
 	ffzLoc end;
 } ffzLocRange;
 
-typedef struct ffzConstant {
+typedef struct ffzValue {
 	ffzType* type;
-	ffzConstantData* value;
-} ffzConstant;
+	ffzDatum* datum;
+} ffzValue;
 
 typedef struct ffzPolymorph {
-	fSlice(ffzConstant) parameters;
+	fSlice(ffzValue) parameters;
 	ffzNode* poly_def;
 	ffzNode* instantiated_node; // This will be the deep-copied node tree, with references to the polymorphic parameters replaced with GeneratedConstant-nodes
 } ffzPolymorph;
@@ -284,9 +284,14 @@ typedef struct ffzCheckInfo {
 	fOpt(ffzPolymorph*) call_implicit_poly;
 	//ffzPolymorphID call_implicit_poly_id;
 
-	// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
-	fOpt(ffzType*) type;
-	fOpt(ffzConstantData*) const_val;
+	union {
+		struct {
+			// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
+			fOpt(ffzType*) type;
+			fOpt(ffzDatum*) const_val;
+		};
+		ffzValue constant;
+	};
 } ffzCheckInfo;
 
 //
@@ -393,7 +398,7 @@ struct ffzNode {
 		} StringLiteral;
 
 		struct {
-			ffzConstant constant;
+			ffzValue constant;
 		} GeneratedConstant;
 	};
 };
@@ -466,55 +471,13 @@ struct ffzDefinitionPath {
 	fString name;
 };
 
-/*
- A constant is a packed representation of a compile-time known value.
- ffzType* can be casted to and from ffzConstantData*, if the constant is a type (see `ffz_type_as_constant` and `ffz_constant_as_type`).
-*/
-typedef struct ffzConstantData {
-	union {
-		// NOTE: for unsigned integers, the unused bits of _uint should be 0 (if the type is `u8`, there would be 48 unused bits).
-		// For signed integers, unused bits of _sint should be 1.  :ffzConstantDataIntUnusedBits
-		uint64_t  _uint;
-		int64_t   _sint;
-
-		float      _f32;
-		double     _f64;
-		bool      _bool;
-		
-		// We could do this:
-		//ffzType type;
-		// which might be nicer than `ffz_constant_as_type`
-
-		// A constant pointer value can be either a pointer to another constant, or a literal integer value.
-		struct {
-			uint64_t as_integer; // :ReinterpretIntegerConstantAsPointer
-			fOpt(ffzConstantData*) as_ptr_to_constant; // if NULL, `as_integer` is used instead
-		} ptr;
-
-		ffzModule* module;
-		fString string_zero_terminated; // length doesn't contain the zero termination.
-
-		// Tightly packed array of ffzConstantData, used for constant array and slice initializers.
-		// i.e. if this is an array of u8, the n-th element would be ((u8*)array_elems)[n].
-		// You can use ffz_constant_array_get_elem() to get an element from it.
-		struct { void* data; uint32_t len; } array_elems;
-
-		// for procedures and poly-expressions.
-		// NOTE: When an extern procedure, `node` will point to the ProcType node that is tagged @extern,
-		// since there is no procedure body.
-		ffzNode* node;
-
-		fSlice(ffzConstantData) record_fields; // or empty for zero-initialized
-	};
-} ffzConstantData;
-
 // A "field" can mean any of the following: a struct member, an enum member, or a procedure parameter.
 typedef struct ffzField {
 	fString name;
 	//fOpt(ffzNodeOpDeclare*) decl; // not always used, i.e. for slice type fields
 	
-	ffzConstantData default_value;
-	bool has_default_value;
+	fOpt(ffzDatum*) default_value; // NULL means no default value
+	//bool has_default_value;
 
 	bool has_using; // only for struct members
 
@@ -530,7 +493,7 @@ typedef struct ffzTypeRecordFieldUse {
 
 typedef struct ffzTypeEnumField {
 	fString name;
-	uint64_t value;
+	int64_t value;
 } ffzTypeEnumField;
 
 typedef struct ffzType {
@@ -575,8 +538,8 @@ typedef struct ffzType {
 		struct {
 			ffzType* elem_type;
 			
-			// In polymorphic nodes (ffz_node_is_polymorphic), this may be of type PolyParam. Otherwise must be an integer.
-			ffzConstant length;
+			// In polymorphic nodes (ffz_node_is_polymorphic), this may be of type PolyParam. Otherwise must be `uint`.
+			ffzValue length;
 		} FixedArray;
 
 		struct {
@@ -592,6 +555,50 @@ typedef struct ffzType {
 		} Extra;
 	};
 } ffzType;
+
+typedef struct ffzDatumRecord {
+	fSlice(ffzDatum*) fields;
+} ffzDatumRecord;
+
+typedef struct ffzDatumPtr {
+	// A pointer can be represented as either a pointer to another constant, or a literal integer value.
+	uint64_t as_int;
+	fOpt(ffzDatum*) as_ptr_to_constant; // if NULL, `as_int` is used instead
+} ffzDatumPtr;
+
+/*
+ Packed representation of a compile-time known value.
+*/
+typedef union ffzDatum {
+	int8_t  _s8;  int16_t _s16;  int32_t _s32;  int64_t _s64;
+	uint8_t _u8; uint16_t _u16; uint32_t _u32; uint64_t _u64;
+	uint64_t __uint;
+	int64_t __int;
+
+	float      _f32;
+	double     _f64;
+	bool      _bool;
+
+	ffzDatumPtr ptr;
+	fString string_zero_terminated; // length doesn't contain the zero termination.
+	ffzDatumRecord record;
+	
+	// used for constant arrays/slices
+	// TODO: we could tightly pack this array. However, then we would have to re-think about this:
+	// if we don't intern the constants, then we can't compare their pointers anymore.
+	// Could we intern non-basic types, but intern all others? idk.
+	fSlice(ffzDatum*) array;
+	
+	// -- Compile time only values --
+	
+	ffzType type; // you can safely cast (ffzConstantData*) into (ffzType*) and the other way with `ffz_as_constant`
+	ffzModule* module;
+
+	// for procedures and poly-expressions.
+	// NOTE: When an extern procedure, `node` will point to the ProcType node that is tagged @extern,
+	// since there is no procedure body.
+	ffzNode* node;
+} ffzDatum;
 
 // ffzProject contains read-only information about the project.
 typedef struct ffzProject {
@@ -610,7 +617,7 @@ typedef struct ffzProject {
 	struct {
 		fAllocator* alc; // maybe switch this to Arena?
 		fMap64(ffzType*) type_from_hash; // key: TypeHash
-		fMap64(ffzConstantData*) constant_from_hash; // key: ConstantHash
+		fMap64(ffzDatum*) constant_from_hash; // key: ConstantHash
 		fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
 	} bank;
 
@@ -687,7 +694,7 @@ typedef struct ffzModuleChecker {
 	fMap64(fArray(ffzNode*)) all_tags_of_type;
 
 	// Only required during checking.
-	fMap64(u64) enum_value_from_name; // key: FieldHash.
+	fMap64(s64) enum_value_from_name; // key: FieldHash.
 	fMap64(ffzNode*) enum_value_is_taken; // key: EnumValuekey
 
 	//fArray(ffzNode*) _extern_libraries; // Array of all `extern` keywords in the module
@@ -819,8 +826,31 @@ fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source,
 
 // ------------------------------------------------------
 
-ffzType* ffz_builtin_type_type();
-inline ffzType* ffz_builtin_type(ffzProject* p, ffzKeyword keyword) { return p->builtin_types[keyword]; }
+ffzType* ffz_type_type();
+
+// TODO: make the following types not require passing the project
+ffzType* ffz_type_u8(ffzProject* p);
+ffzType* ffz_type_u16(ffzProject* p);
+ffzType* ffz_type_u32(ffzProject* p);
+ffzType* ffz_type_u64(ffzProject* p);
+ffzType* ffz_type_s8(ffzProject* p);
+ffzType* ffz_type_s16(ffzProject* p);
+ffzType* ffz_type_s32(ffzProject* p);
+ffzType* ffz_type_s64(ffzProject* p);
+ffzType* ffz_type_uint(ffzProject* p);
+ffzType* ffz_type_int(ffzProject* p);
+ffzType* ffz_type_bool(ffzProject* p);
+ffzType* ffz_type_raw(ffzProject* p);
+
+ffzType* ffz_type_string(ffzProject* p);
+
+// tag-types
+ffzType* ffz_type_extern(ffzProject* p);
+ffzType* ffz_type_using(ffzProject* p);
+ffzType* ffz_type_global(ffzProject* p);
+ffzType* ffz_type_module_defined_entry(ffzProject* p);
+ffzType* ffz_type_build_option(ffzProject* p);
+
 
 //void ffz_log_pretty_error(ffzParser* parser, fString error_kind, ffzLocRange loc, fString error, bool extra_newline);
 
@@ -829,7 +859,6 @@ inline ffzType* ffz_builtin_type(ffzProject* p, ffzKeyword keyword) { return p->
 inline bool ffz_keyword_is_bitwise_op(ffzKeyword keyword) { return keyword >= ffzKeyword_bit_and && keyword <= ffzKeyword_bit_not; }
 
 inline bool ffz_node_is_keyword(ffzNode* node, ffzKeyword keyword) { return node->kind == ffzNodeKind_Keyword && node->Keyword.keyword == keyword; }
-
 
 inline bool ffz_type_is_integer(ffzTypeTag tag) { return tag >= ffzTypeTag_Sint && tag <= ffzTypeTag_DefaultUint; }
 inline bool ffz_type_is_signed_integer(ffzTypeTag tag) { return tag == ffzTypeTag_Sint || tag == ffzTypeTag_DefaultSint; }
@@ -843,8 +872,8 @@ inline bool ffz_type_is_integer_ish(ffzTypeTag tag) { return ffz_type_is_integer
 inline bool ffz_type_is_slice_ish(ffzTypeTag tag) { return tag == ffzTypeTag_Slice || tag == ffzTypeTag_String; }
 inline bool ffz_type_is_pointer_sized_integer(ffzProject* p, ffzType* type) { return ffz_type_is_integer(type->tag) && type->size == p->pointer_size; }
 
-uint32_t ffz_get_encoded_constant_size(ffzType* type);
-ffzConstantData ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
+//uint32_t ffz_get_encoded_constant_size(ffzType* type);
+//ffzConstant ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
 
 // a type is grounded when a runtime variable may have that type.
 inline bool ffz_type_is_concrete(ffzType* type) { return type->is_concrete.x; }
@@ -855,10 +884,10 @@ bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.
 fString ffz_type_to_string(ffzType* type, fAllocator* alc);
 //char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
 
-fString ffz_constant_to_string(ffzProject* p, ffzConstant constant);
+fString ffz_constant_to_string(ffzProject* p, ffzValue constant);
 //char* ffz_constant_to_cstring(ffzProject* p, ffzConstantData* constant, ffzType* type);
 
-ffzNode* ffz_constant_to_node(ffzModule* m, ffzConstant constant);
+ffzNode* ffz_constant_to_node(ffzModule* m, ffzValue constant);
 
 ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type);
 
@@ -922,20 +951,30 @@ fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_i
 // - and procedures
 // - and standalone tags
 
-// TODO: CLEANUP
-//ffzOk ffz_check_toplevel_statement(ffzModule* c, ffzNode* node);
-//ffzOk ffz_instanceless_check(ffzModule* c, ffzNode* node, bool recursive);
+ffzType* ffz_make_type_ptr(ffzProject* p, ffzType* pointer_to);
+ffzType* ffz_make_type_slice(ffzProject* p, ffzType* elem_type);
+ffzType* ffz_make_type_fixed_array(ffzProject* p, ffzType* elem_type, ffzValue length); // TODO: replace `length` here with an uint
 
+inline ffzValue ffz_type_as_val(ffzType* type) { ffzValue c = {ffz_type_type(), (ffzDatum*)type}; return c; }
 
-//bool ffz_find_top_level_declaration(ffzModule* c, fString name, ffzNodeOpDeclare* out_decl);
+//ffzValue ffz_make_val_ptr_to(ffzProject* p)
+ffzValue ffz_val_ptr_as_int(ffzProject* p, u64 value, ffzType* type);
 
-//ffzCheckerContext* ffz_module_get_finished_checker_ctx(ffzModule* m) {
-//	f_assert(m->checked);
-//	return &m->checker_ctx;
-//}
+ffzValue ffz_val_u8(ffzProject* p, u8 value);
+ffzValue ffz_val_u16(ffzProject* p, u16 value);
+ffzValue ffz_val_u32(ffzProject* p, u32 value);
+ffzValue ffz_val_u64(ffzProject* p, u64 value);
+ffzValue ffz_val_s8(ffzProject* p, s8 value);
+ffzValue ffz_val_s16(ffzProject* p, s16 value);
+ffzValue ffz_val_s32(ffzProject* p, s32 value);
+ffzValue ffz_val_s64(ffzProject* p, s64 value);
+ffzValue ffz_val_uint(ffzProject* p, u64 value);
+ffzValue ffz_val_int(ffzProject* p, s64 value);
 
-inline ffzConstant ffz_as_constant(ffzType* type) { ffzConstant c = {ffz_builtin_type_type(), (ffzConstantData*)type}; return c; }
-inline ffzType* ffz_as_type(ffzConstantData* constant) { return (ffzType*)constant;}
+// NOTE: the value must be null-terminated (length shouldn't include null termination)!!
+ffzValue ffz_val_string(ffzProject* p, fString value);
+
+bool ffz_default_value_of_type(ffzProject* p, ffzType* type, ffzValue* out_val);
 
 // -- Accessing data cached by the checker ------------------------------------------------------
 
@@ -977,9 +1016,9 @@ fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module);
 */
 void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(fOpt(ffzNode*))* out_arguments, fAllocator* alc);
 
-bool ffz_constant_is_zero(ffzConstantData constant);
+inline ffzValue ffz_val(ffzType* type, ffzDatum* data) { ffzValue c = {type, data}; return c; }
 
-ffzConstantData* ffz_zero_value_constant();
+//ffzConstantData* ffz_zero_value_constant();
 
 bool ffz_node_is_polymorphic(ffzNode* node);
 
@@ -993,6 +1032,8 @@ inline bool ffz_checked_decl_is_variable(ffzNodeOpDeclare* decl) {
 	return ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl) || ffz_checked_decl_is_local_variable(decl);
 }
 
+bool ffz_default_value_of_type(ffzProject* p, ffzType* type, ffzValue* out_val);
+
 /*
 * With procedure calls, it seems easy to get the target procedure of a call, i.e. `print` in `print("Hi")` - just take the
   left-hand side child node! However, it's not as easy as that, because you might be implicitly calling a polymorphic procedure.
@@ -1003,8 +1044,7 @@ fOpt(ffzNode*) ffz_call_get_constant_target_procedure(ffzNode* call);
 
 fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 
-fOpt(ffzConstantData*) ffz_checked_get_tag_of_type(ffzNode* node, ffzType* tag_type);
-fOpt(ffzConstantData*) ffz_checked_get_tag(ffzNode* node, ffzKeyword tag);
+fOpt(ffzDatum*) ffz_checked_get_tag(ffzNode* node, ffzType* tag_type);
 
 
 #ifdef __cplusplus
