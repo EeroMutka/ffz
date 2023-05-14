@@ -138,7 +138,7 @@ fString ffz_keyword_to_string(ffzKeyword keyword) {
 	case ffzKeyword_uint:                 return F_LIT("uint");
 	case ffzKeyword_bool:                 return F_LIT("bool");
 	case ffzKeyword_raw:                  return F_LIT("raw");
-	case ffzKeyword_type:                 return F_LIT("type");
+	case ffzKeyword_type:                 return F_LIT("typeid");
 	case ffzKeyword_string:               return F_LIT("string");
 	case ffzKeyword_bit_and:              return F_LIT("bit_and");
 	case ffzKeyword_bit_or:               return F_LIT("bit_or");
@@ -1409,7 +1409,7 @@ fOpt(ffzNodeOpDeclare*) ffz_get_parent_decl(fOpt(ffzNode*) node) {
 	return (node && node->parent->kind == ffzNodeKind_Declare) ? (ffzNodeOpDeclare*)node->parent : NULL;
 }
 
-fString ffz_get_parent_decl_name(fOpt(ffzNode*) node) {
+fString ffz_maybe_get_parent_decl_name(fOpt(ffzNode*) node) {
 	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
 	return decl ? decl->Op.left->Identifier.name : (fString) { 0 };
 }

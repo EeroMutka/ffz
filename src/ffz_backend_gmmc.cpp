@@ -109,13 +109,14 @@ static fString make_name(Gen* g, fOpt(ffzNode*) node = NULL, bool pretty = true)
 	f_init_string_builder(&name, f_temp_alc());
 
 	fOpt(ffzDatum*) extern_tag;
+	//F_HITS(_c, 15);
 	if (node) {
-		extern_tag = ffz_checked_get_tag(node->parent, ffz_type_using(g->project));
+		extern_tag = ffz_checked_get_tag(node->parent, ffz_type_extern(g->project));
 		if (extern_tag) {
 			f_prints(name.w, extern_tag->record.fields[1]->string_zero_terminated); // name_prefix
 		}
 
-		f_prints(name.w, ffz_get_parent_decl_name(node));
+		f_prints(name.w, ffz_maybe_get_parent_decl_name(node));
 	}
 	
 	if (name.str.len == 0) {
@@ -127,7 +128,9 @@ static fString make_name(Gen* g, fOpt(ffzNode*) node = NULL, bool pretty = true)
 		// We don't want to export symbols from imported modules.
 		// Currently, we're giving these symbols unique ids and exporting them anyway, because
 		// if we're using debug-info, an export name is required. TODO: don't export these procedures in non-debug builds!!
-			
+		
+		//if (name.str == F_LIT("VirtualAlloc")) f_trap();
+
 		bool is_module_defined_entry = ffz_checked_get_tag(node->parent, ffz_type_module_defined_entry(g->project));
 		if (extern_tag == NULL && !is_module_defined_entry) {
 			f_print(name.w, "$$~u32", node->_module->self_id);

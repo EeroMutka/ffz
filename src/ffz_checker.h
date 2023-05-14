@@ -477,7 +477,6 @@ typedef struct ffzField {
 	//fOpt(ffzNodeOpDeclare*) decl; // not always used, i.e. for slice type fields
 	
 	fOpt(ffzDatum*) default_value; // NULL means no default value
-	//bool has_default_value;
 
 	bool has_using; // only for struct members
 
@@ -498,7 +497,7 @@ typedef struct ffzTypeEnumField {
 
 typedef struct ffzType {
 	ffzTypeTag tag;
-	struct { bool x; } is_concrete; // Concrete types are types which can be used as runtime values. i.e. `type`, `module`, are not concrete.
+	struct { bool x; } is_concrete; // Concrete types are types which can be used as runtime values. i.e. `type`, `module`, are not concrete, or any composite type that contains them.
 	uint32_t size;
 	uint32_t align;
 
@@ -538,7 +537,7 @@ typedef struct ffzType {
 		struct {
 			ffzType* elem_type;
 			
-			// In polymorphic nodes (ffz_node_is_polymorphic), this may be of type PolyParam. Otherwise must be `uint`.
+			// In polymorphic nodes (ffz_node_is_polymorphic), this may be of type PolyParam. Otherwise must be an integer type.
 			ffzValue length;
 		} FixedArray;
 
@@ -580,8 +579,8 @@ typedef union ffzDatum {
 	bool      _bool;
 
 	ffzDatumPtr ptr;
-	fString string_zero_terminated; // length doesn't contain the zero termination.
 	ffzDatumRecord record;
+	fString string_zero_terminated; // length doesn't contain the zero termination.
 	
 	// used for constant arrays/slices
 	// TODO: we could tightly pack this array. However, then we would have to re-think about this:
@@ -801,7 +800,7 @@ inline bool ffz_op_is_comparison(ffzNodeKind kind) { return kind >= ffzNodeKind_
 inline bool ffz_node_is_top_level(ffzNode* node) { return node->parent->parent == NULL; }
 
 // These both return an empty string if the node's parent is not a declaration, or the node itself is NULL
-fString ffz_get_parent_decl_name(fOpt(ffzNode*) node);
+fString ffz_maybe_get_parent_decl_name(fOpt(ffzNode*) node);
 //fString ffz_get_parent_decl_pretty_name(fOpt(ffzNode*) node);
 
 uint32_t ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
@@ -887,16 +886,33 @@ fString ffz_type_to_string(ffzType* type, fAllocator* alc);
 fString ffz_constant_to_string(ffzProject* p, ffzValue constant);
 //char* ffz_constant_to_cstring(ffzProject* p, ffzConstantData* constant, ffzType* type);
 
-ffzNode* ffz_constant_to_node(ffzModule* m, ffzValue constant);
+//ffzNode* ffz_constant_to_node(ffzModule* m, ffzValue constant);
+//ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type);
 
-ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type);
+ffzType* ffz_type_ptr(ffzProject* p, ffzType* pointer_to);
+ffzType* ffz_type_slice(ffzProject* p, ffzType* elem_type);
+ffzType* ffz_type_fixed_array(ffzProject* p, ffzType* elem_type, uint length);
 
-//ffzEnumValueHash ffz_hash_enum_value(ffzType* enum_type, u64 value);
-//ffzNodeHash ffz_hash_node(ffzNode* node);
-//ffzExpressionHash ffz_hash_expression(ffzNode* node);
-//u64 ffz_hash_declaration_path(ffzDefinitionPath path);
-//ffzMemberHash ffz_hash_member(ffzType* type, fString member_name);
-//ffzConstantHash ffz_hash_constant(ffzCheckedInst constant);
+inline ffzValue ffz_type_as_val(ffzType* type) { ffzValue c = { ffz_type_type(), (ffzDatum*)type }; return c; }
+
+//ffzValue ffz_make_val_ptr_to(ffzProject* p)
+ffzValue ffz_val_ptr_as_int(ffzProject* p, u64 value, ffzType* type);
+
+ffzValue ffz_val_u8(ffzProject* p, u8 value);
+ffzValue ffz_val_u16(ffzProject* p, u16 value);
+ffzValue ffz_val_u32(ffzProject* p, u32 value);
+ffzValue ffz_val_u64(ffzProject* p, u64 value);
+ffzValue ffz_val_s8(ffzProject* p, s8 value);
+ffzValue ffz_val_s16(ffzProject* p, s16 value);
+ffzValue ffz_val_s32(ffzProject* p, s32 value);
+ffzValue ffz_val_s64(ffzProject* p, s64 value);
+ffzValue ffz_val_uint(ffzProject* p, u64 value);
+ffzValue ffz_val_int(ffzProject* p, s64 value);
+
+// NOTE: the value must be null-terminated (length shouldn't include null termination)!!
+ffzValue ffz_val_string(ffzProject* p, fString value);
+
+bool ffz_default_value_of_type(ffzProject* p, ffzType* type, ffzValue* out_val);
 
 // -- High level compiler API --------------------------------------------------------------
 
@@ -934,7 +950,7 @@ ffzModule* ffz_new_module(ffzProject* p, fAllocator* alc);
 // The node must be a top-level node and have it's parent field set to NULL.
 void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 
-fOpt(ffzError*) ffz_module_resolve_imports_(ffzModule* m, ffzModule* (*module_from_path)(fString path, void* userdata), void* userdata);
+//fOpt(ffzError*) ffz_module_resolve_imports_(ffzModule* m, ffzModule* (*module_from_path)(fString path, void* userdata), void* userdata);
 
 /*
  `module_from_import` should return the fully-checked module imported by an import node.
@@ -951,30 +967,6 @@ fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_i
 // - and procedures
 // - and standalone tags
 
-ffzType* ffz_make_type_ptr(ffzProject* p, ffzType* pointer_to);
-ffzType* ffz_make_type_slice(ffzProject* p, ffzType* elem_type);
-ffzType* ffz_make_type_fixed_array(ffzProject* p, ffzType* elem_type, ffzValue length); // TODO: replace `length` here with an uint
-
-inline ffzValue ffz_type_as_val(ffzType* type) { ffzValue c = {ffz_type_type(), (ffzDatum*)type}; return c; }
-
-//ffzValue ffz_make_val_ptr_to(ffzProject* p)
-ffzValue ffz_val_ptr_as_int(ffzProject* p, u64 value, ffzType* type);
-
-ffzValue ffz_val_u8(ffzProject* p, u8 value);
-ffzValue ffz_val_u16(ffzProject* p, u16 value);
-ffzValue ffz_val_u32(ffzProject* p, u32 value);
-ffzValue ffz_val_u64(ffzProject* p, u64 value);
-ffzValue ffz_val_s8(ffzProject* p, s8 value);
-ffzValue ffz_val_s16(ffzProject* p, s16 value);
-ffzValue ffz_val_s32(ffzProject* p, s32 value);
-ffzValue ffz_val_s64(ffzProject* p, s64 value);
-ffzValue ffz_val_uint(ffzProject* p, u64 value);
-ffzValue ffz_val_int(ffzProject* p, s64 value);
-
-// NOTE: the value must be null-terminated (length shouldn't include null termination)!!
-ffzValue ffz_val_string(ffzProject* p, fString value);
-
-bool ffz_default_value_of_type(ffzProject* p, ffzType* type, ffzValue* out_val);
 
 // -- Accessing data cached by the checker ------------------------------------------------------
 
@@ -1031,8 +1023,6 @@ inline bool ffz_decl_is_parameter(ffzNodeOpDeclare* decl) { return decl->parent 
 inline bool ffz_checked_decl_is_variable(ffzNodeOpDeclare* decl) {
 	return ffz_decl_is_parameter(decl) || ffz_decl_is_global_variable(decl) || ffz_checked_decl_is_local_variable(decl);
 }
-
-bool ffz_default_value_of_type(ffzProject* p, ffzType* type, ffzValue* out_val);
 
 /*
 * With procedure calls, it seems easy to get the target procedure of a call, i.e. `print` in `print("Hi")` - just take the

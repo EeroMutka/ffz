@@ -199,8 +199,10 @@
 	
 	RL.SetRandomSeed(100)
 	
+	alc: Basic.arena_alc(Basic.tla())
+	
 	game: Game{
-		snake: Array.make[V2](Basic.temp_alc())
+		snake: Array.make[V2](alc)
 	}
 	
 	Array.push[V2](&game.snake, V2{5, 5})
