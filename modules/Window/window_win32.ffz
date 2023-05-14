@@ -39,7 +39,7 @@
 		height: u16(bit_shr(in.lParam, 16))
 		
 		if out != ^WindowEvents(0) {
-			out.resize_cb(uint(width), uint(height), out.resize_cb_user_ptr)
+			out._resize_cb(uint(width), uint(height), out.resize_cb_user_ptr)
 		}
 	}
 	else if in.uMsg == WM_CLOSE || in.uMsg == WM_QUIT {
@@ -149,8 +149,9 @@
 }
 
 #ResizeCallback: proc(width: uint, height: uint, user_ptr: ^raw)
+
 #WindowEvents: struct {
-	resize_cb: ResizeCallback
+	_resize_cb: ResizeCallback
 	resize_cb_user_ptr: ^raw
 	quit: bool
 }

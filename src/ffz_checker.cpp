@@ -677,7 +677,6 @@ static fOpt(ffzError*) check_argument_list(ffzModuleChecker* c, ffzNode* node, f
 
 	fSlice(bool) field_is_given_a_value = f_make_slice<bool>(fields.len, false, c->alc);
 
-	//F_HITS(_c, 6);
 	bool has_used_named_argument = false;
 	u32 i = 0;
 	for FFZ_EACH_CHILD(arg, node) {
@@ -1938,8 +1937,7 @@ FFZ_CAPI ffzCheckInfo ffz_checked_get_info(ffzNode* node) {
 
 static fOpt(ffzError*) check_identifier(ffzModuleChecker* c, ffzNodeIdentifier* node, ffzCheckInfo* result) {
 	fString name = node->Identifier.name;
-//	if (name == F_LIT("foo")) f_trap();
-
+	
 	fOpt(ffzNodeIdentifier*) def = ffz_find_definition(node);
 	if (def == NULL) {
 		ERR(c, node, "Definition not found for an identifier: \"~s\"", name);
@@ -2071,7 +2069,8 @@ static bool integer_is_negative(void* bits, u32 size) {
 static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result) {
 	ZoneScoped;
 
-	//if (node == (void*)0x0000020000020b70) f_trap();
+	if (node == (void*)0x0000020000090100) f_trap(); // def
+	if (node == (void*)0x0000020000090500) f_trap();
 
 	// NOTE: we're must use `ffz_maybe_get_checked_info` instead of `f_map64_get(&c->infos, (u64)node)`, because of a weird trick with polymorphs :PolyInstantiationWeirdTrick
 	// If we used c->infos, nothing would be cached into `c` when instantiating a poly-def from another module.
@@ -2085,9 +2084,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 	}
 
 	//F_HITS(_c, 7);
-
 	ffzCheckInfo result = {};
-	
+	bool post_check_curly_initializer = false;
+
 	switch (node->kind) {
 	case ffzNodeKind_Declare: {
 		ffzNode* lhs = node->Op.left;
@@ -2174,6 +2173,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		else {
 			// type-inferred initializer
 			TRY(check_curly_initializer(c, require_type, node, flags, &result));
+			post_check_curly_initializer = true;
 		}
 	} break;
 
@@ -2356,6 +2356,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		TRY(check_node(c, left, NULL, 0, &left_info));
 		TRY(verify_is_type_expression(c, left, left_info.type));
 		TRY(check_curly_initializer(c, &left_info.const_val->type, node, flags, &result));
+		post_check_curly_initializer = true;
 	} break;
 	
 	case ffzNodeKind_PostSquareBrackets: {
@@ -2537,18 +2538,14 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 	// This gives more freedom to the children to use utilities, such as get_scope() which requires the parents to be checked.
 	
 	if (!child_already_fully_checked_us) {
-		if (result.type && result.type->tag == ffzTypeTag_Proc) { // post-check procedure bodies
-			// ignore extern procs.
-			// It's a bit weird how the extern tag turns a type declaration into a value declaration. Maybe this should be changed.
-			if (node->kind != ffzNodeKind_ProcType) {
-				TRY(add_possible_definitions_to_scope(c, node, node));
+		if (post_check_curly_initializer && result.type && result.type->tag == ffzTypeTag_Proc) {
+			TRY(add_possible_definitions_to_scope(c, node, node));
 
-				// only check the procedure body when we have a physical procedure instance (not polymorphic)
-				// and after the proc type has been cached.
+			// only check the procedure body when we have a physical procedure instance (not polymorphic)
+			// and after the proc type has been cached.
 
-				for FFZ_EACH_CHILD(n, node) {
-					TRY(check_node(c, n, NULL, InferFlag_Statement, NULL));
-				}
+			for FFZ_EACH_CHILD(n, node) {
+				TRY(check_node(c, n, NULL, InferFlag_Statement, NULL));
 			}
 		}
 		else switch (node->kind) {
@@ -2559,7 +2556,6 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 				}
 			}
 		} break;
-		
 		case ffzNodeKind_If: {
 			TRY(check_node(c, node->If.condition, ffz_type_bool(c->project), 0, NULL));
 			TRY(check_node(c, node->If.true_scope, NULL, InferFlag_Statement, NULL));
@@ -2569,11 +2565,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 				TRY(check_node(c, false_scope, NULL, InferFlag_Statement, NULL));
 			}
 		} break;
-		
 		case ffzNodeKind_Enum: {
 			TRY(post_check_enum(c, node));
 		} break;
-		
 		case ffzNodeKind_For: {
 			TRY(add_possible_definition_to_scope(c, node, node->For.header_stmts[0]));
 			
@@ -2591,11 +2585,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 			
 			TRY(check_node(c, node->For.scope, NULL, InferFlag_Statement, NULL));
 		} break;
-		
 		case ffzNodeKind_Declare: {
 			TRY(check_node(c, node->Op.left, NULL, 0, NULL));
 		} break;
-
 		case ffzNodeKind_Record: {
 			TRY(add_possible_definitions_to_scope(c, node, node));
 
