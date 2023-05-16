@@ -18,6 +18,9 @@
 
 #define PTR2HASH(x) ((u64)x)
 
+inline bool has_non_poly_type(fOpt(ffzType*) type) { return type && !type_is_polymorphic(type); }
+inline bool has_poly_type(fOpt(ffzType*) type) { return type && type_is_polymorphic(type); }
+
 static ffzError* make_error(fOpt(ffzNode*) node, fString msg, fAllocator* alc) {
 	ffzError* err = f_mem_clone(ffzError{}, alc);
 	err->node = node;
@@ -132,8 +135,6 @@ ffzConstantHash ffz_hash_constant(ffzValue constant) {
 		f_hasher_add(&h, val);
 	} break;
 
-	// -- For the following, `ctx` must be set-------------
-
 	case ffzTypeTag_PolyDef: // fallthrough
 	case ffzTypeTag_Proc: {
 		ffzNode* node = constant.datum->node;
@@ -143,8 +144,8 @@ ffzConstantHash ffz_hash_constant(ffzValue constant) {
 	case ffzTypeTag_Record: {
 		f_assert(constant.type->Record.is_union == false);
 		for (uint i = 0; i < constant.type->record_fields.len; i++) {
-			ffzValue elem = {constant.type->record_fields[i].type, constant.datum->record.fields[i]};
-			f_hasher_add(&h, ffz_hash_constant(elem));
+			//ffzValue elem = {constant.type->record_fields[i].type, };
+			f_hasher_add(&h, PTR2HASH(constant.datum->record.fields[i]));
 		}
 	} break;
 
@@ -259,6 +260,58 @@ FFZ_CAPI bool ffz_type_is_comparable(ffzType* type) {
 	return ffz_type_is_integer(type->tag) || type->tag == ffzTypeTag_Enum || ffz_type_is_float(type->tag);
 }
 
+/*
+ Sometimes we want to tell if a type is polymorphic or not.
+ A type is polymorphic if it's a poly-parameter, poly-val, or if it can reach any polymorphic type (i.e. ^T, where T is a poly-parameter).
+ So when constructing the type, we want to see if any of its children are polymorphic. But consider the following:
+ 
+ #Foo: struct{ptr: ^Foo, bar: int}
+
+ In this case, when we're recursing into the struct and making the type for `ptr`, we cannot know if it's a polymorphic type or not,
+ because we haven't fully checked `Foo` yet. In order to know if `Foo` is polymorphic, we need to have checked all of its members!
+ 
+ Solution: whenever we finish the struct / any other type, traverse through it to see if
+ it can reach any polymorphic type, and if it can, mark it to be polymorphic.
+*/
+bool cache_is_polymorphic(ffzType* type, ffzType* root_type, bool recursing) {
+	if (!type->is_polymorphic_needs_caching) return true;
+	if (type == root_type && recursing) return true; // stop recursion if we're back at the beginning
+	if (type->unfinished) return false; // until a type is finished, we cannot know if it's polymorphic or not
+
+	switch (type->tag) {
+	case ffzTypeTag_PolyParam: { type->is_polymorphic = true; } break;
+	//case ffzTypeTag_PolyVal: { f_print(w, "<poly-val>"); } break;
+	
+	case ffzTypeTag_Record: {
+		for (uint i=0; i < type->record_fields.len; i++) {
+			ffzType* member_type = type->record_fields[i].type;
+			if (!cache_is_polymorphic(member_type, root_type, true)) return false;
+			
+			if (member_type->is_polymorphic) {
+				type->is_polymorphic = true;
+			}
+		}
+	} break;
+	case ffzTypeTag_Pointer: {
+		if (!cache_is_polymorphic(type->Pointer.pointer_to, root_type, false)) return false;
+		type->is_polymorphic = type->Pointer.pointer_to->is_polymorphic;
+	} break;
+	case ffzTypeTag_Slice: {
+		if (!cache_is_polymorphic(type->Slice.elem_type, root_type, false)) return false;
+		type->is_polymorphic = type->Slice.elem_type->is_polymorphic;
+	} break;
+	default: break;
+	}
+	
+	type->is_polymorphic_needs_caching = false;
+	return true;
+}
+
+bool type_is_polymorphic(ffzType* type) {
+	f_assert(!type->is_polymorphic_needs_caching);
+	return type->is_polymorphic;
+}
+
 void print_type(fWriter* w, ffzType* type) {
 	switch (type->tag) {
 	case ffzTypeTag_Invalid: { f_print(w, "<invalid>"); } break;
@@ -267,6 +320,7 @@ void print_type(fWriter* w, ffzType* type) {
 	case ffzTypeTag_Type: { f_print(w, "<type>"); } break;
 	case ffzTypeTag_PolyDef: { f_print(w, "<poly-def>"); } break;
 	case ffzTypeTag_PolyParam: { f_print(w, "<poly-param>"); } break;
+	case ffzTypeTag_PolyVal: { f_print(w, "<poly-val>"); } break;
 	case ffzTypeTag_Module: { f_print(w, "<module>"); } break;
 	//case ffzTypeTag_Extra: { f_print(w, "<extra>"); } break;
 	//case ffzTypeTag_Bool: { f_print(w, "bool"); } break;
@@ -735,16 +789,20 @@ static fOpt(ffzError*) check_argument_list(ffzModuleChecker* c, ffzNode* node, f
 //	return false;
 //}
 
-inline bool has_non_poly_type(fOpt(ffzType*) type) { return type && type->tag != ffzTypeTag_PolyParam; }
-
+// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
 static fOpt(ffzError*) check_two_sided(ffzModuleChecker* c, ffzNode* left, ffzNode* right, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzType*)* out_type) {
-	// Infer expressions, such as  `x: u32(1) + 50`  or  x: `2 * u32(552)`
+	
+	fOpt(ffzType*) result = NULL;
 	
 	// First try to check if we can get a concrete integer type
 	ffzCheckInfo left_chk, right_chk;
 	TRY(check_node(c, left, NULL, InferFlag_IgnoreUncertainTypes, &left_chk));
 	TRY(check_node(c, right, NULL, InferFlag_IgnoreUncertainTypes, &right_chk));
-
+	
+	// if either input is polymorphic, propagate it to the output :PropagatePoly
+	if      (has_poly_type(right_chk.type)) { *out_type = right_chk.type; return NULL; }
+	else if (has_poly_type(left_chk.type))  { *out_type = left_chk.type; return NULL; }
+	
 	if (left_chk.type && right_chk.type) {}
 	else if (!left_chk.type && right_chk.type) {
 		TRY(check_node(c, left, right_chk.type, 0, &left_chk));
@@ -757,7 +815,6 @@ static fOpt(ffzError*) check_two_sided(ffzModuleChecker* c, ffzNode* left, ffzNo
 		TRY(check_node(c, right, require_type, 0, &right_chk));
 	}
 
-	fOpt(ffzType*) result = NULL;
 	if (has_non_poly_type(right_chk.type) && has_non_poly_type(left_chk.type)) {
 		if (types_match(left_chk.type, right_chk.type)) {
 			result = left_chk.type;
@@ -890,24 +947,28 @@ ffzType* make_type(ffzProject* p, ffzType type_desc) {
 	auto entry = f_map64_insert(&p->bank.type_from_hash, hash, (ffzType*)0, fMapInsert_DoNotOverride);
 	if (entry.added) {
 		ffzType* type_ptr = f_mem_clone(type_desc, p->bank.alc);
-		type_ptr->align = get_alignment(type_ptr, p->pointer_size); // cache the alignment
+		//if (type_ptr == (void*)0x0000020000038ca0) f_trap();
 		*entry._unstable_ptr = type_ptr;
+		
+		type_ptr->align = get_alignment(type_ptr, p->pointer_size); // cache the alignment
+		type_ptr->is_polymorphic_needs_caching = true;
 	}
 
+	cache_is_polymorphic(*entry._unstable_ptr, *entry._unstable_ptr, false);
 	return *entry._unstable_ptr;
 }
 
-static ffzType* make_basic_type(ffzProject* p, ffzTypeTag tag, u32 size, bool is_concrete) {
+static ffzType* make_basic_type(ffzProject* p, ffzTypeTag tag, u32 size, bool is_runtime_representable) {
 	ffzType type = { tag };
 	type.size = size;
-	type.is_concrete.x = is_concrete;
+	type.is_runtime_representable = is_runtime_representable;
 	return make_type(p, type);
 }
 
 FFZ_CAPI ffzType* ffz_type_ptr(ffzProject* p, ffzType* pointer_to) {
 	ffzType type = { ffzTypeTag_Pointer };
 	type.size = p->pointer_size;
-	type.is_concrete.x = true;
+	type.is_runtime_representable = true;
 	type.Pointer.pointer_to = pointer_to;
 	return make_type(p, type);
 }
@@ -916,7 +977,7 @@ struct ffzRecordBuilder {
 	ffzProject* project;
 	u32 size;
 	u32 align;
-	bool is_concrete;
+	bool is_runtime_representable;
 	fArray(ffzField) fields;
 };
 
@@ -941,7 +1002,7 @@ static void ffz_record_builder_add_member(ffzRecordBuilder* b, fString name, ffz
 	f_array_push(&b->fields, field);
 
 	// If the field has a non-concrete type, then this record type will also be non-concrete, i.e. struct{foo: type}
-	b->is_concrete = b->is_concrete && field_type->is_concrete.x;
+	b->is_runtime_representable &= field_type->is_runtime_representable;
 
 	// the alignment of a record is that of the largest field  :ComputeRecordAlignment
 	b->align = F_MAX(b->align, field_type->align);
@@ -956,7 +1017,7 @@ static fOpt(ffzError*) ffz_record_builder_finish(ffzRecordBuilder* b, ffzType* t
 	ffz_record_builder_pre_finish(b);
 
 	type->record_fields = b->fields.slice;
-	type->is_concrete.x = b->is_concrete;
+	type->is_runtime_representable = b->is_runtime_representable;
 	type->size = b->size;
 	type->align = b->align;
 	TRY(add_fields_to_field_from_name_map(b->project, type, type));
@@ -966,7 +1027,7 @@ static fOpt(ffzError*) ffz_record_builder_finish(ffzRecordBuilder* b, ffzType* t
 
 FFZ_CAPI ffzType* ffz_type_slice(ffzProject* p, ffzType* elem_type) {
 	ffzType type = { ffzTypeTag_Slice };
-	type.is_concrete.x = true;
+	type.is_runtime_representable = true;
 	type.Slice.elem_type = elem_type;
 	ffzType* out = make_type(p, type);
 
@@ -999,7 +1060,7 @@ ffzType* ffz_type_fixed_array_ex(ffzProject* p, ffzType* elem_type, ffzValue len
 		array_type.size = (u32)read_s64(length) * elem_type->size;
 	}
 
-	array_type.is_concrete.x = elem_type->is_concrete.x;
+	array_type.is_runtime_representable = elem_type->is_runtime_representable;
 	array_type.FixedArray.elem_type = elem_type;
 	array_type.FixedArray.length = length;
 	ffzType* out = make_type(p, array_type);
@@ -1160,6 +1221,7 @@ static fOpt(ffzError*) instantiate_poly_def(ffzModuleChecker* c, ffzNode* poly_d
 		poly_expr->parent = poly_expr_parent; // NOTE: don't modify the parent!!
 		//poly_expr->parent = c->mod->root; // The copied node will be an "invisible" top-level node
 
+
 		poly_ptr->instantiated_node = poly_expr;
 		
 		{
@@ -1183,7 +1245,7 @@ static fOpt(ffzError*) infer_poly_param(ffzModuleChecker* c, ffzValue known, ffz
 		}
 		else {
 			if (!ffz_constants_match(deduced->datum, known.datum)) {
-				ERR(c, err_node, "Multiple mismatching values for polymorphic parameter `~s` were inferred from the procedure call site.", poly_param->Identifier.name);
+				ERR(c, err_node, "Multiple mismatching values for polymorphic parameter `~s` were inferred from this procedure call site.", poly_param->Identifier.name);
 			}
 		}
 	}
@@ -1215,6 +1277,9 @@ static fOpt(ffzError*) infer_poly_param(ffzModuleChecker* c, ffzValue known, ffz
 			case ffzTypeTag_FixedArray: {
 				TRY(infer_poly_param(c, known_t->FixedArray.length, unknown_t->FixedArray.length, poly_param_to_constant, err_node));
 				TRY(infer_poly_param(c, ffz_type_as_val(known_t->FixedArray.elem_type), ffz_type_as_val(unknown_t->FixedArray.elem_type), poly_param_to_constant, err_node));
+			} break;
+			case ffzTypeTag_Slice: {
+				TRY(infer_poly_param(c, ffz_type_as_val(known_t->Slice.elem_type), ffz_type_as_val(unknown_t->Slice.elem_type), poly_param_to_constant, err_node));
 			} break;
 			}
 		}
@@ -1306,12 +1371,17 @@ static fOpt(ffzError*) check_call(ffzModuleChecker* c, ffzNode* node, ffzNode* l
 		}
 	}
 
-	if (proc_type->tag != ffzTypeTag_Proc) {
-		ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->alc));
+	if (proc_type->tag == ffzTypeTag_PolyParam) { // this is a bit incomplete; we should still check the argument list.
+		result->type = proc_type; // :PropagatePoly
 	}
+	else {
+		if (proc_type->tag != ffzTypeTag_Proc) {
+			ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->alc));
+		}
 
-	result->type = proc_type->Proc.return_type;
-	TRY(check_argument_list(c, node, proc_type->Proc.in_params, NULL, false, 0));
+		result->type = proc_type->Proc.return_type;
+		TRY(check_argument_list(c, node, proc_type->Proc.in_params, NULL, false, 0));
+	}
 	return NULL;
 }
 
@@ -1336,7 +1406,7 @@ static fOpt(ffzError*) check_post_round_brackets(ffzModuleChecker* c, ffzNode* n
 				TRY(check_two_sided(c, first, second, require_type, 0, &result->type));
 			}
 			
-			if (result->type && !is_basic_type_size(result->type->size)) {
+			if (has_non_poly_type(result->type) && !is_basic_type_size(result->type->size)) {
 				ERR(c, node, "bitwise operations only allow sizes of 1, 2, 4 or 8; Received: ~u32", result->type->size);
 			}
 			
@@ -1413,7 +1483,9 @@ static fOpt(ffzError*) check_post_round_brackets(ffzModuleChecker* c, ffzNode* n
 				//}
 			}
 
-			if (!result->is_undefined && !type_can_be_casted_to(c->project, arg_info.type, to)) {
+			if (!result->is_undefined && has_non_poly_type(to) && has_non_poly_type(arg_info.type) &&
+				!type_can_be_casted_to(c->project, arg_info.type, to))
+			{
 				TRY(check_types_match(c, node, arg_info.type, to, "Invalid type cast:"));
 			}
 			result->type = to;
@@ -1597,11 +1669,11 @@ static fOpt(ffzError*) check_post_square_brackets(ffzModuleChecker* c, ffzNode* 
 		u32 child_count = ffz_get_child_count(node);
 		if (child_count == 1) {
 			ffzNode* index = ffz_get_child(node, 0);
-
+			//F_HITS(___c, 5);
 			ffzCheckInfo index_info;
 			TRY(check_node(c, index, NULL, 0, &index_info));
 
-			if (!ffz_type_is_integer(index_info.type->tag)) {
+			if (has_non_poly_type(index_info.type) && !ffz_type_is_integer(index_info.type->tag)) {
 				ERR(c, index, "Incorrect type with a slice index; should be an integer.\n    received: ~s", ffz_type_to_string(index_info.type, c->alc));
 			}
 
@@ -1683,7 +1755,11 @@ static fOpt(ffzError*) check_member_access(ffzModuleChecker* c, ffzNode* node, f
 		TRY(check_node(c, left, NULL, 0, &left_info));
 		fOpt(ffzDatum*) left_constant = left_info.const_val;
 		
-		if (left_info.type->tag == ffzTypeTag_Module) {
+		if (left_info.type->tag == ffzTypeTag_PolyParam) {
+			result->type = left_info.type;
+			result->const_val = left_constant; // propagate poly-param forward
+		}
+		else if (left_info.type->tag == ffzTypeTag_Module) {
 			ffzModule* left_module = left_constant->module;
 			// we also need a way to go from module to checker context...
 
@@ -1711,6 +1787,7 @@ static fOpt(ffzError*) check_member_access(ffzModuleChecker* c, ffzNode* node, f
 		else {
 			ffzType* dereferenced_type = left_info.type->tag == ffzTypeTag_Pointer ? left_info.type->Pointer.pointer_to : left_info.type;
 			ffzTypeRecordFieldUse field;
+			
 			if (ffz_type_find_record_field_use(c->project, dereferenced_type, member_name, &field)) {
 				result->type = field.src_field->type;
 				
@@ -1855,7 +1932,7 @@ static fOpt(ffzError*) post_check_enum(ffzModuleChecker* c, ffzNode* node) {
 
 static fOpt(ffzError*) check_proc_type(ffzModuleChecker* c, ffzNode* node, ffzCheckInfo* result) {
 	ffzType proc_type = { ffzTypeTag_Proc };
-	proc_type.is_concrete.x = true;
+	proc_type.is_runtime_representable = true;
 	proc_type.size = c->project->pointer_size;
 	
 	ffzNode* parameter_scope = node->parent->kind == ffzNodeKind_PostCurlyBrackets ? node->parent : node;
@@ -1990,6 +2067,8 @@ static fOpt(ffzError*) check_return(ffzModuleChecker* c, ffzNode* node) {
 }
 
 static fOpt(ffzError*) check_assign(ffzModuleChecker* c, ffzNode* node, ffzCheckInfo* result) {
+	//if (node == (void*)0x000002000001c260) f_trap();
+
 	ffzNode* lhs = node->Op.left;
 	ffzNode* rhs = node->Op.right;
 	
@@ -1997,12 +2076,12 @@ static fOpt(ffzError*) check_assign(ffzModuleChecker* c, ffzNode* node, ffzCheck
 	TRY(check_node(c, lhs, NULL, 0, &lhs_chk));
 	
 	bool eat_expression = ffz_node_is_keyword(lhs, ffzKeyword_Eater);
-	if (!eat_expression && lhs_chk.type) f_assert(ffz_type_is_concrete(lhs_chk.type));
+	if (!eat_expression && has_non_poly_type(lhs_chk.type)) f_assert(ffz_type_is_runtime_representable(lhs_chk.type));
 
 	ffzCheckInfo rhs_chk;
 	TRY(check_node(c, rhs, lhs_chk.type, 0, &rhs_chk));
 	
-	if (!c->is_inside_polymorphic_node) {
+	if (has_non_poly_type(lhs_chk.type) && has_non_poly_type(rhs_chk.type)) {
 		TRY(check_types_match(c, rhs, rhs_chk.type, lhs_chk.type, "Incorrect type with assignment:"));
 	}
 
@@ -2062,7 +2141,6 @@ static bool integer_is_negative(void* bits, u32 size) {
 static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result) {
 	ZoneScoped;
 
-	//if (node == (void*)0x00000200006b4ce0) f_trap();
 
 	// NOTE: we're must use `ffz_maybe_get_checked_info` instead of `f_map64_get(&c->infos, (u64)node)`, because of a weird trick with polymorphs :PolyInstantiationWeirdTrick
 	// If we used c->infos, nothing would be cached into `c` when instantiating a poly-def from another module.
@@ -2071,11 +2149,13 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		return NULL;
 	}
 	
+	//if (node == (void*)0x0000020000024a50) f_trap();
+	
 	for (ffzNode* tag_n = node->first_tag; tag_n; tag_n = tag_n->next) {
 		TRY(check_tag(c, tag_n));
 	}
 
-	//F_HITS(_c, 7);
+	//F_HITS(_c, 2307);
 	ffzCheckInfo result = {};
 	bool post_check_curly_initializer = false;
 
@@ -2139,7 +2219,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 
 			result.const_val = NULL; // runtime variables shouldn't store the constant value that the rhs expression might have
 
-			if (!c->is_inside_polymorphic_node && !ffz_type_is_concrete(result.type)) {
+			if (!c->is_inside_polymorphic_node && !ffz_type_is_runtime_representable(result.type)) {
 				ERR(c, node, "Variable has a non-concrete type: `~s`.", ffz_type_to_string(result.type, c->alc));
 			}
 		}
@@ -2172,31 +2252,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 	case ffzNodeKind_PolyDef: {
 		// When you say `#foo: poly[T] T(100)`, you're declaring foo as a new type, more specifically a polymorphic expression type.
 		// It's the same thing as if foo was i.e. a struct type.
-		
-
-		for FFZ_EACH_CHILD(n, node) {
-			if (n->kind != ffzNodeKind_Identifier) ERR(c, n, "Polymorphic parameter must be an identifier.");
-			TRY(try_to_add_definition_to_scope(c, node, n));
-			TRY(check_node(c, n, NULL, 0, NULL));
-		}
-
-		if (node->parent->kind != ffzNodeKind_Declare) {
-			ERR(c, node, "Polymorphic expression must be the right-hand side of a constant declaration.");
-		}
-
-		bool was_inside_poly = c->is_inside_polymorphic_node;
-		c->is_inside_polymorphic_node = true;
-
-		ffzCheckInfo expr_info;
-		TRY(check_node(c, node->PolyDef.expr, NULL, 0, &expr_info));
-		
-		if (node->PolyDef.expr->kind != ffzNodeKind_Record && expr_info.type->tag != ffzTypeTag_Proc) {
-			ERR(c, node, "Only struct/union types and procedures are allowed as polymorphic expressions.");
-		}
-		
-		c->is_inside_polymorphic_node = was_inside_poly;
 
 		result.constant = ffz_make_val(c->project, &node, sizeof(node), c->project->type_poly_def);
+		// NOTE: post-check
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: {
@@ -2220,7 +2278,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		}
 
 		ffzType enum_type = { ffzTypeTag_Enum };
-		enum_type.is_concrete.x = true;
+		enum_type.is_runtime_representable = true;
 		enum_type.Enum.internal_type = &type_node_info.const_val->type;
 		enum_type.size = enum_type.Enum.internal_type->size;
 		enum_type.distinct_node = node;
@@ -2280,6 +2338,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 	case ffzNodeKind_Record: {
 		ffzType struct_type = { ffzTypeTag_Record };
 		struct_type.distinct_node = node;
+		struct_type.unfinished = true;
 
 		if (c->instantiating_poly && c->instantiating_poly->instantiated_node == node) {
 			struct_type.polymorphed_from = c->instantiating_poly;
@@ -2320,7 +2379,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		ffzCheckInfo rhs_info;
 		TRY(check_node(c, rhs, require_type, flags, &rhs_info));
 		
-		if (rhs_info.type) {
+		if (has_non_poly_type(rhs_info.type)) {
 			if (!ffz_type_is_integer(rhs_info.type->tag) && !ffz_type_is_float(rhs_info.type->tag)) {
 				ERR(c, rhs, "Incorrect arithmetic type; should be an integer or a float.\n    received: ~s", ffz_type_to_string(rhs_info.type, c->alc));
 			}
@@ -2394,16 +2453,15 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		fOpt(ffzType*) type;
 		TRY(check_two_sided(c, node->Op.left, node->Op.right, require_type, flags, &type));
 		
-		if (type) { // hmm, maybe we shouldn't allow propagating NULL types from check_two_sided.
+		if (has_non_poly_type(type)) {
 			bool is_equality_check = node->kind == ffzNodeKind_Equal || node->kind == ffzNodeKind_NotEqual;
-			if (ffz_type_is_comparable(type) || (is_equality_check && ffz_type_is_comparable_for_equality(type))) {
-				result.type = ffz_type_bool(c->project);
-			}
+			if (ffz_type_is_comparable(type) || (is_equality_check && ffz_type_is_comparable_for_equality(type))) {}
 			else {
 				ERR(c, node, "Operator '~s' is not defined for type '~s'",
 					ffz_node_kind_to_op_string(node->kind), ffz_type_to_string(type, c->alc));
 			}
 		}
+		result.type = ffz_type_bool(c->project);
 	} break;
 	
 	case ffzNodeKind_Add: case ffzNodeKind_Sub: case ffzNodeKind_Mul:
@@ -2412,12 +2470,12 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		TRY(check_two_sided(c, node->Op.left, node->Op.right, require_type, flags, &type));
 		
 		if (node->kind == ffzNodeKind_Modulo) {
-			if (type && !ffz_type_is_integer(type->tag)) {
+			if (has_non_poly_type(type) && !ffz_type_is_integer(type->tag)) {
 				ERR(c, node, "Incorrect type with modulo operator; expected an integer.\n    received: ~s", ffz_type_to_string(type, c->alc));
 			}
 		}
 		else {
-			if (type && !ffz_type_is_integer(type->tag) && !ffz_type_is_float(type->tag)) {
+			if (has_non_poly_type(type) && !ffz_type_is_integer(type->tag) && !ffz_type_is_float(type->tag)) {
 				ERR(c, node, "Incorrect arithmetic type; expected an integer or a float.\n    received: ~s", ffz_type_to_string(type, c->alc));
 			}
 		}
@@ -2442,7 +2500,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 	else {
 		if (node->kind == ffzNodeKind_Declare) ERR(c, node, "Expected an expression, but got a declaration.");
 
-		if (!result.type && !c->is_inside_polymorphic_node && !(flags & InferFlag_IgnoreUncertainTypes)) {
+		if (!result.type && !(flags & InferFlag_IgnoreUncertainTypes)) {
 			ERR(c, node, "Expression has no type, or it cannot be inferred.");
 		}
 	}
@@ -2541,6 +2599,30 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 			}
 		}
 		else switch (node->kind) {
+		case ffzNodeKind_PolyDef: {
+			if (node->parent->kind != ffzNodeKind_Declare) {
+				ERR(c, node, "Polymorphic expression must be the right-hand side of a constant declaration.");
+			}
+
+			for FFZ_EACH_CHILD(n, node) {
+				if (n->kind != ffzNodeKind_Identifier) ERR(c, n, "Polymorphic parameter must be an identifier.");
+				TRY(try_to_add_definition_to_scope(c, node, n));
+				TRY(check_node(c, n, NULL, 0, NULL));
+			}
+
+			bool was_inside_poly = c->is_inside_polymorphic_node;
+			c->is_inside_polymorphic_node = true;
+
+			ffzCheckInfo expr_info;
+			TRY(check_node(c, node->PolyDef.expr, NULL, 0, &expr_info));
+
+			if (node->PolyDef.expr->kind != ffzNodeKind_Record && expr_info.type->tag != ffzTypeTag_Proc) {
+				ERR(c, node, "Only struct/union types and procedures are allowed as polymorphic expressions.");
+			}
+
+			c->is_inside_polymorphic_node = was_inside_poly;
+
+		} break;
 		case ffzNodeKind_Scope: {
 			if (require_type == NULL) {
 				for FFZ_EACH_CHILD(n, node) {
@@ -2602,7 +2684,11 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 				ffz_record_builder_add_member(&b, name, field_type, default_value, n);
 			}
 			
-			TRY(ffz_record_builder_finish(&b, &result.const_val->type));
+			ffzType* record_type = &result.const_val->type;
+			TRY(ffz_record_builder_finish(&b, record_type));
+
+			record_type->unfinished = false;
+			cache_is_polymorphic(record_type, record_type, false);
 		} break;
 		}
 	}
@@ -2613,10 +2699,8 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 	return NULL;
 }
 
-ffzType* ffz_type_type() {
-	static const ffzType tt = { ffzTypeTag_Type, {false} };
-	return (ffzType*)&tt;
-}
+ffzType* ffz_type_type() { static const ffzType t = { ffzTypeTag_Type, false }; return (ffzType*)&t; }
+ffzType* ffz_type_poly_val() { static const ffzType t = { ffzTypeTag_PolyVal, false }; return (ffzType*)&t; }
 
 ffzType* ffz_type_u8(ffzProject* p) { return p->builtin_types[ffzKeyword_u8]; }
 ffzType* ffz_type_u16(ffzProject* p) { return p->builtin_types[ffzKeyword_u16]; }

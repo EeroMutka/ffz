@@ -13,48 +13,49 @@
 #Hash: import(":Hash")
 
 #KeyType: poly[_KEY] struct {
-	KEY: type // We need to expose the polymorphic parameter as a compile-time struct member
+	KEY: typeid // We need to expose the polymorphic parameter as a compile-time struct member
 	compare_fn: proc(a: _KEY, b: _KEY) => bool
 	hash_fn: proc(a: _KEY) => u32
 }
 
 #HASH_EMPTY_SLOT: u32(0)
-#HASH_DEAD_SLOT_BUT_REQUIRED_FOR_CHAIN: u32(1)
+#HASH_ZOMBIE_SLOT: u32(1)
 #HASH_FIRST_VALID: u32(2)
 
 #MapSlot: poly[K, T] struct {
-	// This can have a special value of HASH_EMPTY_SLOT or HASH_DEAD_SLOT_BUT_REQUIRED_FOR_CHAIN
+	// This can have a special value of HASH_EMPTY_SLOT or HASH_ZOMBIE_SLOT
 	hash: u32
 	
 	key: K.KEY
 	value: T
 }
 
-#Map: poly[K/*: KeyType*/, T] struct {
-	alc: ^Basic.Allocator
+// K must be KeyType
+#Map: poly[K, T] struct {
+	allocator: ^Basic.Allocator
 	alive_count: u32(0)
-	slots: []MapSlot[K, T]
+	slots: []MapSlot[K, T]{}
 }
 
-#make: poly[K, T] proc(alc: ^Basic.Allocator) => Map[K, T] {
-	ret {alc: alc}
+#make: poly[K, T] proc(allocator: ^Basic.Allocator) => Map[K, T] {
+	ret {allocator: allocator}
 }
 
-
-#add: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
+#add_assert_unique: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
 	added: _insert[K, T](map, key, value, overwrite: false)
 	Basic.assert(added)
 }
 
 // returns `true` if the value did not exist in the map before
 #add_or_ignore: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) => bool {
-	added: _insert[K, T](map, key, value, overwrite: false)
+	added: _insert(map, key, value, overwrite: false)
 	ret added
 }
 
 #add_or_overwrite: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
-	_insert[K, T](map, key, value, overwrite: true)
+	_ = _insert(map, key, value, overwrite: true)
 }
+
 
 /*
  Returns null if not found.
@@ -66,7 +67,7 @@
 		hash = HASH_FIRST_VALID
 	}
 	
-	wrapping_mask: map.slot_count - 1
+	wrapping_mask: map.slots.len - 1
 	slot_index: bit_and(hash, wrapping_mask)
 	
 	for loop: true, loop, {
@@ -86,27 +87,46 @@
 	ret ^MapSlot[K, T](0)
 }
 
+#resize: poly[K, T] proc(map: ^Map[K, T], slot_count_pow2: uint) {
+	Basic.assert(Basic.is_power_of_2(slot_count_pow2))
+	#SlotType: MapSlot[K, T]
+	
+	old_slots: map.slots
+	
+	map.slots = Basic.make_slice_undef[SlotType](slot_count_pow2, map.allocator)
+	Basic.memset(map.slots.ptr, 0, map.slots.len * size_of(SlotType)) // set each hash to HASH_EMPTY_SLOT
+	
+	for i: 0, i < old_slots.len, i=.+1 {
+		slot: &old_slots[i]
+		if slot.hash >= HASH_FIRST_VALID {
+			add_assert_unique[K, T](map, slot.key, slot.value)
+		}
+	}
+	
+	Basic.free_slice(old_slots, map.allocator)
+}
+
 /*
  returns `true` if the value did not exist in the map before
 */
 #_insert: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T, overwrite: bool) => bool {
 	
-	//     filled / allocated >= 70/100
-	// <=> filled * 100 >= allocated * 70
+	//      filled / allocated >= 70/100
+	// <==> filled * 100 >= allocated * 70
 	
 	slot_count_before: map.slots.len
-	if (map.alive_count + 1) * 100 >= slot_count_before * 70 {
-		// expand the map
-		resize(map, bit_shl(map.slot_count, 1))
+	if (uint(map.alive_count) + 1) * 100 >= slot_count_before * 70 {
+		// expand the map; the + 7 is to make us start off with 8 elements initially
+		new_capacity: Basic.round_up_to_power_of_2(map.slots.len + 7)
+		resize(map, new_capacity)
 	}
-	
 	
 	hash: K.hash_fn(key)
 	if hash < HASH_FIRST_VALID {
 		hash = HASH_FIRST_VALID
 	}
 	
-	wrapping_mask: map.slot_count - 1
+	wrapping_mask: u32(map.slots.len) - 1
 	slot_index: bit_and(hash, wrapping_mask)
 	first_unused_slot: ^MapSlot[K, T](0)
 	
@@ -120,7 +140,7 @@
 				slot.value = value
 			}
 		}
-		else if slot.hash <= HASH_FIRST_VALID {
+		else if slot.hash < HASH_FIRST_VALID {
 			if first_unused_slot == ^MapSlot[K, T](0) {
 				// The element might still exist after this slot
 				first_unused_slot = slot
@@ -130,7 +150,7 @@
 			}
 		}
 		
-		slot_index = bit_and((slot_index + 1), wrapping_mask)
+		slot_index = bit_and(. + 1, wrapping_mask)
 	}
 	
 	map.alive_count = .+1
@@ -138,8 +158,6 @@
 	first_unused_slot.value = value
 	ret true
 }
-
-
 
 // -- Built-in key types ----------------------------------
 
@@ -150,9 +168,6 @@
 #primitive_hash: poly[T] proc(x: T) => u32 {
 	hash: Hash.knuth64(u64(x))
 	ret u32(hash)
-	//h: &Hash.begin()
-	//Hash.add(h, u64(x^))
-	//ret u32(Hash.end(h))
 }
 
 #Key_u8:  KeyType[u8]{u8, primitive_compare[u8], primitive_hash[u8]}

@@ -45,6 +45,11 @@
 
 /*
 
+How useful is it to signal whether or not an integer value is unsigned vs signed?
+Imagine C only had signed integers, and let's say we're only talking about 64-bit integers.
+Would people be less productive?
+
+
 hmm, should we make casting between unsigned and signed types implicit?
 I kinda feel like we should. That would promote the correct usage of unsigned/signed types, as it'd be less friction to do so.
 

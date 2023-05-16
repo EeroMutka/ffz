@@ -734,7 +734,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 
 	//if (node->loc.start.line_num == 13) f_trap();
 	ffzCheckInfo checked = ffz_checked_get_info(node);
-	f_assert(ffz_type_is_concrete(checked.type));
+	f_assert(ffz_type_is_runtime_representable(checked.type));
 	f_assert(node->kind != ffzNodeKind_Declare);
 
 	bool needs_dereference = false;

@@ -3,10 +3,6 @@
 
 [x] allow 'type' in structs
 [x] implicit polymorphic parameter binding for calls would be really nice...
-	BROKE/TODO:
-	[] figure out default values for parameters again
-	[] link_against_libc
-
 
 [] Get Map to work
 

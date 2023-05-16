@@ -443,6 +443,7 @@ typedef enum ffzTypeTag {
 	// NOTE: only polymorphic regions in the AST can contain these Poly* types.
 	ffzTypeTag_PolyDef,   // i.e. #Array: poly[T] struct{...}
 	ffzTypeTag_PolyParam, // i.e. the type of `foo` in `#X: poly[T] proc(foo: T)` would be `PolyParam`
+	ffzTypeTag_PolyVal,
 	
 	ffzTypeTag_Module,
 
@@ -497,7 +498,19 @@ typedef struct ffzTypeEnumField {
 
 typedef struct ffzType {
 	ffzTypeTag tag;
-	struct { bool x; } is_concrete; // Concrete types are types which can be used as runtime values. i.e. `type`, `module`, are not concrete, or any composite type that contains them.
+	// how would we compute this?
+	// if, when we create a pointer type, we copy this property from the pointer_to,
+	// and we make a struct type and post-check its members and only after that specify `is_polymorphic`, then the pointer
+	// type might falsely set this to false.
+	// it's a circle!
+	//bool is_polymorphic;
+
+	bool is_runtime_representable; // i.e. `type` or polymorphic types are not concrete, or any composite type that contains them.
+	
+	bool unfinished; // i.e. while making a struct type, it will be in an unfinished state when its members haven't been added yet.
+	bool is_polymorphic_needs_caching;
+	bool is_polymorphic;
+
 	uint32_t size;
 	uint32_t align;
 
@@ -826,6 +839,7 @@ fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source,
 // ------------------------------------------------------
 
 ffzType* ffz_type_type();
+ffzType* ffz_type_poly_val();
 
 // TODO: make the following types not require passing the project
 ffzType* ffz_type_u8(ffzProject* p);
@@ -874,8 +888,9 @@ inline bool ffz_type_is_pointer_sized_integer(ffzProject* p, ffzType* type) { re
 //uint32_t ffz_get_encoded_constant_size(ffzType* type);
 //ffzConstant ffz_constant_array_get_elem(ffzConstant constant, uint32_t index);
 
-// a type is grounded when a runtime variable may have that type.
-inline bool ffz_type_is_concrete(ffzType* type) { return type->is_concrete.x; }
+inline bool ffz_type_is_runtime_representable(ffzType* type) { return type->is_runtime_representable; }
+
+bool type_is_polymorphic(ffzType* type);
 
 bool ffz_type_is_comparable_for_equality(ffzType* type); // supports ==, !=
 bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.

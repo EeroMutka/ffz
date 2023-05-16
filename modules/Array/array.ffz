@@ -297,7 +297,7 @@
 
 #reserve_raw: proc(array: ^Array[raw], capacity: uint, elem_size: uint, elem_align: uint) {
 	if (capacity > array.capacity) {
-		// the + 7 is to make us start off with 8 elements the first time we're appending to an array
+		// the + 7 is to make us start off with 8 elements initially
 		new_capacity: Basic.round_up_to_power_of_2(capacity + 7)
 		
 		if (array.allocator == ^Basic.Allocator(0)) {

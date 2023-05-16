@@ -1,4 +1,17 @@
 #Basic: import(":Basic")
+#Map: import(":Map")
+
+#entry: proc {
+	temp_allocator: Basic.arena_alc(Basic.tla())
+	
+	my_map: Map.make[Map.Key_u32, string](temp_allocator)
+	
+	Map.add_assert_unique(&my_map, 10, "hello")
+	Map.add_assert_unique(&my_map, 15, "sailor")
+	
+}
+
+/*#Basic: import(":Basic")
 
 #Window: import(":Window")
 #GL: import(":OpenGL")
@@ -102,3 +115,4 @@ g: Globals(~~)
 		i= . + 1
 	}
 }
+*/
