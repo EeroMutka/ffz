@@ -207,6 +207,63 @@ static void set_loc(Gen* g, gmmcOpIdx op, ffzLocRange loc) {
 	}
 }
 
+static void print_debuginfo_type(Gen* g, fWriter* w, ffzType* type) {
+	bool needs_generated_name = false;
+	
+	if (type->polymorphed_from) {
+		//type->polymorphed_from->parameters
+	}
+
+	switch (type->tag) {
+	case ffzTypeTag_Raw: { f_print(w, "void"); } break;
+	case ffzTypeTag_Bool: { f_print(w, "bool"); } break;
+	case ffzTypeTag_String: { f_print(w, "string"); } break;
+	case ffzTypeTag_Proc: { f_print(w, "[procedure]"); } break;
+
+	case ffzTypeTag_Pointer: {
+		print_debuginfo_type(g, w, type->Pointer.pointer_to);
+		f_print(w, "*");
+	} break;
+
+	case ffzTypeTag_DefaultSint: // fallthrough
+	case ffzTypeTag_Sint: { f_print(w, "__int~u32", type->size * 8); } break;
+
+	case ffzTypeTag_DefaultUint: // fallthrough
+	case ffzTypeTag_Uint: { f_print(w, "__uint~u32", type->size * 8); } break;
+
+	case ffzTypeTag_Float: { f_print(w, type->size == 4 ? "float" : "double"); } break;
+
+	case ffzTypeTag_Enum: // fallthrough
+	case ffzTypeTag_Record: {
+		ffzNodeRecord* n = type->distinct_node;
+		fString name = ffz_maybe_get_parent_decl_name(n);
+		if (name.len > 0) {
+			f_prints(w, name);
+		} else {
+			needs_generated_name = true;
+		}
+	} break;
+	case ffzTypeTag_Slice: {
+		f_print(w, "slice<");
+		print_debuginfo_type(g, w, type->Slice.elem_type);
+		f_print(w, ">");
+	} break;
+	case ffzTypeTag_FixedArray: {
+		print_debuginfo_type(g, w, type->FixedArray.elem_type);
+		f_print(w, "[TODO: print length]", type->FixedArray.length);
+	} break;
+	default: {
+		needs_generated_name = true;
+		break;
+	}
+	}
+	
+	if (needs_generated_name) { // TODO: merge with `make_name`?
+		f_print(w, "_ffz_~x64", g->dummy_name_counter);
+		g->dummy_name_counter++;
+	}
+}
+
 static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 	auto existing = f_map64_insert(&g->cv_type_from_ffz_type, (u64)type, (cviewTypeIdx)0xFFFFFFFF, fMapInsert_DoNotOverride);
 	if (!existing.added) {
@@ -275,10 +332,9 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 		cv_type.Record.fields = cv_fields.data;
 		cv_type.Record.fields_count = (u32)cv_fields.len;
 		
-		cv_type.Record.name = type->tag == ffzTypeTag_String ? F_LIT("string") :
-			type->tag == ffzTypeTag_Slice ? make_name(g) : // TODO
-			make_name(g/*, type->unique_node*/);
-		//if (cv_type.Record.name == F_LIT("_ffz_0")) f_trap();
+		fStringBuilder name_builder; f_init_string_builder(&name_builder, g->alc);
+		print_debuginfo_type(g, name_builder.w, type);
+		cv_type.Record.name = name_builder.str;
 	} break;
 
 	//case ffzTypeTag_Enum: {} break;

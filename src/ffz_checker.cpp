@@ -312,7 +312,7 @@ bool type_is_polymorphic(ffzType* type) {
 	return type->is_polymorphic;
 }
 
-void print_type(fWriter* w, ffzType* type) {
+static void print_type(fWriter* w, ffzType* type) {
 	switch (type->tag) {
 	case ffzTypeTag_Invalid: { f_print(w, "<invalid>"); } break;
 	case ffzTypeTag_Raw: { f_print(w, "raw"); } break;
@@ -471,6 +471,7 @@ FFZ_CAPI fString ffz_constant_to_string(ffzProject* p, ffzValue constant) {
 	return {};
 }
 
+#if 0
 FFZ_CAPI ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type) {
 	// TODO: node builder procedures that we can also use in the parser, such as ffz_new_node_keyword(...)
 	ffzNode* result = NULL;
@@ -569,13 +570,13 @@ FFZ_CAPI ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type) {
 	f_assert(result != NULL);
 	return result;
 }
+#endif
 
 FFZ_CAPI fString ffz_type_to_string(ffzType* type, fAllocator* alc) {
 	// TODO: remove `print_type` and instead use  type_to_node() and AST printing. For that, we need to be able to make dummy modules easily.
-	//f_trap();
 	fStringBuilder builder; f_init_string_builder(&builder, alc);
 	print_type(builder.w, type);
-	return builder.buffer.slice;
+	return builder.str;
 }
 
 FFZ_CAPI fOpt(ffzCheckInfo*) ffz_maybe_get_checked_info(ffzNode* node) {

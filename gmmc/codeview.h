@@ -1,6 +1,12 @@
 // microsoft codeview debug information
 // I think if I ever get to doing drawf debug info, I should make a shared API to this for it
 
+// About generics/templates:
+// if you want natvis support for templated types, i.e. visualize an array / map, and you
+// look at the way C++ debug info for templates is generated - there is no such thing! The template
+// instantiated structs will just be named with the `<` and `>` brackets, i.e. "Vector<int>". Visual studio
+// parses the name to extract the template arguments. Very convenient for us!
+
 typedef struct cviewLine {
 	uint32_t line_num;
 	uint32_t offset; // offset into the .text section
