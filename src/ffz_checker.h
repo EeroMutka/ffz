@@ -813,7 +813,7 @@ inline bool ffz_op_is_comparison(ffzNodeKind kind) { return kind >= ffzNodeKind_
 inline bool ffz_node_is_top_level(ffzNode* node) { return node->parent->parent == NULL; }
 
 // These both return an empty string if the node's parent is not a declaration, or the node itself is NULL
-fString ffz_maybe_get_parent_decl_name(fOpt(ffzNode*) node);
+//fString ffz_maybe_get_parent_decl_name(fOpt(ffzNode*) node);
 //fString ffz_get_parent_decl_pretty_name(fOpt(ffzNode*) node);
 
 uint32_t ffz_get_child_index(ffzNode* child); // will assert if child is not part of its parent
@@ -982,6 +982,8 @@ fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_i
 // - and procedures
 // - and standalone tags
 
+ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fAllocator* alc);
+ffzError* ffz_make_error(fString msg, fAllocator* alc);
 
 // -- Accessing data cached by the checker ------------------------------------------------------
 

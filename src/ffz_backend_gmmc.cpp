@@ -116,11 +116,12 @@ static fString make_name(Gen* g, fOpt(ffzNode*) node = NULL, bool pretty = true)
 			f_prints(name.w, extern_tag->record.fields[1]->string_zero_terminated); // name_prefix
 		}
 
-		f_prints(name.w, ffz_maybe_get_parent_decl_name(node));
+		f_prints(name.w, node->parent->kind == ffzNodeKind_Declare ? ffz_decl_get_name(node->parent) : F_LIT(""));
 	}
 	
 	if (name.str.len == 0) {
-		f_print(name.w, "_ffz_~x64", g->dummy_name_counter);
+		//if (g->dummy_name_counter == 12) f_trap();
+		f_print(name.w, "_ffz_NAME_~u64", g->dummy_name_counter);
 		g->dummy_name_counter++;
 	}
 
@@ -211,10 +212,19 @@ static void print_debuginfo_type(Gen* g, fWriter* w, ffzType* type) {
 	bool needs_generated_name = false;
 	
 	if (type->polymorphed_from) {
-		//type->polymorphed_from->parameters
+		f_assert(type->polymorphed_from->poly_def->parent->kind == ffzNodeKind_Declare);
+		f_prints(w, ffz_decl_get_name(type->polymorphed_from->poly_def->parent));
+		
+		f_print(w, "<");
+		f_for_array(ffzValue, type->polymorphed_from->parameters, param) {
+			if (param.i > 0) f_print(w, ", ");
+			if (param.elem.type->tag == ffzTypeTag_Type) {
+				print_debuginfo_type(g, w, &param.elem.datum->type);
+			} // TODO: otherwise print constant
+		}
+		f_print(w, ">");
 	}
-
-	switch (type->tag) {
+	else switch (type->tag) {
 	case ffzTypeTag_Raw: { f_print(w, "void"); } break;
 	case ffzTypeTag_Bool: { f_print(w, "bool"); } break;
 	case ffzTypeTag_String: { f_print(w, "string"); } break;
@@ -236,9 +246,8 @@ static void print_debuginfo_type(Gen* g, fWriter* w, ffzType* type) {
 	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_Record: {
 		ffzNodeRecord* n = type->distinct_node;
-		fString name = ffz_maybe_get_parent_decl_name(n);
-		if (name.len > 0) {
-			f_prints(w, name);
+		if (n->parent->kind == ffzNodeKind_Declare) {
+			f_prints(w, ffz_decl_get_name(n->parent));
 		} else {
 			needs_generated_name = true;
 		}
@@ -259,7 +268,8 @@ static void print_debuginfo_type(Gen* g, fWriter* w, ffzType* type) {
 	}
 	
 	if (needs_generated_name) { // TODO: merge with `make_name`?
-		f_print(w, "_ffz_~x64", g->dummy_name_counter);
+		//if (g->dummy_name_counter == 18) f_trap();
+		f_print(w, "_ffz_TYPE_~u64", g->dummy_name_counter);
 		g->dummy_name_counter++;
 	}
 }
@@ -401,7 +411,6 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	}
 	//F_HITS(_c, 4);
 	fString name = make_name(g, node);
-	//if (name == F_LIT("arena_push")) f_trap();
 	gmmcProcSignature* sig = gmmc_make_proc_signature(g->gmmc, ret_type_gmmc, param_types.data, (u32)param_types.len);
 
 	gmmcBasicBlock* entry_bb;

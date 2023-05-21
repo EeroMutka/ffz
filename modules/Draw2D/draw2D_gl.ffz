@@ -3,7 +3,7 @@
 // hmm.. to easily allow for different backends, we would either need to implement module parameters + #if
 // OR @using import().
 
-#Array: import(":Array")
+//#Array: import(":Array")
 
 //#stbtt: import(":vendor/stb/stb_truetype")
 
@@ -101,8 +101,6 @@ void main() {
 }
 
 #init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas {
-	alc: Basic.arena_alc(arena)
-	
 	vs: compile_shader(gl, GL.VERTEX_SHADER, vertex_shader_src.ptr)
 	fs: compile_shader(gl, GL.FRAGMENT_SHADER, fragment_shader_src.ptr)
 	
@@ -153,8 +151,8 @@ void main() {
 	
 	canvas: Canvas{
 		gl: gl
-		vertex_buf: Basic.make_slice_undef[Vertex](VERTEX_BUFFER_CAPACITY, alc)
-		index_buf: Basic.make_slice_undef[Index](INDEX_BUFFER_CAPACITY, alc)
+		vertex_buf: Basic.make_slice_undef[Vertex](VERTEX_BUFFER_CAPACITY, arena)
+		index_buf: Basic.make_slice_undef[Index](INDEX_BUFFER_CAPACITY, arena)
 		shader_program: shader_program
 		current_tex: ^Texture(0)
 		vbo: vbo

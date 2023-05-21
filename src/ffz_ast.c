@@ -1405,14 +1405,14 @@ u32 ffz_get_child_index(ffzNode* child) {
 	return F_U32_MAX;
 }
 
-fOpt(ffzNodeOpDeclare*) ffz_get_parent_decl(fOpt(ffzNode*) node) {
-	return (node && node->parent->kind == ffzNodeKind_Declare) ? (ffzNodeOpDeclare*)node->parent : NULL;
-}
+//fOpt(ffzNodeOpDeclare*) ffz_get_parent_decl(fOpt(ffzNode*) node) {
+//	return (node && node->parent->kind == ffzNodeKind_Declare) ? (ffzNodeOpDeclare*)node->parent : NULL;
+//}
 
-fString ffz_maybe_get_parent_decl_name(fOpt(ffzNode*) node) {
-	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
-	return decl ? decl->Op.left->Identifier.name : (fString) { 0 };
-}
+//fString ffz_maybe_get_parent_decl_name(fOpt(ffzNode*) node) {
+//	ffzNodeOpDeclare* decl = ffz_get_parent_decl(node);
+//	return decl ? decl->Op.left->Identifier.name : (fString) { 0 };
+//}
 
 //fString ffz_get_pretty_name(ffzNodeIdentifier* n) { return n->Identifier.pretty_name.len ? n->Identifier.pretty_name : n->Identifier.name; }
 

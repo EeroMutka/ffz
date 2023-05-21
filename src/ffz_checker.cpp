@@ -21,7 +21,7 @@
 inline bool has_non_poly_type(fOpt(ffzType*) type) { return type && !type_is_polymorphic(type); }
 inline bool has_poly_type(fOpt(ffzType*) type) { return type && type_is_polymorphic(type); }
 
-static ffzError* make_error(fOpt(ffzNode*) node, fString msg, fAllocator* alc) {
+FFZ_CAPI ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fAllocator* alc) {
 	ffzError* err = f_mem_clone(ffzError{}, alc);
 	err->node = node;
 	err->message = msg;
@@ -32,7 +32,13 @@ static ffzError* make_error(fOpt(ffzNode*) node, fString msg, fAllocator* alc) {
 	return err;
 }
 
-#define ERR(c, node, fmt, ...) return make_error(node, f_aprint((c)->alc, fmt, __VA_ARGS__), (c)->alc);
+FFZ_CAPI ffzError* ffz_make_error(fString msg, fAllocator* alc) {
+	ffzError* err = f_mem_clone(ffzError{}, alc);
+	err->message = msg;
+	return err;
+}
+
+#define ERR(c, node, fmt, ...) return ffz_make_error_at_node(node, f_aprint((c)->alc, fmt, __VA_ARGS__), (c)->alc);
 
 //#define CHILD(parent, child_access) _get_child_dbg(ffzNodeInst{ (parent)->child_access, (parent).polymorph }, (parent))
 //#define CHILD(parent, child_access) ffzNodeInst{ (parent)->child_access, (parent).polymorph }
@@ -261,7 +267,7 @@ FFZ_CAPI bool ffz_type_is_comparable(ffzType* type) {
 }
 
 /*
- Sometimes we want to tell if a type is polymorphic or not.
+ Often when type-checking we want to know if a type is polymorphic or not.
  A type is polymorphic if it's a poly-parameter, poly-val, or if it can reach any polymorphic type (i.e. ^T, where T is a poly-parameter).
  So when constructing the type, we want to see if any of its children are polymorphic. But consider the following:
  
@@ -363,7 +369,8 @@ static void print_type(fWriter* w, ffzType* type) {
 	} break;
 	case ffzTypeTag_Enum: {
 		ffzNode* n = type->distinct_node;
-		fString name = ffz_maybe_get_parent_decl_name(n);
+		
+		fString name = n->parent->kind == ffzNodeKind_Declare ? ffz_decl_get_name(n->parent) : F_LIT("");
 		if (name.len > 0) {
 			f_prints(w, name);
 		}
@@ -373,7 +380,7 @@ static void print_type(fWriter* w, ffzType* type) {
 	} break;
 	case ffzTypeTag_Record: {
 		ffzNodeRecord* n = type->distinct_node;
-		fString name = ffz_maybe_get_parent_decl_name(n);
+		fString name = n->parent->kind == ffzNodeKind_Declare ? ffz_decl_get_name(n->parent) : F_LIT("");
 		if (name.len > 0) {
 			f_prints(w, name);
 		}
@@ -675,13 +682,18 @@ static fOpt(ffzError*) verify_is_type_expression(ffzModuleChecker* c, ffzNode* n
 }
 
 // if this returns true, its ok to bit-cast between the types
-static bool types_match(ffzType* src, ffzType* target) {
-	if ((src->tag == ffzTypeTag_DefaultUint || src->tag == ffzTypeTag_DefaultSint) &&
-		(target->tag == ffzTypeTag_DefaultUint || target->tag == ffzTypeTag_DefaultSint)) return true; // Allow implicit cast between uint and int
+static bool types_match(ffzType* a, ffzType* b) {
+	if ((a->tag == ffzTypeTag_DefaultUint || a->tag == ffzTypeTag_DefaultSint) &&
+		(b->tag == ffzTypeTag_DefaultUint || b->tag == ffzTypeTag_DefaultSint)) return true; // Allow implicit cast between uint and int
 
-	if (src->tag == ffzTypeTag_Raw || target->tag == ffzTypeTag_Raw) return true; // everything can implicitly cast to-and-from raw
+	// `raw` matches with any type, i.e. `^raw` and `^int` should match
+	if (a->tag == ffzTypeTag_Raw || b->tag == ffzTypeTag_Raw) return true;
 
-	return src == target; // :InternedConstants
+	if (a->tag == ffzTypeTag_Pointer && b->tag == ffzTypeTag_Pointer) {
+		return types_match(a->Pointer.pointer_to, b->Pointer.pointer_to);
+	} // TODO: ugh, the rest
+
+	return a == b; // :InternedConstants
 }
 
 static bool ffz_constants_match(ffzDatum* a, ffzDatum* b) {
@@ -736,7 +748,6 @@ static fOpt(ffzError*) check_argument_list(ffzModuleChecker* c, ffzNode* node, f
 	u32 i = 0;
 	for FFZ_EACH_CHILD(arg, node) {
 		ffzNode* arg_value = arg;
-
 		if (arg->kind == ffzNodeKind_Declare) {
 			has_used_named_argument = true;
 			arg_value = arg->Op.right;
@@ -1443,6 +1454,8 @@ static fOpt(ffzError*) check_post_round_brackets(ffzModuleChecker* c, ffzNode* n
 		}
 	}
 	if (fall) {
+		//F_HITS(__c, 6);
+
 		ffzCheckInfo left_info;
 		TRY(check_node(c, left, NULL, 0, &left_info));
 		ffzType* left_type = left_info.type;
@@ -2142,6 +2155,9 @@ static bool integer_is_negative(void* bits, u32 size) {
 static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzType*) require_type, InferFlags flags, fOpt(ffzCheckInfo*) out_result) {
 	ZoneScoped;
 
+	if (node->loc_source->source_code_filepath == F_LIT("C:\\dev\\ffz1\\test\\demo.ffz") && node->loc.start.line_num == 63) {
+		//if (node->kind == ffzNodeKind_Assign) f_trap();
+	}
 
 	// NOTE: we're must use `ffz_maybe_get_checked_info` instead of `f_map64_get(&c->infos, (u64)node)`, because of a weird trick with polymorphs :PolyInstantiationWeirdTrick
 	// If we used c->infos, nothing would be cached into `c` when instantiating a poly-def from another module.
@@ -2506,14 +2522,10 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		}
 	}
 
-#if 0
-	// I think we need to introduce 'untyped integer' types to allow for e.g. array_push(&my_u32_array, 1230)
-	// or max(0, my_u32)
-
 	if (!(flags & InferFlag_NoTypesMatchCheck)) {
 		// NOTE: we're ignoring the constant type-casts with InferFlag_NoTypesMatchCheck, because explicit type-casts are allowed to overflow
 		
-		if (require_type && result.constant) { // constant downcast
+		if (require_type && result.const_val) { // constant downcast
 			// TODO: automatic casting for signed integers
 			if (ffz_type_is_integer(require_type->tag) && ffz_type_is_integer(result.type->tag)) {
 				if (require_type->size <= result.type->size) {
@@ -2522,8 +2534,8 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 
 					u64 src = ffz_type_is_signed_integer(result.type->tag) ? (u64)-1 : 0;
 					u64 masked = src;
-					memcpy(&src, &result.constant->_uint, result.type->size);
-					memcpy(&masked, &result.constant->_uint, require_type->size);
+					memcpy(&src, result.const_val, result.type->size);
+					memcpy(&masked, result.const_val, require_type->size);
 					
 					bool src_is_negative = ffz_type_is_signed_integer(result.type->tag) && integer_is_negative(&src, result.type->size);
 					bool masked_is_negative = ffz_type_is_signed_integer(require_type->tag) && integer_is_negative(&masked, require_type->size);
@@ -2531,9 +2543,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 					bool ok = masked == src && (src_is_negative == masked_is_negative) && (ffz_type_is_signed_integer(require_type->tag) || !src_is_negative);
 					if (!ok) {
 						if (ffz_type_is_signed_integer(result.type->tag)) {
-							ERR(c, node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(c->project, require_type));
+							ERR(c, node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(require_type, c->alc));
 						} else {
-							ERR(c, node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(c->project, require_type));
+							ERR(c, node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(require_type, c->alc));
 						}
 					}
 					// NOTE: we don't need to make a new constant value, as the encoding for it would be exactly the same.
@@ -2541,13 +2553,13 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 				}
 			}
 		}
+	}
 
-		// If `require_type` is specified and we found a type for this instance, the type of the expression must match it.
+	if (!(flags & InferFlag_NoTypesMatchCheck)) {
 		if (require_type && result.type) {
 			TRY(check_types_match(c, node, result.type, require_type, "Unexpected type with an expression:"));
 		}
 	}
-#endif
 
 	if (result.type && result.type->tag == ffzTypeTag_Type && (flags & InferFlag_TypeMeansDefaultValue)) {
 		result.type = ffz_ground_type(result.const_val, result.type);

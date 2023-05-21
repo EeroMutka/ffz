@@ -10,14 +10,14 @@
 	os_handle: ^raw
 }
 
-#read_entire_file: proc(filepath: string, alc: ^Basic.Allocator) => struct{ok: bool, data: []u8} {
+#read_entire_file: proc(filepath: string, arena: ^Basic.Arena) => struct{ok: bool, data: []u8} {
 	f: open(filepath, OpenMode.Read)
 	if !f.ok {
 		ret {false, {}}
 	}
 	
 	size: uint(get_size(f.file))
-	data: Basic.make_slice_undef[u8](size, alc)
+	data: Basic.make_slice_undef[u8](size, arena)
 	ok: read(f.file, data) == size
 	
 	close(f.file)
@@ -37,19 +37,3 @@
 	close(f.file)
 	ret {true, size}
 }
-
-
-// OS-specific API:
-
-// #open: proc(filepath: string, mode: OpenMode) => struct{ok: bool, file: File}
-// #close: proc(file: File)
-
-// #get_size: proc(file: File) => u64
-
-// #read: proc(file: File, dest: []u8) => uint
-
-// #write_unbuffered: proc(file: File, data: []u8)
-// #write_buffered: proc(file: File, data: []u8)
-
-// #get_cursor: proc(file: File) => uint
-// #set_cursor: proc(file: File, cursor: uint)

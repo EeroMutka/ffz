@@ -1,34 +1,5 @@
 #Basic: import(":Basic")
 
-#Map: import(":Map")
-#Array: import(":Array")
-
-#entry: proc {
-	my_things: []u32{5, 6, 7, 8}
-	
-	foo: "Hello, sailor!"
-	
-
-	
-	temp_allocator: Basic.arena_alc(Basic.tla())
-	
-	my_map: Map.make[Map.Key_u32, string](temp_allocator)
-	
-	Map.add_assert_unique(&my_map, 10, "hello")
-	Map.add_assert_unique(&my_map, 15, "sailor")
-	
-	snake: Array.make[int](temp_allocator)
-	Array.push(&snake, 103)
-	Array.push(&snake, 104)
-	Array.push(&snake, 105)
-	Array.push(&snake, 25)
-	Array.push(&snake, 23)
-	
-	
-}
-
-/*#Basic: import(":Basic")
-
 #Window: import(":Window")
 #GL: import(":OpenGL")
 #Draw2D: import(":Draw2D")
@@ -74,7 +45,7 @@ g: Globals(~~)
 }
 
 #entry: proc {
-	temp_allocator: Basic.arena_alc(Basic.tla())
+	temp: Basic.temp_push()
 	
 	foo: MyArray{20, {5, 6, 67}, 200}
 	
@@ -89,12 +60,11 @@ g: Globals(~~)
 	GL.load(gl, g.window, GL.Version._3_3)
 	
 	
-	g.canvas = Draw2D.init(gl, temp_allocator)
-	
+	g.canvas = Draw2D.init(gl, temp.arena)
 	
 	// load images
 	// we need a read-entire-file procedure
-	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", temp_allocator)
+	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", temp.arena)
 	Basic.assert(image_file.ok)
 	
 	
@@ -131,4 +101,3 @@ g: Globals(~~)
 		i= . + 1
 	}
 }
-*/

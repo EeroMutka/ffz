@@ -16,7 +16,7 @@
 	len: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), ^u16(0), 0)
 	Basic.assert(len != 0)
 	
-	out: Basic.make_slice_undef[u16](uint(len) + 1, Basic.arena_alc(arena))
+	out: Basic.make_slice_undef[u16](uint(len) + 1, arena)
 	
 	len2: MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.ptr, s32(str.len), out.ptr, len)
 	
@@ -33,9 +33,9 @@
 	#OPEN_EXISTING: u32(3)
 	INVALID_HANDLE_VALUE: ^raw(0xFFFFFFFFFFFFFFFF) // @compiler_bug: this should be able to be constant
 	
-	tla_mark: Basic.tla_get_mark()
+	temp: Basic.temp_push()
 	
-	filepath_utf16: str_to_utf16(filepath, Basic.tla())
+	filepath_utf16: str_to_utf16(filepath, temp.arena)
 	if mode == OpenMode.Read {
 		handle = CreateFileW(filepath_utf16.ptr, FILE_GENERIC_READ, FILE_SHARE_READ, ^raw(0), OPEN_EXISTING, 0, HANDLE(0))
 	}
@@ -43,7 +43,7 @@
 		Basic.assert(false)
 	}
 	
-	Basic.tla_set_mark(tla_mark)
+	Basic.temp_pop(temp)
 	
 	if handle == INVALID_HANDLE_VALUE {
 		ret {false, {^raw(0)}} // @ffzUndefinedValueUsecase - the second field

@@ -14,15 +14,18 @@ const bool DEBUG_PRINT_AST = false;
 
 #define TRY(x) FFZ_TRY(x)
 
+#define ERR(alc, node, fmt, ...) return ffz_make_error_at_node(node, f_aprint(alc, fmt, __VA_ARGS__), alc);
+
 //#include <Windows.h>
 //#include <math.h>
 //
 //#include "gmmc/gmmc.h" // for gmmc_test
 
 typedef struct Build {
+	fAllocator* alc;
+	ffzProject* project;
 	fMap64(ffzModule*) module_from_directory;
 	fMap64(ffzModule*) module_from_import_op; // key: ffzNode*
-	ffzProject* project;
 	fString modules_directory;
 } Build;
 
@@ -140,7 +143,7 @@ static fVisitDirectoryResult file_visitor(const fVisitDirectoryInfo* info, void*
 	return fVisitDirectoryResult_Continue;
 }
 
-static fOpt(ffzError*) module_from_path(Build* build, fString path, ffzModule* mod, ffzModule** out_module) {
+/*static fOpt(ffzError*) module_from_path(Build* build, fString path, ffzModule* mod, ffzModule** out_module) {
 
 	// `:` means that the path is relative to the modules directory shipped with the compiler
 	if (f_str_starts_with(path, F_LIT(":"))) {
@@ -156,17 +159,15 @@ static fOpt(ffzError*) module_from_path(Build* build, fString path, ffzModule* m
 
 	TRY(parse_and_check_directory(build, path, out_module));
 	return NULL;
-}
+}*/
 
-fOpt(ffzError*) add_module_from_filesystem(Build* build, fString directory, ffzModule** out_module) {
+fOpt(ffzError*) add_module_from_filesystem(Build* build, fString absolute_directory, ffzModule** out_module) {
 
-	// Canonicalize the path to deduplicate modules that have the same absolute path, but were imported with different path strings.
-	if (!f_files_path_to_canonical((fString){0}, directory, f_temp_alc(), &directory)) {
+	if (!f_files_path_to_canonical((fString){0}, absolute_directory, f_temp_alc(), &absolute_directory)) {
 		f_trap();
-		return NULL; // TODO: error report
 	}
 
-	fMapInsertResult module_exists = f_map64_insert(&build->module_from_directory, f_hash64_str_ex(directory, 0), (ffzModule*){0}, fMapInsert_DoNotOverride);
+	fMapInsertResult module_exists = f_map64_insert(&build->module_from_directory, f_hash64_str_ex(absolute_directory, 0), (ffzModule*){0}, fMapInsert_DoNotOverride);
 	if (!module_exists.added) {
 		*out_module = *(ffzModule**)module_exists._unstable_ptr;
 		return NULL;
@@ -174,13 +175,13 @@ fOpt(ffzError*) add_module_from_filesystem(Build* build, fString directory, ffzM
 
 	ffzModule* mod = ffz_new_module(build->project, build->project->bank.alc);
 	*(ffzModule**)module_exists._unstable_ptr = mod;
-	mod->directory = directory;
+	mod->directory = absolute_directory;
 
 	FileVisitData visit;
 	visit.files = f_array_make(f_temp_alc());
-	visit.directory = directory;
+	visit.directory = absolute_directory;
 
-	if (!f_files_visit_directory(directory, file_visitor, &visit)) {
+	if (!f_files_visit_directory(absolute_directory, file_visitor, &visit)) {
 		f_trap();
 		return NULL; // TODO: error report
 	}
@@ -219,8 +220,19 @@ fOpt(ffzError*) add_module_from_filesystem(Build* build, fString directory, ffzM
 			f_assert(import_name_node->kind == ffzNodeKind_StringLiteral); // TODO: error report
 			fString import_path = import_name_node->StringLiteral.zero_terminated_string;
 			
+			// `:` means that the path is relative to the modules directory shipped with the compiler
+			if (f_str_starts_with(import_path, F_LIT(":"))) {
+				fString slash = F_LIT("/");
+				import_path = f_str_join_tmp(build->modules_directory, slash, f_str_slice_after(import_path, 1));
+			}
+				
+			// let's make the import path absolute
+			if (!f_files_path_to_canonical(mod->directory, import_path, f_temp_alc(), &import_path)) {
+				ERR(build->alc, import_decl, "Failed to import module; directory `~s` does not exist.", import_path);
+			}
+
 			fOpt(ffzModule*) imported_module;
-			TRY(module_from_path(build, import_path, mod, &imported_module));
+			TRY(parse_and_check_directory(build, import_path, &imported_module));
 
 			f_map64_insert(&build->module_from_import_op, (u64)import_op, imported_module, fMapInsert_AssertUnique);
 			//f_map64_insert(&m->module_from_import_decl, (u64)import_decl, imported_module, fMapInsert_AssertUnique);
@@ -260,14 +272,14 @@ static fOpt(ffzModule*) module_from_import(ffzModule* mod, ffzNode* import_node)
 	return imported ? *imported : NULL;
 }
 
-static fOpt(ffzError*) parse_and_check_directory(Build* build, fString directory, ffzModule** out_module) {
+static fOpt(ffzError*) parse_and_check_directory(Build* build, fString absolute_directory, ffzModule** out_module) {
 	//TracyCZone(tr, true);
 
 	ffzModule* mod;
-	TRY(add_module_from_filesystem(build, directory, &mod));
+	TRY(add_module_from_filesystem(build, absolute_directory, &mod));
 	
 	if (DEBUG_PRINT_AST) {
-		dump_module_ast(mod, directory);
+		dump_module_ast(mod, absolute_directory);
 	}
 
 	if (mod->checker == NULL) {
@@ -304,7 +316,7 @@ int main(int argc, const char* argv[]) {
 	fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
 
 	Build build = {
-		//.sources = f_array_make(f_temp_alc()),
+		.alc = f_temp_alc(),
 		.module_from_directory = f_map64_make_raw(sizeof(ffzModule*), f_temp_alc()),
 		.module_from_import_op = f_map64_make_raw(sizeof(ffzModuleChecker*), f_temp_alc()),
 		.modules_directory = modules_dir,

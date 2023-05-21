@@ -34,7 +34,7 @@ _tl_arena_tls_index: u32(0)
 #ArenaMark: struct {head: ^u8}
 
 #Arena: struct {
-	@using allocator: Allocator // NOTE: must be the first field for downcasting! (see `arena_alc`)
+	//@using allocator: Allocator // NOTE: must be the first field for downcasting! (see `arena_alc`)
 	
 	system_page_size: u32 // practically always 4 KiB
 	
@@ -75,13 +75,11 @@ _tl_arena_tls_index: u32(0)
 #S64_MAX: 0x7fffffffffffffff
 #U64_MAX: 0xffffffffffffffff
 
-#AllocatorProc: proc(allocator: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => ^raw
+//#arena_alc: proc(arena: ^Arena) => ^Allocator {
+//	ret ^Allocator(arena)
+//}
 
-#arena_alc: proc(arena: ^Arena) => ^Allocator {
-	ret ^Allocator(arena)
-}
-
-#arena_allocator_proc: AllocatorProc {
+/*#arena_allocator_proc: AllocatorProc {
 	is_pow: is_power_of_2[uint](in.align)
 	//assert(in.align > 0 && )
 	
@@ -109,6 +107,7 @@ _tl_arena_tls_index: u32(0)
 	
 	ret in.old_ptr
 }
+*/
 
 // `reserve_base` can be NULL for automatically determined address
 #arena_make_virtual_reserve_fixed: proc(reserve_size: uint, reserve_base: ^u8) => ^Arena {
@@ -119,7 +118,7 @@ _tl_arena_tls_index: u32(0)
 	assert(base != ^u8(0))
 	
 	dummy: Arena{
-		allocator: Allocator{arena_allocator_proc}
+		//allocator: Allocator{arena_allocator_proc}
 		system_page_size: sys_info.dwPageSize
 		reserve_base: base
 		head: base
@@ -205,7 +204,7 @@ _tl_arena_tls_index: u32(0)
 }
 
 #form_slice: poly[T] proc(ptr: ^T, len: uint) => []T {
-	result: []u8(~~)
+	result: []T(~~)
 	result.ptr = ptr
 	result.len = len
 	ret result
@@ -278,25 +277,24 @@ _tl_arena_tls_index: u32(0)
 }
 
 #as_bytes: poly[T] proc(value: ^T) => []u8 {
-	ret []u8{^u8(value), size_of(T)}
+	ret form_slice[u8](^u8(value), size_of(T))
 }
 
-#Allocator: struct {
-	_proc: AllocatorProc
-}
+//#AllocatorProc: proc(allocator: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => ^raw
+//
+//#Allocator: struct {
+//	_proc: AllocatorProc
+//}
 
-#make_slice_undef: poly[T] proc(len: uint, alc: ^Allocator) => []T {
+#make_slice_undef: poly[T] proc(len: uint, arena: ^Arena) => []T {
 	result: []T(~~)
-	result.ptr = ^T(alc._proc(alc, ^raw(0), 0, len * size_of(T), align_of(T)))
+	result.ptr = ^T(arena_push(arena, len * size_of(T), align_of(T)).ptr)
 	result.len = len
 	ret result
 }
 
-#resize_slice_undef: poly[T] proc(slice: ^[]T, len: uint, alc: ^Allocator) {
-}
-
-#free_slice: poly[T] proc(slice: []T, alc: ^Allocator) {
-	_ = alc._proc(alc, (^raw)(slice.ptr), slice.len, 0, 0)
+#resize_slice_undef: poly[T] proc(slice: ^[]T, len: uint, arena: ^Arena) {
+	assert(false)
 }
 
 #assert: proc(x: bool) {
@@ -311,25 +309,26 @@ _tl_arena_tls_index: u32(0)
 	assert(WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), str.ptr, u32(str.len), &num_chars_written, ^raw(0)) != 0)
 }
 
-// thread-local arena
-#tla: proc => ^Arena {
-	ret ^Arena(TlsGetValue(_tl_arena_tls_index))
+#TempMemoryScope: struct {
+	/*@using */ arena: ^Arena
+	mark: ArenaMark
 }
 
-//#temp_alc: proc => ^Allocator {
-//	ret ^Allocator(TlsGetValue(_tl_arena_tls_index))
-//}
-
-
-
-// WARNING: call `temp_get_mark` and `temp_set_mark` only when you know exactly what you're doing.
-// The scope must be completely self-contained; it must not leak anything to the outside world.
-// This is an easy footgun! (include an example)
-#tla_get_mark: proc() => ArenaMark {
-	ret ArenaMark{^u8(0)}
+/*
+ temp_pop only resets the head of the arena when there are no nested temporary memory
+ scopes and this is the last call to temp_pop.
+ 
+ After calling temp_push, you must always call temp_pop! Because of this requirement, you shouldn't try to return
+ temporary memory back to the caller. Instead, you should pass an arena as a parameter to the procedure.
+*/
+#temp_push: proc() => TempMemoryScope {
+	ret {
+		^Arena(TlsGetValue(_tl_arena_tls_index))
+		ArenaMark{^u8(0)}
+	}
 }
 
-#tla_set_mark: proc(mark: ArenaMark) {}
+#temp_pop: proc(scope: TempMemoryScope) {}
 
 #thread_init_basic: proc() {
 	// _CRT_INIT(GetModuleHandleW(^raw(0)), DLL_PROCESS_ATTACH, ^raw(0))
