@@ -5,262 +5,27 @@
 
 // TODO: @alias_module_name
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #Array: poly[T] struct {
 	@using slice: []T{}
 	capacity: uint(0)
-	allocator: ^Basic.Allocator
+	
+	// We want to use an arena as the backing allocator for everything. This is because what we mean with an
+	// "Arena" is broader than just a bump allocator. An Arena in our terms is a memory lifetime.
+	// Dynamic array is not the best fit for a bump allocator, because the amount of memory required is effectively doubled,
+	// as we're wasting memory on resize with the cost (1/2 + 1/4 + 1/8 + ...) which approaches 2.
+	//
+	// When you want to use a heap style memory allocations, you want to manually make a forwarder-arena that forwards
+	// the allocations within that arena to the heap allocator. When we're doing that, we have a heap with "malloc" and "free" style
+	// interface that is hidden away by the arena interface. To get around this and let the array inform that we'd like to
+	// free/realloc, we could add a "arena_hint_free()" or "arena_realloc()"
+	// Maybe in debug builds we could also just not even do that, and leave the old memory to 0xCC to make catching
+	// bugs easier with regard to accidentally keeping pointer to array elements across array mutations.
+	
+	arena: ^Basic.Arena
 }
 
-#make: poly[T] proc(alc: ^Basic.Allocator) => Array[T] {
-	ret Array[T]{allocator: alc}
-}
-
-#free: poly[T] proc(array: ^Array[T]) {
-	_ = array.allocator._proc(array.allocator, array.ptr, array.capacity*size_of(T), 0, 0)
+#make: poly[T] proc(arena: ^Basic.Arena) => Array[T] {
+	ret Array[T]{arena: arena}
 }
 
 #clear: poly[T] proc(array: ^Array[T]) {

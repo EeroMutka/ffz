@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-struct fAllocator;
+struct fArena;
 
 template<typename T>
 struct fSlice_cpp {
@@ -36,7 +36,7 @@ struct fArray_cpp {
 	};
 	size_t capacity;
 	
-	fAllocator* alc;
+	fArena* arena;
 
 	inline T& operator [] (size_t i) {
 		if (i >= len) __debugbreak();
@@ -47,7 +47,7 @@ struct fArray_cpp {
 // NOTE: Must have the same binary layout as Map64_Raw
 template<typename T>
 struct fMap64_cpp {
-	fAllocator* alc;
+	fArena* arena;
 	uint32_t value_size;
 	uint32_t alive_count;
 	uint32_t slot_count; // visual studio natvis doesn't support bitshifts, so in order to visualize it we need this here. But it might be good to store nonetheless.
@@ -68,8 +68,8 @@ struct fMap64_cpp {
 #undef f_mem_clone
 
 template<typename T>
-inline T* f_mem_clone(const T& value, fAllocator* allocator) {
-	return (T*)f_mem_clone_size(sizeof(T), &value, allocator);
+inline T* f_mem_clone(const T& value, fArena* arena) {
+	return (T*)f_mem_clone_size(sizeof(T), &value, arena);
 }
 
 // The reason we have to #define and can't just typedef in the first place,
@@ -81,13 +81,13 @@ inline bool operator == (fString a, fString b) { return f_str_equals(a, b); }
 inline bool operator != (fString a, fString b) { return !f_str_equals(a, b); }
 
 template<typename T>
-inline fSlice(T) f_make_slice_undef(uint len, fAllocator* alc) {
-	return fSlice(T){ (T*)(alc)->_proc((alc), NULL, 0, (len) * sizeof(T)), len };
+inline fSlice(T) f_make_slice_undef(uint len, fArena* arena) {
+	return fSlice(T){ f_mem_alloc_n(T, len, arena), len };
 }
 
 template<typename T>
-inline fSlice(T) f_make_slice(uint len, const T& initial_value, fAllocator* alc) {
-	fSlice(T) result = f_make_slice_undef<T>(len, alc);
+inline fSlice(T) f_make_slice(uint len, const T& initial_value, fArena* arena) {
+	fSlice(T) result = f_make_slice_undef<T>(len, arena);
 	for (uint i = 0; i < len; i++) result[i] = initial_value;
 	return result;
 }
@@ -99,8 +99,8 @@ inline fSlice(T) f_make_slice(uint len, const T& initial_value, fAllocator* alc)
 //inline T* arena_push_value(Arena* arena, const T& value) { return (T*)arena_push(arena, AS_BYTES(value), ALIGN_OF(T)); }
 
 template<typename T>
-inline fSlice(T) f_clone_slice(fSlice(T) x, fAllocator* allocator) {
-	return fSlice(T){ (T*)f_mem_clone_size(x.len * sizeof(T), x.data, allocator), x.len };
+inline fSlice(T) f_clone_slice(fSlice(T) x, fArena* arena) {
+	return fSlice(T){ (T*)f_mem_clone_size(x.len * sizeof(T), x.data, arena), x.len };
 }
 
 template<typename T>
@@ -153,16 +153,18 @@ inline void f_slice_copy(fSlice(T) dst, fSlice(T) src) {
 
 //#define MAP64_EACH(map, key, value_ptr) f_for_map64((fMap64Raw*)map, key, (void**)value_ptr)
 
+// a benefit of Allocator is that the library can free unnecessary things.
+
 template<typename T>
-inline fMap64(T) f_map64_make(fAllocator* alc) {
+inline fMap64(T) f_map64_make(fArena* arena) {
 	fMap64(T) result;
-	fMap64Raw result_raw = f_map64_make_raw(sizeof(T), alc);
+	fMap64Raw result_raw = f_map64_make_raw(sizeof(T), arena);
 	memcpy(&result, &result_raw, sizeof(result));
 	return result;
 }
 
 template<typename T>
-inline fMap64(T) f_map64_make_cap(uint capacity, fAllocator* alc) { return F_BITCAST(fMap64(T), f_make_map64_cap_raw(sizeof(T), capacity, alc)); }
+inline fMap64(T) f_map64_make_cap(uint capacity, fArena* arena) { return F_BITCAST(fMap64(T), f_make_map64_cap_raw(sizeof(T), capacity, arena)); }
 
 template<typename T>
 inline void f_map64_free(fMap64(T)* map) { return f_map64_free_raw((fMap64Raw*)map); }
@@ -188,27 +190,27 @@ template<typename T>
 inline fOpt(T*) f_map64_get(fMap64(T)* map, u64 key) { return (T*)f_map64_get_raw((fMap64Raw*)map, key); }
 
 template<typename T>
-inline fArray(T) f_array_make(fAllocator* alc) {
+inline fArray(T) f_array_make(fArena* arena) {
 	fArray(T) result;
-	fArrayRaw result_raw = f_array_make(alc);
+	fArrayRaw result_raw = f_array_make(arena);
 	memcpy(&result, &result_raw, sizeof(result));
 	return result;
 }
 
 template<typename T>
-inline fArray(T) f_array_make_len(uint len, const T& initial_value, fAllocator* alc) {
-	return F_BITCAST(fArray(T), f_array_make_len_raw(sizeof(T), len, &initial_value, alc));
+inline fArray(T) f_array_make_len(uint len, const T& initial_value, fArena* arena) {
+	return F_BITCAST(fArray(T), f_array_make_len_raw(sizeof(T), len, &initial_value, arena));
 }
 
 template<typename T>
-inline fArray(T) f_array_make_len_garbage(uint len, fAllocator* alc) {
-	return F_BITCAST(fArray(T), f_array_make_len_garbage_raw(sizeof(T), len, alc));
+inline fArray(T) f_array_make_len_garbage(uint len, fArena* arena) {
+	return F_BITCAST(fArray(T), f_array_make_len_garbage_raw(sizeof(T), len, arena));
 }
 
 template<typename T>
-inline fArray(T) f_array_make_cap(uint capacity, fAllocator* alc) {
+inline fArray(T) f_array_make_cap(uint capacity, fArena* arena) {
 	fArray(T) result;
-	fArrayRaw result_raw = f_array_make_cap_raw(sizeof(T), capacity, alc);
+	fArrayRaw result_raw = f_array_make_cap_raw(sizeof(T), capacity, arena);
 	memcpy(&result, &result_raw, sizeof(result));
 	return result;
 }
@@ -245,11 +247,10 @@ inline T& f_array_peek(fArray(T)* array) {
 
 #include <initializer_list>
 
-#define f_str_join(alc, ...) f_str_join_initializer_list(alc, {__VA_ARGS__})
-#define f_str_join_tmp(...) f_str_join_initializer_list(f_temp_alc(), {__VA_ARGS__})
+#define f_str_join(arena, ...) f_str_join_initializer_list(arena, {__VA_ARGS__})
 
-inline fString f_str_join_initializer_list(fAllocator* alc, std::initializer_list<fString> args) {
-	return f_str_join_n(alc, { (fString*)args.begin(), args.size() });
+inline fString f_str_join_initializer_list(fArena* arena, std::initializer_list<fString> args) {
+	return f_str_join_n({ (fString*)args.begin(), args.size() }, arena);
 }
 
 //inline void f_str_print_il(fArray(u8)* buffer, std::initializer_list<fString> args) {

@@ -26,8 +26,8 @@
 
 //THREAD_LOCAL void* _foundation_pass; // TODO: get rid of this!
 
-F_THREAD_LOCAL fArena* _f_temp_arena;
-F_THREAD_LOCAL fLeakTracker _f_leak_tracker;
+F_THREAD_LOCAL fArena* _f_temp_arena_;
+//F_THREAD_LOCAL fLeakTracker _f_leak_tracker;
 
 void* _f_stdout_handle;
 
@@ -163,11 +163,11 @@ void f_printc(fWriter* w, const char* str) {
 	w->proc(w, str, strlen(str));
 }
 
-fString f_aprint(fAllocator* alc, const char* fmt, ...) {
+fString f_aprint(fArena* arena, const char* fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
 
-	fStringBuilder builder; f_init_string_builder(&builder, alc);
+	fStringBuilder builder; f_init_string_builder(&builder, arena);
 	f_print_va(builder.w, fmt, args);
 
 	va_end(args);
@@ -179,17 +179,6 @@ void f_cprint(const char* fmt, ...) {
 	va_start(args, fmt);
 	f_print_va(f_get_stdout(), fmt, args);
 	va_end(args);
-}
-
-fString f_tprint(const char* fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	
-	fStringBuilder builder; f_init_string_builder(&builder, f_temp_alc());
-	f_print_va(builder.w, fmt, args);
-
-	va_end(args);
-	return builder.str;
 }
 
 // No error handling is done, it's assumed that the format string is valid
@@ -300,8 +289,8 @@ fString f_str_path_stem(fString path) {
 	return path;
 }
 
-fString f_str_clone(fString str, fAllocator* a) {
-	fString copied = f_str_make(str.len, a);
+fString f_str_clone(fString str, fArena* arena) {
+	fString copied = f_str_make(str.len, arena);
 	f_str_copy(copied, str);
 	return copied;
 }
@@ -330,13 +319,13 @@ bool f_str_cut_start(fString* str, fString start) {
 	return false;
 }
 
-void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)* out) {
+void f_str_split_i(fString str, u8 character, fArena* arena, fSlice(fRangeUint)* out) {
 	uint required_len = 1;
 	for (uint i = 0; i < str.len; i++) {
 		if (str.data[i] == character) required_len++;
 	}
 
-	Array(fRangeUint) splits = f_array_make_cap_raw(sizeof(fRangeUint), required_len, a);
+	Array(fRangeUint) splits = f_array_make_cap_raw(sizeof(fRangeUint), required_len, arena);
 
 	uint prev = 0;
 	for (uint i = 0; i < str.len; i++) {
@@ -395,10 +384,10 @@ void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)*
 //		arr->last_bucket++;
 //	}
 //	if (arr->last_bucket >= arr->buckets.len) {
-//		//if (!arr->allocator.proc)
+//		//if (!arr->arena.proc)
 //		//	slot_array_init(arr);
 //
-//		fSlice(u8) bucket_allocation = MemAllocSlice(u8, arr->num_items_per_bucket * item_size, arr->allocator);
+//		fSlice(u8) bucket_allocation = MemAllocSlice(u8, arr->num_items_per_bucket * item_size, arr->arena);
 //		array_append(&arr->buckets, (void*)bucket_allocation.data);
 //	}
 //
@@ -421,8 +410,8 @@ void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)*
 //}
 
 #if 0
-fSlice(u8) tracker_alloc(fAllocator* a, i64 size, i64 alignment) {
-	LeakTracker* tracker = (LeakTracker*)allocator;
+fSlice(u8) tracker_alloc(fArena* arena, i64 size, i64 alignment) {
+	LeakTracker* tracker = (LeakTracker*)arena;
 	fSlice(u8) allocation = tracker->passthrough_allocator->alloc(tracker->passthrough_allocator, size, alignment);
 	
 	// Even with zero sized allocations, we still want a unique allocated address at least for memory debugging purposes.
@@ -432,7 +421,7 @@ fSlice(u8) tracker_alloc(fAllocator* a, i64 size, i64 alignment) {
 	entry.allocation_idx = leak_tracker_next_allocation(tracker);
 	entry.size = size;
 	entry.alignment = alignment;
-	array_init(&entry.callstack, 8, &tracker->internal_arena.allocator);
+	array_init(&entry.callstack, 8, &tracker->internal_arena.arena);
 
 	{
 		struct Pass {
@@ -447,7 +436,7 @@ fSlice(u8) tracker_alloc(fAllocator* a, i64 size, i64 alignment) {
 			if (pass->i > 0) {
 				fString* filepath_cached = pass->tracker->file_names_cache[file];
 				if (!filepath_cached) {
-					fString cloned = f_str_clone(file, &pass->tracker->internal_arena.allocator);
+					fString cloned = f_str_clone(file, &pass->tracker->internal_arena.arena);
 					filepath_cached = map_insert(&pass->tracker->file_names_cache, cloned, cloned).ptr;
 				}
 
@@ -465,9 +454,9 @@ fSlice(u8) tracker_alloc(fAllocator* a, i64 size, i64 alignment) {
 #endif
 
 #if 0
-void tracker_free(fAllocator* a, fSlice(u8) allocation) {
+void tracker_free(fArena* arena, fSlice(u8) allocation) {
 	BP;
-	LeakTracker* tracker = (LeakTracker*)allocator;
+	LeakTracker* tracker = (LeakTracker*)arena;
 	if (allocation.data) {
 		LeakTracker_Entry* entry = tracker->active_allocations[(void*)allocation.data];
 		if (entry && entry->size == allocation.len) {
@@ -484,8 +473,8 @@ void tracker_free(fAllocator* a, fSlice(u8) allocation) {
 #endif
 
 #if 0
-void tracker_resize(fAllocator* a, fSlice(u8)* allocation, i64 new_size, i64 alignment) {
-	LeakTracker* tracker = (LeakTracker*)allocator;
+void tracker_resize(fArena* arena, fSlice(u8)* allocation, i64 new_size, i64 alignment) {
+	LeakTracker* tracker = (LeakTracker*)arena;
 	u8* old_address = allocation->data;
 	ASSERT(old_address);
 
@@ -510,13 +499,13 @@ void tracker_resize(fAllocator* a, fSlice(u8)* allocation, i64 new_size, i64 ali
 }
 #endif
 
-//void tracker_begin(fAllocator* a, void* address) {
-//	LeakTracker* tracker = (LeakTracker*)allocator;
+//void tracker_begin(fArena* arena, void* address) {
+//	LeakTracker* tracker = (LeakTracker*)arena;
 //	map_insert(&tracker->active_allocations, address, (LeakTracker_Entry) { leak_tracker_next_allocation(tracker) });
 //}
 //
-//void tracker_end(fAllocator* a, void* address) {
-//	LeakTracker* tracker = (LeakTracker*)allocator;
+//void tracker_end(fArena* arena, void* address) {
+//	LeakTracker* tracker = (LeakTracker*)arena;
 //	if (address) {
 //		LeakTracker_Entry* entry = tracker->active_allocations[address];
 //		if (entry) {
@@ -529,6 +518,7 @@ void tracker_resize(fAllocator* a, fSlice(u8)* allocation, i64 new_size, i64 ali
 //	}
 //}
 
+#if 0
 void f_leak_tracker_init() {
 	//ZoneScoped;
 	f_assert(!_f_leak_tracker.active);
@@ -557,6 +547,7 @@ void f_leak_tracker_deinit() {
 
 	f_arena_free(_f_leak_tracker.internal_arena);
 }
+#endif
 
 typedef struct {
 	fLeakTracker_Entry* entry;
@@ -591,6 +582,7 @@ u64 f_hash64_str_ex(fString data, u64 seed) {
 }
 */
 
+#if 0
 void f_leak_tracker_begin_entry(void* address, uint skip_stackframes_count) {
 	if (!_f_leak_tracker.active) return;
 	_f_leak_tracker.active = false; // disable leak tracker for the duration of this function
@@ -604,50 +596,57 @@ void f_leak_tracker_begin_entry(void* address, uint skip_stackframes_count) {
 	f_map64_insert_raw(&_f_leak_tracker.active_allocations, (u64)address, &entry, fMapInsert_AssertUnique);
 	_f_leak_tracker.active = true;
 }
+#endif
 
-fArrayRaw f_array_make(fAllocator* a) { return (fArrayRaw) { .alc = a }; }
+fArrayRaw f_array_make(fArena* arena) { return (fArrayRaw) { .arena = arena }; }
 
-fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_value, fAllocator* a) {
-	fArrayRaw array = f_array_make_len_garbage_raw(elem_size, len, a);
+fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_value, fArena* arena) {
+	fArrayRaw array = f_array_make_len_garbage_raw(elem_size, len, arena);
 	for (uint i = 0; i < len; i++) {
 		memcpy((u8*)array.data + elem_size*i, initial_value, elem_size);
 	}
 	return array;
 }
 
-fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fAllocator* a) {
+fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fArena* arena) {
 	return (fArrayRaw) {
-		.data = f_mem_alloc_n(u8, len * elem_size, a), // TODO: go with the next power of 2
+		.data = f_mem_alloc_n(u8, len * elem_size, arena), // TODO: go with the next power of 2
 		.len = len,
 		.capacity = len,
-		.alc = a,
+		.arena = arena,
 	};
 }
 
-fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a) {
+fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fArena* arena) {
 	return (fArrayRaw) {
-		.data = f_mem_alloc_n(u8, capacity * elem_size, a), // TODO: go with the next power of 2
+		.data = f_mem_alloc_n(u8, capacity * elem_size, arena), // TODO: go with the next power of 2
 		.len = 0,
 		.capacity = capacity,
-		.alc = a,
+		.arena = arena,
 	};
 }
 
 void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size) {
 	if (capacity > array->capacity) {
+		f_assert(array->arena != NULL); // Did you call f_array_make?
+
 		// the + 7 is to make us start off with 8 elements the first time we're appending to an array
 		uint new_capacity = round_up_to_power_of_2(capacity + 7);
 		
-		f_assert(array->alc); // Did you call f_array_make?
-		array->data = f_mem_resize_n(u8, array->data, array->capacity * elem_size, new_capacity * elem_size, array->alc);
+		// :CurrentlyNoReallocWithArenas
+		void* new_data = f_alloc_undef(array->arena, new_capacity * elem_size);
+		memcpy(new_data, array->data, array->len * elem_size);
+		f_debug_fill_garbage(array->data, array->len * elem_size);
+		
+		array->data = new_data;
 		array->capacity = new_capacity;
 	}
 }
 
-void f_array_free_raw(fArrayRaw* array, u32 elem_size) {
-	f_mem_free_n(u8, array->data, elem_size * array->capacity, array->alc);
-	f_debug_fill_garbage(array, sizeof(*array));
-}
+//void f_array_free_raw(fArrayRaw* array, u32 elem_size) {
+//	f_mem_free_n(u8, array->data, elem_size * array->capacity, array->arena);
+//	f_debug_fill_garbage(array, sizeof(*array));
+//}
 
 uint f_array_push_n_raw(fArrayRaw* array, const void* elems, size_t n, u32 elem_size) {
 	f_array_reserve_raw(array, array->len + n, elem_size);
@@ -686,19 +685,19 @@ void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size) {
 	}
 }
 
-void f_leak_tracker_assert_is_alive(void* address) {
-	if (!_f_leak_tracker.active) return;
-	f_assert(f_map64_get_raw(&_f_leak_tracker.active_allocations, (u64)address));
-}
-
-void f_leak_tracker_end_entry(void* address) {
-	if (!_f_leak_tracker.active) return;
-	_f_leak_tracker.active = false; // disable leak tracker for the duration of this function
-	bool ok = f_map64_remove_raw(&_f_leak_tracker.active_allocations, (u64)address);
-	f_assert(ok);
-
-	_f_leak_tracker.active = true;
-}
+//void f_leak_tracker_assert_is_alive(void* address) {
+//	if (!_f_leak_tracker.active) return;
+//	f_assert(f_map64_get_raw(&_f_leak_tracker.active_allocations, (u64)address));
+//}
+//
+//void f_leak_tracker_end_entry(void* address) {
+//	if (!_f_leak_tracker.active) return;
+//	_f_leak_tracker.active = false; // disable leak tracker for the duration of this function
+//	bool ok = f_map64_remove_raw(&_f_leak_tracker.active_allocations, (u64)address);
+//	f_assert(ok);
+//
+//	_f_leak_tracker.active = true;
+//}
 
 u32 f_random_u32() {
 	// TODO: https://www.pcg-random.org/download.html
@@ -741,31 +740,31 @@ void f_print_float(fWriter* w, double value) {
 	w->proc(w, buffer, buffer_size);
 }
 
-fString f_str_from_uint(uint64_t value, size_t base, fAllocator* alc) {
-	fStringBuilder builder; f_init_string_builder(&builder, alc);
+fString f_str_from_uint(uint64_t value, size_t base, fArena* arena) {
+	fStringBuilder builder; f_init_string_builder(&builder, arena);
 	f_print_uint(builder.w, value, base);
 	return builder.str;
 }
 
-fString f_str_from_int(int64_t value, size_t base, fAllocator* alc) {
-	fStringBuilder builder; f_init_string_builder(&builder, alc);
+fString f_str_from_int(int64_t value, size_t base, fArena* arena) {
+	fStringBuilder builder; f_init_string_builder(&builder, arena);
 	f_print_int(builder.w, value, base);
 	return builder.str;
 }
 
-fString f_str_from_float(double value, fAllocator* alc) {
-	fStringBuilder builder; f_init_string_builder(&builder, alc);
+fString f_str_from_float(double value, fArena* arena) {
+	fStringBuilder builder; f_init_string_builder(&builder, arena);
 	f_print_float(builder.w, value);
 	return builder.str;
 }
 
-//fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* a) {
+//fString f_str_from_float_ex(f64 value, int num_decimals, fArena* arena) {
 //	char fmt_string[5] = { '%', '.', '0' + (char)F_MIN(num_decimals, 9), 'f', 0 };
 //	return f_aprint(a, fmt_string, value);
 //}
 //
 
-//fSlice(u8) global_allocator_alloc(fAllocator* a, uint size, uint alignment) {
+//fSlice(u8) global_allocator_alloc(fArena* arena, uint size, uint alignment) {
 //	fSlice(u8) allocation;
 //	allocation.data = (u8*)malloc(size);
 //	allocation.len = size;
@@ -783,14 +782,14 @@ fString f_str_from_float(double value, fAllocator* alc) {
 //	return allocation;
 //}
 
-//void global_allocator_free(fAllocator* a, fSlice(u8) allocation) {
+//void global_allocator_free(fArena* arena, fSlice(u8) allocation) {
 //#ifdef _DEBUG
 //	memset(allocation.data, 0xCC, allocation.len); // debug; trigger data-breakpoints and make use-after-free bugs evident.
 //#endif
 //	free(allocation.data);
 //}
 
-//void global_allocator_resize(fAllocator* a, fSlice(u8)* allocation, uint new_size, uint alignment) {
+//void global_allocator_resize(fArena* arena, fSlice(u8)* allocation, uint new_size, uint alignment) {
 //	if (new_size <= allocation->len) return;
 //
 //	ASSERT(allocation->data != NULL);
@@ -816,38 +815,56 @@ void f_str_copy(fString dst, fString src) {
 	memcpy(dst.data, src.data, src.len);
 }
 
-void* f_arena_push(fArena* arena, fString data, uint align) {
-	void* result = f_arena_push_undef(arena, data.len, align);
-	memcpy(result, data.data, data.len);
-	return result;
+void* f_linear_arena_push_undef(fArena* arena, uint size, uint align) {
+	f_assert(arena->desc.mode == fArenaMode_UsingBufferFixed || arena->desc.mode == fArenaMode_VirtualReserveFixed);
+	return f_alloc_undef_ex(arena, size, align);
 }
 
-void* f_arena_push_zero(fArena* arena, uint size, uint align) {
-	void* result = f_arena_push_undef(arena, size, align);
+void f_linear_arena_push_str(fArena* arena, fString str, uint align) {
+	f_assert(arena->desc.mode == fArenaMode_UsingBufferFixed || arena->desc.mode == fArenaMode_VirtualReserveFixed);
+	void* ptr = f_alloc_undef_ex(arena, str.len, align);
+	memcpy(ptr, str.data, str.len);
+}
+
+//void* f_alloc_str(fArena* arena, fString data, uint align) {
+//	void* result = f_alloc_undef_ex(arena, data.len, align);
+//	memcpy(result, data.data, data.len);
+//	return result;
+//}
+
+void* f_alloc_zero(fArena* arena, uint size, uint align) {
+	void* result = f_alloc_undef_ex(arena, size, align);
 	memset(result, 0, size);
 	return result;
 }
+
+//void* f_hint_realloc_undef(fArena* arena, void* ptr, uint old_size, uint new_size, uint align) {
+//	if (new_size > old_size) {
+//		void* new_ptr = f_alloc_undef_ex(arena, new_size, align);
+//		memcpy(new_ptr, ptr, old_size);
+//		return new_ptr;
+//	}
+//	return ptr;
+//}
 
 static void error_out_of_memory() {
 	f_os_error_popup(F_LIT("Error!"), F_LIT("Program ran out of available memory.\nThis is likely the fault of the program itself."));
 	exit(1);
 }
 
-void* f_arena_push_undef(fArena* arena, uint size, uint align) {
-	f_assert(F_IS_POWER_OF_2(align));
+void* f_alloc_undef_ex(fArena* arena, uint size, uint align) {
+	f_assert(align != 0 && F_IS_POWER_OF_2(align));
 	//ZoneScoped;
 	u8* allocation_pos = NULL;
 
-	F_HITS(_c, 0);
-	// TODO: get rid of this switch for the allocator vtable
+	//F_HITS(_c, 2251);
+	// TODO: get rid of this switch for the arena vtable
 
 	switch (arena->desc.mode) {
 	case fArenaMode_VirtualReserveFixed: {
-		//uint allocation_pos = ALIGN_UP_POW2(arena->pos.offset, alignment);
-		//arena->pos.offset = allocation_pos + size;
 		allocation_pos = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, align);
 		arena->pos.head = allocation_pos + size;
-
+		
 		if ((uint)arena->pos.head > (uint)arena->committed_end) {
 			f_mem_commit(arena->committed_end, (uint)arena->pos.head - (uint)arena->committed_end);
 			arena->committed_end = (u8*)F_ALIGN_UP_POW2((uint)arena->pos.head, F_KIB(4));
@@ -872,6 +889,7 @@ void* f_arena_push_undef(fArena* arena, uint size, uint align) {
 		}
 	} break;
 	
+#if 0
 	case fArenaMode_UsingAllocatorGrowing: {
 		// form a linked list of allocation blocks
 
@@ -924,7 +942,8 @@ void* f_arena_push_undef(fArena* arena, uint size, uint align) {
 		arena->pos.head = allocation_pos + size;
 		f_assert((uint)arena->pos.head <= (uint)arena->pos.current_block + arena->pos.current_block->size_including_header);
 	} break;
-	
+#endif
+
 	default: f_trap();
 	}
 
@@ -932,7 +951,7 @@ void* f_arena_push_undef(fArena* arena, uint size, uint align) {
 }
 
 
-fMap64Raw f_map64_make_raw(u32 value_size, fAllocator* a) { return f_make_map64_cap_raw(value_size, 0, a); }
+fMap64Raw f_map64_make_raw(u32 value_size, fArena* arena) { return f_make_map64_cap_raw(value_size, 0, arena); }
 
 static u32 hashmap64_get_slot_index(u64 key, fMap64Raw* map) {
 	const u64 golden_ratio_64 = 0x9E3779B97F4A7D69;
@@ -981,7 +1000,7 @@ void f_map64_resize_raw_(fMap64Raw* map, u32 slot_count_pow2) {
 
 	map->alive_count = 0;
 	map->slot_count = slot_count_pow2;
-	map->slots = f_mem_alloc_n(u8, slot_size * map->slot_count, map->alc);
+	map->slots = f_mem_alloc_n(u8, slot_size * map->slot_count, map->arena);
 	memset(map->slots, 0xFFFFFFFF, map->slot_count * slot_size); // fill all keys with HASHMAP64_EMPTY_KEY
 
 	if (slots_before) {
@@ -993,7 +1012,8 @@ void f_map64_resize_raw_(fMap64Raw* map, u32 slot_count_pow2) {
 			}
 		}
 
-		f_mem_free_n(u8, slots_before, slot_size * slot_count_before, map->alc);
+		// :CurrentlyNoReallocWithArenas
+		//f_mem_free_n(u8, slots_before, slot_size * slot_count_before, map->arena);
 	}
 }
 
@@ -1025,13 +1045,13 @@ uint log2_uint(uint_pow2 value) {
 
 #define slice_get(T, slice, index) ((T*)slice.data)[index]
 
-fString f_str_join_n(fAllocator* a, fSliceRaw args) {
+fString f_str_join_n(fSliceRaw args, fArena* arena) {
 	uint offset = 0;
 	f_for_array(fString, args, it) {
 		offset += it.elem.len;
 	}
 
-	fString result = { f_mem_alloc_n(u8, offset, a), offset };
+	fString result = { f_mem_alloc_n(u8, offset, arena), offset };
 
 	offset = 0;
 	f_for_array(fString, args, it) {
@@ -1041,9 +1061,9 @@ fString f_str_join_n(fAllocator* a, fSliceRaw args) {
 	return result;
 }
 
-fMap64Raw f_make_map64_cap_raw(u32 value_size, u32 capacity_pow2, fAllocator* a) {
+fMap64Raw f_make_map64_cap_raw(u32 value_size, u32 capacity_pow2, fArena* arena) {
 	fMap64Raw map = (fMap64Raw){
-		.alc = a,
+		.arena = arena,
 		.value_size = F_ALIGN_UP_POW2(value_size, 8),
 	};
 	
@@ -1139,13 +1159,13 @@ bool f_map64_remove_raw(fMap64Raw* map, u64 key) {
 	}
 }
 
-void f_map64_free_raw(fMap64Raw* map) {
-	u32 slot_size = map->value_size + 8;
-	if (map->slots) {
-		f_mem_free_n(u8, map->slots, slot_size * map->slot_count, map->alc);
-	}
-	f_debug_fill_garbage(map, sizeof(*map));
-}
+//void f_map64_free_raw(fMap64Raw* map) {
+//	u32 slot_size = map->value_size + 8;
+//	if (map->slots) {
+//		f_mem_free_n(u8, map->slots, slot_size * map->slot_count, map->alc);
+//	}
+//	f_debug_fill_garbage(map, sizeof(*map));
+//}
 
 //SlotArenaRaw* make_slot_arena_contiguous_raw(u32 elem_size, ArenaDesc arena_desc) {
 //	SlotArenaRaw _slot_arena = {
@@ -1157,7 +1177,7 @@ void f_map64_free_raw(fMap64Raw* map) {
 //	return f_mem_clone(_slot_arena, &_slot_arena.arena->alc);
 //}
 
-//SlotArenaRaw* make_slot_arena_raw(u32 elem_size, u32 num_elems_per_bucket, fAllocator* a) {
+//SlotArenaRaw* make_slot_arena_raw(u32 elem_size, u32 num_elems_per_bucket, fArena* arena) {
 //	SlotArenaRaw _slot_arena = {
 //		.first_free = &SLOT_ARENA_FREELIST_END,
 //		.a = a,
@@ -1229,11 +1249,11 @@ u64 slot_arena_get_index_raw(const RawSlotArena* arena, void* ptr) {
 }
 */
 
-u8* f_arena_get_contiguous_base(fArena* arena) {
+u8* f_linear_arena_get_base(fArena* arena) {
 	f_assert(arena->desc.mode == fArenaMode_UsingBufferFixed || arena->desc.mode == fArenaMode_VirtualReserveFixed);
 	return arena->internal_base + sizeof(fArena); }
 
-uint f_arena_get_contiguous_cursor(fArena* arena) {
+uint f_linear_arena_get_cursor(fArena* arena) {
 	f_assert(arena->desc.mode == fArenaMode_UsingBufferFixed || arena->desc.mode == fArenaMode_VirtualReserveFixed);
 	return arena->pos.head - (arena->internal_base + sizeof(fArena));
 }
@@ -1260,21 +1280,20 @@ void f_arena_set_mark(fArena* arena, fArenaMark mark) {
 
 void f_arena_clear(fArena* arena) {
 	//ZoneScoped;
-	if (arena->desc.mode == fArenaMode_UsingAllocatorGrowing) {
-		f_arena_set_mark(arena, (fArenaMark) {
-			.head = (u8*)(arena->first_block + 1) + sizeof(fArena),
-			.current_block = arena->first_block
-		});
-	} else {
-		f_arena_set_mark(arena, (fArenaMark) { .head = arena->internal_base + sizeof(fArena) });
-	}
+	//if (arena->desc.mode == fArenaMode_UsingAllocatorGrowing) {
+	//	f_arena_set_mark(arena, (fArenaMark) {
+	//		.head = (u8*)(arena->first_block + 1) + sizeof(fArena),
+	//		.current_block = arena->first_block
+	//	});
+	//} else {
+	//}
+	f_arena_set_mark(arena, (fArenaMark) { .head = arena->internal_base + sizeof(fArena) });
 }
 
-static void* arena_allocator_proc(fAllocator* a, fOpt(void*) old_ptr, size_t old_size, size_t new_size) {
+static void* arena_allocator_proc(fArena* arena, fOpt(void*) old_ptr, size_t old_size, size_t new_size) {
 	//ZoneScoped;
 
 	//F_HITS(_c, 0);
-	fArena* arena = (fArena*)a;
 
 	//fArenaBlock* headers[2048] = { 0 };
 	//uint _i = 0;
@@ -1284,7 +1303,7 @@ static void* arena_allocator_proc(fAllocator* a, fOpt(void*) old_ptr, size_t old
 	//}
 
 	if (new_size > old_size) {
-		u8* new_allocation = f_arena_push_undef(arena, new_size, f_get_alignment(new_size));
+		u8* new_allocation = f_alloc_undef_ex(arena, new_size, f_get_alignment(new_size));
 
 		// TODO: Reuse the end of the arena if possible?
 		//if (old_ptr + old_size == arena->internal_base + arena->internal_pos &&
@@ -1313,7 +1332,7 @@ static void* arena_allocator_proc(fAllocator* a, fOpt(void*) old_ptr, size_t old
 	return old_ptr;
 }
 
-void* heap_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {
+void* heap_allocator_proc(fArena* arena, fOpt(u8*) old_ptr, uint old_size, uint new_size, uint new_alignment) {
 	// 0b0010110
 	//
 	//uint arena_index = log2(round_up_pow_of_2(new_size)); // there's probably a better way to calculate this
@@ -1329,12 +1348,12 @@ void* heap_allocator_proc(fAllocator* a, fOpt(u8*) old_ptr, uint old_size, uint 
 //	return heap;
 //}
 
-fArena* f_arena_make(u32 min_block_size, fAllocator* a) {
-	return f_arena_make_ex((fArenaDesc) {
-		.mode = fArenaMode_UsingAllocatorGrowing,
-		.UsingAllocatorGrowing = { .min_block_size = min_block_size, .a = a },
-	});
-}
+//fArena* f_arena_make(u32 min_block_size, fArena* arena) {
+//	return f_arena_make_ex((fArenaDesc) {
+//		.mode = fArenaMode_UsingAllocatorGrowing,
+//		.UsingAllocatorGrowing = { .min_block_size = min_block_size, .a = a },
+//	});
+//}
 
 fArena* f_arena_make_virtual_reserve_fixed(uint reserve_size, fOpt(void*) reserve_base) {
 	return f_arena_make_ex((fArenaDesc) {
@@ -1353,7 +1372,7 @@ fArena* f_arena_make_buffer_fixed(void* base, uint size) {
 fArena* f_arena_make_ex(fArenaDesc desc) {	
 	//HITS(_c, 3);
 	fArena _arena = {
-		.alc = (fAllocator){ ._proc = arena_allocator_proc },
+		//.alc = (fArena){ ._proc = arena_allocator_proc },
 		.desc = desc,
 	};
 	
@@ -1368,14 +1387,14 @@ fArena* f_arena_make_ex(fArenaDesc desc) {
 		_arena.internal_base = desc.UsingBufferFixed.base;
 		_arena.pos.head = _arena.internal_base;
 	} break;
-	case fArenaMode_UsingAllocatorGrowing: {} break;
+	//case fArenaMode_UsingAllocatorGrowing: {} break;
 	default: f_trap();
 	}
 
-	fArena* arena = f_arena_push_undef(&_arena, sizeof(fArena), 1);
+	fArena* arena = f_alloc_undef_ex(&_arena, sizeof(fArena), 1);
 	*arena = _arena;
 	
-	f_leak_tracker_begin_entry(arena, 1);
+	//f_leak_tracker_begin_entry(arena, 1);
 	return arena;
 }
 
@@ -1405,7 +1424,7 @@ fArena* f_arena_make_ex(fArenaDesc desc) {
 
 void f_arena_free(fArena* arena) {
 	//ZoneScoped;
-	f_leak_tracker_end_entry(arena);
+	//f_leak_tracker_end_entry(arena);
 	f_arena_clear(arena); // this will fill the arena memory with garbage in debug builds
 	if (arena->desc.mode == fArenaMode_UsingBufferFixed) {
 		f_debug_fill_garbage(arena, sizeof(fArena));
@@ -1413,15 +1432,15 @@ void f_arena_free(fArena* arena) {
 	else if (arena->desc.mode == fArenaMode_VirtualReserveFixed) {
 		f_mem_release(arena->internal_base);
 	}
-	else if (arena->desc.mode == fArenaMode_UsingAllocatorGrowing) {
-		fAllocator* a = arena->desc.UsingAllocatorGrowing.a;
-		fArenaBlock* block = arena->first_block;
-		for (; block;) {
-			fArenaBlock* next = block->next;
-			f_mem_free(block, block->size_including_header, a);
-			block = next;
-		}
-	}
+	//else if (arena->desc.mode == fArenaMode_UsingAllocatorGrowing) {
+	//	fArena* arena = arena->desc.UsingAllocatorGrowing.a;
+	//	fArenaBlock* block = arena->first_block;
+	//	for (; block;) {
+	//		fArenaBlock* next = block->next;
+	//		f_mem_free(block, block->size_including_header, a);
+	//		block = next;
+	//	}
+	//}
 	else f_trap();
 }
 
@@ -1571,29 +1590,29 @@ bool f_str_to_s64(fString s, uint base, s64* out_value) {
 	return true;
 }
 
-char* f_str_to_cstr(fString s, fAllocator* a) {
-	char* bytes = f_mem_alloc(s.len + 1, a);
+char* f_str_to_cstr(fString s, fArena* arena) {
+	char* bytes = f_mem_alloc(s.len + 1, arena);
 	memcpy(bytes, s.data, s.len);
 	bytes[s.len] = 0;
 	return bytes;
 }
 
 bool f_str_to_f64(fString s, f64* out) {
-	fArenaMark mark = f_temp_get_mark();
+	fTempScope temp = f_temp_push();
 
-	char* cstr = f_str_to_cstr(s, f_temp_alc());
+	char* cstr = f_str_to_cstr(s, temp.arena);
 	char* end;
 	*out = strtod(cstr, &end);
 
-	f_temp_set_mark(mark);
+	f_temp_pop(temp);
 	return s.len > 0 && end == cstr + s.len;
 }
 
 // supports UTF8
-fString f_str_replace(fString str, fString search_for, fString replace_with, fAllocator* a) {
+fString f_str_replace(fString str, fString search_for, fString replace_with, fArena* arena) {
 	if (search_for.len > str.len) return str;
 
-	Array(u8) result = f_array_make_cap_raw(1, str.len * 2, a);
+	Array(u8) result = f_array_make_cap_raw(1, str.len * 2, arena);
 	uint last = str.len - search_for.len;
 	
 	for (uint i = 0; i <= last;) {
@@ -1609,11 +1628,11 @@ fString f_str_replace(fString str, fString search_for, fString replace_with, fAl
 	return (fString){result.data, result.len};
 }
 
-fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fString) replace_with, fAllocator* a) {
+fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fString) replace_with, fArena* arena) {
 	f_assert(search_for.len == replace_with.len);
 	uint n = search_for.len;
 
-	Array(u8) result = f_array_make_cap_raw(1, str.len * 2, a);
+	Array(u8) result = f_array_make_cap_raw(1, str.len * 2, arena);
 	
 	for (uint i = 0; i < str.len;) {
 		for (uint j = 0; j < n; j++) {
@@ -1644,13 +1663,13 @@ fString f_str_from_cstr(const char* s) { return (fString){(u8*)s, strlen(s)}; }
 	#error "Sorry, only windows is supported for now!"
 #endif
 
-bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
+bool f_files_read_whole(fString filepath, fArena* arena, fString* out_str) {
 	fFile file;
 	if (!f_files_open(filepath, fFileOpenMode_Read, &file)) return false;
 
 	uint size = f_files_size(&file);
 
-	fString result = f_str_make(size, a);
+	fString result = f_str_make(size, arena);
 
 	bool ok = f_files_read(&file, result.data, size) == size;
 
@@ -1664,7 +1683,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	#include <Windows.h>
 	#include <DbgHelp.h>
 	
-	#define MORE_SANE_MAX_PATH 1024
+	#define SANE_MAX_PATH 1024
 
 	#pragma comment(lib, "Comdlg32.lib") // for GetOpenFileName
 	
@@ -1673,10 +1692,10 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 
 	void f_os_print(fString str) {
-		//fArenaMark mark = f_temp_get_mark();
+		//fTempScope temp = f_temp_push();
 
 		//uint str_utf16_len;
-		//wchar_t* str_utf16 = f_str_to_utf16(str, 1, f_temp_alc(), &str_utf16_len);
+		//wchar_t* str_utf16 = f_str_to_utf16(str, 1, temp.arena, &str_utf16_len);
 		//f_assert((u32)str_utf16_len == str_utf16_len);
 
 		// NOTE: it seems like when we're capturing the output from an outside program,
@@ -1685,7 +1704,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		//WriteFile(_f_stdout_handle, str_utf16, (u32)str_utf16_len * 2, &num_chars_written, NULL);
 		
 		WriteFile(_f_stdout_handle, str.data, (u32)str.len, &num_chars_written, NULL);
-		//f_temp_set_mark(mark);
+		//f_temp_pop(temp);
 	}
 
 	// colored write to console
@@ -1693,12 +1712,12 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	void f_os_print_color(fString str, fConsoleAttributeFlags attributes_mask) {
 		if (str.len == 0) return;
 		
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		
 		CONSOLE_SCREEN_BUFFER_INFO console_info;
 		bool ok = GetConsoleScreenBufferInfo(_f_stdout_handle, &console_info);
 
-		str = f_str_replace(str, F_LIT("\t"), F_LIT("    "), f_temp_alc());
+		str = f_str_replace(str, F_LIT("\t"), F_LIT("    "), temp.arena);
 
 		DWORD num_chars_written;
 		if (!WriteFile(_f_stdout_handle, str.data, (u32)str.len, &num_chars_written, NULL)) {
@@ -1706,7 +1725,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		}
 		
 		if (ok) {
-			WORD* attributes = f_mem_alloc_n(WORD, str.len, f_temp_alc());
+			WORD* attributes = f_mem_alloc_n(WORD, str.len, temp.arena);
 			for (u32 i = 0; i < str.len; i++) {
 				attributes[i] = (u16)attributes_mask;
 			}
@@ -1714,7 +1733,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 			WriteConsoleOutputAttribute(_f_stdout_handle, attributes, F_CAST(u32, str.len), console_info.dwCursorPosition, &num_attributes_written);
 		}
 
-		f_temp_set_mark(mark);
+		f_temp_pop(temp);
 	}
 
 	u64 f_read_cycle_counter() {
@@ -1725,35 +1744,35 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 
 	u64 f_files_get_modtime(fString filepath) {
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 
 		f_trap();
-		HANDLE h = CreateFileA(f_str_t_to_cstr(filepath), 0, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY | FILE_FLAG_BACKUP_SEMANTICS, NULL);
+		HANDLE h = CreateFileA(f_str_to_cstr(filepath, temp.arena), 0, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY | FILE_FLAG_BACKUP_SEMANTICS, NULL);
 		if (h == INVALID_HANDLE_VALUE) return 0;
 
 		u64 write_time;
 		GetFileTime(h, NULL, NULL, (FILETIME*)&write_time);
 
 		CloseHandle(h);
-		f_temp_set_mark(mark);
+		f_temp_pop(temp);
 		return write_time;
 	}
 
 	bool f_files_clone(fString src_filepath, fString dst_filepath) {
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 
 		f_trap(); // unicode
-		BOOL ok = CopyFileA(f_str_t_to_cstr(src_filepath), f_str_t_to_cstr(dst_filepath), 0) == TRUE;
-		f_temp_set_mark(mark);
+		BOOL ok = CopyFileA(f_str_to_cstr(src_filepath, temp.arena), f_str_to_cstr(dst_filepath, temp.arena), 0) == TRUE;
+		f_temp_pop(temp);
 		return ok;
 	}
 
 	bool f_files_delete(fString filepath) {
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		
 		f_trap(); // unicode
-		bool ok = DeleteFileA(f_str_t_to_cstr(filepath)) == TRUE;
-		f_temp_set_mark(mark);
+		bool ok = DeleteFileA(f_str_to_cstr(filepath, temp.arena)) == TRUE;
+		f_temp_pop(temp);
 		return ok;
 	}
 
@@ -1764,40 +1783,40 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 
 	fDynamicLibrary f_dynamic_library_load(fString filepath) {
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		
 		f_trap(); // unicode
-		HANDLE handle = LoadLibraryA(f_str_t_to_cstr(filepath));
-		f_leak_tracker_begin_entry(handle, 1);
+		HANDLE handle = LoadLibraryA(f_str_to_cstr(filepath, temp.arena));
+		//f_leak_tracker_begin_entry(handle, 1);
 		
-		f_temp_set_mark(mark);
+		f_temp_pop(temp);
 		return (fDynamicLibrary){ .handle = handle };
 	}
 
 	bool f_dynamic_library_unload(fDynamicLibrary dll) {
-		f_leak_tracker_end_entry(dll.handle);
+		//f_leak_tracker_end_entry(dll.handle);
 		return FreeLibrary((HMODULE)dll.handle) == TRUE;
 	}
 
 	void* f_dynamic_library_sym_address(fDynamicLibrary dll, fString symbol) {
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 
-		void* addr = GetProcAddress((HMODULE)dll.handle, f_str_t_to_cstr(symbol));
+		void* addr = GetProcAddress((HMODULE)dll.handle, f_str_to_cstr(symbol, temp.arena));
 		
-		f_temp_set_mark(mark);
+		f_temp_pop(temp);
 		return addr;
 	}
 
-	fString f_files_pick_file_dialog(fAllocator* a) {
+	fString f_files_pick_file_dialog(fArena* arena) {
 		//ZoneScoped;
-		fString buffer = f_str_make(4096, f_temp_alc());
-		buffer.data[0] = '\0';
+		u8 buffer[4096];
+		buffer[0] = '\0';
 
 		OPENFILENAMEA ofn = (OPENFILENAMEA){
 			.lStructSize = sizeof(OPENFILENAMEA),
 			.hwndOwner = NULL,
-			.lpstrFile = (char*)buffer.data,
-			.nMaxFile = F_CAST(u32, buffer.len) - 1,
+			.lpstrFile = (char*)buffer,
+			.nMaxFile = F_LEN(buffer) - 1,
 			.lpstrFilter = "All\0*.*\0Text\0*.TXT\0",
 			.nFilterIndex = 1,
 			.lpstrFileTitle = NULL,
@@ -1807,7 +1826,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		};
 
 		GetOpenFileNameA(&ofn);
-		return f_str_clone(f_str_from_cstr((char*)buffer.data), a);
+		return f_str_clone(f_str_from_cstr(buffer), arena);
 	}
 
 	
@@ -1833,7 +1852,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		//GetOpenFileNameA(&ofn);
 		//
 		//fArray(fString) items = {};
-		//items.allocator = TEMP_ALLOCATOR;
+		//items.arena = TEMP_ALLOCATOR;
 		//
 		//fString directory = fString{ buffer.data, (isize)strlen((char*)buffer.data) };
 		//u8* ptr = buffer.data + directory.len + 1;
@@ -1861,7 +1880,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		//return items.slice;
 	//}
 
-	wchar_t* f_str_to_utf16(fString str, uint num_null_terminations, fAllocator* a, uint* out_len) {
+	wchar_t* f_str_to_utf16(fString str, uint num_null_terminations, fArena* arena, uint* out_len) {
 		if (str.len == 0) {
 			*out_len = 0;
 			return NULL;
@@ -1871,7 +1890,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		wchar_t* w_text = NULL;
 		
 		int w_len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, (const char*)str.data, (int)str.len, NULL, 0);
-		w_text = f_mem_alloc_n(wchar_t, 2 * (w_len + num_null_terminations), a);
+		w_text = f_mem_alloc_n(wchar_t, 2 * (w_len + num_null_terminations), arena);
 		
 		int w_len1 = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, (const char*)str.data, (int)str.len, (wchar_t*)w_text, w_len);
 		
@@ -1883,13 +1902,13 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		return w_text;
 	}
 
-	fString f_str_from_utf16(wchar_t* str_utf16, fAllocator* a) {
+	fString f_str_from_utf16(wchar_t* str_utf16, fArena* arena) {
 		if (*str_utf16 == 0) return (fString){0};
 		
 		int length = WideCharToMultiByte(CP_UTF8, 0, str_utf16, -1, NULL, 0, NULL, NULL);
 		if (length <= 0) return (fString) { 0 };
 
-		fString result = f_str_make(length, a); // length includes the null-termination.
+		fString result = f_str_make(length, arena); // length includes the null-termination.
 		int length2 = WideCharToMultiByte(CP_UTF8, 0, str_utf16, -1, (char*)result.data, (int)result.len, NULL, NULL);
 		if (length2 <= 0) return (fString) { 0 };
 		
@@ -1923,8 +1942,8 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		u8 buf[4096]; // we can't use temp_push/f_temp_pop here, because we might be reporting an error about running over the temporary arena
 		fArena* stack_arena = f_arena_make_buffer_fixed(buf, sizeof(buf));
 		uint _;
-		wchar_t* title_utf16 = f_str_to_utf16(title, 1, &stack_arena->alc, &_);
-		wchar_t* message_utf16 = f_str_to_utf16(message, 1, &stack_arena->alc, &_);
+		wchar_t* title_utf16 = f_str_to_utf16(title, 1, stack_arena, &_);
+		wchar_t* message_utf16 = f_str_to_utf16(message, 1, stack_arena, &_);
 
 		MessageBoxW(0, message_utf16, title_utf16, MB_OK);
 		f_arena_free(stack_arena);
@@ -1948,28 +1967,28 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 
 	bool f_os_set_working_dir(fString dir) {
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		uint _;
-		BOOL ok = SetCurrentDirectoryW(f_str_to_utf16(dir, 1, f_temp_alc(), &_));
-		f_temp_set_mark(mark);
+		BOOL ok = SetCurrentDirectoryW(f_str_to_utf16(dir, 1, temp.arena, &_));
+		f_temp_pop(temp);
 		return ok;
 	}
 
-	fString f_os_get_working_dir(fAllocator* a) {
-		wchar_t buf[MORE_SANE_MAX_PATH];
+	fString f_os_get_working_dir(fArena* arena) {
+		wchar_t buf[SANE_MAX_PATH];
 		buf[0] = 0;
-		GetCurrentDirectoryW(MORE_SANE_MAX_PATH, buf);
-		return f_str_from_utf16(buf, a);
+		GetCurrentDirectoryW(SANE_MAX_PATH, buf);
+		return f_str_from_utf16(buf, arena);
 	}
 
-	fString f_os_get_executable_path(fAllocator* allocator) {
-		wchar_t buf[MORE_SANE_MAX_PATH];
-		u32 n = GetModuleFileNameW(NULL, buf, MORE_SANE_MAX_PATH);
-		f_assert(n > 0 && n < MORE_SANE_MAX_PATH);
-		return f_str_from_utf16(buf, allocator);
+	fString f_os_get_executable_path(fArena* arena) {
+		wchar_t buf[SANE_MAX_PATH];
+		u32 n = GetModuleFileNameW(NULL, buf, SANE_MAX_PATH);
+		f_assert(n > 0 && n < SANE_MAX_PATH);
+		return f_str_from_utf16(buf, arena);
 	}
 
-	fString f_os_clipboard_get_text(fAllocator* a) {
+	fString f_os_clipboard_get_text(fArena* arena) {
 		fString text = (fString){0};
 		if (OpenClipboard(NULL)) {
 			HANDLE hData = GetClipboardData(CF_UNICODETEXT);
@@ -1978,7 +1997,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 			
 			int length = WideCharToMultiByte(CP_UTF8, 0, (wchar_t*)hData, -1, NULL, 0, NULL, NULL);
 			if (length > 0) {
-				text = f_str_make((uint)length, a);
+				text = f_str_make((uint)length, arena);
 				WideCharToMultiByte(CP_UTF8, 0, (wchar_t*)hData, -1, (char*)text.data, length, NULL, NULL);
 				text.len -= 1;
 				f_assert(text.data[text.len] == 0);
@@ -1994,7 +2013,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		//ZoneScoped;
 		if (!OpenClipboard(NULL)) return;
 
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		{
 			EmptyClipboard();
 
@@ -2006,7 +2025,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 			//ASSERT(MultiByteToWideChar(CP_UTF8, 0, (const char*)text.data, (int)text.len, (wchar_t*)utf16.data, length) == length);
 			//((u16*)utf16.data)[length] = 0;
 			uint utf16_len;
-			wchar_t* utf16 = f_str_to_utf16(text, 1, f_temp_alc(), &utf16_len);
+			wchar_t* utf16 = f_str_to_utf16(text, 1, temp.arena, &utf16_len);
 
 
 			HANDLE clipbuffer = GlobalAlloc(0, utf16_len * 2 + 2);
@@ -2018,17 +2037,17 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 
 			CloseClipboard();
 		}
-		f_temp_set_mark(mark);
+		f_temp_pop(temp);
 	}
 
 	bool f_files_directory_exists(fString path) {
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		
 		uint path_utf16_len;
-		wchar_t* path_utf16 = f_str_to_utf16(path, 1, f_temp_alc(), &path_utf16_len);
+		wchar_t* path_utf16 = f_str_to_utf16(path, 1, temp.arena, &path_utf16_len);
 		DWORD dwAttrib = GetFileAttributesW(path_utf16);
 
-		f_temp_set_mark(mark);
+		f_temp_pop(temp);
 		return (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
 	}
 
@@ -2036,31 +2055,31 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		return path.len > 2 && path.data[1] == ':';
 	}
 
-	bool f_files_path_to_canonical(fString working_dir, fString path, fAllocator* alc, fString* out_canonical) {
+	bool f_files_path_to_canonical(fString working_dir, fString path, fArena* arena, fString* out_canonical) {
 		// https://pdh11.blogspot.com/2009/05/pathcanonicalize-versus-what-it-says-on.html
 		// https://stackoverflow.com/questions/10198420/open-directory-using-createfile
 
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		
 		bool ok = true;
 		fString working_dir_before;
 		if (working_dir.len > 0) {
-			working_dir_before = f_os_get_working_dir(f_temp_alc());
+			working_dir_before = f_os_get_working_dir(temp.arena);
 			f_os_set_working_dir(working_dir);
 		}
 
 		uint path_utf16_len;
-		wchar_t* path_utf16 = f_str_to_utf16(path, 1, f_temp_alc(), &path_utf16_len);
+		wchar_t* path_utf16 = f_str_to_utf16(path, 1, temp.arena, &path_utf16_len);
 
 		HANDLE file_handle = CreateFileW(path_utf16, 0, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL); 
 		if (file_handle == INVALID_HANDLE_VALUE) ok = false;
 
-		TCHAR result_utf16[MORE_SANE_MAX_PATH];
-		ok = ok && GetFinalPathNameByHandleW(file_handle, result_utf16, MORE_SANE_MAX_PATH, VOLUME_NAME_DOS) < MORE_SANE_MAX_PATH;
+		TCHAR result_utf16[SANE_MAX_PATH];
+		ok = ok && GetFinalPathNameByHandleW(file_handle, result_utf16, SANE_MAX_PATH, VOLUME_NAME_DOS) < SANE_MAX_PATH;
 
 		fString result = {0};
 		if (ok) {
-			result = f_str_from_utf16(result_utf16, alc);
+			result = f_str_from_utf16(result_utf16, arena);
 			f_str_advance(&result, 4); // strings returned have `\\?\` - prefix that we should get rid of
 			*out_canonical = result;
 		}
@@ -2071,39 +2090,42 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		
 		if (file_handle != INVALID_HANDLE_VALUE) CloseHandle(file_handle);
 
-		if (alc != f_temp_alc()) f_temp_set_mark(mark);
+		f_temp_pop(temp);
 		return ok;
 	}
 
 	bool f_files_visit_directory(fString path, fVisitDirectoryVisitor visitor, void* visitor_userptr) {
-		fString match_str = f_str_make(path.len + 2, f_temp_alc());
+		fTempScope temp = f_temp_push();
+
+		fString match_str = f_str_make(path.len + 2, temp.arena);
 		f_mem_copy(match_str.data, path.data, path.len);
 		match_str.data[path.len] = '\\';
 		match_str.data[path.len+1] = '*';
 
 		uint match_str_utf16_len;
-		wchar_t* match_str_utf16 = f_str_to_utf16(match_str, 1, f_temp_alc(), &match_str_utf16_len);
+		wchar_t* match_str_utf16 = f_str_to_utf16(match_str, 1, temp.arena, &match_str_utf16_len);
 
 		WIN32_FIND_DATAW find_info;
 		HANDLE handle = FindFirstFileW(match_str_utf16, &find_info);
-
-		if (handle == INVALID_HANDLE_VALUE) return false;
-
-		for (; FindNextFileW(handle, &find_info);) {
-			fVisitDirectoryInfo info = {
-				.name = f_str_from_utf16(find_info.cFileName, f_temp_alc()),
-				.is_directory = find_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY,
-			};
-			
-			if (f_str_equals(info.name, F_LIT(".."))) continue;
-			
-			fVisitDirectoryResult result = visitor(&info, visitor_userptr);
-			f_assert(result == fVisitDirectoryResult_Continue);
-		}
-
-		bool ok = GetLastError() == ERROR_NO_MORE_FILES;
-		FindClose(handle);
 		
+		bool ok = handle != INVALID_HANDLE_VALUE;
+		if (ok) {
+			for (; FindNextFileW(handle, &find_info);) {
+				fVisitDirectoryInfo info = {
+					.name = f_str_from_utf16(find_info.cFileName, temp.arena),
+					.is_directory = find_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY,
+				};
+			
+				if (f_str_equals(info.name, F_LIT(".."))) continue;
+			
+				fVisitDirectoryResult result = visitor(&info, visitor_userptr);
+				f_assert(result == fVisitDirectoryResult_Continue);
+			}
+			ok = GetLastError() == ERROR_NO_MORE_FILES;
+			FindClose(handle);
+		}
+		
+		f_temp_pop(temp);
 		return ok;
 	}
 
@@ -2113,7 +2135,8 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		uint path_utf16_len;
 
 		// NOTE: path must be double null-terminated!
-		wchar_t* path_utf16 = f_str_to_utf16(path, 2, f_temp_alc(), &path_utf16_len);
+		fTempScope temp = f_temp_push();
+		wchar_t* path_utf16 = f_str_to_utf16(path, 2, temp.arena, &path_utf16_len);
 		
 		SHFILEOPSTRUCTW file_op = {
 			.hwnd = NULL,
@@ -2127,21 +2150,20 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		};
 
 		int result = SHFileOperationW(&file_op);
+		f_temp_pop(temp);
 		return result == 0;
 	}
 
 	bool f_files_make_directory(fString path) {
+		fTempScope temp = f_temp_push();
 		uint path_utf16_len;
-		wchar_t* path_utf16 = f_str_to_utf16(path, 1, f_temp_alc(), &path_utf16_len);
+		wchar_t* path_utf16 = f_str_to_utf16(path, 1, temp.arena, &path_utf16_len);
 
-		BOOL ok = CreateDirectoryW(path_utf16, NULL);
-		
-		if (ok) return true;
+		bool created = CreateDirectoryW(path_utf16, NULL);
+		f_temp_pop(temp);
 
-		DWORD err = GetLastError();
-		if (err == ERROR_ALREADY_EXISTS) return true;
-
-		return false;
+		if (created) return true;
+		return GetLastError() == ERROR_ALREADY_EXISTS;
 	}
 
 	static void f_file_unbuffered_writer_proc(fWriter* writer, const void* data, uint size) {
@@ -2150,9 +2172,9 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 
 	bool f_files_open(fString filepath, fFileOpenMode mode, fFile* out_file) {
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		uint filepath_utf16_len;
-		wchar_t* filepath_utf16 = f_str_to_utf16(filepath, 1, f_temp_alc(), &filepath_utf16_len);
+		wchar_t* filepath_utf16 = f_str_to_utf16(filepath, 1, temp.arena, &filepath_utf16_len);
 
 		out_file->mode = mode;
 
@@ -2166,7 +2188,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 
 		bool ok = out_file->os_handle != INVALID_HANDLE_VALUE;
 		if (ok) {
-			f_leak_tracker_begin_entry(out_file->os_handle, 1);
+			//f_leak_tracker_begin_entry(out_file->os_handle, 1);
 			
 			if (mode != fFileOpenMode_Read) {
 				out_file->backing_writer = (fWriter){ f_file_unbuffered_writer_proc, out_file };
@@ -2174,7 +2196,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 			}
 		}
 
-		f_temp_set_mark(mark);
+		f_temp_pop(temp);
 		return ok;
 	}
 
@@ -2233,7 +2255,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		}
 
 		bool ok = CloseHandle(file->os_handle) == TRUE;
-		f_leak_tracker_end_entry(file->os_handle);
+		//f_leak_tracker_end_entry(file->os_handle);
 		return ok;
 	}
 
@@ -2292,27 +2314,28 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 	}
 	*/
 
-	fString f_os_find_executable(fString name, fAllocator* alc) {
+	fString f_os_find_executable(fString name, fArena* arena) {
+		fTempScope temp = f_temp_push();
 		uint name_utf16_len;
-		wchar_t* name_utf16 = f_str_to_utf16(name, 1, f_temp_alc(), &name_utf16_len);
+		wchar_t* name_utf16 = f_str_to_utf16(name, 1, temp.arena, &name_utf16_len);
 
-		wchar_t path[MORE_SANE_MAX_PATH] = { 0 };
+		wchar_t path[SANE_MAX_PATH] = { 0 };
+		DWORD dwRet = SearchPathW(NULL, name_utf16, NULL, SANE_MAX_PATH, path, NULL);
+		f_temp_pop(temp);
 
-		DWORD dwRet = SearchPathW(NULL, name_utf16, NULL, MORE_SANE_MAX_PATH, path, NULL);
-		if (dwRet == 0 || dwRet >= MORE_SANE_MAX_PATH) {
-			return (fString) { 0 };
+		if (dwRet == 0 || dwRet >= SANE_MAX_PATH) {
+			return (fString){0};
 		}
-
-		return f_str_from_utf16(path, alc);
+		return f_str_from_utf16(path, arena);
 	}
 
 	bool f_os_run_command(fSliceRaw args, fString working_dir, u32* out_exit_code) {
 		bool ok = false;
 
-		fArenaMark mark = f_temp_get_mark();
+		fTempScope temp = f_temp_push();
 		fString working_dir_before;
 		if (working_dir.len > 0) {
-			working_dir_before = f_os_get_working_dir(f_temp_alc());
+			working_dir_before = f_os_get_working_dir(temp.arena);
 			f_os_set_working_dir(working_dir);
 		}
 		
@@ -2325,7 +2348,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		
 		fString* arg_strings = args.data;
 
-		fStringBuilder cmd_string; f_init_string_builder(&cmd_string, f_temp_alc());
+		fStringBuilder cmd_string; f_init_string_builder(&cmd_string, temp.arena);
 
 		for (uint i = 0; i < args.len; i++) {
 			fString arg = arg_strings[i];
@@ -2361,7 +2384,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 		}
 
 		uint cmd_string_utf16_len;
-		wchar_t* cmd_string_utf16 = f_str_to_utf16(cmd_string.str, 1, f_temp_alc(), &cmd_string_utf16_len);
+		wchar_t* cmd_string_utf16 = f_str_to_utf16(cmd_string.str, 1, temp.arena, &cmd_string_utf16_len);
 
 		PROCESS_INFORMATION process_info = { 0 };
 
@@ -2429,7 +2452,7 @@ bool f_files_read_whole(fString filepath, fAllocator* a, fString* out_str) {
 			f_os_set_working_dir(working_dir_before);
 		}
 
-		f_temp_set_mark(mark);
+		f_temp_pop(temp);
 		return ok;
 	}
 
@@ -2452,23 +2475,23 @@ bool f_files_write_whole(fString filepath, fString data) {
 }
 
 void f_init() {
-	f_assert(_f_temp_arena == NULL);
-	_f_temp_arena = f_arena_make_virtual_reserve_fixed(F_GIB(1), (void*)F_TIB(2));
+	f_assert(_f_temp_arena_ == NULL);
+	_f_temp_arena_ = f_arena_make_virtual_reserve_fixed(F_GIB(1), (void*)F_TIB(2));
 	_f_stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
 }
 
 void f_deinit() {
-	f_assert(_f_temp_arena);
-	f_arena_free(_f_temp_arena);
-	_f_temp_arena = NULL;
+	f_assert(_f_temp_arena_);
+	f_arena_free(_f_temp_arena_);
+	_f_temp_arena_ = NULL;
 }
 
 rune f_str_rune_to_lower(rune r) { // TODO: utf8
 	return r >= 'A' && r <= 'Z' ? r + 32 : r;
 }
 
-fString f_str_to_lower(fString str, fAllocator* a) {
-	fString out = f_str_clone(str, a);
+fString f_str_to_lower(fString str, fArena* arena) {
+	fString out = f_str_clone(str, arena);
 	for (uint i = 0; i < out.len; i++) {
 		out.data[i] = f_str_rune_to_lower(out.data[i]);
 	}

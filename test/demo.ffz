@@ -59,7 +59,6 @@ g: Globals(~~)
 	gl: &g.gl
 	GL.load(gl, g.window, GL.Version._3_3)
 	
-	
 	g.canvas = Draw2D.init(gl, temp.arena)
 	
 	// load images

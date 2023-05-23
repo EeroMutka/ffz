@@ -180,7 +180,7 @@ _tl_arena_tls_index: u32(0)
 }
 
 #get_alignment_for_size: proc(size: uint) => uint {
-	#small_aligns: [9]uint{0, 1, 2, 4, 4, 8, 8, 8, 8}
+	#small_aligns: [9]uint{1, 1, 2, 4, 4, 8, 8, 8, 8}
 	if size <= 8 {
 		ret small_aligns[size]
 	}

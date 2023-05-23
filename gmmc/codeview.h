@@ -165,7 +165,7 @@ typedef struct cviewGenerateDebugInfoDesc {
 extern "C" {
 #endif
 
-void codeview_generate_debug_info(cviewGenerateDebugInfoDesc* desc, fAllocator* alc);
+void codeview_generate_debug_info(cviewGenerateDebugInfoDesc* desc, fArena* arena);
 
 #ifdef __cplusplus
 }

@@ -859,13 +859,13 @@ static void end_subsection(DebugSectionGen* gen, u32 subsection_base) {
 }
 
 static void generate_debug_sections(DebugSectionGen* gen) {
-	fAllocator* temp = f_temp_alc();
+	fTempScope temp = f_temp_push();
 
 	u32 signature = CV_SIGNATURE_C13;
 
 	// -- Types section -------------------------------------------------------
 
-	//fString test_debugT = os_file_read_whole(F_LIT("C:\\dev\\slump\\GMMC\\minimal\\lettuce_debugT.hex"), gen->desc->allocator);
+	//fString test_debugT = os_file_read_whole(F_LIT("C:\\dev\\slump\\GMMC\\minimal\\lettuce_debugT.hex"), gen->desc->arena);
 	//f_array_push_n(&gen->debugT, test_debugT);
 
 	f_prints(gen->debugT.w, F_AS_BYTES(signature));
@@ -874,9 +874,9 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 	// and an "output type index" (CV_typ_t), which is the type index used in the codeview format.
 
 	TypeGen types = {0};
-	types.to_output_type_idx = f_make_slice(CV_typ_t, gen->desc->types_count, (CV_typ_t){OUTPUT_TYPE_IDX_NONE}, temp);
-	types.to_forward_ref_idx = f_make_slice(CV_typ_t, gen->desc->types_count, (CV_typ_t){OUTPUT_TYPE_IDX_NONE}, temp);
-	types.use_forward_reference_for_type = f_make_slice(bool, gen->desc->types_count, (bool){false}, temp);
+	types.to_output_type_idx = f_make_slice(CV_typ_t, gen->desc->types_count, (CV_typ_t){OUTPUT_TYPE_IDX_NONE}, temp.arena);
+	types.to_forward_ref_idx = f_make_slice(CV_typ_t, gen->desc->types_count, (CV_typ_t){OUTPUT_TYPE_IDX_NONE}, temp.arena);
+	types.use_forward_reference_for_type = f_make_slice(bool, gen->desc->types_count, (bool){false}, temp.arena);
 	
 	types.next_cv_type_idx = 0x1000; // Codeview/output type indices start at 0x1000
 
@@ -1151,7 +1151,7 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 	}
 #endif
 
-	fArray(u8) string_table = f_array_make(temp);
+	fArray(u8) string_table = f_array_make(temp.arena);
 	f_array_push(&string_table, (u8){0}); // Strings seem to begin at index 1
 
 	// *** FILECHKSUMS
@@ -1198,21 +1198,21 @@ static void generate_debug_sections(DebugSectionGen* gen) {
 	}
 }
 
-void codeview_generate_debug_info(cviewGenerateDebugInfoDesc* desc, fAllocator* alc) {
+void codeview_generate_debug_info(cviewGenerateDebugInfoDesc* desc, fArena* arena) {
 	// See DumpObjFileSections from the microsoft's pdb source code dump.
 
 	DebugSectionGen gen = {0};
 	
-	f_init_string_builder(&gen.debugS, alc);
-	f_init_string_builder(&gen.debugT, alc);
+	f_init_string_builder(&gen.debugS, arena);
+	f_init_string_builder(&gen.debugT, arena);
 	
-	gen.debugS_relocs = f_array_make(alc);
+	gen.debugS_relocs = f_array_make(arena);
 	gen.desc = desc;
 	generate_debug_sections(&gen);
 
-	fArray(coffRelocation) pdata_relocs = f_array_make(alc);
-	fArray(u8) pdata_builder = f_array_make(alc);
-	fArray(u8) xdata_builder = f_array_make(alc);
+	fArray(coffRelocation) pdata_relocs = f_array_make(arena);
+	fArray(u8) pdata_builder = f_array_make(arena);
+	fArray(u8) xdata_builder = f_array_make(arena);
 	generate_xdata_and_pdata(&pdata_builder, &pdata_relocs, &xdata_builder, desc);
 
 	desc->result.debugS = gen.debugS.buffer.slice;

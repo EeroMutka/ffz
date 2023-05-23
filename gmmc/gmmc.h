@@ -300,7 +300,7 @@ typedef struct gmmcGlobal {
 } gmmcGlobal;
 
 typedef struct gmmcModule {
-	fAllocator* allocator;
+	fArena* arena;
 
 	fArray(gmmcProcSignature*) proc_signatures;
 	fArray(gmmcGlobal*) globals; // starts from index 1, can be indexed with gmmcGlobalIdx
@@ -311,7 +311,7 @@ typedef struct gmmcModule {
 	//fArray(u8) code_section;
 } gmmcModule;
 
-GMMC_API gmmcModule* gmmc_init(fAllocator* allocator);
+GMMC_API gmmcModule* gmmc_init(fArena* arena);
 
 GMMC_API void gmmc_test(); // @cleanup
 
@@ -511,7 +511,7 @@ typedef u32 gmmcAsmSectionNum;
 
 // hmm... I wonder if we should even include the COFF module with GMMC. Maybe we should just give you the generated assembly blobs
 
-GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m); // TODO: pass a separate allocator
+GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m); // TODO: pass a separate arena
 
 //GMMC_API void gmmc_asm_export_x64(fString obj_filepath, gmmcAsmModule* m);
 

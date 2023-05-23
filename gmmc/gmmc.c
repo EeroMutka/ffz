@@ -8,7 +8,7 @@
 GMMC_API gmmcProcSignature* gmmc_make_proc_signature(gmmcModule* m, gmmcType return_type,
 	gmmcType* params, uint32_t params_count)
 {
-	gmmcProcSignature* s = f_mem_clone((gmmcProcSignature){0}, m->allocator);
+	gmmcProcSignature* s = f_mem_clone((gmmcProcSignature){0}, m->arena);
 	s->return_type = return_type;
 	s->params = (fSliceRaw){params, params_count};
 	f_array_push(&m->proc_signatures, s);
@@ -353,16 +353,16 @@ GMMC_API gmmcOpIdx gmmc_op_goto(gmmcBasicBlock* bb, gmmcBasicBlock* to) {
 }
 
 GMMC_API gmmcBasicBlock* gmmc_make_basic_block(gmmcProc* proc) {
-	gmmcBasicBlock* b = f_mem_clone((gmmcBasicBlock){0}, proc->sym.module->allocator);
+	gmmcBasicBlock* b = f_mem_clone((gmmcBasicBlock){0}, proc->sym.module->arena);
 	b->mod = proc->sym.module;
 	b->proc = proc;
-	b->ops = f_array_make(proc->sym.module->allocator);
+	b->ops = f_array_make(proc->sym.module->arena);
 	b->self_idx = (gmmcBasicBlockIdx)f_array_push(&proc->basic_blocks, b);
 	return b;
 }
 
 GMMC_API gmmcExtern* gmmc_make_extern(gmmcModule* m, gmmcString name) {
-	gmmcExtern* sym = f_mem_clone((gmmcExtern){{gmmcSymbolKind_Extern}}, m->allocator);
+	gmmcExtern* sym = f_mem_clone((gmmcExtern){{gmmcSymbolKind_Extern}}, m->arena);
 	sym->self_idx = (gmmcExternIdx)f_array_push(&m->external_symbols, sym);
 	sym->sym.module = m;
 	sym->sym.name = name;
@@ -375,21 +375,21 @@ GMMC_API gmmcProc* gmmc_make_proc(gmmcModule* m,
 {
 	VALIDATE(name.len > 0);
 
-	gmmcProc* proc = f_mem_clone((gmmcProc){0}, m->allocator);
+	gmmcProc* proc = f_mem_clone((gmmcProc){0}, m->arena);
 	proc->sym.kind = gmmcSymbolKind_Proc;
 	proc->sym.module = m;
 	proc->sym.name = name;
 	proc->self_idx = (gmmcProcIdx)f_array_push(&m->procs, proc);
 	proc->signature = signature;
 	
-	proc->locals = f_array_make(m->allocator);
-	proc->ops = f_array_make(m->allocator);
+	proc->locals = f_array_make(m->arena);
+	proc->ops = f_array_make(m->arena);
 	f_array_push(&proc->locals, (gmmcLocal){0});      // local 0 is invalid
 
-	proc->basic_blocks = f_array_make(m->allocator);
+	proc->basic_blocks = f_array_make(m->arena);
 	proc->entry_bb = gmmc_make_basic_block(proc);
 
-	proc->addr_of_params = f_make_slice_undef(gmmcOpIdx, signature->params.len, m->allocator);
+	proc->addr_of_params = f_make_slice_undef(gmmcOpIdx, signature->params.len, m->arena);
 
 	for (uint i = 0; i < signature->params.len; i++) {
 		gmmcOpData op = { gmmcOpKind_addr_of_param };
@@ -414,40 +414,40 @@ GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb,
 	
 	gmmcOpData op = { gmmcOpKind_vcall };
 	op.call.target = proc_address;
-	op.call.arguments = f_clone_to_slice(in_arguments, in_arguments_count, bb->mod->allocator);
+	op.call.arguments = f_clone_to_slice(in_arguments, in_arguments_count, bb->mod->arena);
 	op.type = return_type;
 	return gmmc_push_op(bb, &op);
 }
 
-GMMC_API gmmcModule* gmmc_init(fAllocator* allocator) {
-	gmmcModule* m = f_mem_clone((gmmcModule){0}, allocator);
-	m->allocator = allocator;
-	m->proc_signatures = f_array_make(m->allocator);
-	m->globals = f_array_make(m->allocator);
+GMMC_API gmmcModule* gmmc_init(fArena* arena) {
+	gmmcModule* m = f_mem_clone((gmmcModule){0}, arena);
+	m->arena = arena;
+	m->proc_signatures = f_array_make(m->arena);
+	m->globals = f_array_make(m->arena);
 	
 	gmmcGlobal* null_global = NULL;
 	f_array_push(&m->globals, null_global);
 	
-	m->procs = f_array_make(m->allocator);
-	m->external_symbols = f_array_make(m->allocator);
+	m->procs = f_array_make(m->arena);
+	m->external_symbols = f_array_make(m->arena);
 	return m;
 }
 
 GMMC_API gmmcGlobal* gmmc_make_global(gmmcModule* m, uint32_t size, uint32_t align, gmmcSection section, void** out_data) {
-	void* data = f_mem_alloc(size, m->allocator);
+	void* data = f_mem_alloc(size, m->arena);
 	memset(data, 0, size);
 	f_assert(section != gmmcSection_Code); // hmm... todo? this should be fine on the assembly target, but what about C?
 
-	gmmcGlobal* global = f_mem_clone((gmmcGlobal){0}, m->allocator);
+	gmmcGlobal* global = f_mem_clone((gmmcGlobal){0}, m->arena);
 	global->self_idx = (gmmcGlobalIdx)f_array_push(&m->globals, global);
 	global->sym.kind = gmmcSymbolKind_Global;
 	global->sym.module = m;
-	global->sym.name = f_aprint(m->allocator, "g$~u32", global->self_idx);
+	global->sym.name = f_aprint(m->arena, "g$~u32", global->self_idx);
 	global->size = size;
 	global->align = align;
 	global->section = section;
 	global->data = data;
-	global->relocations = f_array_make(m->allocator);
+	global->relocations = f_array_make(m->arena);
 
 	*out_data = data;
 	return global;
@@ -464,7 +464,7 @@ int factorial(int n) {
 
 #if 0
 GMMC_API void gmmc_test() {
-	fAllocator* temp = f_temp_alc();
+	fArena* temp = f_temp_alc();
 	f_os_set_working_dir(F_LIT("C:\\dev\\ffz\\gmmc\\test"));
 
 	//int x = factorial(10);

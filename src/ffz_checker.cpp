@@ -21,7 +21,7 @@
 inline bool has_non_poly_type(fOpt(ffzType*) type) { return type && !type_is_polymorphic(type); }
 inline bool has_poly_type(fOpt(ffzType*) type) { return type && type_is_polymorphic(type); }
 
-FFZ_CAPI ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fAllocator* alc) {
+FFZ_CAPI ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fArena* alc) {
 	ffzError* err = f_mem_clone(ffzError{}, alc);
 	err->node = node;
 	err->message = msg;
@@ -32,7 +32,7 @@ FFZ_CAPI ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fAll
 	return err;
 }
 
-FFZ_CAPI ffzError* ffz_make_error(fString msg, fAllocator* alc) {
+FFZ_CAPI ffzError* ffz_make_error(fString msg, fArena* alc) {
 	ffzError* err = f_mem_clone(ffzError{}, alc);
 	err->message = msg;
 	return err;
@@ -187,7 +187,7 @@ static ffzValue ffz_make_val(ffzProject* p, void* value, uint size, ffzType* typ
 	ffzConstantHash hash = ffz_hash_constant({ type, (ffzDatum*)value });
 	auto entry = f_map64_insert(&p->bank.constant_from_hash, hash, (ffzDatum*)0, fMapInsert_DoNotOverride);
 	if (entry.added) {
-		*entry._unstable_ptr = (ffzDatum*)f_mem_clone_size(size, value, p->bank.alc);
+		*entry._unstable_ptr = (ffzDatum*)f_mem_clone_size(size, value, p->bank.arena);
 		if (*entry._unstable_ptr == (void*)0x0000020000065980) f_trap();
 	}
 	return { type, *entry._unstable_ptr };
@@ -579,7 +579,7 @@ FFZ_CAPI ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type) {
 }
 #endif
 
-FFZ_CAPI fString ffz_type_to_string(ffzType* type, fAllocator* alc) {
+FFZ_CAPI fString ffz_type_to_string(ffzType* type, fArena* alc) {
 	// TODO: remove `print_type` and instead use  type_to_node() and AST printing. For that, we need to be able to make dummy modules easily.
 	fStringBuilder builder; f_init_string_builder(&builder, alc);
 	print_type(builder.w, type);
@@ -643,14 +643,14 @@ static fOpt(ffzError*) add_fields_to_field_from_name_map(ffzProject* p, ffzType*
 	fArray(u32) _index_path;
 	if (index_path == NULL) {
 		index_path = &_index_path;
-		_index_path = f_array_make<u32>(p->bank.alc);
+		_index_path = f_array_make<u32>(p->bank.arena);
 	}
 
 	for (u32 i = 0; i < parent_type->record_fields.len; i++) {
 		ffzField* field = &parent_type->record_fields[i];
 		f_array_push(index_path, i);
 		
-		ffzTypeRecordFieldUse field_use = { field, offset_from_root + field->offset, f_clone_slice(index_path->slice, p->bank.alc) };
+		ffzTypeRecordFieldUse field_use = { field, offset_from_root + field->offset, f_clone_slice(index_path->slice, p->bank.arena) };
 		auto insertion = f_map64_insert(&p->bank.field_from_name_map, ffz_hash_field(root_type, field->name), field_use, fMapInsert_DoNotOverride);
 		if (!insertion.added) {
 			f_trap();//ERR_NO_NODE(c, "`~s` is already declared before inside (TODO: print struct name) (TODO: print line)", field->name);
@@ -717,7 +717,7 @@ FFZ_CAPI bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, u32*
 	return false;
 }
 
-FFZ_CAPI void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(ffzNode*)* out_arguments, fAllocator* alc) {
+FFZ_CAPI void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(ffzNode*)* out_arguments, fArena* alc) {
 	*out_arguments = f_make_slice<ffzNode*>(fields.len, {}, alc);
 
 	u32 i = 0;
@@ -958,7 +958,7 @@ ffzType* make_type(ffzProject* p, ffzType type_desc) {
 
 	auto entry = f_map64_insert(&p->bank.type_from_hash, hash, (ffzType*)0, fMapInsert_DoNotOverride);
 	if (entry.added) {
-		ffzType* type_ptr = f_mem_clone(type_desc, p->bank.alc);
+		ffzType* type_ptr = f_mem_clone(type_desc, p->bank.arena);
 		//if (type_ptr == (void*)0x0000020000038ca0) f_trap();
 		*entry._unstable_ptr = type_ptr;
 		
@@ -995,7 +995,7 @@ struct ffzRecordBuilder {
 
 static ffzRecordBuilder ffz_record_builder_init(ffzProject* p, uint fields_cap) {
 	//f_assert(record->size == 0);
-	return { p, 0, 1, true, f_array_make_cap<ffzField>(fields_cap, p->bank.alc) };
+	return { p, 0, 1, true, f_array_make_cap<ffzField>(fields_cap, p->bank.arena) };
 }
 
 // NOTE: default_value is copied
@@ -1083,7 +1083,7 @@ ffzType* ffz_type_fixed_array_ex(ffzProject* p, ffzType* elem_type, ffzValue len
 			const static fString fields[] = { F_LIT("x"), F_LIT("y"), F_LIT("z"), F_LIT("w") };
 			
 			// We can't use the ffzRecordBuilder here, because we don't want it to build the size of the type.
-			out->record_fields = f_make_slice_undef<ffzField>(length_int, p->bank.alc);
+			out->record_fields = f_make_slice_undef<ffzField>(length_int, p->bank.arena);
 			for (u32 i = 0; i < (u32)length_int; i++) {
 				out->record_fields[i] = { fields[i], NULL, false, elem_type->size * i, elem_type };
 			}
@@ -1537,7 +1537,7 @@ static fOpt(ffzError*) check_curly_initializer(ffzModuleChecker* c, ffzType* typ
 		// Array or slice initializer, e.g. []int{1, 2, 3} or [3]int{1, 2, 3}
 
 		ffzType* elem_type = type->tag == ffzTypeTag_Slice ? type->Slice.elem_type : type->FixedArray.elem_type;
-		fArray(ffzDatum*) elems = f_array_make<ffzDatum*>(c->project->bank.alc);
+		fArray(ffzDatum*) elems = f_array_make<ffzDatum*>(c->project->bank.arena);
 		bool all_elems_are_constant = true;
 
 		for FFZ_EACH_CHILD(n, node) {
@@ -1841,10 +1841,10 @@ static fOpt(ffzError*) check_tag(ffzModuleChecker* c, ffzNode* tag) {
 
 static ffzType* ffz_make_extra_type(ffzProject* p) {
 	// NOTE: we're not interning this type using `ffz_make_type_ex`, because we always want an unique instance.
-	return f_mem_clone(ffzType{ ffzTypeTag_Record }, p->bank.alc);
+	return f_mem_clone(ffzType{ ffzTypeTag_Record }, p->bank.arena);
 }
 
-FFZ_CAPI ffzModuleChecker* make_checker_ctx(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fAllocator* alc) {
+FFZ_CAPI ffzModuleChecker* make_checker_ctx(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fArena* alc) {
 	ffzModuleChecker* c = f_mem_clone(ffzModuleChecker{}, alc);
 	c->mod = mod;
 	c->project = mod->project;
@@ -1866,7 +1866,7 @@ FFZ_CAPI ffzModuleChecker* make_checker_ctx(ffzModule* mod, fOpt(ffzModule*)(*mo
 	return c;
 }
 
-FFZ_CAPI ffzModule* ffz_new_module(ffzProject* p, fAllocator* alc) {
+FFZ_CAPI ffzModule* ffz_new_module(ffzProject* p, fArena* alc) {
 	ffzModule* c = f_mem_clone(ffzModule{}, alc);
 	c->self_id = p->next_module_id++;
 	c->project = p;
@@ -1897,7 +1897,7 @@ FFZ_CAPI fOpt(ffzDatum*) ffz_checked_get_tag(ffzNode* node, ffzType* tag_type) {
 
 bool ffz_default_value_of_type(ffzProject* p, ffzType* type, ffzValue* out_val) {
 	if (type->tag == ffzTypeTag_Record || type->record_fields.len > 0) {
-		fArray(ffzDatum*) values = f_array_make<ffzDatum*>(p->bank.alc);
+		fArray(ffzDatum*) values = f_array_make<ffzDatum*>(p->bank.arena);
 		f_for_array(ffzField, type->record_fields, it) {
 			if (it.elem.default_value == NULL) {
 				return false;
@@ -2737,8 +2737,7 @@ ffzType* ffz_type_module_defined_entry(ffzProject* p) { return p->builtin_types[
 ffzType* ffz_type_build_option(ffzProject* p) { return p->builtin_types[ffzKeyword_build_option]; }
 
 FFZ_CAPI ffzProject* ffz_init_project(fArena* arena) {
-	fAllocator* alc = &arena->alc;
-	ffzProject* p = f_mem_clone(ffzProject{}, alc);
+	ffzProject* p = f_mem_clone(ffzProject{}, arena);
 	//p->persistent_allocator = &arena->alc;
 	//p->modules_directory = modules_directory;
 
@@ -2757,15 +2756,15 @@ FFZ_CAPI ffzProject* ffz_init_project(fArena* arena) {
 	//p->link_system_libraries = f_array_make<fString>(p->persistent_allocator);
 	//p->filesystem_helpers.
 	
-	p->bank.alc = alc;
-	p->bank.type_from_hash = f_map64_make<ffzType*>(p->bank.alc);
-	p->bank.constant_from_hash = f_map64_make<ffzDatum*>(p->bank.alc);
-	p->bank.field_from_name_map = f_map64_make<ffzTypeRecordFieldUse>(p->bank.alc);
+	p->bank.arena = arena;
+	p->bank.type_from_hash = f_map64_make<ffzType*>(p->bank.arena);
+	p->bank.constant_from_hash = f_map64_make<ffzDatum*>(p->bank.arena);
+	p->bank.field_from_name_map = f_map64_make<ffzTypeRecordFieldUse>(p->bank.arena);
 
 	{
 		// initialize constant lookup tables and built in types
 
-		p->keyword_from_string = f_map64_make<ffzKeyword>(alc);
+		p->keyword_from_string = f_map64_make<ffzKeyword>(arena);
 		for (uint i = 1; i < ffzKeyword_COUNT; i++) {
 			f_map64_insert(&p->keyword_from_string,
 				f_hash64_str(ffz_keyword_to_string((ffzKeyword)i)), (ffzKeyword)i, fMapInsert_DoNotOverride);
@@ -2841,7 +2840,7 @@ FFZ_CAPI void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node) {
 	//return NULL;
 }
 
-FFZ_CAPI fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fAllocator* alc) {
+FFZ_CAPI fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fArena* alc) {
 	ZoneScoped;
 
 	VALIDATE(mod->checker == NULL);

@@ -109,6 +109,7 @@ typedef struct ProcGenSelectRegs {
 } ProcGenSelectRegs;
 
 typedef struct ProcGen {
+	fArena* temp;
 	gmmcAsmModule* module;
 	fOpt(fWriter*) console;
 	gmmcProc* proc;
@@ -980,14 +981,16 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_comment: {
 			if (p->console && p->stage == Stage_Emit) {
 				if (op->comment.len > 0) {
+					fTempScope temp = f_temp_push();
 					fSlice(fRangeUint) lines;
-					f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
+					f_str_split_i(op->comment, '\n', temp.arena, &lines);
 					
 					for (uint i = 0; i < lines.len; i++) {
 						fRangeUint line_range = f_array_get(fRangeUint, lines, i);
 						fString line = f_str_slice(op->comment, line_range.lo, line_range.hi);
 						f_print(p->console, "; ~s\n", line);
 					}
+					f_temp_pop(temp);
 				}
 				else {
 					f_print(p->console, "\n");
@@ -1346,10 +1349,10 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 	return bb_offset;
 }
 
-static void default_rsel(ProcGenSelectRegs* rsel, gmmcProc* proc) {
+static void default_rsel(ProcGen* p, ProcGenSelectRegs* rsel, gmmcProc* proc) {
 	*rsel = (ProcGenSelectRegs){0};
-	rsel->debug_allocate_gpr_order = f_array_make(f_temp_alc());
-	rsel->ops_currently_in_register = f_make_slice(GPR, proc->ops.len, (GPR){GPR_NONE}, f_temp_alc()); // @memory: we don't need to reallocate this slice on the second round of default_rsel()
+	rsel->debug_allocate_gpr_order = f_array_make(p->temp);
+	rsel->ops_currently_in_register = f_make_slice(GPR, proc->ops.len, (GPR){GPR_NONE}, p->temp);
 	
 	for (uint i = 0; i < F_LEN(rsel->work_reg_taken_by_op); i++) {
 		rsel->work_reg_taken_by_op[i] = GMMC_OP_IDX_INVALID;
@@ -1373,20 +1376,21 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		f_print(w, "---\n");
 	}
 
-	ProcGen _p = {0}; ProcGen* p = &_p;
-	//p->console = w;
+	fTempScope temp = f_temp_push();
+	ProcGen* p = &(ProcGen){0};
+	p->temp = temp.arena;
 	p->module = module_gen;
 	p->proc = proc;
 	p->result = result;
 
-	result->local_frame_rel_offset = f_make_slice_undef(s32, proc->locals.len, f_temp_alc());
-	result->ops_instruction_offset = f_make_slice(u32, proc->ops.len, (u32){F_U32_MAX}, f_temp_alc());
+	result->local_frame_rel_offset = f_make_slice_undef(s32, proc->locals.len, p->temp);
+	result->ops_instruction_offset = f_make_slice(u32, proc->ops.len, (u32){F_U32_MAX}, p->temp);
 
-	p->ops_last_use_time = f_make_slice(gmmcOpIdx, proc->ops.len, (gmmcOpIdx){GMMC_OP_IDX_INVALID}, f_temp_alc());
+	p->ops_last_use_time = f_make_slice(gmmcOpIdx, proc->ops.len, (gmmcOpIdx){GMMC_OP_IDX_INVALID}, p->temp);
 
-	p->ops_float_imm_section_rel_offset = f_make_slice(u32, proc->ops.len, (u32){F_U32_MAX}, f_temp_alc());
-	p->ops_spill_offset_frame_rel = f_make_slice(u32, proc->ops.len, (u32){0}, f_temp_alc());
-	p->bbs_offset = f_make_slice_undef(u32, proc->basic_blocks.len, f_temp_alc());
+	p->ops_float_imm_section_rel_offset = f_make_slice(u32, proc->ops.len, (u32){F_U32_MAX}, p->temp);
+	p->ops_spill_offset_frame_rel = f_make_slice(u32, proc->ops.len, (u32){0}, p->temp);
+	p->bbs_offset = f_make_slice_undef(u32, proc->basic_blocks.len, p->temp);
 	
 	// When entering a procedure, the stack is always aligned to (16+8) bytes, because
 	// before the CALL instruction it must be aligned to 16 bytes.
@@ -1408,7 +1412,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 	
 	{
 		p->stage = Stage_SelectRegs;
-		default_rsel(&p->rsel, proc);
+		default_rsel(p, &p->rsel, proc);
 		memset(p->bbs_offset.data, 0xff, p->bbs_offset.len * sizeof(u32));
 		gen_bb(p, 0);
 	}
@@ -1440,7 +1444,7 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		
 		p->stage = Stage_Emit;
 		p->cached_rsel = p->rsel;
-		default_rsel(&p->rsel, proc);
+		default_rsel(p, &p->rsel, proc);
 		memset(p->bbs_offset.data, 0xff, p->bbs_offset.len * sizeof(u32));
 		
 		for (uint i = 0; i < proc->ops.len; i++) {
@@ -1518,20 +1522,21 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 		f_print(w, "---------------------------------\n");
 		if (buffered) f_flush_buffered_writer(&console_writer);
 	}
+	f_temp_pop(temp);
 }
 
 GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m) {
-	gmmcAsmModule* gen = f_mem_clone((gmmcAsmModule){0}, m->allocator);
+	gmmcAsmModule* gen = f_mem_clone((gmmcAsmModule){0}, m->arena);
 
 	for (uint i = 0; i < gmmcSection_COUNT; i++) {
-		gen->sections[i].data = f_array_make(m->allocator);
-		gen->sections[i].relocs = f_array_make(m->allocator);
+		gen->sections[i].data = f_array_make(m->arena);
+		gen->sections[i].relocs = f_array_make(m->arena);
 	}
 
-	gen->procs = f_make_slice(gmmcAsmProc, m->procs.len, (gmmcAsmProc){0}, m->allocator);
+	gen->procs = f_make_slice(gmmcAsmProc, m->procs.len, (gmmcAsmProc){0}, m->arena);
 	
 	// add globals
-	gen->globals = f_make_slice_undef(gmmcAsmGlobal, m->globals.len, m->allocator);
+	gen->globals = f_make_slice_undef(gmmcAsmGlobal, m->globals.len, m->arena);
 	for (uint i = 1; i < m->globals.len; i++) {
 		gmmcGlobal* global = f_array_get(gmmcGlobal*, m->globals, i);
 

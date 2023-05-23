@@ -13,7 +13,7 @@
 // Parser is responsible for parsing a single file / string of source code
 typedef struct ffzParser {
 	ffzSource* source;
-	fAllocator* alc;
+	fArena* alc;
 
 	fArray(ffzNode*) import_keywords;
 
@@ -486,7 +486,7 @@ void ffz_print_ast(fWriter* w, ffzNode* node) {
 	print_ast(w, node, 0);
 }
 
-fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc) {
+fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fArena* alc) {
 	if (node->loc_source && try_to_use_source) {
 		fString source_code = node->loc_source->source_code;
 		return f_str_slice(source_code, node->loc.start.offset, node->loc.end.offset);

@@ -627,14 +627,14 @@ typedef struct ffzProject {
 	// The bank is a global cache for semantic information across a project.
 	// Sharing a cache means that comparing two types/constants for equality is a matter of comparing the pointers.
 	struct {
-		fAllocator* alc; // maybe switch this to Arena?
+		fArena* arena;
 		fMap64(ffzType*) type_from_hash; // key: TypeHash
 		fMap64(ffzDatum*) constant_from_hash; // key: ConstantHash
 		fMap64(ffzTypeRecordFieldUse) field_from_name_map; // key: FieldHash
 	} bank;
 
 	/*
-	fAllocator* persistent_allocator;
+	fArena* persistent_allocator;
 
 	// `modules_directory` can be an empty string, in which case
 	// importing modules using the `:` prefix is not allowed.
@@ -670,7 +670,7 @@ typedef struct ffzModuleChecker {
 	ffzModule* mod;
 	ffzProject* project;
 
-	fAllocator* alc; // maybe replace this with arena?
+	fArena* alc; // maybe replace this with arena?
 	uint32_t id;
 
 	bool finished;
@@ -721,7 +721,7 @@ typedef struct ffzModuleChecker {
 
 struct ffzModule {
 	ffzProject* project;
-	fAllocator* alc;
+	fArena* alc;
 
 	uint32_t self_id;
 	uint32_t next_checker_ctx_id;
@@ -834,7 +834,7 @@ fOpt(ffzError*) ffz_parse_node(ffzModule* m, fString file_contents, fString file
 void ffz_skip_standalone_tags(fOpt(ffzNode*)* node);
 
 void ffz_print_ast(fWriter* w, ffzNode* node);
-fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fAllocator* alc);
+fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fArena* alc);
 
 // ------------------------------------------------------
 
@@ -895,7 +895,7 @@ bool type_is_polymorphic(ffzType* type);
 bool ffz_type_is_comparable_for_equality(ffzType* type); // supports ==, !=
 bool ffz_type_is_comparable(ffzType* type); // supports <, >, et al.
 
-fString ffz_type_to_string(ffzType* type, fAllocator* alc);
+fString ffz_type_to_string(ffzType* type, fArena* alc);
 //char* ffz_type_to_cstring(ffzProject* p, ffzType* type);
 
 fString ffz_constant_to_string(ffzProject* p, ffzValue constant);
@@ -954,7 +954,7 @@ ffzProject* ffz_init_project(fArena* arena);
 // 
 //
 
-ffzModule* ffz_new_module(ffzProject* p, fAllocator* alc);
+ffzModule* ffz_new_module(ffzProject* p, fArena* alc);
 
 //ffzParser* ffz_module_add_parser(ffzModule* m, fString code, fString filepath, ffzErrorCallback error_cb);
 
@@ -970,7 +970,7 @@ void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node);
 /*
  `module_from_import` should return the fully-checked module imported by an import node.
 */
-fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fAllocator* alc);
+fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fArena* alc);
 
 
 // --- OS layer helpers ---
@@ -982,8 +982,8 @@ fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_i
 // - and procedures
 // - and standalone tags
 
-ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fAllocator* alc);
-ffzError* ffz_make_error(fString msg, fAllocator* alc);
+ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fArena* alc);
+ffzError* ffz_make_error(fString msg, fArena* alc);
 
 // -- Accessing data cached by the checker ------------------------------------------------------
 
@@ -1023,7 +1023,7 @@ fString ffz_get_import_name(ffzModule* m, ffzModule* imported_module);
  in a flat list in the same order as the `fields` array. Note that some arguments might not exist -
  those elements will be set to NULL.
 */
-void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(fOpt(ffzNode*))* out_arguments, fAllocator* alc);
+void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(fOpt(ffzNode*))* out_arguments, fArena* alc);
 
 inline ffzValue ffz_val(ffzType* type, ffzDatum* data) { ffzValue c = {type, data}; return c; }
 

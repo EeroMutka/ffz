@@ -70,7 +70,7 @@ struct Gen {
 	ffzProject* project;
 	ffzModule* root_module;
 
-	fAllocator* alc;
+	fArena* arena;
 	
 	gmmcModule* gmmc;
 
@@ -106,7 +106,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of);
 static fString make_name(Gen* g, fOpt(ffzNode*) node = NULL, bool pretty = true) {
 	// @memory; we could reuse the names
 	fStringBuilder name;
-	f_init_string_builder(&name, f_temp_alc());
+	f_init_string_builder(&name, g->arena);
 
 	fOpt(ffzDatum*) extern_tag;
 	//F_HITS(_c, 15);
@@ -328,7 +328,7 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 		//F_HITS(__c, 3);
 		if (type->tag == ffzTypeTag_Record && type->Record.is_union) f_trap();
 
-		fSlice(cviewStructMember) cv_fields = f_make_slice_undef<cviewStructMember>(type->record_fields.len, g->alc);
+		fSlice(cviewStructMember) cv_fields = f_make_slice_undef<cviewStructMember>(type->record_fields.len, g->arena);
 		for (uint i = 0; i < type->record_fields.len; i++) {
 			ffzField& field = type->record_fields[i];
 			cviewStructMember& cv_field = cv_fields[i];
@@ -342,7 +342,7 @@ static cviewTypeIdx get_debuginfo_type(Gen* g, ffzType* type) {
 		cv_type.Record.fields = cv_fields.data;
 		cv_type.Record.fields_count = (u32)cv_fields.len;
 		
-		fStringBuilder name_builder; f_init_string_builder(&name_builder, g->alc);
+		fStringBuilder name_builder; f_init_string_builder(&name_builder, g->arena);
 		print_debuginfo_type(g, name_builder.w, type);
 		cv_type.Record.name = name_builder.str;
 	} break;
@@ -394,7 +394,7 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 		ret_type ? get_gmmc_trivial_type(g, ret_type) : gmmcType_None;
 
 	// TODO: deduplicate prototypes?
-	fArray(gmmcType) param_types = f_array_make<gmmcType>(g->alc);
+	fArray(gmmcType) param_types = f_array_make<gmmcType>(g->arena);
 	
 	if (big_return) {
 		// if big return, pass the pointer to the return value as the first argument the same way C does. :BigReturn
@@ -417,12 +417,12 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	
 	gmmcProc* proc = gmmc_make_proc(g->gmmc, sig, name, &entry_bb);
 	
-	ProcInfo* proc_info = f_mem_clone(ProcInfo{}, g->alc);
+	ProcInfo* proc_info = f_mem_clone(ProcInfo{}, g->arena);
 	proc_info->gmmc_proc = proc;
 	proc_info->node = node;
 	proc_info->type = proc_type;
-	proc_info->dbginfo_locals = f_array_make<DebugInfoLocal>(g->alc);
-	proc_info->dbginfo_line_ops = f_make_slice<gmmcOpIdx>(node->loc.end.line_num - node->loc.start.line_num + 1, gmmcOpIdx{GMMC_OP_IDX_INVALID}, g->alc);
+	proc_info->dbginfo_locals = f_array_make<DebugInfoLocal>(g->arena);
+	proc_info->dbginfo_line_ops = f_make_slice<gmmcOpIdx>(node->loc.end.line_num - node->loc.start.line_num + 1, gmmcOpIdx{GMMC_OP_IDX_INVALID}, g->arena);
 
 	f_array_push(&g->procs_sorted, proc_info);
 	*insertion._unstable_ptr = proc_info;
@@ -649,7 +649,7 @@ static Value gen_call(Gen* g, ffzNodeOp* node) {
 	gmmcType ret_type_gmmc = big_return ? gmmcType_ptr :
 		ret_type ? get_gmmc_trivial_type(g, ret_type) : gmmcType_None;
 
-	fArray(gmmcOpIdx) args = f_array_make<gmmcOpIdx>(g->alc);
+	fArray(gmmcOpIdx) args = f_array_make<gmmcOpIdx>(g->arena);
 
 	Value out = {};
 	if (big_return) {
@@ -659,7 +659,7 @@ static Value gen_call(Gen* g, ffzNodeOp* node) {
 	}
 
 	fSlice(ffzNode*) arg_nodes;
-	ffz_get_arguments_flat(node, proc_type->Proc.in_params, &arg_nodes, f_temp_alc());
+	ffz_get_arguments_flat(node, proc_type->Proc.in_params, &arg_nodes, g->arena);
 
 	for (u32 i = 0; i< arg_nodes.len; i++) {
 		ffzField* field = &proc_type->Proc.in_params[i];
@@ -759,7 +759,7 @@ static gmmcOpIdx gen_curly_initializer(Gen* g, ffzType* type, ffzNode* node) {
 		fSlice(ffzField) fields = type->record_fields;
 
 		fSlice(fOpt(ffzNode*)) arguments;
-		ffz_get_arguments_flat(node, fields, &arguments, f_temp_alc());
+		ffz_get_arguments_flat(node, fields, &arguments, g->arena);
 
 		// First memset to zero, then fill out the fields that are non-zero
 		// TODO: only do this memset if there's any padding!
@@ -1168,7 +1168,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 			u32 start = node->loc.start.offset;
 			u32 end = node->loc.end.offset;
 			
-			gmmc_op_comment(g->bb, f_tprint("line ~u32:   ~s", node->loc.start.line_num,
+			gmmc_op_comment(g->bb, f_aprint(g->arena, "line ~u32:   ~s", node->loc.start.line_num,
 				fString{ node->loc_source->source_code.data + start, end - start }));
 		}
 	}
@@ -1370,7 +1370,7 @@ static void build_x64_add_section_relocs(Gen* g, gmmcAsmModule* asm_mod, gmmcSec
 	fSlice(gmmcRelocation) relocs;
 	gmmc_asm_get_section_relocations(asm_mod, gmmc_section, &relocs);
 
-	fSlice(coffRelocation) coff_relocs = f_make_slice_undef<coffRelocation>(relocs.len, g->alc);
+	fSlice(coffRelocation) coff_relocs = f_make_slice_undef<coffRelocation>(relocs.len, g->arena);
 
 	for (uint i = 0; i < relocs.len; i++) {
 		gmmcRelocation reloc = relocs[i];
@@ -1446,7 +1446,7 @@ static u32 get_fileid_of_source(Gen* g, ffzSource* source) {
 static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries, fMap64(fString) link_system_libraries) {
 	ZoneScoped;
 	fString obj_filename = F_LIT("a.obj");
-	fString obj_file_path = f_str_join_tmp(build_dir, F_LIT("/"), obj_filename);
+	fString obj_file_path = f_str_join(g->arena, build_dir, F_LIT("/"), obj_filename);
 
 	gmmcAsmModule* asm_module = gmmc_asm_build_x64(g->gmmc);
 
@@ -1456,8 +1456,8 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 	
 	// Add codeview debug info to the object file
 
-	fArray(coffSection) sections = f_array_make<coffSection>(g->alc);
-	fArray(coffSymbol) symbols = f_array_make<coffSymbol>(g->alc);
+	fArray(coffSection) sections = f_array_make<coffSection>(g->arena);
+	fArray(coffSymbol) symbols = f_array_make<coffSymbol>(g->arena);
 	
 	build_x64_add_section(g, asm_module, &sections, gmmcSection_Code, F_LIT(".code"), IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE);
 	build_x64_add_section(g, asm_module, &sections, gmmcSection_Data, F_LIT(".data"), IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_WRITE);
@@ -1519,8 +1519,8 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 	build_x64_add_section_relocs(g, asm_module, gmmcSection_Data, &sections[1], first_external_symbol_index);
 	build_x64_add_section_relocs(g, asm_module, gmmcSection_RData, &sections[2], first_external_symbol_index);
 
-	fArray(cviewFunction) cv_functions = f_array_make_cap<cviewFunction>(g->proc_from_hash.alive_count, g->alc);
-	fArray(cviewGlobal) cv_globals = f_array_make_cap<cviewGlobal>(g->globals.len, g->alc);
+	fArray(cviewFunction) cv_functions = f_array_make_cap<cviewFunction>(g->proc_from_hash.alive_count, g->arena);
+	fArray(cviewGlobal) cv_globals = f_array_make_cap<cviewGlobal>(g->globals.len, g->arena);
 
 	// the procs need to be sorted for debug info
 	for (uint i = 0; i < g->procs_sorted.len; i++) {
@@ -1550,7 +1550,7 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 			cv_func.stack_frame_size = gmmc_asm_proc_get_stack_frame_size(asm_module, proc);
 			cv_func.file_idx = get_fileid_of_source(g, proc_info->node->loc_source);
 
-			fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->alc);
+			fArray(cviewLocal) locals = f_array_make_cap<cviewLocal>(proc_info->dbginfo_locals.len, g->arena);
 			for (uint i = 0; i < proc_info->dbginfo_locals.len; i++) {
 				DebugInfoLocal it = proc_info->dbginfo_locals[i];
 				cviewLocal local;
@@ -1563,7 +1563,7 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 			cv_func.block.locals = locals.data;
 			cv_func.block.locals_count = (u32)locals.len;
 
-			fArray(cviewLine) lines = f_array_make<cviewLine>(g->alc);
+			fArray(cviewLine) lines = f_array_make<cviewLine>(g->arena);
 			u32 start_line_num = proc_info->node->loc.start.line_num;
 			f_array_push(&lines, cviewLine{ start_line_num , start_offset });
 
@@ -1620,7 +1620,7 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 		cv_desc.globals_count = (u32)cv_globals.len;
 		cv_desc.types = g->cv_types.data;
 		cv_desc.types_count = (u32)g->cv_types.len;
-		codeview_generate_debug_info(&cv_desc, g->alc);
+		codeview_generate_debug_info(&cv_desc, g->arena);
 
 		sections[SectionNum_xdata - 1].data = cv_desc.result.xdata;
 
@@ -1657,25 +1657,25 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 		ZoneScopedN("WinSDK_find_visual_studio_and_windows_sdk");
 		windows_sdk = WinSDK_find_visual_studio_and_windows_sdk();
 	}
-	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, g->alc); // contains cl.exe, link.exe
+	fString msvc_directory = f_str_from_utf16(windows_sdk.vs_exe_path, g->arena); // contains cl.exe, link.exe
 	//fString windows_sdk_include_base_path = f_str_from_utf16(windows_sdk.windows_sdk_include_base, g->alc); // contains <string.h>, etc
-	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, g->alc); // contains kernel32.lib, etc
-	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, g->alc); // contains libucrt.lib, etc
-	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, g->alc); // contains MSVCRT.lib etc
+	fString windows_sdk_um_library_path = f_str_from_utf16(windows_sdk.windows_sdk_um_library_path, g->arena); // contains kernel32.lib, etc
+	fString windows_sdk_ucrt_library_path = f_str_from_utf16(windows_sdk.windows_sdk_ucrt_library_path, g->arena); // contains libucrt.lib, etc
+	fString vs_library_path = f_str_from_utf16(windows_sdk.vs_library_path, g->arena); // contains MSVCRT.lib etc
 	//fString vs_include_path = f_str_from_utf16(windows_sdk.vs_include_path, g->alc); // contains vcruntime.h
 
-	fArray(fString) ms_linker_args = f_array_make<fString>(g->alc);
+	fArray(fString) ms_linker_args = f_array_make<fString>(g->arena);
 	{
 		ZoneScopedN("build ms_linker_args");
 
-		f_array_push(&ms_linker_args, f_str_join_tmp(msvc_directory, F_LIT("\\link.exe")));
+		f_array_push(&ms_linker_args, f_str_join(g->arena, msvc_directory, F_LIT("\\link.exe")));
 		f_array_push(&ms_linker_args, obj_filename);
 
-		f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
-		f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
-		f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/LIBPATH:"), vs_library_path));
+		f_array_push(&ms_linker_args, f_str_join(g->arena, F_LIT("/LIBPATH:"), windows_sdk_um_library_path));
+		f_array_push(&ms_linker_args, f_str_join(g->arena, F_LIT("/LIBPATH:"), windows_sdk_ucrt_library_path));
+		f_array_push(&ms_linker_args, f_str_join(g->arena, F_LIT("/LIBPATH:"), vs_library_path));
 
-		f_array_push(&ms_linker_args, f_str_join_tmp(F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
+		f_array_push(&ms_linker_args, f_str_join(g->arena, F_LIT("/SUBSYSTEM:"), BUILD_WITH_CONSOLE ? F_LIT("CONSOLE") : F_LIT("WINDOWS")));
 		f_array_push(&ms_linker_args, F_LIT("/INCREMENTAL:NO"));
 
 		if (!g->link_against_libc) {
@@ -1719,7 +1719,7 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 
 static bool build_c(Gen* g, fString build_dir) {
 	fString c_filename = F_LIT("a.c");
-	fString c_filepath = f_str_join_tmp(build_dir, F_LIT("/"), c_filename);
+	fString c_filepath = f_str_join(g->arena, build_dir, F_LIT("/"), c_filename);
 	
 	bool write = true;
 	if (write) {
@@ -1735,7 +1735,7 @@ static bool build_c(Gen* g, fString build_dir) {
 		f_files_close(&c_file);
 	}
 
-	fArray(fString) clang_args = f_array_make<fString>(f_temp_alc());
+	fArray(fString) clang_args = f_array_make<fString>(g->arena);
 
 	f_array_push(&clang_args, F_LIT("clang"));
 
@@ -1760,7 +1760,7 @@ static bool build_c(Gen* g, fString build_dir) {
 	f_array_push(&clang_args, c_filename);
 
 	fStringBuilder clang_linker_args;
-	f_init_string_builder(&clang_linker_args, f_temp_alc());
+	f_init_string_builder(&clang_linker_args, g->arena);
 
 	f_print(clang_linker_args.w, "-Wl"); // pass comma-separated argument list to the linker
 	//f_print(clang_linker_args.w, ",/SUBSYSTEM:~c", BUILD_WITH_CONSOLE ? "CONSOLE" : "WINDOWS");
@@ -1819,29 +1819,29 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString 
 	ZoneScoped;
 	ffzProject* project = root_module->project;
 
-	//fArenaMark temp_base = f_temp_get_mark();
-	gmmcModule* gmmc = gmmc_init(f_temp_alc());
+	fTempScope temp = f_temp_push();
+	gmmcModule* gmmc = gmmc_init(temp.arena);
 
 	Gen g = {};
 	g.project = project;
 	g.pointer_size = project->pointer_size;
 	g.root_module = root_module;
 	g.gmmc = gmmc;
-	g.alc = f_temp_alc();
-	g.variable_from_definition = f_map64_make<Variable>(g.alc);
-	g.cv_fileid_from_source = f_map64_make<u32>(g.alc);
-	g.proc_from_hash = f_map64_make<ProcInfo*>(g.alc);
-	g.procs_sorted = f_array_make<ProcInfo*>(g.alc);
-	g.globals = f_array_make<GlobalInfo>(g.alc);
-	g.cv_files = f_array_make<cviewSourceFile>(g.alc);
-	g.cv_types = f_array_make<cviewType>(g.alc);
-	g.cv_type_from_ffz_type = f_map64_make<cviewTypeIdx>(g.alc);
+	g.arena = temp.arena;
+	g.variable_from_definition = f_map64_make<Variable>(g.arena);
+	g.cv_fileid_from_source = f_map64_make<u32>(g.arena);
+	g.proc_from_hash = f_map64_make<ProcInfo*>(g.arena);
+	g.procs_sorted = f_array_make<ProcInfo*>(g.arena);
+	g.globals = f_array_make<GlobalInfo>(g.arena);
+	g.cv_files = f_array_make<cviewSourceFile>(g.arena);
+	g.cv_types = f_array_make<cviewType>(g.arena);
+	g.cv_type_from_ffz_type = f_map64_make<cviewTypeIdx>(g.arena);
 
-	fArray(ffzModule*) modules = f_array_make<ffzModule*>(g.alc);
+	fArray(ffzModule*) modules = f_array_make<ffzModule*>(g.arena);
 	topological_sort_import_tree(&modules, root_module);
 
-	fMap64(fString) link_libraries = f_map64_make<fString>(g.alc);
-	fMap64(fString) link_system_libraries = f_map64_make<fString>(g.alc);
+	fMap64(fString) link_libraries = f_map64_make<fString>(g.arena);
+	fMap64(fString) link_system_libraries = f_map64_make<fString>(g.arena);
 
 	f_for_array(ffzModule*, modules, it) {
 		ffzModuleChecker* checker = it.elem->checker;
@@ -1859,7 +1859,7 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString 
 					f_map64_insert(&link_system_libraries, f_hash64_str(library), library, fMapInsert_DoNotOverride);
 				}
 				else {
-					if (!f_files_path_to_canonical(checker->mod->directory, library, f_temp_alc(), &library)) {
+					if (!f_files_path_to_canonical(checker->mod->directory, library, g.arena, &library)) {
 						f_trap(); //ERR(c, lit, "Failed to import external library \"~s\" relative to module base directory \"~s\"", library, c->mod->directory);
 					}
 					f_map64_insert(&link_libraries, f_hash64_str(library), library, fMapInsert_DoNotOverride);
@@ -1902,15 +1902,17 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString 
 		}
 	}
 
+	bool ok;
 	bool x64 = true;
 	if (x64) {
-		return build_x64(&g, build_dir, link_libraries, link_system_libraries);
+		ok = build_x64(&g, build_dir, link_libraries, link_system_libraries);
 	}
 	else {
-		return build_c(&g, build_dir);
+		ok = build_c(&g, build_dir);
 	}
 
-	return true;
+	f_temp_pop(temp);
+	return ok;
 }
 
 #endif // FFZ_BUILD_INCLUDE_GMMC

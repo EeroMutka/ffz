@@ -32,34 +32,34 @@ static fString gmmc_type_get_string(gmmcType type) {
 
 //static char* gmmc_type_get_cstr(gmmcType type) { return (char*)gmmc_type_get_string(type).data; }
 
-static fString operand_to_str(gmmcBasicBlock* bb, gmmcOpIdx op_idx) {
+static fString operand_to_str(gmmcBasicBlock* bb, gmmcOpIdx op_idx, fArena* arena) {
 	gmmcOpData* op = f_array_get_ptr(gmmcOpData, bb->proc->ops, op_idx);
 	switch (op->kind) {
-		case gmmcOpKind_bool: return f_tprint(op->imm_bits ? "1" : "0");
-		case gmmcOpKind_i8: return f_tprint("~u8", (u8)op->imm_bits);
-		case gmmcOpKind_i16: return f_tprint("~u16", (u16)op->imm_bits);
-		case gmmcOpKind_i32: return f_tprint("~u32", (u32)op->imm_bits);
-		case gmmcOpKind_i64: return f_tprint("~u64", (u64)op->imm_bits);
+		case gmmcOpKind_bool: return f_aprint(arena, op->imm_bits ? "1" : "0");
+		case gmmcOpKind_i8: return f_aprint(arena, "~u8", (u8)op->imm_bits);
+		case gmmcOpKind_i16: return f_aprint(arena, "~u16", (u16)op->imm_bits);
+		case gmmcOpKind_i32: return f_aprint(arena, "~u32", (u32)op->imm_bits);
+		case gmmcOpKind_i64: return f_aprint(arena, "~u64", (u64)op->imm_bits);
 		
 		case gmmcOpKind_f32: {
 			f32 value;
 			memcpy(&value, &op->imm_bits, 4);
-			return f_tprint("~f", (f64)value);
+			return f_aprint(arena, "~f", (f64)value);
 		} break;
 
 		case gmmcOpKind_f64: {
 			f64 value;
 			memcpy(&value, &op->imm_bits, 8);
-			return f_tprint("~f", value);
+			return f_aprint(arena, "~f", value);
 		} break;
 
 		case gmmcOpKind_addr_of_param: {
-			return f_tprint("(void*)&_$~u32", op_idx);
+			return f_aprint(arena, "(void*)&_$~u32", op_idx);
 		} break;
 
 		case gmmcOpKind_addr_of_symbol: {
 			if (op->symbol->kind == gmmcSymbolKind_Global) {
-				return f_tprint("(void*)&~s", op->symbol->name);
+				return f_aprint(arena, "(void*)&~s", op->symbol->name);
 			} else {
 				return op->symbol->name;
 			}
@@ -67,14 +67,13 @@ static fString operand_to_str(gmmcBasicBlock* bb, gmmcOpIdx op_idx) {
 		
 		default: break;
 	}
-	return f_tprint("_$~u32", op_idx);
+	return f_aprint(arena, "_$~u32", op_idx);
 }
 
 void print_bb(fWriter* f, gmmcBasicBlock* bb) {
+	fTempScope temp = f_temp_push();
 	f_print(f, "b$~u32:\n", bb->self_idx);
 	
-	fArenaMark mark = f_temp_get_mark();
-
 	for (uint i = 0; i < bb->ops.len; i++) {
 		gmmcOpIdx op_idx = f_array_get(gmmcOpIdx, bb->ops, i);
 		gmmcOpData* op = f_array_get_ptr(gmmcOpData, bb->proc->ops, op_idx);
@@ -96,8 +95,9 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 			f_print(f, "~s _$~u32 = ", gmmc_type_get_string(type), op_idx);
 		}
 
-#define OTOS(i) operand_to_str(bb, op->operands[i])
-#define OTOS_(operand) operand_to_str(bb, operand)
+
+#define OTOS(i) operand_to_str(bb, op->operands[i], temp.arena)
+#define OTOS_(operand) operand_to_str(bb, operand, temp.arena)
 
 		gmmcType result_type = op->type;
 		switch (op->kind) {
@@ -245,12 +245,16 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 
 		case gmmcOpKind_comment: {
 			if (op->comment.len > 0) {
+				fTempScope temp = f_temp_push();
 				fSlice(fRangeUint) lines;
-				f_str_split_i(op->comment, '\n', f_temp_alc(), &lines);
+				f_str_split_i(op->comment, '\n', temp.arena, &lines);
+
 				f_for_array(fRangeUint, lines, line) {
 					fString line_str = f_str_slice(op->comment, line.elem.lo, line.elem.hi);
 					f_print(f, "    // ~s\n", line_str);
 				}
+
+				f_temp_pop(temp);
 			} else {
 				f_print(f, "\n");
 			}
@@ -270,7 +274,7 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 			else f_print(f, ";\n");
 		}
 	}
-	f_temp_set_mark(mark);
+	f_temp_pop(temp);
 }
 
 GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {

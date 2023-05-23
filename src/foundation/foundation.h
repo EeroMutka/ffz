@@ -21,19 +21,13 @@
 #include <stdint.h>
 #include <string.h>
 
-// the allocated memory must be aligned according to f_get_alignment().
-// hmm, maybe we should still provide an alignment parameter and plug in f_get_alignment() into most places as a default, because
-// having aligned pointers can be useful in some very niche cases. Like you could do some trick where you store a special data structure
-// at the base of some address range that is aligned, so you can just align the pointer down to access it.
-// OR if you want to align to cache line size... yeah.
-typedef struct fAllocator {
-	void*(*_proc)(struct fAllocator* allocator, /*optional*/ void* old_ptr, size_t old_size, size_t new_size);
-} fAllocator;
-
 typedef struct fSliceRaw {
 	void* data;
 	size_t len;
 } fSliceRaw;
+
+// TODO: we should make fArena into an interface that can be overridden with static defines
+typedef struct fArena fArena;
 
 typedef struct fArrayRaw {
 	union {
@@ -44,7 +38,7 @@ typedef struct fArrayRaw {
 		fSliceRaw slice;
 	};
 	size_t capacity;
-	fAllocator* alc;
+	fArena* arena;
 } fArrayRaw;
 
 // A writer is a simple interface to simply write bytes to some buffer.
@@ -68,7 +62,7 @@ typedef struct fBufferedWriter {
 } fBufferedWriter;
 
 typedef struct fMap64Raw {
-	fAllocator* alc;
+	fArena* arena;
 	uint32_t value_size; // ...should we even have this?
 
 	uint32_t alive_count;
@@ -76,8 +70,6 @@ typedef struct fMap64Raw {
 	uint32_t slot_count;
 	/*opt*/ void* slots;
 } fMap64Raw;
-
-typedef struct fArena fArena;
 
 #ifndef fArray
 #define fArray(T) fArrayRaw
@@ -129,6 +121,14 @@ typedef intptr_t  sint;
 typedef s32       rune;
 typedef uint      uint_pow2; // must be a positive power-of-2. (zero is not allowed)
 
+// https://www.wambold.com/Martin/writings/alignof.html
+#ifdef __cplusplus
+template<typename T> struct alignment_trick { char c; T member; };
+#define F_ALIGN_OF(type) F_OFFSET_OF(alignment_trick<type>, member)
+#else
+#define F_ALIGN_OF(type) (F_OFFSET_OF(struct F_CONCAT(_dummy, __COUNTER__) { char c; type member; }, member))
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -173,14 +173,6 @@ extern "C" {
 #define F_CONCAT(x, y) F_CONCAT___(x, y)
 
 #define F_STATIC_ASSERT(x) enum { F_CONCAT(_static_assert_, __LINE__) = 1 / ((int)!!(x)) }
-
-// https://www.wambold.com/Martin/writings/alignof.html
-//#ifdef __cplusplus
-//template<typename T> struct alignment_trick { char c; T member; };
-//#define F_ALIGN_OF(type) F_OFFSET_OF(alignment_trick<type>, member)
-//#else
-//#define F_ALIGN_OF(type) (F_OFFSET_OF(struct F_CONCAT(_dummy, __COUNTER__) { char c; type member; }, member))
-//#endif
 
 // Useful for surpressing compiler warnings
 // https://stackoverflow.com/questions/12198449/cross-platform-macro-for-silencing-unused-variables-warning/12199209#12199209
@@ -273,7 +265,7 @@ typedef enum fArenaMode {
 	fArenaMode_VirtualReserveFixed,
 	//ArenaMode_VirtualGrowing, // do we really need this since we have UsingAllocatorGrowing?
 	fArenaMode_UsingBufferFixed,
-	fArenaMode_UsingAllocatorGrowing,
+	//fArenaMode_UsingAllocatorGrowing,
 } fArenaMode;
 
 typedef struct fArenaDesc {
@@ -286,10 +278,10 @@ typedef struct fArenaDesc {
 		u8* base;
 		uint size;
 	} UsingBufferFixed;
-	struct {
-		u32 min_block_size;
-		fAllocator* a;
-	} UsingAllocatorGrowing;
+	//struct {
+	//	u32 min_block_size;
+	//	fArena* a;
+	//} UsingAllocatorGrowing;
 } fArenaDesc;
 
 typedef struct fArenaBlock {
@@ -304,7 +296,6 @@ typedef struct fArenaMark {
 } fArenaMark;
 
 typedef struct fArena {
-	fAllocator alc; // Must be the first field for outwards-casting!
 	fArenaDesc desc;
 
 	struct { // should be union
@@ -317,30 +308,24 @@ typedef struct fArena {
 	fArenaMark pos;
 } fArena;
 
-#define f_make_slice_one(elem, allocator) {MemClone((elem), (allocator)), 1}
+#define f_make_slice_one(elem, arena) {MemClone((elem), (arena)), 1}
 
 inline u8 f_get_alignment(uint size) {
-	const static u8 small_aligns[] = { 0, 1, 2, 4, 4, 8, 8, 8, 8 };
+	const static u8 small_aligns[] = { 1, 1, 2, 4, 4, 8, 8, 8, 8 };
 	if (size <= 8) return small_aligns[size];
 	return 16;
 }
 
 // Warning: these return uninitialized memory.
-#define f_mem_alloc(size, allocator) (void*)(allocator)->_proc((allocator), NULL, 0, (size))
-#define f_mem_resize(ptr, old_size, new_size, allocator) (void*)(allocator)->_proc((allocator), (ptr), (old_size), (new_size))
-#define f_mem_free(ptr, size, allocator) (allocator)->_proc((allocator), (ptr), (size), 0)
+//#define f_mem_resize(ptr, old_size, new_size, arena) (void*)(arena)->_proc((arena), (ptr), (old_size), (new_size))
+//#define f_mem_free(ptr, size, arena) (arena)->_proc((arena), (ptr), (size), 0)
 
-#define f_mem_alloc_n(T, count, allocator) (T*)(allocator)->_proc((allocator), NULL, 0, (count) * sizeof(T))
-#define f_mem_resize_n(T, ptr, old_count, new_count, allocator) (T*)(allocator)->_proc((allocator), ptr, (old_count) * sizeof(T), (new_count) * sizeof(T))
-#define f_mem_free_n(T, ptr, count, allocator) (allocator)->_proc((allocator), (ptr), (count) * sizeof(T), 0)
+#define f_mem_alloc(size, arena) f_alloc_undef(arena, size)
+#define f_mem_alloc_n(T, count, arena) (T*)f_alloc_undef(arena, ((uint)count) * sizeof(T))
+#define f_mem_clone(value, arena) f_mem_clone_size(sizeof(value), &value, arena)
 
-#define f_mem_clone(value, allocator) f_mem_clone_size(sizeof(value), &value, allocator)
-
-inline void* f_mem_clone_size(uint size, const void* value, fAllocator* alc) {
-	void* result = f_mem_alloc(size, alc);
-	memcpy(result, value, size);
-	return result;
-}
+#define f_mem_resize_n(T, ptr, old_count, new_count, arena) (T*)f_realloc_undef(arena, ptr, (old_count) * sizeof(T), (new_count) * sizeof(T), F_ALIGN_OF(T))
+//#define f_mem_free_n(T, ptr, count, arena) (arena)->_proc((arena), (ptr), (count) * sizeof(T), 0)
 
 #ifdef F_DEF_DEBUG
 #define f_debug_fill_garbage(ptr, len) memset(ptr, 0xCC, len);
@@ -423,20 +408,6 @@ inline bool _f_for_map64_condition(void* _map, uint* i, u64* key, void* elem) {
 
 #define f_map64_insert(map, key, value, mode) f_map64_insert_raw((map), (key), &(value), (mode))
 
-inline fSliceRaw f_clone_slice_raw(fSliceRaw slice, fAllocator* alc, uint elem_size) {
-	fSliceRaw result = { f_mem_alloc(slice.len * elem_size, alc), slice.len };
-	memcpy(result.data, slice.data, slice.len * elem_size);
-	return result;
-}
-
-inline fSliceRaw f_make_slice_raw(uint len, const void* initial_elem_value, fAllocator* alc, uint elem_size) {
-	fSliceRaw result = (fSliceRaw){ f_mem_alloc(len * elem_size, alc), len };
-	for (uint i = 0; i < len; i++) {
-		memcpy((u8*)result.data + i * elem_size, initial_elem_value, elem_size);
-	}
-	return result;
-}
-
 #define f_make_slice_undef(T, len, alc) (fSliceRaw){f_mem_alloc_n(T, len, alc), len}
 #define f_make_slice(T, len, initial_elem_value, alc) f_make_slice_raw(len, &initial_elem_value, alc, sizeof(T))
 
@@ -501,9 +472,9 @@ typedef struct fLeakTracker {
 
 	fMap64(fLeakTracker_Entry) active_allocations; // key is the address of the allocation
 
-	/*fAllocator allocator; // Must be the first field for outwards-casting!
+	/*fArena arena; // Must be the first field for outwards-casting!
 
-	fAllocator* passthrough_allocator;
+	fArena* passthrough_allocator;
 	Arena internal_arena;
 
 	u64 next_allocation_idx;
@@ -543,7 +514,7 @@ typedef struct {
 	u32 elem_size;
 
 	u32 num_elems_per_bucket;
-	fAllocator* a;
+	fArena* a;
 	//bool is_using_arena;
 	//union {
 	//	struct {
@@ -589,8 +560,12 @@ typedef enum fMapInsert {
 	fMapInsert_Override,
 } fMapInsert;
 
-// todo: get rid of this?
-typedef struct fMapInsertResult { void* _unstable_ptr; bool added; } fMapInsertResult;
+// Temporary allocation scope
+typedef struct fTempScope {
+	fArena* arena;
+} fTempScope;
+
+typedef struct fMapInsertResult { void* _unstable_ptr; bool added; } fMapInsertResult; // todo: get rid of this?
 
 typedef struct fVisitDirectoryInfo {
 	fString name;
@@ -606,33 +581,68 @@ typedef fVisitDirectoryResult(*fVisitDirectoryVisitor)(const fVisitDirectoryInfo
 
 typedef struct fRangeUint { uint lo, hi; } fRangeUint;
 
-F_THREAD_LOCAL extern fArena* _f_temp_arena;
-F_THREAD_LOCAL extern fLeakTracker _f_leak_tracker;
+F_THREAD_LOCAL extern fArena* _f_temp_arena_;
+//F_THREAD_LOCAL extern fLeakTracker _f_leak_tracker;
 
 void f_init();
 void f_deinit();
 
-fArena* f_arena_make(u32 min_block_size, fAllocator* a);
+//fArena* f_arena_make(u32 min_block_size, fArena* a);
 fArena* f_arena_make_virtual_reserve_fixed(uint reserve_size, fOpt(void*) reserve_base);
 fArena* f_arena_make_buffer_fixed(void* base, uint size);
 fArena* f_arena_make_ex(fArenaDesc desc);
 void f_arena_free(fArena* arena);
 
-void* f_arena_push(fArena* arena, fString str, uint align);
-void* f_arena_push_undef(fArena* arena, uint size, uint align);
-void* f_arena_push_zero(fArena* arena, uint size, uint align);
+/*
+ Arenas can be used in two ways:
+ 1. As a way to give a lifetime to a group of allocations.
+ 2. To build a contiguous string.
+ But not all arenas have the requirement to be contiguous. The following operations work only on linear arenas.
+ hmm, maybe we should have a special thing like fLinearArena
+*/
+u8* f_linear_arena_get_base(fArena* arena);
+uint f_linear_arena_get_cursor(fArena* arena);
+void* f_linear_arena_push_undef(fArena* arena, uint size, uint align);
+void f_linear_arena_push_str(fArena* arena, fString str, uint align);
 
-u8* f_arena_get_contiguous_base(fArena* arena);
-uint f_arena_get_contiguous_cursor(fArena* arena);
+void* f_alloc_zero(fArena* arena, uint size, uint align);
+void* f_alloc_undef_ex(fArena* arena, uint size, uint align);
+inline void* f_alloc_undef(fArena* arena, uint size) { return f_alloc_undef_ex(arena, size, f_get_alignment(size)); }
+
+// NOTE: these are mainly for allocation groups, to forward the realloc/free to the backing allocation.
+// With ordinary arenas, f_realloc_undef does not free the original allocation.
+// 
+//void* f_hint_realloc_undef(fArena* arena, void* ptr, uint old_size, uint new_size, uint align);
+//inline void* f_hint_free(fArena* arena, void* ptr, uint old_size) {}
+
+inline void* f_mem_clone_size(uint size, const void* value, fArena* arena) {
+	void* ptr = f_alloc_undef(arena, size);
+	memcpy(ptr, value, size);
+	return ptr;
+}
+
+inline fSliceRaw f_clone_slice_raw(fSliceRaw slice, fArena* arena, uint elem_size) {
+	fSliceRaw result = { f_mem_alloc(slice.len * elem_size, arena), slice.len };
+	memcpy(result.data, slice.data, slice.len * elem_size);
+	return result;
+}
+
+inline fSliceRaw f_make_slice_raw(uint len, const void* initial_elem_value, fArena* arena, uint elem_size) {
+	fSliceRaw result = { f_mem_alloc(len * elem_size, arena), len };
+	for (uint i = 0; i < len; i++) {
+		memcpy((u8*)result.data + i * elem_size, initial_elem_value, elem_size);
+	}
+	return result;
+}
 
 inline fArenaMark f_arena_get_mark(fArena* arena) { return arena->pos; }
 void f_arena_set_mark(fArena* arena, fArenaMark mark);
 // TODO: void arena_shrink_memory(uint base_size) // the memory will not be reduced past base_size
 void f_arena_clear(fArena* arena);
 
-inline fAllocator* f_temp_alc() { return &_f_temp_arena->alc; }
-inline fArenaMark f_temp_get_mark() { return f_arena_get_mark(_f_temp_arena); }
-inline void f_temp_set_mark(fArenaMark mark) { f_arena_set_mark(_f_temp_arena, mark); }
+inline fTempScope f_temp_push() { fTempScope x = { _f_temp_arena_}; return x; }
+inline void f_temp_pop(fTempScope scope) {}
+// inline void f_temp_pop_force(fTempScope scope) {}  // when you're sure that nothing was leaked to the outside
 
 uint_pow2 f_round_up_power_of_2(uint v); // todo: move this into the macros section as an inline function?
 
@@ -644,9 +654,9 @@ uint_pow2 f_round_up_power_of_2(uint v); // todo: move this into the macros sect
 
 // I think we should provide serialization and deserialization functions for map.
 
-fMap64Raw f_map64_make_raw(u32 value_size, fAllocator* a);
-fMap64Raw f_make_map64_cap_raw(u32 value_size, u32 capacity_pow2, fAllocator* a);
-void f_map64_free_raw(fMap64Raw* map);
+fMap64Raw f_map64_make_raw(u32 value_size, fArena* arena);
+fMap64Raw f_make_map64_cap_raw(u32 value_size, u32 capacity_pow2, fArena* arena);
+//void f_map64_free_raw(fMap64Raw* map);
 void f_map64_resize_raw_(fMap64Raw* map, u32 slot_count_pow2);
 fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) value, fMapInsert mode);
 bool f_map64_remove_raw(fMap64Raw* map, u64 key);
@@ -656,11 +666,11 @@ fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key);
 
 void f_mem_copy(void* dst, const void* src, uint size); // TODO: make this an inline call?
 
-fArrayRaw f_array_make(fAllocator* a);
-fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_value, fAllocator* a);
-fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fAllocator* a);
-fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fAllocator* a);
-void f_array_free_raw(fArrayRaw* array, u32 elem_size);
+fArrayRaw f_array_make(fArena* arena);
+fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_value, fArena* arena);
+fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fArena* arena);
+fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fArena* arena);
+//void f_array_free_raw(fArrayRaw* array, u32 elem_size);
 size_t f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size);
 size_t f_array_push_n_raw(fArrayRaw* array, const void* elems, size_t n, u32 elem_size);
 void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size);
@@ -731,7 +741,7 @@ inline uint64_t f_hasher_end(fHasher* h) { return f_mix64(h->state); }
 #define f_str_each(str, r, i) (uint i=0, r = 0, i##_next=0; (r=f_str_next_rune(str, &i##_next)); i=i##_next)
 #define f_str_each_reverse(str, r, i) (uint i=str.len; rune r=f_str_prev_rune(str, &i);)
 
-#define f_str_make(len, allocator) F_STRUCT_INIT(fString){ f_mem_alloc(len, allocator), len }
+#define f_str_make(len, arena) F_STRUCT_INIT(fString){ f_mem_alloc(len, arena), len }
 
 // Formatting rules:
 // ~s                       - fString
@@ -751,13 +761,12 @@ void f_printc(fWriter* w, const char* str);
 void f_printb(fWriter* w, uint8_t b); // print ASCII-byte. hmm.. maybe we should just have writer
 // void f_printr(fWriter* writer, rune r); // write rune, TODO
 
-fString f_aprint(fAllocator* alc, const char* fmt, ...); // allocate-print
-fString f_tprint(const char* fmt, ...);                  // temporary-print
+fString f_aprint(fArena* arena, const char* fmt, ...); // allocate-print
 
 void f_cprint(const char* fmt, ...);         // console-print
 
 fString f_str_advance(fString* str, uint len);
-fString f_str_clone(fString str, fAllocator* allocator);
+fString f_str_clone(fString str, fArena* arena);
 
 void f_str_copy(fString dst, fString src);
 
@@ -770,9 +779,9 @@ bool f_str_last_index_of_any_char(fString str, fString chars, uint* out_index);
 bool f_str_contains(fString str, fString substr);
 bool f_str_find_substring(fString str, fString substr, uint* out_index);
 
-fString f_str_replace(fString str, fString search_for, fString replace_with, fAllocator* a);
-fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fString) replace_with, fAllocator* a);
-fString f_str_to_lower(fString str, fAllocator* a);
+fString f_str_replace(fString str, fString search_for, fString replace_with, fArena* arena);
+fString f_str_replace_multi(fString str, fSlice(fString) search_for, fSlice(fString) replace_with, fArena* arena);
+fString f_str_to_lower(fString str, fArena* arena);
 rune f_str_rune_to_lower(rune r);
 
 bool f_str_ends_with(fString str, fString end);
@@ -780,13 +789,12 @@ bool f_str_starts_with(fString str, fString start);
 bool f_str_cut_end(fString* str, fString end);
 bool f_str_cut_start(fString* str, fString start);
 
-void f_str_split_i(fString str, u8 character, fAllocator* a, fSlice(fRangeUint)* out);
+void f_str_split_i(fString str, u8 character, fArena* arena, fSlice(fRangeUint)* out);
 
-fString f_str_join_n(fAllocator* a, fSlice(fString) args);
+fString f_str_join_n(fSlice(fString) args, fArena* arena);
 
 #ifndef __cplusplus
-#define f_str_join(alc, ...) f_str_join_n(alc, f_slice_lit(fString, __VA_ARGS__))
-#define f_str_join_tmp(...) f_str_join_n(f_temp_alc(), f_slice_lit(fString, __VA_ARGS__))
+#define f_str_join(arena, ...) f_str_join_n(f_slice_lit(fString, __VA_ARGS__), arena)
 #endif
 
 bool f_str_equals(fString a, fString b);
@@ -807,24 +815,23 @@ bool f_str_to_s64(fString s, uint base, s64* out_value);
 bool f_str_to_f64(fString s, f64* out);
 
 void f_print_uint(fWriter* w, uint64_t value, size_t base);
-fString f_str_from_uint(uint64_t value, size_t base, fAllocator* alc);
+fString f_str_from_uint(uint64_t value, size_t base, fArena* arena);
 
 void f_print_int(fWriter* w, int64_t value, size_t base);
-fString f_str_from_int(int64_t value, size_t base, fAllocator* alc);
+fString f_str_from_int(int64_t value, size_t base, fArena* arena);
 
 void f_print_float(fWriter* w, double value);
-fString f_str_from_float(double value, fAllocator* alc);
+fString f_str_from_float(double value, fArena* arena);
 
 //void f_print_float_ex(fWriter* w, fString bytes);
-//fString f_str_from_float_ex(f64 value, int num_decimals, fAllocator* alc);
+//fString f_str_from_float_ex(f64 value, int num_decimals, fArena* alc);
 
-char* f_str_to_cstr(fString s, fAllocator* a);
-inline char* f_str_t_to_cstr(fString s) { return f_str_to_cstr(s, f_temp_alc()); }
+char* f_str_to_cstr(fString s, fArena* arena);
 fString f_str_from_cstr(const char* s);
 
 // Do we need this function...? It's very windows-specific.
-wchar_t* f_str_to_utf16(fString str, uint num_null_terminations, fAllocator* a, uint* out_len);
-fString f_str_from_utf16(wchar_t* str_utf16, fAllocator* a); // returns an empty string if fails
+wchar_t* f_str_to_utf16(fString str, uint num_null_terminations, fArena* arena, uint* out_len);
+fString f_str_from_utf16(wchar_t* str_utf16, fArena* arena); // returns an empty string if fails
 
 uint f_str_encode_rune(u8* output, rune r); // returns the number of bytes written
 
@@ -856,15 +863,12 @@ bool f_os_run_command(fSlice(fString) args, fString working_dir, u32* out_exit_c
 
 // Find the path of an executable given its name, or return an empty string if it's not found.
 // NOTE: `name` must include the file extension!
-fString f_os_find_executable(fString name, fAllocator* alc);
+fString f_os_find_executable(fString name, fArena* arena);
 
 bool f_os_set_working_dir(fString dir);
-fString f_os_get_working_dir(fAllocator* allocator);
-inline fString f_os_t_get_working_dir() { return f_os_get_working_dir(f_temp_alc()); }
+fString f_os_get_working_dir(fArena* arena);
 
-fString f_os_get_executable_path(fAllocator* allocator);
-
-//inline fString f_os_t_get_executable_path() { return f_os_get_executable_path(f_temp_alc()); }
+fString f_os_get_executable_path(fArena* arena);
 
 // these strings do not currently convert slashes - they will be windows specific `\`
 //fSlice(fString) os_file_picker_multi(); // allocated with temp_allocator
@@ -873,7 +877,7 @@ void f_os_error_popup(fString title, fString message);
 
 // -- Clipboard ----------------------------------------------------------------
 
-fString f_os_clipboard_get_text(fAllocator* allocator);
+fString f_os_clipboard_get_text(fArena* arena);
 void f_os_clipboard_set_text(fString str);
 
 // -- DynamicLibrary -----------------------------------------------------------
@@ -892,14 +896,14 @@ void* f_dynamic_library_sym_address(fDynamicLibrary dll, fString symbol);
 bool f_files_path_is_absolute(fString path);
 
 // If `working_dir` is an empty string, the current working directory will be used.
-bool f_files_path_to_canonical(fString working_dir, fString path, fAllocator* a, fString* out_canonical);
+bool f_files_path_to_canonical(fString working_dir, fString path, fArena* arena, fString* out_canonical);
 
 bool f_files_visit_directory(fString path, fVisitDirectoryVisitor visitor, void* visitor_userptr);
 bool f_files_directory_exists(fString path);
 bool f_files_delete_directory(fString path); // If the directory doesn't already exist, it's treated as a success.
 bool f_files_make_directory(fString path); // If the directory already exists, it's treated as a success.
 
-bool f_files_read_whole(fString filepath, fAllocator* allocator, fString* out_str);
+bool f_files_read_whole(fString filepath, fArena* arena, fString* out_str);
 bool f_files_write_whole(fString filepath, fString data);
 
 bool f_files_open(fString filepath, fFileOpenMode mode, fFile* out_file);
@@ -917,7 +921,7 @@ u64 f_files_get_modtime(fString filepath); // it'd be nice if this used apollo t
 bool f_files_clone(fString src_filepath, fString dst_filepath);
 bool f_files_delete(fString filepath);
 
-fString f_files_pick_file_dialog(fAllocator* allocator);
+fString f_files_pick_file_dialog(fArena* arena);
 
 // TODO: writer. Should be buffered by default
 //inline fBufferedWriter f_files_writer(fFile* file) {
@@ -959,8 +963,8 @@ inline fWriter* f_get_stdout() {
 	return (fWriter*)&w;
 }
 
-inline void f_init_string_builder(fStringBuilder* builder, fAllocator* alc) {
-	fArrayRaw buffer = f_array_make(alc);
+inline void f_init_string_builder(fStringBuilder* builder, fArena* arena) {
+	fArrayRaw buffer = f_array_make(arena);
 	memcpy(&builder->buffer, &buffer, sizeof(fArrayRaw)); // memcpy because of C++ semantics and templated fArray
 	builder->writer.proc = f_string_builder_writer_proc;
 	builder->writer.userdata = &builder->buffer;

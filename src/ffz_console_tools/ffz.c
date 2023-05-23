@@ -22,7 +22,7 @@ const bool DEBUG_PRINT_AST = false;
 //#include "gmmc/gmmc.h" // for gmmc_test
 
 typedef struct Build {
-	fAllocator* alc;
+	fArena* temp;
 	ffzProject* project;
 	fMap64(ffzModule*) module_from_directory;
 	fMap64(ffzModule*) module_from_import_op; // key: ffzNode*
@@ -35,6 +35,8 @@ bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString build_dir, 
 static fOpt(ffzError*) parse_and_check_directory(Build* build, fString directory, ffzModule** out_module);
 
 void log_pretty_error(ffzError error, fString kind) {
+	fTempScope temp = f_temp_push();
+	
 	// C-style error messages can be useful in Visual Studio output console, to be able to double click the code location
 	bool c_style = true;
 	if (!c_style) {
@@ -43,14 +45,14 @@ void log_pretty_error(ffzError error, fString kind) {
 	
 	fString line_num_str;
 	if (error.source) {
-		line_num_str = f_str_from_uint(error.location.start.line_num, 10, f_temp_alc());
+		line_num_str = f_str_from_uint(error.location.start.line_num, 10, temp.arena);
 
 		if (c_style) {
 			f_os_print_color(error.source->source_code_filepath, fConsoleAttribute_Green | fConsoleAttribute_Red | fConsoleAttribute_Intensify);
 			f_os_print(F_LIT("("));
 			f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
 			f_os_print(F_LIT(","));
-			f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
+			f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, temp.arena), fConsoleAttribute_Green | fConsoleAttribute_Red);
 			f_os_print(F_LIT("):\n "));
 			f_os_print_color(kind, fConsoleAttribute_Red | fConsoleAttribute_Intensify);
 			f_os_print(F_LIT(": "));
@@ -62,7 +64,7 @@ void log_pretty_error(ffzError error, fString kind) {
 			f_os_print(F_LIT(":"));
 			f_os_print_color(line_num_str, fConsoleAttribute_Green | fConsoleAttribute_Red);
 			f_os_print(F_LIT(":"));
-			f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, f_temp_alc()), fConsoleAttribute_Green | fConsoleAttribute_Red);
+			f_os_print_color(f_str_from_uint(error.location.start.column_num, 10, temp.arena), fConsoleAttribute_Green | fConsoleAttribute_Red);
 			f_os_print(F_LIT(")\n  "));
 		}
 	}
@@ -87,7 +89,7 @@ void log_pretty_error(ffzError error, fString kind) {
 		f_os_print_color(src_line_separator, fConsoleAttribute_Intensify);
 	
 		fString start_str = f_str_slice(error.source->source_code, line_start_offset, error.location.start.offset);
-		start_str = f_str_replace(start_str, F_LIT("\t"), F_LIT("    "), f_temp_alc());
+		start_str = f_str_replace(start_str, F_LIT("\t"), F_LIT("    "), temp.arena);
 		f_os_print_color(start_str, code_color);
 
 		{
@@ -120,6 +122,7 @@ void log_pretty_error(ffzError error, fString kind) {
 		}
 	}
 	f_os_print(F_LIT("\n"));
+	f_temp_pop(temp);
 }
 
 //inline void log_pretty_syntax_error(ffzError error) { log_pretty_error(error, F_LIT("Syntax error ")); }
@@ -136,7 +139,7 @@ static fVisitDirectoryResult file_visitor(const fVisitDirectoryInfo* info, void*
 		f_str_equals(f_str_path_extension(info->name), F_LIT("ffz")) &&
 		info->name.data[0] != '!')
 	{
-		fString filepath = f_str_join(visit->files.alc, visit->directory, F_LIT("\\"), info->name);
+		fString filepath = f_str_join(visit->files.arena, visit->directory, F_LIT("\\"), info->name);
 		f_array_push(&visit->files, filepath);
 	}
 
@@ -163,7 +166,7 @@ static fVisitDirectoryResult file_visitor(const fVisitDirectoryInfo* info, void*
 
 fOpt(ffzError*) add_module_from_filesystem(Build* build, fString absolute_directory, ffzModule** out_module) {
 
-	if (!f_files_path_to_canonical((fString){0}, absolute_directory, f_temp_alc(), &absolute_directory)) {
+	if (!f_files_path_to_canonical((fString){0}, absolute_directory, build->temp, &absolute_directory)) {
 		f_trap();
 	}
 
@@ -173,12 +176,12 @@ fOpt(ffzError*) add_module_from_filesystem(Build* build, fString absolute_direct
 		return NULL;
 	}
 
-	ffzModule* mod = ffz_new_module(build->project, build->project->bank.alc);
+	ffzModule* mod = ffz_new_module(build->project, build->project->bank.arena);
 	*(ffzModule**)module_exists._unstable_ptr = mod;
 	mod->directory = absolute_directory;
 
 	FileVisitData visit;
-	visit.files = f_array_make(f_temp_alc());
+	visit.files = f_array_make(build->temp);
 	visit.directory = absolute_directory;
 
 	if (!f_files_visit_directory(absolute_directory, file_visitor, &visit)) {
@@ -189,7 +192,7 @@ fOpt(ffzError*) add_module_from_filesystem(Build* build, fString absolute_direct
 	for (uint i = 0; i < visit.files.len; i++) {
 		fString file_data = f_array_get(fString, visit.files, i);
 		fString file_contents;
-		f_assert(f_files_read_whole(file_data, f_temp_alc(), &file_contents));
+		f_assert(f_files_read_whole(file_data, build->temp, &file_contents));
 
 		ffzParseResult parse_result;
 		TRY(ffz_parse_scope(mod, file_contents, file_data, &parse_result));
@@ -223,12 +226,12 @@ fOpt(ffzError*) add_module_from_filesystem(Build* build, fString absolute_direct
 			// `:` means that the path is relative to the modules directory shipped with the compiler
 			if (f_str_starts_with(import_path, F_LIT(":"))) {
 				fString slash = F_LIT("/");
-				import_path = f_str_join_tmp(build->modules_directory, slash, f_str_slice_after(import_path, 1));
+				import_path = f_str_join(build->temp, build->modules_directory, slash, f_str_slice_after(import_path, 1));
 			}
 				
 			// let's make the import path absolute
-			if (!f_files_path_to_canonical(mod->directory, import_path, f_temp_alc(), &import_path)) {
-				ERR(build->alc, import_decl, "Failed to import module; directory `~s` does not exist.", import_path);
+			if (!f_files_path_to_canonical(mod->directory, import_path, build->temp, &import_path)) {
+				ERR(build->temp, import_decl, "Failed to import module; directory `~s` does not exist.", import_path);
 			}
 
 			fOpt(ffzModule*) imported_module;
@@ -295,15 +298,7 @@ static fOpt(ffzError*) parse_and_check_directory(Build* build, fString absolute_
 int main(int argc, const char* argv[]) {
 	TracyCZone(tr, true);
 	f_init();
-
-	//aa
-	//fString cwd = f_os_get_working_dir(f_temp_alc());
-	//f_cprint("cwd: <~s>\n", cwd);
-	//f_cprint("\x43\x3A\x2F\x64\x65\x76\x2F\x66\x66\x7A\x31\x2F\x73\x72\x63\x2F\x66\x66\x7A\x5F\x63\x6F\x6E\x73\x6F\x6C\x65\x5F\x74\x6F\x6F\x6C\x73\x2F\x66\x66\x7A\x2E\x63\x28\x31\x37\x38\x2C\x32\x29\x3A\x20\x65\x72\x72\x6F\x72\x20\x43\x32\x30\x36\x35\x3A\x20\x27\x61\x61\x27\x3A\x20\x75\x6E\x64\x65\x63\x6C\x61\x72\x65\x64\x20\x69\x64\x65\x6E\x74\x69\x66\x69\x65\x72\x0A");
-	
-	//for (int i = 0; i < argc; i++) {
-	//	f_cprint("arg: `~s`\n", f_str_from_cstr(argv[i]));
-	//}
+	fTempScope temp = f_temp_push();
 
 	bool ok = true;
 	if (argc <= 1) {
@@ -311,14 +306,14 @@ int main(int argc, const char* argv[]) {
 		ok = false;
 	}
 	
-	fString exe_path = f_os_get_executable_path(f_temp_alc());
+	fString exe_path = f_os_get_executable_path(temp.arena);
 	fString ffz_dir = f_str_path_dir(f_str_path_dir(exe_path));
-	fString modules_dir = f_str_join_tmp(ffz_dir, F_LIT("/modules"));
+	fString modules_dir = f_str_join(temp.arena, ffz_dir, F_LIT("/modules"));
 
 	Build build = {
-		.alc = f_temp_alc(),
-		.module_from_directory = f_map64_make_raw(sizeof(ffzModule*), f_temp_alc()),
-		.module_from_import_op = f_map64_make_raw(sizeof(ffzModuleChecker*), f_temp_alc()),
+		.temp = temp.arena,
+		.module_from_directory = f_map64_make_raw(sizeof(ffzModule*), temp.arena),
+		.module_from_import_op = f_map64_make_raw(sizeof(ffzModuleChecker*), temp.arena),
 		.modules_directory = modules_dir,
 	};
 
@@ -330,8 +325,7 @@ int main(int argc, const char* argv[]) {
 
 		dir = f_str_from_cstr(argv[1]);
 
-		fArena* arena = _f_temp_arena;
-		build.project = ffz_init_project(arena/*, modules_dir*/);
+		build.project = ffz_init_project(temp.arena);
 
 		fOpt(ffzError*) err = parse_and_check_directory(&build, dir, &root_module);
 		if (err) {
@@ -342,7 +336,7 @@ int main(int argc, const char* argv[]) {
 
 	if (ok) {
 		fString project_name = f_str_path_tail(dir);
-		fString build_dir = f_str_join_tmp(dir, F_LIT("\\.build"));
+		fString build_dir = f_str_join(temp.arena, dir, F_LIT("\\.build"));
 		f_assert(f_files_make_directory(build_dir));
 	
 #if defined(FFZ_BUILD_INCLUDE_TB)
@@ -365,6 +359,7 @@ int main(int argc, const char* argv[]) {
 
 	//f_deinit();
 	
+	f_temp_pop(temp);
 	TracyCZoneEnd(tr);
 	return ok ? 0 : 1;
 }
