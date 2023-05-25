@@ -21,8 +21,8 @@
 inline bool has_non_poly_type(fOpt(ffzType*) type) { return type && !type_is_polymorphic(type); }
 inline bool has_poly_type(fOpt(ffzType*) type) { return type && type_is_polymorphic(type); }
 
-FFZ_CAPI ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fArena* alc) {
-	ffzError* err = f_mem_clone(ffzError{}, alc);
+FFZ_CAPI ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fArena* arena) {
+	ffzError* err = f_mem_clone(ffzError{}, arena);
 	err->node = node;
 	err->message = msg;
 	if (node) {
@@ -32,13 +32,13 @@ FFZ_CAPI ffzError* ffz_make_error_at_node(fOpt(ffzNode*) node, fString msg, fAre
 	return err;
 }
 
-FFZ_CAPI ffzError* ffz_make_error(fString msg, fArena* alc) {
-	ffzError* err = f_mem_clone(ffzError{}, alc);
+FFZ_CAPI ffzError* ffz_make_error(fString msg, fArena* arena) {
+	ffzError* err = f_mem_clone(ffzError{}, arena);
 	err->message = msg;
 	return err;
 }
 
-#define ERR(c, node, fmt, ...) return ffz_make_error_at_node(node, f_aprint((c)->alc, fmt, __VA_ARGS__), (c)->alc);
+#define ERR(c, node, fmt, ...) return ffz_make_error_at_node(node, f_aprint((c)->arena, fmt, __VA_ARGS__), (c)->arena);
 
 //#define CHILD(parent, child_access) _get_child_dbg(ffzNodeInst{ (parent)->child_access, (parent).polymorph }, (parent))
 //#define CHILD(parent, child_access) ffzNodeInst{ (parent)->child_access, (parent).polymorph }
@@ -579,9 +579,9 @@ FFZ_CAPI ffzNode* ffz_type_to_node(ffzModule* m, ffzType* type) {
 }
 #endif
 
-FFZ_CAPI fString ffz_type_to_string(ffzType* type, fArena* alc) {
+FFZ_CAPI fString ffz_type_to_string(ffzType* type, fArena* arena) {
 	// TODO: remove `print_type` and instead use  type_to_node() and AST printing. For that, we need to be able to make dummy modules easily.
-	fStringBuilder builder; f_init_string_builder(&builder, alc);
+	fStringBuilder builder; f_init_string_builder(&builder, arena);
 	print_type(builder.w, type);
 	return builder.str;
 }
@@ -702,7 +702,7 @@ static bool ffz_constants_match(ffzDatum* a, ffzDatum* b) {
 
 static fOpt(ffzError*) check_types_match(ffzModuleChecker* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
 	if (!types_match(received, expected)) {
-		ERR(c, node, "~c\n    received: ~s\n    expected: ~s", message, ffz_type_to_string(received, c->alc), ffz_type_to_string(expected, c->alc));
+		ERR(c, node, "~c\n    received: ~s\n    expected: ~s", message, ffz_type_to_string(received, c->arena), ffz_type_to_string(expected, c->arena));
 	}
 	return NULL;
 }
@@ -717,8 +717,8 @@ FFZ_CAPI bool ffz_find_field_by_name(fSlice(ffzField) fields, fString name, u32*
 	return false;
 }
 
-FFZ_CAPI void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(ffzNode*)* out_arguments, fArena* alc) {
-	*out_arguments = f_make_slice<ffzNode*>(fields.len, {}, alc);
+FFZ_CAPI void ffz_get_arguments_flat(ffzNode* arg_list, fSlice(ffzField) fields, fSlice(ffzNode*)* out_arguments, fArena* arena) {
+	*out_arguments = f_make_slice<ffzNode*>(fields.len, {}, arena);
 
 	u32 i = 0;
 	for FFZ_EACH_CHILD(arg, arg_list) {
@@ -740,9 +740,9 @@ static fOpt(ffzError*) check_argument_list(ffzModuleChecker* c, ffzNode* node, f
 {
 	bool all_fields_are_constant = true;
 	fSlice(ffzDatum*) field_constants;
-	if (record_literal) field_constants = f_make_slice_undef<ffzDatum*>(fields.len, c->alc);
+	if (record_literal) field_constants = f_make_slice_undef<ffzDatum*>(fields.len, c->arena);
 
-	fSlice(bool) field_is_given_a_value = f_make_slice<bool>(fields.len, false, c->alc);
+	fSlice(bool) field_is_given_a_value = f_make_slice<bool>(fields.len, false, c->arena);
 
 	bool has_used_named_argument = false;
 	u32 i = 0;
@@ -833,7 +833,7 @@ static fOpt(ffzError*) check_two_sided(ffzModuleChecker* c, ffzNode* left, ffzNo
 		}
 		else {
 			ERR(c, left->parent, "Types do not match.\n    left:    ~s\n    right:   ~s",
-				ffz_type_to_string(left_chk.type, c->alc), ffz_type_to_string(right_chk.type, c->alc));
+				ffz_type_to_string(left_chk.type, c->arena), ffz_type_to_string(right_chk.type, c->arena));
 		}
 	}
 	*out_type = result;
@@ -1201,7 +1201,7 @@ static fOpt(ffzError*) instantiate_poly_def(ffzModuleChecker* c, ffzNode* poly_d
 	poly.parameters = args;
 	auto entry = f_map64_insert(&c->poly_from_hash, ffz_hash_polymorph(poly), (ffzPolymorph*)0, fMapInsert_DoNotOverride);
 	if (entry.added) {
-		*entry._unstable_ptr = f_mem_clone(poly, c->alc);
+		*entry._unstable_ptr = f_mem_clone(poly, c->arena);
 	}
 
 	ffzPolymorph* poly_ptr = *entry._unstable_ptr;
@@ -1210,7 +1210,7 @@ static fOpt(ffzError*) instantiate_poly_def(ffzModuleChecker* c, ffzNode* poly_d
 		// we want to deep copy the poly expr and check it. When checking it, we want to magically store the poly-parameter constants into
 		// the check infos.
 
-		fMap64(ffzValue) ident_to_constant = f_map64_make<ffzValue>(c->alc);
+		fMap64(ffzValue) ident_to_constant = f_map64_make<ffzValue>(c->arena);
 
 		u32 i = 0;
 		for FFZ_EACH_CHILD(poly_param, poly.poly_def) {
@@ -1324,13 +1324,13 @@ static fOpt(ffzError*) check_call(ffzModuleChecker* c, ffzNode* node, ffzNode* l
 		// 3. If there's a poly param missing, then check the argument list again without the flag and infer again.
 		// Note that after all of this, we're still checking the arguments once more, so if there were any uncertain types, those will be decided then.
 
-		fMap64(ffzValue) poly_param_to_constant = f_map64_make<ffzValue>(c->alc);
+		fMap64(ffzValue) poly_param_to_constant = f_map64_make<ffzValue>(c->arena);
 
 		for (int i=0;; i++) {
 			ffzNode* poly_def = left_info.const_val->node;
 			ffzCheckInfo poly_expr_info = ffz_checked_get_info(poly_def->PolyDef.expr);
 			if (poly_expr_info.type->tag != ffzTypeTag_Proc) {
-				ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->alc));
+				ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->arena));
 			}
 
 			fSlice(ffzField) param_fields = poly_expr_info.type->Proc.in_params;
@@ -1353,7 +1353,7 @@ static fOpt(ffzError*) check_call(ffzModuleChecker* c, ffzNode* node, ffzNode* l
 
 			// Now we know the parameter types and we can instantiate the polymorph!
 
-			fArray(ffzValue) args = f_array_make<ffzValue>(c->alc);
+			fArray(ffzValue) args = f_array_make<ffzValue>(c->arena);
 			bool inferred_all = true;
 			
 			for FFZ_EACH_CHILD(param, poly_def) {
@@ -1388,7 +1388,7 @@ static fOpt(ffzError*) check_call(ffzModuleChecker* c, ffzNode* node, ffzNode* l
 	}
 	else {
 		if (proc_type->tag != ffzTypeTag_Proc) {
-			ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->alc));
+			ERR(c, left, "Attempted to call a non-procedure (~s)", ffz_type_to_string(proc_type, c->arena));
 		}
 
 		result->type = proc_type->Proc.return_type;
@@ -1571,7 +1571,7 @@ static fOpt(ffzError*) check_curly_initializer(ffzModuleChecker* c, ffzType* typ
 		TRY(check_argument_list(c, node, type->record_fields, result, false, 0));
 	}
 	else {
-		ERR(c, node, "{}-initializer is not allowed for `~s`.", ffz_type_to_string(type, c->alc));
+		ERR(c, node, "{}-initializer is not allowed for `~s`.", ffz_type_to_string(type, c->arena));
 	}
 
 	return NULL;
@@ -1647,7 +1647,7 @@ static fOpt(ffzError*) check_post_square_brackets(ffzModuleChecker* c, ffzNode* 
 	TRY(check_node(c, left, NULL, 0, &left_chk));
 
 	if (left_chk.type->tag == ffzTypeTag_PolyDef) {
-		fArray(ffzValue) args = f_array_make<ffzValue>(c->alc);
+		fArray(ffzValue) args = f_array_make<ffzValue>(c->arena);
 
 		for FFZ_EACH_CHILD(arg, node) {
 			ffzCheckInfo arg_chk;
@@ -1675,7 +1675,7 @@ static fOpt(ffzError*) check_post_square_brackets(ffzModuleChecker* c, ffzNode* 
 		}
 		
 		if (subscriptable_type == NULL) {
-			ERR(c, left, "Expected an array, a slice, or a polymorphic expression before [].\n    received: ~s", ffz_type_to_string(left_type, c->alc));
+			ERR(c, left, "Expected an array, a slice, or a polymorphic expression before [].\n    received: ~s", ffz_type_to_string(left_type, c->arena));
 		}
 
 		ffzType* elem_type = subscriptable_type->tag == ffzTypeTag_Slice ? subscriptable_type->Slice.elem_type : subscriptable_type->FixedArray.elem_type;
@@ -1688,7 +1688,7 @@ static fOpt(ffzError*) check_post_square_brackets(ffzModuleChecker* c, ffzNode* 
 			TRY(check_node(c, index, NULL, 0, &index_info));
 
 			if (has_non_poly_type(index_info.type) && !ffz_type_is_integer(index_info.type->tag)) {
-				ERR(c, index, "Incorrect type with a slice index; should be an integer.\n    received: ~s", ffz_type_to_string(index_info.type, c->alc));
+				ERR(c, index, "Incorrect type with a slice index; should be an integer.\n    received: ~s", ffz_type_to_string(index_info.type, c->arena));
 			}
 
 			result->type = elem_type;
@@ -1795,7 +1795,7 @@ static fOpt(ffzError*) check_member_access(ffzModuleChecker* c, ffzNode* node, f
 				result->constant = ffz_make_val(c->project, val, enum_type->size, enum_type);
 			}
 			else {
-				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_type_to_string(enum_type, c->alc));
+				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_type_to_string(enum_type, c->arena));
 			}
 		}
 		else {
@@ -1818,7 +1818,7 @@ static fOpt(ffzError*) check_member_access(ffzModuleChecker* c, ffzNode* node, f
 				}
 			}
 			else {
-				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_type_to_string(dereferenced_type, c->alc));
+				ERR(c, right, "Declaration not found for '~s' inside '~s'", member_name, ffz_type_to_string(dereferenced_type, c->arena));
 			}
 		}
 	}
@@ -1834,7 +1834,7 @@ static fOpt(ffzError*) check_tag(ffzModuleChecker* c, ffzNode* tag) {
 	}
 
 	auto tags = f_map64_insert(&c->all_tags_of_type, PTR2HASH(info.type), {}, fMapInsert_DoNotOverride);
-	if (tags.added) *tags._unstable_ptr = f_array_make<ffzNode*>(c->alc);
+	if (tags.added) *tags._unstable_ptr = f_array_make<ffzNode*>(c->arena);
 	f_array_push(tags._unstable_ptr, tag);
 	return NULL;
 }
@@ -1844,33 +1844,33 @@ static ffzType* ffz_make_extra_type(ffzProject* p) {
 	return f_mem_clone(ffzType{ ffzTypeTag_Record }, p->bank.arena);
 }
 
-FFZ_CAPI ffzModuleChecker* make_checker_ctx(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fArena* alc) {
-	ffzModuleChecker* c = f_mem_clone(ffzModuleChecker{}, alc);
+FFZ_CAPI ffzModuleChecker* make_checker_ctx(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fArena* arena) {
+	ffzModuleChecker* c = f_mem_clone(ffzModuleChecker{}, arena);
 	c->mod = mod;
 	c->project = mod->project;
 	c->id = mod->next_checker_ctx_id++;
 	c->module_from_import = module_from_import;
-	c->alc = alc;
-	c->infos = f_map64_make<ffzCheckInfo>(alc);
-	c->definition_map = f_map64_make<ffzNodeIdentifier*>(alc);
-	c->enum_value_from_name = f_map64_make<s64>(alc);
-	c->enum_value_is_taken = f_map64_make<ffzNode*>(alc);
-	c->imported_modules = f_array_make<ffzModule*>(alc);
-	//c.pending_import_keywords = f_array_make<ffzNode*>(c.alc);
-	c->all_tags_of_type = f_map64_make<fArray(ffzNode*)>(alc);
-	c->poly_from_hash = f_map64_make<ffzPolymorph*>(alc);
-	//c.polymorphs = f_array_make<ffzPolymorph>(c.alc); f_array_push(&c.polymorphs, {}); // FFZ_POLYMORPH_ID_NONE
-	//c->_extern_libraries = f_array_make<ffzNode*>(alc);
-	//c.import_decl_from_module = f_map64_make<ffzNode*>(c.alc);
-	//c.module_from_import_decl = f_map64_make<ffzModule*>(c.alc);
+	c->arena = arena;
+	c->infos = f_map64_make<ffzCheckInfo>(arena);
+	c->definition_map = f_map64_make<ffzNodeIdentifier*>(arena);
+	c->enum_value_from_name = f_map64_make<s64>(arena);
+	c->enum_value_is_taken = f_map64_make<ffzNode*>(arena);
+	c->imported_modules = f_array_make<ffzModule*>(arena);
+	//c.pending_import_keywords = f_array_make<ffzNode*>(c.arena);
+	c->all_tags_of_type = f_map64_make<fArray(ffzNode*)>(arena);
+	c->poly_from_hash = f_map64_make<ffzPolymorph*>(arena);
+	//c.polymorphs = f_array_make<ffzPolymorph>(c.arena); f_array_push(&c.polymorphs, {}); // FFZ_POLYMORPH_ID_NONE
+	//c->_extern_libraries = f_array_make<ffzNode*>(arena);
+	//c.import_decl_from_module = f_map64_make<ffzNode*>(c.arena);
+	//c.module_from_import_decl = f_map64_make<ffzModule*>(c.arena);
 	return c;
 }
 
-FFZ_CAPI ffzModule* ffz_new_module(ffzProject* p, fArena* alc) {
-	ffzModule* c = f_mem_clone(ffzModule{}, alc);
+FFZ_CAPI ffzModule* ffz_new_module(ffzProject* p, fArena* arena) {
+	ffzModule* c = f_mem_clone(ffzModule{}, arena);
 	c->self_id = p->next_module_id++;
 	c->project = p;
-	c->alc = alc;
+	c->arena = arena;
 	c->root = ffz_new_node(c, ffzNodeKind_Scope);
 	return c;
 }
@@ -1917,7 +1917,7 @@ static fOpt(ffzError*) post_check_enum(ffzModuleChecker* c, ffzNode* node) {
 
 	TRY(add_possible_definitions_to_scope(c, node, node));
 
-	fArray(ffzTypeEnumField) fields = f_array_make<ffzTypeEnumField>(c->alc);
+	fArray(ffzTypeEnumField) fields = f_array_make<ffzTypeEnumField>(c->arena);
 	
 	for FFZ_EACH_CHILD(n, node) {
 		if (n->kind != ffzNodeKind_Declare) ERR(c, n, "Expected a declaration; got: [~s]", ffz_node_kind_to_string(n->kind));
@@ -1952,7 +1952,7 @@ static fOpt(ffzError*) check_proc_type(ffzModuleChecker* c, ffzNode* node, ffzCh
 	ffzNode* parameter_scope = node->parent->kind == ffzNodeKind_PostCurlyBrackets ? node->parent : node;
 	TRY(add_possible_definitions_to_scope(c, parameter_scope, node));
 
-	fArray(ffzField) in_parameters = f_array_make<ffzField>(c->alc);
+	fArray(ffzField) in_parameters = f_array_make<ffzField>(c->arena);
 	for FFZ_EACH_CHILD(param, node) {
 		if (param->kind != ffzNodeKind_Declare) ERR(c, param, "Expected a declaration.");
 		
@@ -2237,7 +2237,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 			result.const_val = NULL; // runtime variables shouldn't store the constant value that the rhs expression might have
 
 			if (!c->is_inside_polymorphic_node && !ffz_type_is_runtime_representable(result.type)) {
-				ERR(c, node, "Variable has a non-concrete type: `~s`.", ffz_type_to_string(result.type, c->alc));
+				ERR(c, node, "Variable has a non-concrete type: `~s`.", ffz_type_to_string(result.type, c->arena));
 			}
 		}
 
@@ -2398,7 +2398,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		
 		if (has_non_poly_type(rhs_info.type)) {
 			if (!ffz_type_is_integer(rhs_info.type->tag) && !ffz_type_is_float(rhs_info.type->tag)) {
-				ERR(c, rhs, "Incorrect arithmetic type; should be an integer or a float.\n    received: ~s", ffz_type_to_string(rhs_info.type, c->alc));
+				ERR(c, rhs, "Incorrect arithmetic type; should be an integer or a float.\n    received: ~s", ffz_type_to_string(rhs_info.type, c->arena));
 			}
 		}
 		result.type = rhs_info.type;
@@ -2475,7 +2475,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 			if (ffz_type_is_comparable(type) || (is_equality_check && ffz_type_is_comparable_for_equality(type))) {}
 			else {
 				ERR(c, node, "Operator '~s' is not defined for type '~s'",
-					ffz_node_kind_to_op_string(node->kind), ffz_type_to_string(type, c->alc));
+					ffz_node_kind_to_op_string(node->kind), ffz_type_to_string(type, c->arena));
 			}
 		}
 		result.type = ffz_type_bool(c->project);
@@ -2488,12 +2488,12 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		
 		if (node->kind == ffzNodeKind_Modulo) {
 			if (has_non_poly_type(type) && !ffz_type_is_integer(type->tag)) {
-				ERR(c, node, "Incorrect type with modulo operator; expected an integer.\n    received: ~s", ffz_type_to_string(type, c->alc));
+				ERR(c, node, "Incorrect type with modulo operator; expected an integer.\n    received: ~s", ffz_type_to_string(type, c->arena));
 			}
 		}
 		else {
 			if (has_non_poly_type(type) && !ffz_type_is_integer(type->tag) && !ffz_type_is_float(type->tag)) {
-				ERR(c, node, "Incorrect arithmetic type; expected an integer or a float.\n    received: ~s", ffz_type_to_string(type, c->alc));
+				ERR(c, node, "Incorrect arithmetic type; expected an integer or a float.\n    received: ~s", ffz_type_to_string(type, c->arena));
 			}
 		}
 		
@@ -2543,9 +2543,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 					bool ok = masked == src && (src_is_negative == masked_is_negative) && (ffz_type_is_signed_integer(require_type->tag) || !src_is_negative);
 					if (!ok) {
 						if (ffz_type_is_signed_integer(result.type->tag)) {
-							ERR(c, node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(require_type, c->alc));
+							ERR(c, node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(require_type, c->arena));
 						} else {
-							ERR(c, node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(require_type, c->alc));
+							ERR(c, node, "Constant type-cast failed; value '~u64' can't be represented in type '~s'.", src, ffz_type_to_string(require_type, c->arena));
 						}
 					}
 					// NOTE: we don't need to make a new constant value, as the encoding for it would be exactly the same.
@@ -2738,7 +2738,7 @@ ffzType* ffz_type_build_option(ffzProject* p) { return p->builtin_types[ffzKeywo
 
 FFZ_CAPI ffzProject* ffz_init_project(fArena* arena) {
 	ffzProject* p = f_mem_clone(ffzProject{}, arena);
-	//p->persistent_allocator = &arena->alc;
+	//p->persistent_allocator = &arena->arena;
 	//p->modules_directory = modules_directory;
 
 	//if (modules_directory.len > 0) {
@@ -2840,11 +2840,11 @@ FFZ_CAPI void ffz_module_add_top_level_node_(ffzModule* m, ffzNode* node) {
 	//return NULL;
 }
 
-FFZ_CAPI fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fArena* alc) {
+FFZ_CAPI fOpt(ffzError*) ffz_check_module(ffzModule* mod, fOpt(ffzModule*)(*module_from_import)(ffzModule*, ffzNode*), fArena* arena) {
 	ZoneScoped;
 
 	VALIDATE(mod->checker == NULL);
-	ffzModuleChecker* c = make_checker_ctx(mod, module_from_import, alc);
+	ffzModuleChecker* c = make_checker_ctx(mod, module_from_import, arena);
 	mod->checker = c;
 	
 	ffzNode* root = mod->root;

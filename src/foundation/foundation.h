@@ -26,7 +26,9 @@ typedef struct fSliceRaw {
 	size_t len;
 } fSliceRaw;
 
+
 // TODO: we should make fArena into an interface that can be overridden with static defines
+
 typedef struct fArena fArena;
 
 typedef struct fArrayRaw {
@@ -280,7 +282,7 @@ typedef struct fArenaDesc {
 	} UsingBufferFixed;
 	//struct {
 	//	u32 min_block_size;
-	//	fArena* a;
+	//	fArena a;
 	//} UsingAllocatorGrowing;
 } fArenaDesc;
 
@@ -294,6 +296,18 @@ typedef struct fArenaMark {
 	u8* head;
 	fArenaBlock* current_block; // used only with ArenaMode_UsingAllocatorGrowing
 } fArenaMark;
+
+// hmm. I believe I could personally make a large program without ever manually freeing an array;
+// it's tempting to say "manual free is not even allowed!"
+// I think all my problems can be solved with either heap scopes or heap arenas.
+
+// but we do need allocation-groups, where individual allocations are fully freed and reused with doubly-linked list.
+// And at the leaves, allocator-backed bucket arenas.
+// We need a name for both of these:
+// 1. control allocation group / heap scope / heap control group.
+// 2. leaf allocation group    / heap arena
+// The difference is that with a heap arena, it's not possible to free/realloc children, but with heap scope it is
+// heap scope is heap -> child heap, while heap arena is heap -> child arena
 
 typedef struct fArena {
 	fArenaDesc desc;
@@ -472,9 +486,9 @@ typedef struct fLeakTracker {
 
 	fMap64(fLeakTracker_Entry) active_allocations; // key is the address of the allocation
 
-	/*fArena arena; // Must be the first field for outwards-casting!
+	/*fArena* arena; // Must be the first field for outwards-casting!
 
-	fArena* passthrough_allocator;
+	fArena passthrough_allocator;
 	Arena internal_arena;
 
 	u64 next_allocation_idx;
@@ -514,7 +528,7 @@ typedef struct {
 	u32 elem_size;
 
 	u32 num_elems_per_bucket;
-	fArena* a;
+	fArena a;
 	//bool is_using_arena;
 	//union {
 	//	struct {
@@ -587,7 +601,11 @@ F_THREAD_LOCAL extern fArena* _f_temp_arena_;
 void f_init();
 void f_deinit();
 
-//fArena* f_arena_make(u32 min_block_size, fArena* a);
+//fArena f_arena_make(u32 min_block_size, fArena a);
+
+// fArena* f_arena_make_heap_group(fArena* parent)
+// fArena* f_arena_make_heap_backed(fArena* parent)
+// void f_heap_scope_free(fHeap* heap, fArena* arena)
 fArena* f_arena_make_virtual_reserve_fixed(uint reserve_size, fOpt(void*) reserve_base);
 fArena* f_arena_make_buffer_fixed(void* base, uint size);
 fArena* f_arena_make_ex(fArenaDesc desc);
@@ -662,20 +680,18 @@ fMapInsertResult f_map64_insert_raw(fMap64Raw* map, u64 key, fOpt(const void*) v
 bool f_map64_remove_raw(fMap64Raw* map, u64 key);
 fOpt(void*) f_map64_get_raw(fMap64Raw* map, u64 key);
 
-
-
 void f_mem_copy(void* dst, const void* src, uint size); // TODO: make this an inline call?
 
 fArrayRaw f_array_make(fArena* arena);
 fArrayRaw f_array_make_len_raw(u32 elem_size, uint len, const void* initial_value, fArena* arena);
 fArrayRaw f_array_make_len_garbage_raw(u32 elem_size, uint len, fArena* arena);
 fArrayRaw f_array_make_cap_raw(u32 elem_size, uint capacity, fArena* arena);
-//void f_array_free_raw(fArrayRaw* array, u32 elem_size);
 size_t f_array_push_raw(fArrayRaw* array, const void* elem, u32 elem_size);
 size_t f_array_push_n_raw(fArrayRaw* array, const void* elems, size_t n, u32 elem_size);
 void f_array_pop_raw(fArrayRaw* array, fOpt(void*) out_elem, u32 elem_size);
 void f_array_reserve_raw(fArrayRaw* array, uint capacity, u32 elem_size);
 void f_array_resize_raw(fArrayRaw* array, uint len, fOpt(const void*) value, u32 elem_size); // set value to NULL to not initialize the memory
+//void f_array_free_raw(fArrayRaw* array, u32 elem_size);
 //SliceRaw array_get_slice_raw(ArrayRaw* array);
 
 //SlotArenaRaw* make_slot_arena_contiguous_raw(u32 elem_size, ArenaDesc arena_desc);
@@ -761,7 +777,7 @@ void f_printc(fWriter* w, const char* str);
 void f_printb(fWriter* w, uint8_t b); // print ASCII-byte. hmm.. maybe we should just have writer
 // void f_printr(fWriter* writer, rune r); // write rune, TODO
 
-fString f_aprint(fArena* arena, const char* fmt, ...); // allocate-print
+fString f_aprint(fArena* arena, const char* fmt, ...); // arena-print
 
 void f_cprint(const char* fmt, ...);         // console-print
 
@@ -824,7 +840,7 @@ void f_print_float(fWriter* w, double value);
 fString f_str_from_float(double value, fArena* arena);
 
 //void f_print_float_ex(fWriter* w, fString bytes);
-//fString f_str_from_float_ex(f64 value, int num_decimals, fArena* alc);
+//fString f_str_from_float_ex(f64 value, int num_decimals, fArena alc);
 
 char* f_str_to_cstr(fString s, fArena* arena);
 fString f_str_from_cstr(const char* s);

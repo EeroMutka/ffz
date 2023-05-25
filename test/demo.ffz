@@ -47,6 +47,12 @@ g: Globals(~~)
 #entry: proc {
 	temp: Basic.temp_push()
 	
+	// node_scope: new_heap_arena(parent_heap_scope)
+	// 
+	// do stuff
+	// 
+	// free_heap_arena(node_scope)
+	
 	foo: MyArray{20, {5, 6, 67}, 200}
 	
 	foo[1] = 423

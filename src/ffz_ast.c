@@ -13,7 +13,7 @@
 // Parser is responsible for parsing a single file / string of source code
 typedef struct ffzParser {
 	ffzSource* source;
-	fArena* alc;
+	fArena* arena;
 
 	fArray(ffzNode*) import_keywords;
 
@@ -34,7 +34,7 @@ typedef struct ffzOperatorPrecedence {
 
 ffzProject* project_from_parser(ffzParser* p) { return p->source->_module->project; }
 
-#define ERR(p, at, fmt, ...) return f_mem_clone(((ffzError){.source = p->source, .location = at, .message = f_aprint(p->alc, fmt, __VA_ARGS__)}), p->alc);
+#define ERR(p, at, fmt, ...) return f_mem_clone(((ffzError){.source = p->source, .location = at, .message = f_aprint(p->arena, fmt, __VA_ARGS__)}), p->arena);
 
 #define SLICE_BEFORE(T, slice, mid) (fSliceRaw){(T*)slice.data, (mid)}
 #define SLICE_AFTER(T, slice, mid) (fSliceRaw){(T*)slice.data + (mid), (slice.len) - (mid)}
@@ -486,14 +486,14 @@ void ffz_print_ast(fWriter* w, ffzNode* node) {
 	print_ast(w, node, 0);
 }
 
-fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fArena* alc) {
+fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source, fArena* arena) {
 	if (node->loc_source && try_to_use_source) {
 		fString source_code = node->loc_source->source_code;
 		return f_str_slice(source_code, node->loc.start.offset, node->loc.end.offset);
 	}
 	else {
 		fStringBuilder b;
-		f_init_string_builder(&b, alc);
+		f_init_string_builder(&b, arena);
 		ffz_print_ast(b.w, node);
 		return b.str;
 	}
@@ -674,7 +674,7 @@ void ffz_replace_node(ffzCursor at, ffzNode* with) {
 //#endif
 
 ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange loc, ffzNodeKind kind) {
-	ffzNode* node = f_mem_clone(_ffz_node_default, p->alc);
+	ffzNode* node = f_mem_clone(_ffz_node_default, p->arena);
 	node->_module = p->source->_module;
 	node->kind = kind;
 	node->loc_source = p->source;
@@ -685,7 +685,7 @@ ffzNode* new_node(ffzParser* p, ffzNode* parent, ffzLocRange loc, ffzNodeKind ki
 }
 
 ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
-	ffzNode* node = f_mem_clone(_ffz_node_default, m->alc);
+	ffzNode* node = f_mem_clone(_ffz_node_default, m->arena);
 	node->_module = m;
 	node->kind = kind;
 	return node;
@@ -694,7 +694,7 @@ ffzNode* ffz_new_node(ffzModule* m, ffzNodeKind kind) {
 // This is a weird procedure, because you need to be careful with the children as we're not doing a deep copy.
 // Idk if we should have it here
 ffzNode* ffz_clone_node(ffzModule* m, ffzNode* node) {
-	ffzNode* new_node = f_mem_clone(*node, m->alc);
+	ffzNode* new_node = f_mem_clone(*node, m->arena);
 	new_node->_module = m;
 	new_node->parent = NULL;
 	new_node->next = NULL;
@@ -861,7 +861,7 @@ static fOpt(ffzError*) parse_possible_tags(ffzParser* p, ffzLoc* loc, fOpt(ffzNo
 
 static fOpt(ffzError*) parse_string_literal(ffzParser* p, ffzLoc* loc, fString* out) {
 	fStringBuilder builder;
-	f_init_string_builder(&builder, p->alc);
+	f_init_string_builder(&builder, p->arena);
 
 	ffzLoc start_pos = *loc;
 	for (;;) {
@@ -959,7 +959,7 @@ static fOpt(ffzError*) parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, 
 
 static fOpt(ffzError*) parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out) {
 	TracyCZone(tr, true);
-	fArray(ffzNodeOp*) operator_chain = f_array_make(p->alc);
+	fArray(ffzNodeOp*) operator_chain = f_array_make(p->arena);
 	
 	// We want to first parse the tags for the entire node.
 	// i.e. in `@using a: int`, the tag should be attached to the entire node, not to the left-hand-side.
@@ -1322,7 +1322,7 @@ static fOpt(ffzError*) parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, Pa
 }
 
 ffzSource* ffz_new_source(ffzModule* m, fString code, fString filepath) {
-	ffzSource* source = f_mem_clone((ffzSource){0}, m->alc);
+	ffzSource* source = f_mem_clone((ffzSource){0}, m->arena);
 	//source->self_id = (ffzSourceID)f_array_push(&m->project->sources, source);
 	source->_module = m;
 	source->source_code = code;
@@ -1335,8 +1335,8 @@ fOpt(ffzError*) ffz_parse_node(ffzModule* m, fString file_contents, fString file
 	//TracyCZoneEnd(tr);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
-	parser.alc = m->alc;
-	parser.import_keywords = f_array_make(parser.alc);
+	parser.arena = m->arena;
+	parser.import_keywords = f_array_make(parser.arena);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
 	
@@ -1356,8 +1356,8 @@ fOpt(ffzError*) ffz_parse_scope(ffzModule* m, fString file_contents, fString fil
 	//TracyCZoneEnd(tr);
 	ffzParser parser = {0};
 	parser.source = ffz_new_source(m, file_contents, file_path);
-	parser.alc = m->alc;
-	parser.import_keywords = f_array_make(parser.alc);
+	parser.arena = m->arena;
+	parser.import_keywords = f_array_make(parser.arena);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
 	ffzNode* root = new_node(&parser, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);

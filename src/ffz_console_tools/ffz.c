@@ -287,7 +287,7 @@ static fOpt(ffzError*) parse_and_check_directory(Build* build, fString absolute_
 
 	if (mod->checker == NULL) {
 		mod->userdata = build;
-		TRY(ffz_check_module(mod, module_from_import, mod->alc));
+		TRY(ffz_check_module(mod, module_from_import, mod->arena));
 	}
 
 	//TracyCZoneEnd(tr);
