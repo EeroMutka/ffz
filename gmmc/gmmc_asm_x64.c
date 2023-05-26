@@ -3,10 +3,10 @@
 #define gmmcString fString
 #include "gmmc.h"
 
-// We could see if XED would be faster than zydis
+// We could see if intel XED would be faster than zydis
 #include "Zydis/Zydis.h"
 
-//#include <stdio.h> // for fopen
+#define DEBUG_PRINT_GENERATED_INSTRUCTIONS true
 
 #define VALIDATE(x) f_assert(x)
 
@@ -1359,17 +1359,15 @@ static void default_rsel(ProcGen* p, ProcGenSelectRegs* rsel, gmmcProc* proc) {
 	}
 }
 
-const bool DEBUG_PRINT_GENERATED_INSTRUCTIONS = false;
-
 GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmcProc* proc) {
-	fWriter* w = f_get_stdout();
+	fOpt(fWriter*) w = NULL;
 	bool buffered = true;
 
 	u8 console_buf[4096];
 	fBufferedWriter console_writer;
 	
 	if (DEBUG_PRINT_GENERATED_INSTRUCTIONS) {
-		if (buffered) w = f_open_buffered_writer(w, console_buf, F_LEN(console_buf), &console_writer);
+		if (buffered) w = f_open_buffered_writer(f_get_stdout(), console_buf, F_LEN(console_buf), &console_writer);
 	
 		f_print(w, "---- generating proc: '~s' ----\n", proc->sym.name);
 		gmmc_proc_print_c(w, proc);
@@ -1382,7 +1380,8 @@ GMMC_API void gmmc_gen_proc(gmmcAsmModule* module_gen, gmmcAsmProc* result, gmmc
 	p->module = module_gen;
 	p->proc = proc;
 	p->result = result;
-
+	p->console = w;
+	
 	result->local_frame_rel_offset = f_make_slice_undef(s32, proc->locals.len, p->temp);
 	result->ops_instruction_offset = f_make_slice(u32, proc->ops.len, (u32){F_U32_MAX}, p->temp);
 

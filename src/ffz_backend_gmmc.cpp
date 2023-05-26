@@ -1,8 +1,14 @@
+
+#define USE_C_BACKEND false
+
+// --------------------------------------------------------
+
 #ifdef FFZ_BUILD_INCLUDE_GMMC
 
 #include "tracy/tracy/Tracy.hpp"
 
 #define F_DEF_INCLUDE_OS
+
 #include "foundation/foundation.hpp"
 
 #include "ffz_ast.h"
@@ -22,7 +28,6 @@
 #undef small // window include header, wtf?
 
 #include <stdlib.h> // for qsort
-
 
 #define todo f_trap()
 
@@ -152,8 +157,8 @@ static bool value_is_direct(ffzType* type) {
 // NOTE: sometimes this returns false negatives
 bool constant_is_zero(ffzValue constant) {
 	if (ffz_type_is_integer(constant.type->tag) || ffz_type_is_float(constant.type->tag) || constant.type->tag == ffzTypeTag_Bool) {
-		static const ffzValue zero_constant = {};
-		return memcmp(&constant, &zero_constant, constant.type->size) == 0;
+		static const ffzDatum zero_constant = {};
+		return memcmp(constant.datum, &zero_constant, constant.type->size) == 0;
 	}
 	return false;
 }
@@ -723,7 +728,7 @@ static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* typ
 	return result;
 }
 
-// return a pointer to the value
+// returns a pointer to the value
 static gmmcOpIdx gen_curly_initializer(Gen* g, ffzType* type, ffzNode* node) {
 	gmmcOpIdx out = gmmc_op_local(g->proc, type->size, type->align);
 
@@ -1903,12 +1908,11 @@ extern "C" bool ffz_backend_gen_executable_gmmc(ffzModule* root_module, fString 
 	}
 
 	bool ok;
-	bool x64 = true;
-	if (x64) {
-		ok = build_x64(&g, build_dir, link_libraries, link_system_libraries);
+	if (USE_C_BACKEND) {
+		ok = build_c(&g, build_dir);
 	}
 	else {
-		ok = build_c(&g, build_dir);
+		ok = build_x64(&g, build_dir, link_libraries, link_system_libraries);
 	}
 
 	f_temp_pop(temp);

@@ -222,8 +222,8 @@ void f_print_va(fWriter* w, const char* fmt, va_list args) {
 				
 				uint64_t value = 0;
 				switch (*c) {
-				case '8': { f_trap();/*value = va_arg(args, int8_t); */} break; // u8
-				case '1': { f_trap(); /*value = va_arg(args, uint16_t); */} break; // u16
+				case '8': { value = va_arg(args, int8_t); } break; // u8
+				case '1': { value = va_arg(args, uint16_t); } break; // u16
 				case '3': { value = va_arg(args, uint32_t); } break; // u32
 				case '6': { value = va_arg(args, uint64_t); } break; // u64
 				default: f_assert(false);

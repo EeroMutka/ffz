@@ -237,7 +237,7 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 
 			// args
 			f_for_array(gmmcOpIdx, op->call.arguments, arg) {
-				if (i > 0) f_print(f, ", ");
+				if (arg.i > 0) f_print(f, ", ");
 				f_prints(f, OTOS_(arg.elem));
 			}
 			f_print(f, ")");
@@ -262,6 +262,10 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 
 		case gmmcOpKind_return: {
 			if (op->operands[0] != GMMC_OP_IDX_INVALID) f_print(f, "return ~s", OTOS(0));
+			else if (f_str_equals(bb->proc->sym.name, F_LIT("main"))) {
+				// if "main" and no return parameter, return 0 instead. :MainSpecialHandling
+				f_print(f, "return 0");
+			}
 			else f_print(f, "return");
 		} break;
 
@@ -281,12 +285,13 @@ GMMC_API void gmmc_proc_print_c(fWriter* f, gmmcProc* proc) {
 	fString name = proc->sym.name;
 	
 	// :MainSpecialHandling
-	// clang is very strict about the definition of main, it will give errors if the types don't match exactly
+	// clang is very strict about the definition of main, it will give errors if it's not exact.
 	bool is_main = f_str_equals(name, F_LIT("main"));
 	if (is_main) {
-		f_assert(proc->signature->params.len == 2);
+		uint param_count = proc->signature->params.len;
 		f_print(f, "int main(int _$~u32, char** _$~u32) {\n",
-			f_array_get(gmmcOpIdx, proc->addr_of_params, 0), f_array_get(gmmcOpIdx, proc->addr_of_params, 1));
+			param_count > 0 ? f_array_get(gmmcOpIdx, proc->addr_of_params, 0) : 0xFFFFFFFF-1,
+			param_count > 1 ? f_array_get(gmmcOpIdx, proc->addr_of_params, 1) : 0xFFFFFFFF);
 	}
 	else {
 		f_print(f, "~s ~s(", (proc->signature->return_type ?

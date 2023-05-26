@@ -32,7 +32,7 @@ g: Globals(~~)
 	}
 }
 
-#resize_cb: Window.ResizeCallback {
+#my_resize_cb: Window.ResizeCallback {
 	g.gl.Viewport(0, 0, s32(in.width), s32(in.height))
 	draw()
 }
@@ -44,7 +44,42 @@ g: Globals(~~)
 	b: int
 }
 
+
+#MyFile: struct{x: uint}
+
+#open: proc() => struct{ok: bool, file: MyFile} {
+	handle: uint(50)
+	
+	//temp: Basic.temp_push()
+	
+	//filepath_utf16: Files.str_to_utf16(filepath, temp.arena)
+	//if mode == OpenMode.Read {
+	//	//handle = Files.CreateFileW(filepath_utf16.ptr, FILE_GENERIC_READ, FILE_SHARE_READ, ^raw(0), OPEN_EXISTING, 0, HANDLE(0))
+	//}
+	//else {
+	//	//Basic.assert(false)
+	//}
+	//
+	//Basic.temp_pop(temp)
+	
+	//if handle == INVALID_HANDLE_VALUE {
+	//	ret {false, {^raw(0)}} // @ffzUndefinedValueUsecase - the second field
+	//}
+	
+	ret {true, {handle}}
+}
+
 #entry: proc {
+	aaa: open()
+	
+	temp: Basic.temp_push()
+	
+	// node_scope: new_heap_arena(parent_heap_scope)
+	// 
+	// do stuff
+	// 
+	// free_heap_arena(node_scope)
+	
 	foo: MyArray{20, {5, 6, 67}, 200}
 	
 	foo[1] = 423
@@ -57,12 +92,11 @@ g: Globals(~~)
 	gl: &g.gl
 	GL.load(gl, g.window, GL.Version._3_3)
 	
-	g.canvas = Draw2D.init(gl, Basic.temp_arena())
-	
+	g.canvas = Draw2D.init(gl, temp.arena)
 	
 	// load images
 	// we need a read-entire-file procedure
-	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", Basic.temp_alc())
+	image_file: Files.read_entire_file("C:/Users/Eero/Pictures/MURS.png", temp.arena)
 	Basic.assert(image_file.ok)
 	
 	
@@ -86,7 +120,7 @@ g: Globals(~~)
 	
 	quit: false
 	for, !quit {
-		events: Window.poll_events(g.window, resize_cb, ^raw(gl))
+		events: Window.poll_events(g.window, my_resize_cb, ^raw(gl))
 		
 		if events.quit {
 			quit = true
