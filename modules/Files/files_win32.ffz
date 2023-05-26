@@ -7,7 +7,7 @@
 
 #str_to_utf16: proc(str: string, arena: ^Basic.Arena) => []u16 {
 	if str.len == 0 {
-		ret []u16{}
+		return []u16{}
 	}
 	
 	#MB_ERR_INVALID_CHARS: u32(0x00000008)
@@ -22,7 +22,7 @@
 	
 	// null terminator
 	out[len] = 0
-	ret out
+	return out
 }
 
 #open: proc(filepath: string, mode: OpenMode) => struct{ok: bool, file: File} {
@@ -46,10 +46,10 @@
 	Basic.temp_pop(temp)
 	
 	if handle == INVALID_HANDLE_VALUE {
-		ret {false, {^raw(0)}} // @ffzUndefinedValueUsecase - the second field
+		return {false, {^raw(0)}} // @ffzUndefinedValueUsecase - the second field
 	}
 	
-	ret {true, {handle}}
+	return {true, {handle}}
 }
 
 #close: proc(file: File) {
@@ -61,7 +61,7 @@
 	if GetFileSizeEx(file.os_handle, &size) != 1 {
 		Basic.assert(false)
 	}
-	ret size
+	return size
 }
 
 #read: proc(file: File, dest: []u8) => uint {
@@ -82,11 +82,11 @@
 		read_so_far = .+ uint(bytes_read)
 		
 		if ok != 1 || bytes_read < to_read {
-			ret read_so_far
+			return read_so_far
 		}
 	}
 	
-	ret dest.len
+	return dest.len
 }
 
 // hmm... can these ever fail?

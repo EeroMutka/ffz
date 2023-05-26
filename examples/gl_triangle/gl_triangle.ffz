@@ -48,7 +48,7 @@ void main() {
 		gl.GetShaderInfoLog(shader, 512, ^GL.GLsizei(0), &vs_log[0])
 		dbgbreak
 	}
-	ret shader
+	return shader
 }
 
 @global

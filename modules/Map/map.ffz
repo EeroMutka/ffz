@@ -3,7 +3,7 @@
 // HashFn: proc(a: ^T) => u32
 
 // Maybe in the future, we could have default value for CompareFn and HashFn to be 'nil'.
-// and use an #if to default to for example, proc(a: ^T, b: ^T) => bool { ret a^ == b^ }
+// and use an #if to default to for example, proc(a: ^T, b: ^T) => bool { return a^ == b^ }
 // #KeyType: poly[T, CompareFn: nil, HashFn: nil] struct { key: T }
 
 // Key: KeyType
@@ -38,7 +38,7 @@
 }
 
 #make: poly[K, T] proc(allocator: ^Basic.Allocator) => Map[K, T] {
-	ret {allocator: allocator}
+	return {allocator: allocator}
 }
 
 #add_assert_unique: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
@@ -49,7 +49,7 @@
 // returns `true` if the value did not exist in the map before
 #add_or_ignore: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) => bool {
 	added: _insert(map, key, value, overwrite: false)
-	ret added
+	return added
 }
 
 #add_or_overwrite: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
@@ -74,7 +74,7 @@
 		slot: &map.slots[slot_index]
 		
 		if slot.hash == hash && K.compare_fn(slot.key, key) {
-			ret slot
+			return slot
 		}
 		
 		if slot.hash == HASH_EMPTY_SLOT {
@@ -84,7 +84,7 @@
 		slot_index = bit_and((slot_index + 1), wrapping_mask)
 	}
 	
-	ret ^MapSlot[K, T](0)
+	return ^MapSlot[K, T](0)
 }
 
 #resize: poly[K, T] proc(map: ^Map[K, T], slot_count_pow2: uint) {
@@ -157,18 +157,18 @@
 	first_unused_slot.hash = hash
 	first_unused_slot.key = key
 	first_unused_slot.value = value
-	ret true
+	return true
 }
 
 // -- Built-in key types ----------------------------------
 
 #primitive_compare: poly[T] proc(a: T, b: T) => bool {
-	ret a == b
+	return a == b
 }
 
 #primitive_hash: poly[T] proc(x: T) => u32 {
 	hash: Hash.knuth64(u64(x))
-	ret u32(hash)
+	return u32(hash)
 }
 
 #Key_u8:  KeyType[u8]{u8, primitive_compare[u8], primitive_hash[u8]}

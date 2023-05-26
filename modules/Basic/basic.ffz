@@ -47,19 +47,19 @@ _tl_arena_tls_index: u32(0)
 
 // https://physics.nist.gov/cuu/Units/binary.html
 #KiB: proc(x: uint) => (uint) {
-	ret bit_shl(x, 10)
+	return bit_shl(x, 10)
 }
 
 #MiB: proc(x: uint) => (uint) {
-	ret bit_shl(x, 20)
+	return bit_shl(x, 20)
 }
 
 #GiB: proc(x: uint) => (uint) {
-	ret bit_shl(x, 30)
+	return bit_shl(x, 30)
 }
 
 #TiB: proc(x: uint) => (uint) {
-	ret bit_shl(x, 40)
+	return bit_shl(x, 40)
 }
 
 //#S8_MIN: -128
@@ -76,7 +76,7 @@ _tl_arena_tls_index: u32(0)
 #U64_MAX: 0xffffffffffffffff
 
 //#arena_alc: proc(arena: ^Arena) => ^Allocator {
-//	ret ^Allocator(arena)
+//	return ^Allocator(arena)
 //}
 
 /*#arena_allocator_proc: AllocatorProc {
@@ -97,7 +97,7 @@ _tl_arena_tls_index: u32(0)
 			}
 		}
 		
-		ret new_allocation.ptr
+		return new_allocation.ptr
 	}
 	else {
 		if ENABLE_DEBUG_CHECKS { // erase the top
@@ -105,7 +105,7 @@ _tl_arena_tls_index: u32(0)
 		}
 	}
 	
-	ret in.old_ptr
+	return in.old_ptr
 }
 */
 
@@ -127,7 +127,7 @@ _tl_arena_tls_index: u32(0)
 	
 	arena: ^Arena(arena_push(&dummy, size_of(Arena), align_of(Arena)).ptr)
 	arena^ = dummy
-	ret arena
+	return arena
 }
 
 // If you want to learn more about bit twiddling tricks, such as `align_down` and `align_up`,
@@ -136,25 +136,25 @@ _tl_arena_tls_index: u32(0)
 // `align` must be a power of 2.
 // `x` is allowed to be positive or negative.
 #align_down: proc(x: int, align: int) => int {
-	ret bit_and(x, -align)
+	return bit_and(x, -align)
 }
 
 // `align` must be a power of 2.
 // `x` is allowed to be positive or negative.
 #align_up: proc(x: int, align: int) => int {
-	ret bit_and(x + align - 1, -align)
+	return bit_and(x + align - 1, -align)
 }
 
 // i.e. 0b0010101000
 // =>   0b0010100000
 #flip_rightmost_one_bit: poly[T] proc(x: T) => T {
-	ret bit_and(x, x - 1)
+	return bit_and(x, x - 1)
 }
 
 // i.e. 0b0010101111
 // =>   0b0010111111
 #flip_rightmost_zero_bit: poly[T] proc(x: T) => T {
-	ret bit_or(x, x + 1)
+	return bit_or(x, x + 1)
 }
 
 #round_up_to_power_of_2: proc(v: uint) => uint {
@@ -170,21 +170,21 @@ _tl_arena_tls_index: u32(0)
 	v = bit_or(., bit_shr(., 16))
 	v = bit_or(., bit_shr(., 32))
 	v = . + 1
-	ret v
+	return v
 }
 
 // x == 0 will return 1
 #is_power_of_2: poly[T] proc(x: T) => bool {
 	// When x is a power of 2, it must only contain a single 1-bit
-	ret flip_rightmost_one_bit(x) == 0
+	return flip_rightmost_one_bit(x) == 0
 }
 
 #get_alignment_for_size: proc(size: uint) => uint {
 	#small_aligns: [9]uint{1, 1, 2, 4, 4, 8, 8, 8, 8}
 	if size <= 8 {
-		ret small_aligns[size]
+		return small_aligns[size]
 	}
-	ret 16
+	return 16
 }
 
 // This procedure clears memory to 0xCC to make un/deinitialized-memory-use bugs more
@@ -200,14 +200,14 @@ _tl_arena_tls_index: u32(0)
 	result: string(~~)
 	result.ptr = ptr
 	result.len = len
-	ret result
+	return result
 }
 
 #form_slice: poly[T] proc(ptr: ^T, len: uint) => []T {
 	result: []T(~~)
 	result.ptr = ptr
 	result.len = len
-	ret result
+	return result
 }
 
 #arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
@@ -225,45 +225,45 @@ _tl_arena_tls_index: u32(0)
 	//if ENABLE_DEBUG_CHECKS {
 	//	_debug_clear_memory(allocation_pos, size)
 	//}
-	ret form_slice[u8](allocation_pos, size)
+	return form_slice[u8](allocation_pos, size)
 }
 
 // returns NULL if invalid
 #virtual_reserve: proc(size: uint, optional_address: ^u8) => ^u8 {
-	ret VirtualAlloc(optional_address, size, MEM_RESERVE, PAGE_READWRITE)
+	return VirtualAlloc(optional_address, size, MEM_RESERVE, PAGE_READWRITE)
 }
 
 #virtual_commit: proc(ptr: ^u8, size: uint) => bool {
-	ret VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != ^u8(0)
+	return VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != ^u8(0)
 }
 
 #virtual_decommit: proc(ptr: ^u8, size: uint) => bool {
-	ret VirtualFree(ptr, size, MEM_DECOMMIT) == 1
+	return VirtualFree(ptr, size, MEM_DECOMMIT) == 1
 }
 
 #virtual_free: proc(ptr: ^u8) => bool {
-	ret VirtualFree(ptr, 0, MEM_RELEASE) == 1
+	return VirtualFree(ptr, 0, MEM_RELEASE) == 1
 }
 
 #select: poly[T] proc(select_a: bool, a: T, b: T) => T {
 	if select_a {
-		ret a
+		return a
 	}
-	ret b
+	return b
 }
 
 #max: poly[T] proc(a: T, b: T) => T {
 	if a > b {
-		ret a
+		return a
 	}
-	ret b
+	return b
 }
 
 #min: poly[T] proc(a: T, b: T) => T {
 	if a < b {
-		ret a
+		return a
 	}
-	ret b
+	return b
 }
 
 #copy: poly[T] proc(dst: []T, src: []T) {
@@ -277,7 +277,7 @@ _tl_arena_tls_index: u32(0)
 }
 
 #as_bytes: poly[T] proc(value: ^T) => []u8 {
-	ret form_slice[u8](^u8(value), size_of(T))
+	return form_slice[u8](^u8(value), size_of(T))
 }
 
 //#AllocatorProc: proc(allocator: ^Allocator, old_ptr: ^raw, old_size: uint, size: uint, align: uint) => ^raw
@@ -290,7 +290,7 @@ _tl_arena_tls_index: u32(0)
 	result: []T(~~)
 	result.ptr = ^T(arena_push(arena, len * size_of(T), align_of(T)).ptr)
 	result.len = len
-	ret result
+	return result
 }
 
 #resize_slice_undef: poly[T] proc(slice: ^[]T, len: uint, arena: ^Arena) {
@@ -322,7 +322,7 @@ _tl_arena_tls_index: u32(0)
  temporary memory back to the caller. Instead, you should pass an arena as a parameter to the procedure.
 */
 #temp_push: proc() => TempMemoryScope {
-	ret {
+	return {
 		^Arena(TlsGetValue(_tl_arena_tls_index))
 		ArenaMark{^u8(0)}
 	}
@@ -374,7 +374,7 @@ _tl_arena_tls_index: u32(0)
 	// thread_deinit_basic()
 	
 	ExitProcess(exit_code) // https://nullprogram.com/blog/2023/02/15/
-	ret 0
+	return 0
 }
 
 // -- OS-specific defines -----------------------------------------------------

@@ -25,7 +25,7 @@ A: It causes too many problems and clashes with the rest of the language design.
 			The code would look pretty dumb:
 				#run_command: proc => ok: bool {
 					ok: true
-					ret ok
+					return ok
 				}
 				
 			What I'd do instead if I wanted to name the return value:
@@ -33,7 +33,7 @@ A: It causes too many problems and clashes with the rest of the language design.
 				
 				#run_command: proc => OK {
 					ok: true
-					ret ok
+					return ok
 				}
 				
 */

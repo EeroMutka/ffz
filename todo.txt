@@ -4,12 +4,13 @@
 [x] allow 'type' in structs
 [x] implicit polymorphic parameter binding for calls would be really nice...
 
-[] Get Map to work
+[x] Get Map to work
+
+[x] Slice, Array and Map visualizations in visual studio. Try to add the support in codeview for them
+
+[] break/continue with labels
 
 [] fix the situation with commas and newlines
-
-[] Slice, Array and Map visualizations in visual studio. Try to add the support in codeview for them
-
 
 [] Text rendering using texture/glyphs
 
@@ -17,15 +18,16 @@
 
 [] struct and array ==, != comparison
 
-[] Heap allocator, TLSF. Either make it into a module, or put it into Basic
+[] Memory management; TLSF module, heap-scopes, heap-arenas.
 
 [] @module_struct
 
 [] slice bounds checking
-	hmm, maybe this could be implemented similar to enabling libc where it's an optional tag that the Basic module implements
-
+	hmm, maybe this could be implemented similar to enabling libc where it's an optional tag that the Basic module implements.
+	But to start with, we could just trigger a breakpoint instruction.
 
 --------------- Keith release candidate ---------------
+[] deferred/scoped calls
 [] optionals
 [x] hash procedure type based on its contents, not its unique node
 [] break, continue, to_else, named scopes

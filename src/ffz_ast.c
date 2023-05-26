@@ -124,6 +124,19 @@ fString ffz_keyword_to_string(ffzKeyword keyword) {
 	case ffzKeyword_import:               return F_LIT("import");
 	case ffzKeyword_true:                 return F_LIT("true");
 	case ffzKeyword_false:                return F_LIT("false");
+	case ffzKeyword_if:                   return F_LIT("if");
+	case ffzKeyword_else:                 return F_LIT("else");
+	case ffzKeyword_for:                  return F_LIT("for");
+	case ffzKeyword_break:                return F_LIT("break");
+	case ffzKeyword_continue:             return F_LIT("continue");
+	case ffzKeyword_switch:               return F_LIT("switch");
+	case ffzKeyword_to_else:              return F_LIT("to_else");
+	case ffzKeyword_return:               return F_LIT("return");
+	case ffzKeyword_proc:                 return F_LIT("proc");
+	case ffzKeyword_poly:                 return F_LIT("poly");
+	case ffzKeyword_enum:                 return F_LIT("enum");
+	case ffzKeyword_struct:               return F_LIT("struct");
+	case ffzKeyword_union:                return F_LIT("union");
 	case ffzKeyword_u8:                   return F_LIT("u8");
 	case ffzKeyword_u16:                  return F_LIT("u16");
 	case ffzKeyword_u32:                  return F_LIT("u32");
@@ -957,6 +970,120 @@ static fOpt(ffzError*) parse_struct(ffzParser* p, ffzLoc* loc, ffzNode* parent, 
 	return NULL;
 }
 
+static fOpt(ffzError*) parse_keyword_or_identifier(ffzParser* p, ffzLoc* loc, ffzNode* parent, Token tok, ffzNode** out_node) {
+	ffzProject* project = project_from_parser(p);
+	ffzKeyword* keyword = f_map64_get_raw(&project->keyword_from_string, f_hash64_str(tok.str));
+
+	fOpt(ffzNode*) node = NULL;
+	if (keyword) {
+		switch (*keyword) {
+		case ffzKeyword_if: {
+			// TOOD: I think we should make if, for, etc keywords and call parse_if, parse_for, etc from the keyword codepath
+			node = new_node(p, parent, tok.range, ffzNodeKind_If);
+
+			TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->If.condition));
+
+			TRY(parse_node(p, loc, node, 0, &node->If.true_scope));
+			if (node->If.true_scope->kind != ffzNodeKind_Scope) {
+				ERR(p, tok.range, "if-statement must be followed by a scope.", "");
+			}
+
+			//ffzLoc new_loc = *loc;
+			//tok = maybe_eat_next_token(p, &new_loc, 0);
+			//if (tok.small == ';') *loc = new_loc;
+			//else if (tok.small != '{') {
+			//	ERR(p, tok.range, "Expected either `;` or `{` following if-statement condition.", "");
+			//}
+
+			ffzLoc new_loc = *loc;
+			tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);
+			if (f_str_equals(tok.str, F_LIT("else"))) {
+				*loc = new_loc;
+				TRY(parse_node(p, loc, node, 0, &node->If.false_scope));
+			}
+		} break;
+
+		case ffzKeyword_for: {
+			node = new_node(p, parent, tok.range, ffzNodeKind_For);
+			for (uint i = 0; i < 3; i++) {
+				if (i > 0) {
+					ffzLoc new_loc = *loc;
+					tok = maybe_eat_next_token(p, &new_loc, 0);
+					if (tok.small == '{') break;
+					if (tok.small != ',') ERR(p, tok.range, "Invalid for-loop; expected ',' or '{'", "");
+					*loc = new_loc;
+				}
+
+				ffzLoc new_loc = *loc;
+				tok = maybe_eat_next_token(p, &new_loc, 0);
+				if (tok.small == '{') break;
+				if (tok.small == ',') continue;
+
+				ffzNode* stmt;
+				TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &stmt));
+				node->For.header_stmts[i] = stmt;
+			}
+
+			TRY(parse_node(p, loc, node, 0, &node->For.scope));
+		} break;
+
+		case ffzKeyword_return: {
+			node = new_node(p, parent, tok.range, ffzNodeKind_Return);
+
+			ffzLoc new_loc = *loc;
+			tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0); // With return statements, newlines do matter!
+			if (tok.small == '\n') {
+				*loc = new_loc;
+			}
+			else {
+				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->Return.value));
+			}
+		} break;
+
+		case ffzKeyword_poly: {
+			node = new_node(p, parent, tok.range, ffzNodeKind_PolyDef);
+
+			tok = maybe_eat_next_token(p, loc, (ParseFlags)0); // With return statements, newlines do matter!
+			if (tok.small != '[') {
+				ERR(p, tok.range, "Expected `[`.", "");
+			}
+
+			TRY(parse_children(p, loc, node, ']'));
+			TRY(parse_node(p, loc, node, (ParseFlags)0, &node->PolyDef.expr));
+		} break;
+
+		case ffzKeyword_proc: { TRY(parse_proc_type(p, loc, parent, tok.range, &node)); } break;
+		case ffzKeyword_enum: { TRY(parse_enum(p, loc, parent, tok.range, &node)); } break;
+		case ffzKeyword_struct: { TRY(parse_struct(p, loc, parent, tok.range, false, &node)); } break;
+		case ffzKeyword_union: { TRY(parse_struct(p, loc, parent, tok.range, true, &node)); } break;
+
+		default: {
+			node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
+			node->Keyword.keyword = *keyword;
+
+			if (*keyword == ffzKeyword_import) {
+				f_array_push(&p->import_keywords, node);
+			}
+		}
+		}
+	}
+	else {
+		// identifier!
+		node = new_node(p, parent, tok.range, ffzNodeKind_Identifier);
+		if (tok.small == '#') {
+			node->Identifier.is_constant = true;
+			TRY(eat_next_token(p, loc, 0, "parsing an identifier", &tok));
+
+			if (!is_identifier_char(f_str_decode_rune(tok.str))) {
+				ERR(p, tok.range, "Invalid character for constant identifier.", "");
+			}
+		}
+		node->Identifier.name = tok.str;
+	}
+	*out_node = node;
+	return NULL;
+}
+
 static fOpt(ffzError*) parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, ParseFlags flags, ffzNode** out) {
 	TracyCZone(tr, true);
 	fArray(ffzNodeOp*) operator_chain = f_array_make(p->arena);
@@ -997,11 +1124,6 @@ static fOpt(ffzError*) parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, Pa
 		//     ^int(0))
 
 		Token tok = maybe_eat_next_token(p, loc, check_infix_or_postfix ? 0 : ParseFlag_SkipNewlines);
-		
-		//bool is_extended_keyword = !check_infix_or_postfix && tok.small == '*';
-		//if (is_extended_keyword) {
-		//	tok = maybe_eat_next_token(p, loc, 0);
-		//}
 
 		if (!prev && tok.str.len == 0) {
 			ERR(p, parent->loc, "File ended unexpectedly when parsing child-list.", "");
@@ -1115,122 +1237,9 @@ static fOpt(ffzError*) parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, Pa
 		}
 		
 		if (!node) {
-			if (f_str_equals(tok.str, F_LIT("if"))) {
-				// TOOD: I think we should make if, for, etc keywords and call parse_if, parse_for, etc from the keyword codepath
-				node = new_node(p, parent, tok.range, ffzNodeKind_If);
-				
-				TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->If.condition));
-
-				TRY(parse_node(p, loc, node, 0, &node->If.true_scope));
-				if (node->If.true_scope->kind != ffzNodeKind_Scope) {
-					ERR(p, tok.range, "if-statement must be followed by a scope.", "");
-				}
-				
-				//ffzLoc new_loc = *loc;
-				//tok = maybe_eat_next_token(p, &new_loc, 0);
-				//if (tok.small == ';') *loc = new_loc;
-				//else if (tok.small != '{') {
-				//	ERR(p, tok.range, "Expected either `;` or `{` following if-statement condition.", "");
-				//}
-
-				ffzLoc new_loc = *loc;
-				tok = maybe_eat_next_token(p, &new_loc, ParseFlag_SkipNewlines);
-				if (f_str_equals(tok.str, F_LIT("else"))) {
-					*loc = new_loc;
-					TRY(parse_node(p, loc, node, 0, &node->If.false_scope));
-				}
-			}
-			else if (f_str_equals(tok.str, F_LIT("for"))) {
-				node = new_node(p, parent, tok.range, ffzNodeKind_For);
-				for (uint i = 0; i < 3; i++) {
-					if (i > 0) {
-						ffzLoc new_loc = *loc;
-						tok = maybe_eat_next_token(p, &new_loc, 0);
-						if (tok.small == '{') break;
-						if (tok.small != ',') ERR(p, tok.range, "Invalid for-loop; expected ',' or '{'", "");
-						*loc = new_loc;
-					}
-
-					ffzLoc new_loc = *loc;
-					tok = maybe_eat_next_token(p, &new_loc, 0);
-					if (tok.small == '{') break;
-					if (tok.small == ',') continue;
-
-					ffzNode* stmt;
-					TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &stmt));
-					node->For.header_stmts[i] = stmt;
-				}
-
-				TRY(parse_node(p, loc, node, 0, &node->For.scope));
-			}
-			else if (f_str_equals(tok.str, F_LIT("ret"))) {
-				node = new_node(p, parent, tok.range, ffzNodeKind_Return);
-
-				ffzLoc new_loc = *loc;
-				tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0); // With return statements, newlines do matter!
-				if (tok.small == '\n') {
-					*loc = new_loc;
-				}
-				else {
-					TRY(parse_node(p, loc, node, (ParseFlags)0, &node->Return.value));
-				}
-			}
-			else if (f_str_equals(tok.str, F_LIT("poly"))) {
-				node = new_node(p, parent, tok.range, ffzNodeKind_PolyDef);
-
-				tok = maybe_eat_next_token(p, loc, (ParseFlags)0); // With return statements, newlines do matter!
-				if (tok.small != '[') {
-					ERR(p, tok.range, "Expected `[`.", "");
-				}
-				
-				TRY(parse_children(p, loc, node, ']'));
-				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->PolyDef.expr));
-			}
-			else if (f_str_equals(tok.str, F_LIT("proc"))) {
-				TRY(parse_proc_type(p, loc, parent, tok.range, &node));
-			}
-			else if (f_str_equals(tok.str, F_LIT("enum"))) {
-				TRY(parse_enum(p, loc, parent, tok.range, &node));
-			}
-			else if (f_str_equals(tok.str, F_LIT("struct"))) {
-				TRY(parse_struct(p, loc, parent, tok.range, false, &node));
-			}
-			else if (f_str_equals(tok.str, F_LIT("union"))) {
-				TRY(parse_struct(p, loc, parent, tok.range, true, &node));
-			}
-			       // hmm... I don't think we even need the `f_str_decode_rune` here, we can just look at the first byte
-			else if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?'/* || is_extended_keyword*/) {
-				ffzProject* project = project_from_parser(p);
-				ffzKeyword* keyword = f_map64_get_raw(&project->keyword_from_string, f_hash64_str(tok.str));
-				//if (keyword) {
-				//	if (ffz_keyword_is_extended(*keyword)) {
-				//		if (!is_extended_keyword) keyword = NULL; // should be an identifier instead.
-				//	}
-				//	else {
-				//		if (is_extended_keyword) ERR(p, tok.range, "Unrecognized extended keyword: \"~s\"", tok.str);
-				//	}
-				//}
-				if (keyword) {
-					node = new_node(p, parent, tok.range, ffzNodeKind_Keyword);
-					node->Keyword.keyword = *keyword;
-
-					if (*keyword == ffzKeyword_import) {
-						f_array_push(&p->import_keywords, node);
-					}
-				}
-				else {
-					// identifier!
-					node = new_node(p, parent, tok.range, ffzNodeKind_Identifier);
-					if (tok.small == '#') {
-						node->Identifier.is_constant = true;
-						TRY(eat_next_token(p, loc, 0, "parsing an identifier", &tok));
-
-						if (!is_identifier_char(f_str_decode_rune(tok.str))) {
-							ERR(p, tok.range, "Invalid character for constant identifier.", "");
-						}
-					}
-					node->Identifier.name = tok.str;
-				}
+			// hmm... I don't think we even need the `f_str_decode_rune` here, we can just look at the first byte
+			if (is_identifier_char(f_str_decode_rune(tok.str)) || tok.small == '#' || tok.small == '?') {
+				TRY(parse_keyword_or_identifier(p, loc, parent, tok, &node));
 			}
 			else if (tok.small == '\'') {
 				node = new_node(p, parent, tok.range, ffzNodeKind_IntLiteral);

@@ -24,7 +24,6 @@ FmtValueKind: enum, u32 {
 #fmt_int: proc(value: int, num_digits: uint(10)) => FmtValue {
 }
 
-
 // 
 print("hello, world!")
 print("My name is: % and I am % years old.", {fmt_string("nope..."), fmt_int(50)})

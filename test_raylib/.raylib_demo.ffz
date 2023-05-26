@@ -17,6 +17,6 @@
 #AddProcType: proc[T](a: T, b: T) => (T)
 
 #add: AddProcType {
-	ret in.a + in.b
+	return in.a + in.b
 }
 */

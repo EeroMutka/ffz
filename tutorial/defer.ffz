@@ -1,0 +1,38 @@
+
+/*
+
+// scoped functions:
+
+// Unless the ~ ideas can be implemented very simply, I think we should just go for `defer`, jai style.
+
+#temp_push: proc() => TempMemoryScope {
+	return {
+		^Arena(TlsGetValue(_tl_arena_tls_index))
+		ArenaMark{^u8(0)}
+	}
+}
+
+#temp_pop: proc(scope: TempMemoryScope) {}
+
+#temp_scope: scoped_proc(temp_push, temp_pop)
+
+
+#ui_menu: proc(name: string) => UI_Menu {
+	...
+}
+
+{
+	temp: Basic.temp_scope()~
+	
+	if menu: ui_menu("hi")~, menu.show {
+	}
+	
+	if ui_color(1, 1, 0, 1)~, {
+		profile_scope("my_thing")~
+	}
+}
+
+For metaprogramming tools, it'd be good/necessary to expand the deferred calls back into AST.
+That does mean that the checker should have write access to the AST nodes.
+
+*/

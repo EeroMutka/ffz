@@ -53,7 +53,7 @@
 
 #swap_buffers: proc(window: Window) => bool {
 	hdc: GetDC(window.hwnd)
-	ret SwapBuffers(hdc) != 0
+	return SwapBuffers(hdc) != 0
 }
 
 #PFD_TYPE_RGBA: u8(0)

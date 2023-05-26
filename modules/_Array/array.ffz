@@ -25,7 +25,7 @@
 }
 
 #make: poly[T] proc(arena: ^Basic.Arena) => Array[T] {
-	ret Array[T]{arena: arena}
+	return Array[T]{arena: arena}
 }
 
 #clear: poly[T] proc(array: ^Array[T]) {

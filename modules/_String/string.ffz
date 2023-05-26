@@ -15,8 +15,8 @@
 }
 
 #numeric_to_char: proc(n: uint) => u8 {
-	// TODO: ret [?]u8{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'}[n]
-	ret ^u8(uint("0123456789abcdef".ptr) + n)^
+	// TODO: return [?]u8{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'}[n]
+	return ^u8(uint("0123456789abcdef".ptr) + n)^
 }
 
 #push_uint: proc(builder: ^Builder, value: uint) {
@@ -108,13 +108,13 @@
 #from_int: proc(value: int, alc: ^Basic.Allocator) => string {
 	builder: make_builder(alc)
 	push_int(&builder, value)
-	ret string(builder.slice)
+	return string(builder.slice)
 }
 
 #from_uint: proc(value: uint, alc: ^Basic.Allocator) => string {
 	builder: make_builder(alc)
 	push_uint(&builder, value)
-	ret string(builder.slice)
+	return string(builder.slice)
 }
 
 // hmm.. todo: accept `any`?
@@ -146,12 +146,12 @@
 #joinf: proc(format: string, args: []string, alc: ^Basic.Allocator) => string {
 	builder: make_builder(alc)
 	push_joinf(&builder, format, args)
-	ret string(builder.slice)
+	return string(builder.slice)
 }
 
 
 // Temporary allocator helpers
 
-//#tjoinf:      proc(format: string, args: []string) => string  { ret joinf(format, args, Basic.temp_alc()) }
-//#tfrom_int:   proc(value: int) => string                      { ret from_int(value, Basic.temp_alc()) }
-//#tfrom_uint:  proc(value: uint) => string                     { ret from_uint(value, Basic.temp_alc()) }
+//#tjoinf:      proc(format: string, args: []string) => string  { return joinf(format, args, Basic.temp_alc()) }
+//#tfrom_int:   proc(value: int) => string                      { return from_int(value, Basic.temp_alc()) }
+//#tfrom_uint:  proc(value: uint) => string                     { return from_uint(value, Basic.temp_alc()) }

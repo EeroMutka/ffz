@@ -11,8 +11,8 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 
 #read_file_1: proc(filepath: string) => ?string {
 	...
-	if ... ret nil
-	ret "hello"
+	if ... return nil
+	return "hello"
 }
 
 #Error: enum{FileDoesNotExist, NoPrivilige, FileIsLocked}
@@ -35,17 +35,17 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 #outer: proc(filepath: string) => Result {
 	file_: read_file_2(filepath)
 	if file_.string == nil {
-		ret file_
+		return file_
 	}
 	file: file_.string!
 	
 	// shorthand for before could be:
 	file2_: read_file_2(filepath)
-	file2: file2_.string! if file2_.string? else ret file2_
+	file2: file2_.string! if file2_.string? else return file2_
 	
 	// another shorthand: 
 	file2_: read_file_2(filepath)
-	file2: file2_.string !: ret file2_  // unwrap-or-statement
+	file2: file2_.string !: return file2_  // unwrap-or-statement
 	
 	file2: file2_.string !: "failed..."  // unwrap-or-expression
 	
@@ -102,9 +102,9 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 	}
 	
 	{
-		if !check_node(c, left, 0); ret false
+		if !check_node(c, left, 0); return false
 		
-		info: check_node(c, left, 0) !: ret nil
+		info: check_node(c, left, 0) !: return nil
 	}
 }
 
@@ -116,7 +116,7 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 		// b_int will be int. if it's not, a runtime assert will fail.
 		
 		c: union{int, f32, bool}
-		c_f32: c.f32 !: ret
+		c_f32: c.f32 !: return
 		
 		d: union{int, f32, bool}
 		if d_f32 in d.f32 {
@@ -124,7 +124,7 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 		}
 		
 		e_maybe: d.f32
-		f: d.int !: ret
+		f: d.int !: return
 		
 		if e in e_maybe {...}
 		if e in d.f32 {...}
@@ -158,7 +158,7 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 	if text in read_file("hello.txt") {
 	}
 	
-	text: read_file("hello.txt") !: ret
+	text: read_file("hello.txt") !: return
 	// ...
 }
 
@@ -171,7 +171,7 @@ Then maybe you could say foo: ?u31 if you wanted to be smart
 #read_file: proc(file: string) => ?string {
 	if foo == nil {
 	}
-	ret nil
+	return nil
 }
 
 

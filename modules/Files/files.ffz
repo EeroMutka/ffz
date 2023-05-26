@@ -13,7 +13,7 @@
 #read_entire_file: proc(filepath: string, arena: ^Basic.Arena) => struct{ok: bool, data: []u8} {
 	f: open(filepath, OpenMode.Read)
 	if !f.ok {
-		ret {false, {}}
+		return {false, {}}
 	}
 	
 	size: uint(get_size(f.file))
@@ -22,7 +22,7 @@
 	
 	close(f.file)
 	
-	ret {ok, data}
+	return {ok, data}
 }
 
 // #write_entire_file: proc(filepath: string, data: []u8) => bool
@@ -30,10 +30,10 @@
 #get_size_by_filepath: proc(filepath: string) => struct{ok: bool, size: u64} {
 	f: open(filepath, OpenMode.Read)
 	if !f.ok {
-		ret {false, 0}
+		return {false, 0}
 	}
 	
 	size: get_size(f.file)
 	close(f.file)
-	ret {true, size}
+	return {true, size}
 }

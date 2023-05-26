@@ -15,7 +15,7 @@
 	x = bit_xor(., bit_shr(., 32))
 	x = .*C
 	x = bit_xor(., bit_shr(., 29))
-	ret x
+	return x
 }
 
 #mix64_stream: proc(h: u64, x: u64) => u64 {
@@ -26,7 +26,7 @@
 	x = .*C
 	h = .+x
 	h = .*C
-	ret h
+	return h
 }
 
 //u64 f_hash64_str_ex(fString s, u64 seed)
@@ -35,7 +35,7 @@
 // Knuth's multiplicative hash
 #knuth64: proc(x: u64) => u64 {
 	#golden_ratio_64: u64(11400714819323198485) // The golden ratio of 2^64
-	ret x * golden_ratio_64
+	return x * golden_ratio_64
 }
 
 // -- Hasher ----------------
@@ -43,7 +43,7 @@
 #Hasher: struct { state: u64 }
 
 #begin: proc => Hasher {
-	ret {0}
+	return {0}
 }
 
 #add: proc(h: ^Hasher, data: u64) {
@@ -51,7 +51,7 @@
 }
 
 #end: proc(h: ^Hasher) => u64 {
-	ret mix64(h.state)
+	return mix64(h.state)
 }
 
 // --------------------------

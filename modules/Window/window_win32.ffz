@@ -7,7 +7,7 @@
 
 #str_to_utf16: proc(str: string, arena: ^Basic.Arena) => []u16 {
 	if str.len == 0 {
-		ret []u16{}
+		return []u16{}
 	}
 	
 	#MB_ERR_INVALID_CHARS: u32(0x00000008)
@@ -22,7 +22,7 @@
 	
 	// null terminator
 	out[len] = 0
-	ret out
+	return out
 }
 
 #WNDPROC: proc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: s64) => s64
@@ -63,7 +63,7 @@
 		Basic.print("middle mouse button event\n")
 	}
 	
-	ret DefWindowProcW(in.hWnd, in.uMsg, in.wParam, in.lParam)
+	return DefWindowProcW(in.hWnd, in.uMsg, in.wParam, in.lParam)
 }
 
 #WINDOW_CLASS_NAME: "ffz_window_module_class_name"
@@ -144,7 +144,7 @@
 	
 	Basic.temp_pop(temp)
 	
-	ret Window{hwnd}
+	return Window{hwnd}
 }
 
 #ResizeCallback: proc(width: uint, height: uint, user_ptr: ^raw)
@@ -175,7 +175,7 @@
 		}
 	}
 	
-	ret out
+	return out
 }
 
 #HINSTANCE: ^raw

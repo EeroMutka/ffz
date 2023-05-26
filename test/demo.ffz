@@ -37,41 +37,13 @@ g: Globals(~~)
 	draw()
 }
 
-
 #MyArray: struct {
 	a: int
 	@using things: [3]int
 	b: int
 }
 
-
-#MyFile: struct{x: uint}
-
-#open: proc() => struct{ok: bool, file: MyFile} {
-	handle: uint(50)
-	
-	//temp: Basic.temp_push()
-	
-	//filepath_utf16: Files.str_to_utf16(filepath, temp.arena)
-	//if mode == OpenMode.Read {
-	//	//handle = Files.CreateFileW(filepath_utf16.ptr, FILE_GENERIC_READ, FILE_SHARE_READ, ^raw(0), OPEN_EXISTING, 0, HANDLE(0))
-	//}
-	//else {
-	//	//Basic.assert(false)
-	//}
-	//
-	//Basic.temp_pop(temp)
-	
-	//if handle == INVALID_HANDLE_VALUE {
-	//	ret {false, {^raw(0)}} // @ffzUndefinedValueUsecase - the second field
-	//}
-	
-	ret {true, {handle}}
-}
-
 #entry: proc {
-	aaa: open()
-	
 	temp: Basic.temp_push()
 	
 	// node_scope: new_heap_arena(parent_heap_scope)

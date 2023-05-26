@@ -63,10 +63,10 @@ g: Globals(~~)
 	//Basic.temp_pop(temp)
 	
 	//if handle == INVALID_HANDLE_VALUE {
-	//	ret {false, {^raw(0)}} // @ffzUndefinedValueUsecase - the second field
+	//	return {false, {^raw(0)}} // @ffzUndefinedValueUsecase - the second field
 	//}
 	
-	ret {true, {handle}}
+	return {true, {handle}}
 }
 
 #entry: proc {

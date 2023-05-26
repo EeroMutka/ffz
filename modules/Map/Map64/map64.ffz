@@ -12,7 +12,7 @@
 
 #make: poly[T] proc(alc: ^Basic.Allocator) => Map64[T] {
 	elem_size: Basic.align_up(size_of(T), 8)
-	ret Map64[T]{alc, u32(elem_size)}
+	return Map64[T]{alc, u32(elem_size)}
 }
 
 

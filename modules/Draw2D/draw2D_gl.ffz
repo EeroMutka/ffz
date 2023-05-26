@@ -79,7 +79,7 @@ void main() {
 	for, true, {
 		err: gl.GetError()
 		if err == GL.NO_ERROR {
-			ret
+			return
 		}
 		dbgbreak
 	}
@@ -97,7 +97,7 @@ void main() {
 		gl.GetShaderInfoLog(shader, 512, ^GL.GLsizei(0), &vs_log[0])
 		dbgbreak
 	}
-	ret shader
+	return shader
 }
 
 #init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas {
@@ -160,7 +160,7 @@ void main() {
 		vao: vao
 	}
 	
-	ret canvas
+	return canvas
 }
 
 #deinit: proc(c: ^Canvas) {
@@ -181,7 +181,7 @@ void main() {
 	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.REPEAT)
 	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.LINEAR)
 	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.LINEAR)
-	ret Texture{uint(id)}
+	return Texture{uint(id)}
 }
 
 #update_texture: proc(c: ^Canvas, texture: ^Texture, format: TextureFormat, width: u32, height: u32, data: ^raw) {
@@ -195,7 +195,7 @@ void main() {
 #make_texture_ex: proc(c: ^Canvas, format: TextureFormat, width: u32, height: u32, data: ^raw) => Texture {
 	texture: make_texture(c)
 	update_texture(c, &texture, format, width, height, data)
-	ret texture
+	return texture
 }
 
 #free_texture: proc(texture: ^Texture) {
@@ -280,7 +280,7 @@ void main() {
 	v: u32(c.vertex_count), i: u32(c.index_count)
 	c.vertex_count = .+ num_vertices
 	c.index_count = .+ num_indices
-	ret {v, i}
+	return {v, i}
 }
 
 #set_texture: proc(c: ^Canvas, texture: ^Texture(0)) {

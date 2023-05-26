@@ -10,16 +10,16 @@
 
 // Check if two vectors are equal
 #v2_eq: proc(a: V2, b: V2) => bool {
-	ret a.x == b.x && a.y == b.y
+	return a.x == b.x && a.y == b.y
 }
 
 // Add two vectors together
 #v2_add: proc(a: V2, b: V2) => V2 {
-	ret V2{a.x + b.x, a.y + b.y}
+	return V2{a.x + b.x, a.y + b.y}
 }
 
 #random_grid_slot: proc() => V2 {
-	ret V2{
+	return V2{
 		int(RL.GetRandomValue(0, s32(grid_size-1)))
 		int(RL.GetRandomValue(0, s32(grid_size-1)))
 	}
@@ -43,7 +43,7 @@
 #update: proc(game: ^Game) {
 	snake: &game.snake
 	if game.lost {
-		ret
+		return
 	}
 	
 	input: V2{0, 0}

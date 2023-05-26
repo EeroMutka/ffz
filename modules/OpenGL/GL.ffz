@@ -431,13 +431,13 @@
 	
 	result: wglGetProcAddress(name)
 	if result != ^raw(0) {
-		ret result
+		return result
 	}
 	
 	result = GetProcAddress(lib, name)
 	Basic.assert(result != ^raw(0))
 	
-	ret result
+	return result
 }
 
 #load_api_procs: proc(api: ^API, version: Version) {
