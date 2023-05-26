@@ -143,14 +143,20 @@ typedef enum ffzNodeKind {
 	ffzNodeKind_ProcType,
 	ffzNodeKind_Record,
 	ffzNodeKind_Enum,
+	
 	ffzNodeKind_Return,
+	ffzNodeKind_Break,
+	ffzNodeKind_Continue,
+
 	ffzNodeKind_If,
 	ffzNodeKind_For,
-	ffzNodeKind_Scope,
+	ffzNodeKind_Scope, // `Scope` can be either an executable scope or an anonymous struct/array initializer
+
 	ffzNodeKind_IntLiteral,
 	ffzNodeKind_StringLiteral,
 	ffzNodeKind_FloatLiteral,
-	ffzNodeKind_GeneratedConstant, // this is an imaginary node, as it cannot be represented in source code form.
+	
+	ffzNodeKind_GeneratedConstant, // this is an imaginary node / it cannot be represented in source code form.
 
 	// -- Operators ----------------------
 	// :ffz_node_is_operator
@@ -367,23 +373,23 @@ struct ffzNode {
 		} Keyword;
 
 		struct {
-			ffzNode* left;  // optional
-			ffzNode* right; // optional
+			fOpt(ffzNode*) left;
+			fOpt(ffzNode*) right;
 		} Op;
 
 		struct {
 			ffzNode* condition;
 			ffzNode* true_scope;
-			ffzNode* false_scope; // optional
+			fOpt(ffzNode*) false_scope;
 		} If;
 
 		struct {
-			ffzNode* header_stmts[3]; // optional
+			fOpt(ffzNode*) header_stmts[3];
 			ffzNode* scope;
 		} For;
 
 		struct {
-			ffzNode* out_parameter; // optional
+			fOpt(ffzNode*) out_parameter;
 		} ProcType;
 
 		struct {
@@ -395,11 +401,15 @@ struct ffzNode {
 		} Enum;
 
 		struct {
-			ffzNode* value; // optional
+			fOpt(ffzNode*) value;
 		} Return;
 
 		struct {
-			double value; // NOTE: doubles can hold all the values that a float can.
+			fOpt(ffzNode*) label;
+		} Break, Continue, BreakOrContinue;
+
+		struct {
+			double value; // NOTE: a double can represent any value that a float can, so there won't be any information loss.
 		} FloatLiteral;
 
 		struct {
@@ -1062,6 +1072,9 @@ inline bool ffz_checked_decl_is_variable(ffzNodeOpDeclare* decl) {
 * Returns NULL if the left side is not constant.
 */
 fOpt(ffzNode*) ffz_call_get_constant_target_procedure(ffzNode* call);
+
+ffzNode* ffz_break_get_target_scope(ffzNode* break_node);
+ffzNode* ffz_continue_get_target_scope(ffzNode* continue_node);
 
 fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* dot);
 

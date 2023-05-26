@@ -1,5 +1,12 @@
 
-// Command line ffz compiler
+// Command line compiler for FFZ
+
+// --------------------------
+
+#define DEBUG_PRINT_AST false
+
+// --------------------------
+
 
 #define F_DEF_INCLUDE_OS
 //#define F_DEF_TRAP() f_os_error_popup(F_LIT("Debug-trap!"), F_LIT("The program reached an invalid state."))
@@ -9,8 +16,6 @@
 #include "../ffz_checker.h"
 
 #include "../tracy/tracy/TracyC.h"
-
-const bool DEBUG_PRINT_AST = false;
 
 #define TRY(x) FFZ_TRY(x)
 

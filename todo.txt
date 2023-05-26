@@ -26,6 +26,8 @@
 	hmm, maybe this could be implemented similar to enabling libc where it's an optional tag that the Basic module implements.
 	But to start with, we could just trigger a breakpoint instruction.
 
+[] fix the "main" vs "entry" thing
+
 --------------- Keith release candidate ---------------
 [] deferred/scoped calls
 [] optionals

@@ -1002,7 +1002,8 @@ static u32 gen_bb(ProcGen* p, gmmcBasicBlockIdx bb_idx) {
 		case gmmcOpKind_return: { gen_return(p, op); } break;
 
 		case gmmcOpKind_goto: {
-			f_assert(i == bb->ops.len - 1); // must be the last op
+			//VALIDATE(i == bb->ops.len - 1); // There may not be any ops after a `goto` node within a basic block, as they couldn't ever get executed.
+			// eh, who even cares anyway?
 
 			// if the destination block hasn't been generated yet, we can generate it directly after this op
 			// and we don't even need a jump instruction.

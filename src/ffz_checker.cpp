@@ -2080,6 +2080,27 @@ static fOpt(ffzError*) check_return(ffzModuleChecker* c, ffzNode* node) {
 	return NULL;
 }
 
+static fOpt(ffzNode*) ffz_break_or_continue_get_target_scope(ffzNode* node) {
+	if (node->BreakOrContinue.label) f_trap(); // TODO
+
+	for (ffzNode* n = node->parent; n && n->parent; n = n->parent) {
+		if (n->kind == ffzNodeKind_For) return n;
+	}
+	return NULL;
+}
+
+FFZ_CAPI ffzNode* ffz_break_get_target_scope(ffzNode* break_node) { return ffz_break_or_continue_get_target_scope(break_node); }
+FFZ_CAPI ffzNode* ffz_continue_get_target_scope(ffzNode* continue_node) { return ffz_break_or_continue_get_target_scope(continue_node); }
+
+static fOpt(ffzError*) check_break_or_continue(ffzModuleChecker* c, ffzNode* node) {
+	fOpt(ffzNode*) target_scope = ffz_break_or_continue_get_target_scope(node);
+	if (target_scope == NULL) {
+		ERR(c, node, "`~c` is not inside of a for-loop.", node->kind == ffzNodeKind_Continue ? "continue" : "break");
+	}
+
+	return NULL;
+}
+
 static fOpt(ffzError*) check_assign(ffzModuleChecker* c, ffzNode* node, ffzCheckInfo* result) {
 	//if (node == (void*)0x000002000001c260) f_trap();
 
@@ -2182,6 +2203,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		ffzNode* rhs = node->Op.right;
 		if (lhs->kind != ffzNodeKind_Identifier) ERR(c, lhs, "The left-hand side of a declaration must be an identifier.");
 		
+		// :OrderOfChecking
 		// When checking a procedure type, we can't know the procedure type until we have checked all its children.
 		// so checking a declaration shouldn't require the parent to be checked.
 		// How can we know if this declaration is a local variable or not?
@@ -2198,18 +2220,24 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		if (!is_parameter && !lhs->Identifier.is_constant) {
 			// check if this declaration is a local variable
 
-			for (ffzNode* n = node->parent; n && n->parent; n = n->parent) {
-				ffzCheckInfo n_chk = ffz_checked_get_info(n);
-
-				if (n->kind == ffzNodeKind_Enum) break;
-				if (n->kind == ffzNodeKind_Record) break;
-				
-				if (n->kind == ffzNodeKind_Scope) continue;
-				if (n->kind == ffzNodeKind_If) continue;
-				if (n->kind == ffzNodeKind_For) continue;
-				is_local = n_chk.type && n_chk.type->tag == ffzTypeTag_Proc;
-				break;
-			}
+			is_local = node->parent->kind == ffzNodeKind_Scope ||
+				node->parent->kind == ffzNodeKind_If ||
+				node->parent->kind == ffzNodeKind_For;
+				//parent_info.type && parent_info.type->tag == ffzTypeTag_Proc;
+			//ffzCheckInfo parent_info = ffz_checked_get_info(node->parent);
+			//f_trap();
+			//for (ffzNode* n = node->parent; n && n->parent; n = n->parent) {
+			//	ffzCheckInfo n_chk = ffz_checked_get_info(n);
+			//
+			//	if (n->kind == ffzNodeKind_Enum) break;
+			//	if (n->kind == ffzNodeKind_Record) break;
+			//	
+			//	if (n->kind == ffzNodeKind_Scope) continue;
+			//	if (n->kind == ffzNodeKind_If) continue;
+			//	if (n->kind == ffzNodeKind_For) continue;
+			//	is_local = n_chk.type && n_chk.type->tag == ffzTypeTag_Proc;
+			//	break;
+			//}
 		}
 
 		InferFlags rhs_flags = 0;
@@ -2248,6 +2276,8 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 
 	case ffzNodeKind_Assign: { TRY(check_assign(c, node, &result)); } break;
 	case ffzNodeKind_Return: { TRY(check_return(c, node)); } break;
+	case ffzNodeKind_Break: // fallthrough
+	case ffzNodeKind_Continue: { TRY(check_break_or_continue(c, node)); } break;
 
 	case ffzNodeKind_Scope: {
 		if (require_type == NULL) {

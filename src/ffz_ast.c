@@ -74,7 +74,9 @@ ffzNodeKindInfo node_get_kind_info(ffzNodeKind kind) {
 	case ffzNodeKind_ProcType:           return (ffzNodeKindInfo){ F_LIT(""), F_LIT("proc-type") };
 	case ffzNodeKind_Record:             return (ffzNodeKindInfo){ F_LIT(""), F_LIT("record") };
 	case ffzNodeKind_Enum:               return (ffzNodeKindInfo){ F_LIT(""), F_LIT("enum") };
-	case ffzNodeKind_Return:             return (ffzNodeKindInfo){ F_LIT(""), F_LIT("ret") };
+	case ffzNodeKind_Return:             return (ffzNodeKindInfo){ F_LIT(""), F_LIT("return") };
+	case ffzNodeKind_Break:              return (ffzNodeKindInfo){ F_LIT(""), F_LIT("break") };
+	case ffzNodeKind_Continue:           return (ffzNodeKindInfo){ F_LIT(""), F_LIT("continue") };
 	case ffzNodeKind_If:                 return (ffzNodeKindInfo){ F_LIT(""), F_LIT("if") };
 	case ffzNodeKind_For:                return (ffzNodeKindInfo){ F_LIT(""), F_LIT("for") };
 	case ffzNodeKind_Scope:              return (ffzNodeKindInfo){ F_LIT(""), F_LIT("scope") };
@@ -1027,6 +1029,19 @@ static fOpt(ffzError*) parse_keyword_or_identifier(ffzParser* p, ffzLoc* loc, ff
 			TRY(parse_node(p, loc, node, 0, &node->For.scope));
 		} break;
 
+		case ffzKeyword_continue: // fallthrough
+		case ffzKeyword_break: {
+			node = new_node(p, parent, tok.range, *keyword == ffzKeyword_continue ? ffzNodeKind_Continue : ffzNodeKind_Break);
+			
+			ffzLoc new_loc = *loc;
+			tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0); // With break/continue statements, newlines do matter!
+			if (tok.small == '\n') {
+				*loc = new_loc;
+			} else {
+				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->BreakOrContinue.label));
+			}
+		} break;
+
 		case ffzKeyword_return: {
 			node = new_node(p, parent, tok.range, ffzNodeKind_Return);
 
@@ -1034,8 +1049,7 @@ static fOpt(ffzError*) parse_keyword_or_identifier(ffzParser* p, ffzLoc* loc, ff
 			tok = maybe_eat_next_token(p, &new_loc, (ParseFlags)0); // With return statements, newlines do matter!
 			if (tok.small == '\n') {
 				*loc = new_loc;
-			}
-			else {
+			} else {
 				TRY(parse_node(p, loc, node, (ParseFlags)0, &node->Return.value));
 			}
 		} break;

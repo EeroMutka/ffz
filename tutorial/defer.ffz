@@ -34,5 +34,7 @@
 
 For metaprogramming tools, it'd be good/necessary to expand the deferred calls back into AST.
 That does mean that the checker should have write access to the AST nodes.
+But then at the same time, isn't it kinda the same thing with e.g. the 3rd statement in a for loop header?
+We could expand it into the body (and before continues) and it'd be easier for metaprogramming.
 
 */
