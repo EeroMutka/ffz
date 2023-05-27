@@ -8,7 +8,7 @@
 
 [x] Slice, Array and Map visualizations in visual studio. Try to add the support in codeview for them
 
-[] break/continue with labels
+[x] break/continue with labels
 
 [] fix the situation with commas and newlines
 

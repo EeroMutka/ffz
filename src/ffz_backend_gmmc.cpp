@@ -1301,11 +1301,13 @@ static void gen_statement(Gen* g, ffzNode* node) {
 
 		gmmc_op_goto(g->bb, cond_bb);
 
-		if (!condition) f_trap(); // TODO
-		
 		g->bb = cond_bb;
-		gmmcOpIdx cond = gen_expr(g, condition, false).op;
-		gmmc_op_if(g->bb, cond, body_bb, after_bb);
+		if (condition) {
+			gmmcOpIdx cond = gen_expr(g, condition, false).op;
+			gmmc_op_if(g->bb, cond, body_bb, after_bb);
+		} else {
+			gmmc_op_goto(g->bb, body_bb);
+		}
 
 		g->bb = body_bb;
 		gen_statement(g, body);

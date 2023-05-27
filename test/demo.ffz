@@ -90,17 +90,14 @@ g: Globals(~~)
 	
 	i: 0
 	
-	quit: false
-	for, !quit {
+	for {
 		events: Window.poll_events(g.window, my_resize_cb, ^raw(gl))
 		
 		if events.quit {
-			quit = true
+			break
 		}
 		
-		if !quit {
-			draw()
-		}
+		draw()
 		
 		i= . + 1
 	}
