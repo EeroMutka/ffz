@@ -1,19 +1,39 @@
 
 #main: proc {
 	
-	for i: 0, i < 16, i = .+1 {
-		
-		if i == 2 {
-			continue
-		}
-		
-		if i == 4 {
-			break
-		}
+	dbgbreak
+	
+	
+	result: uint(50)
+	
+	root: if true {
 		
 		dbgbreak
+		
+		//break root
+		
+		dbgbreak
+		
+		for j: 0, j < 3, j = .+1 {
+			
+			for i: 0, i < 16, i = .+1 {
+				
+				if i == 2 {
+					result = 10
+					break root
+				}
+				
+				if i == 4 {
+					break
+				}
+				
+				dbgbreak
+			}
+			
+			dbgbreak
+		}
+		
 	}
-	
 	
 	dbgbreak
 }

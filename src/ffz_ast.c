@@ -74,12 +74,12 @@ ffzNodeKindInfo node_get_kind_info(ffzNodeKind kind) {
 	case ffzNodeKind_ProcType:           return (ffzNodeKindInfo){ F_LIT(""), F_LIT("proc-type") };
 	case ffzNodeKind_Record:             return (ffzNodeKindInfo){ F_LIT(""), F_LIT("record") };
 	case ffzNodeKind_Enum:               return (ffzNodeKindInfo){ F_LIT(""), F_LIT("enum") };
-	case ffzNodeKind_Return:             return (ffzNodeKindInfo){ F_LIT(""), F_LIT("return") };
-	case ffzNodeKind_Break:              return (ffzNodeKindInfo){ F_LIT(""), F_LIT("break") };
-	case ffzNodeKind_Continue:           return (ffzNodeKindInfo){ F_LIT(""), F_LIT("continue") };
-	case ffzNodeKind_If:                 return (ffzNodeKindInfo){ F_LIT(""), F_LIT("if") };
-	case ffzNodeKind_For:                return (ffzNodeKindInfo){ F_LIT(""), F_LIT("for") };
-	case ffzNodeKind_Scope:              return (ffzNodeKindInfo){ F_LIT(""), F_LIT("scope") };
+	case ffzNodeKind_Return:             return (ffzNodeKindInfo){ F_LIT(""), F_LIT("return-statement") };
+	case ffzNodeKind_Break:              return (ffzNodeKindInfo){ F_LIT(""), F_LIT("break-statement") };
+	case ffzNodeKind_Continue:           return (ffzNodeKindInfo){ F_LIT(""), F_LIT("continue-statement") };
+	case ffzNodeKind_If:                 return (ffzNodeKindInfo){ F_LIT(""), F_LIT("if-block") };
+	case ffzNodeKind_For:                return (ffzNodeKindInfo){ F_LIT(""), F_LIT("for-block") };
+	case ffzNodeKind_Block:              return (ffzNodeKindInfo){ F_LIT(""), F_LIT("block") };
 	case ffzNodeKind_IntLiteral:         return (ffzNodeKindInfo){ F_LIT(""), F_LIT("int-literal") };
 	case ffzNodeKind_StringLiteral:      return (ffzNodeKindInfo){ F_LIT(""), F_LIT("string-literal") };
 	case ffzNodeKind_FloatLiteral:       return (ffzNodeKindInfo){ F_LIT(""), F_LIT("float-literal") };
@@ -403,7 +403,7 @@ static void print_ast(fWriter* w, ffzNode* node, uint tab_level) {
 		}
 	} break;
 
-	case ffzNodeKind_Scope: {
+	case ffzNodeKind_Block: {
 		f_print(w, "{\n");
 
 		for (ffzNode* n = node->first_child; n; n = n->next) {
@@ -986,7 +986,7 @@ static fOpt(ffzError*) parse_keyword_or_identifier(ffzParser* p, ffzLoc* loc, ff
 			TRY(parse_node(p, loc, node, ParseFlag_NoPostCurlyBrackets, &node->If.condition));
 
 			TRY(parse_node(p, loc, node, 0, &node->If.true_scope));
-			if (node->If.true_scope->kind != ffzNodeKind_Scope) {
+			if (node->If.true_scope->kind != ffzNodeKind_Block) {
 				ERR(p, tok.range, "if-statement must be followed by a scope.", "");
 			}
 
@@ -1188,7 +1188,7 @@ static fOpt(ffzError*) parse_node(ffzParser* p, ffzLoc* loc, ffzNode* parent, Pa
 					}
 				}
 				else { // scope - not an operator
-					node = new_node(p, parent, tok.range, ffzNodeKind_Scope);
+					node = new_node(p, parent, tok.range, ffzNodeKind_Block);
 					TRY(parse_children(p, loc, node, '}'));
 				}
 			} break;
@@ -1383,7 +1383,7 @@ fOpt(ffzError*) ffz_parse_scope(ffzModule* m, fString file_contents, fString fil
 	parser.import_keywords = f_array_make(parser.arena);
 
 	ffzLoc loc = { .line_num = 1, .column_num = 1 };
-	ffzNode* root = new_node(&parser, NULL, (ffzLocRange){0}, ffzNodeKind_Scope);
+	ffzNode* root = new_node(&parser, NULL, (ffzLocRange){0}, ffzNodeKind_Block);
 
 	TRY(parse_children(&parser, &loc, root, 0));
 
@@ -1399,6 +1399,13 @@ void ffz_skip_standalone_tags(fOpt(ffzNode*)* node) {
 	while (*node && (*node)->flags & ffzNodeFlag_IsStandaloneTag) {
 		*node = (*node)->next;
 	}
+}
+
+bool ffz_is_a_parent_of(ffzNode* parent, ffzNode* node) {
+	for (ffzNode* p = node->parent; p; p = p->parent) {
+		if (p == parent) return true;
+	}
+	return false;
 }
 
 ffzNode* ffz_get_child(ffzNode* parent, u32 idx) {

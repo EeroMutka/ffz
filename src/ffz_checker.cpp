@@ -1165,7 +1165,7 @@ static void deep_copy(ffzModule* copy_to_module, ffzCursor cursor, fOpt(fMap64(f
 		for (int i = 0; i < 3; i++) deep_copy(copy_to_module, ffz_cursor_for_header_stmt(new_node, i), ident_to_constant);
 		deep_copy(copy_to_module, ffz_cursor_for_scope(new_node), ident_to_constant);
 	} break;
-	case ffzNodeKind_Scope: break;
+	case ffzNodeKind_Block: break;
 	case ffzNodeKind_IntLiteral: break;
 	case ffzNodeKind_StringLiteral: break;
 	case ffzNodeKind_FloatLiteral: break;
@@ -1871,7 +1871,7 @@ FFZ_CAPI ffzModule* ffz_new_module(ffzProject* p, fArena* arena) {
 	c->self_id = p->next_module_id++;
 	c->project = p;
 	c->arena = arena;
-	c->root = ffz_new_node(c, ffzNodeKind_Scope);
+	c->root = ffz_new_node(c, ffzNodeKind_Block);
 	return c;
 }
 
@@ -2080,24 +2080,62 @@ static fOpt(ffzError*) check_return(ffzModuleChecker* c, ffzNode* node) {
 	return NULL;
 }
 
-static fOpt(ffzNode*) ffz_break_or_continue_get_target_scope(ffzNode* node) {
-	if (node->BreakOrContinue.label) f_trap(); // TODO
-
-	for (ffzNode* n = node->parent; n && n->parent; n = n->parent) {
-		if (n->kind == ffzNodeKind_For) return n;
+// closely related to `check_break_or_continue`
+static ffzNode* ffz_break_or_continue_get_target_scope(ffzNode* node) {
+	fOpt(ffzNode*) label = node->BreakOrContinue.label;
+	if (label) {
+		ffzNode* decl = ffz_find_definition(label)->parent;
+		return decl->Op.right;
+	} else {
+		for (ffzNode* n = node->parent; n && n->parent; n = n->parent) {
+			if (n->kind == ffzNodeKind_For) {
+				return n;
+			}
+		}
+		f_assert(false); return NULL;
 	}
-	return NULL;
 }
 
 FFZ_CAPI ffzNode* ffz_break_get_target_scope(ffzNode* break_node) { return ffz_break_or_continue_get_target_scope(break_node); }
 FFZ_CAPI ffzNode* ffz_continue_get_target_scope(ffzNode* continue_node) { return ffz_break_or_continue_get_target_scope(continue_node); }
 
 static fOpt(ffzError*) check_break_or_continue(ffzModuleChecker* c, ffzNode* node) {
-	fOpt(ffzNode*) target_scope = ffz_break_or_continue_get_target_scope(node);
-	if (target_scope == NULL) {
-		ERR(c, node, "`~c` is not inside of a for-loop.", node->kind == ffzNodeKind_Continue ? "continue" : "break");
+	fOpt(ffzNode*) label = node->BreakOrContinue.label;
+	if (label) {
+		if (label->kind != ffzNodeKind_Identifier) {
+			ERR(c, label, "Label to a ~s must be an identifier.", ffz_node_kind_to_string(node->kind));
+		}
+		
+		ffzCheckInfo label_info;
+		TRY(check_identifier(c, label, &label_info));
+		ffzNode* decl = ffz_find_definition(label)->parent;
+		ffzNode* target_scope = decl->Op.right;
+		
+		if (label_info.type->tag != ffzTypeTag_ExecutableBlock) {
+			ERR(c, label, "The target of a ~s must be an executable block.", ffz_node_kind_to_string(node->kind));
+		}
+		if (node->kind == ffzNodeKind_Continue && target_scope->kind != ffzNodeKind_For) {
+			ERR(c, label, "The target of a continue-statement must be a for-loop.");
+		}
+		if (!ffz_is_a_parent_of(target_scope, node)) {
+			ERR(c, label, "The target of a ~s must be one of its parent scopes.", ffz_node_kind_to_string(node->kind));
+		}
 	}
+	else {
+		fOpt(ffzNode*) target_scope = NULL;
+		if (target_scope == NULL) {
+			for (ffzNode* n = node->parent; n && n->parent; n = n->parent) {
+				if (n->kind == ffzNodeKind_For) {
+					target_scope = n;
+					break;
+				}
+			}
+		}
 
+		if (target_scope == NULL) {
+			ERR(c, node, "`~c` is not inside of a for-loop.", node->kind == ffzNodeKind_Continue ? "continue" : "break");
+		}
+	}
 	return NULL;
 }
 
@@ -2220,7 +2258,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		if (!is_parameter && !lhs->Identifier.is_constant) {
 			// check if this declaration is a local variable
 
-			is_local = node->parent->kind == ffzNodeKind_Scope ||
+			is_local = node->parent->kind == ffzNodeKind_Block ||
 				node->parent->kind == ffzNodeKind_If ||
 				node->parent->kind == ffzNodeKind_For;
 				//parent_info.type && parent_info.type->tag == ffzTypeTag_Proc;
@@ -2279,7 +2317,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 	case ffzNodeKind_Break: // fallthrough
 	case ffzNodeKind_Continue: { TRY(check_break_or_continue(c, node)); } break;
 
-	case ffzNodeKind_Scope: {
+	case ffzNodeKind_Block: {
 		if (require_type == NULL) {
 			TRY(add_possible_definitions_to_scope(c, node, node));
 			
@@ -2287,6 +2325,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 				ERR(c, node, "A non-empty scope must span over multiple lines.\n"
 					"  (This restriction is currently here to improve debuggability and\n  to simplify the compiler / debug info generation.)");
 			}
+			
+			result.type = ffz_type_executable_block();
+			result.const_val = FFZ_CONST_VAL_NO_REPRESENTATION;
 			// post-check the scope
 		}
 		else {
@@ -2308,8 +2349,12 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		TRY(check_post_round_brackets(c, node, require_type, flags, &result));
 	} break;
 
-	case ffzNodeKind_If: break; // post-check
-	case ffzNodeKind_For: break; // post-check
+
+	case ffzNodeKind_For: // fallthrough
+	case ffzNodeKind_If: {
+		result.type = ffz_type_executable_block();
+		result.const_val = FFZ_CONST_VAL_NO_REPRESENTATION;
+	} break; // post-check
 
 	case ffzNodeKind_Enum: {
 		if (node->parent->kind == ffzNodeKind_Declare && !ffz_node_is_top_level(node->parent)) {
@@ -2540,7 +2585,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 
 	if (flags & InferFlag_Statement) {
 		// NOTE: we cache the types of declarations even though they are statements.
-		if (node->kind != ffzNodeKind_Declare && result.type) {
+		if (node->kind != ffzNodeKind_Declare && result.type && result.type != ffz_type_executable_block()) {
 			ERR(c, node, "Expected a statement or a declaration, but got an expression.\n  HINT: An expression can be turned into a statement, i.e. `_ = foo()`");
 		}
 	}
@@ -2666,7 +2711,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 			c->is_inside_polymorphic_node = was_inside_poly;
 
 		} break;
-		case ffzNodeKind_Scope: {
+		case ffzNodeKind_Block: {
 			if (require_type == NULL) {
 				for FFZ_EACH_CHILD(n, node) {
 					TRY(check_node(c, n, NULL, flags, NULL));
@@ -2742,8 +2787,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 	return NULL;
 }
 
-ffzType* ffz_type_type() { static const ffzType t = { ffzTypeTag_Type, false }; return (ffzType*)&t; }
-ffzType* ffz_type_poly_val() { static const ffzType t = { ffzTypeTag_PolyVal, false }; return (ffzType*)&t; }
+ffzType* ffz_type_type() { static const ffzType t = { ffzTypeTag_Type }; return (ffzType*)&t; }
+ffzType* ffz_type_executable_block() { static const ffzType t = { ffzTypeTag_ExecutableBlock }; return (ffzType*)&t; }
+ffzType* ffz_type_poly_val() { static const ffzType t = { ffzTypeTag_PolyVal }; return (ffzType*)&t; }
 
 ffzType* ffz_type_u8(ffzProject* p) { return p->builtin_types[ffzKeyword_u8]; }
 ffzType* ffz_type_u16(ffzProject* p) { return p->builtin_types[ffzKeyword_u16]; }

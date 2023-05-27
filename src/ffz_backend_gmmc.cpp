@@ -56,19 +56,14 @@ struct DebugInfoLocal {
 	u32 type_idx;
 };
 
-struct ForLoopGotoTargets {
-	gmmcBasicBlock* cond_bb;
-	gmmcBasicBlock* body_bb;
-	gmmcBasicBlock* after_bb;
-};
-
 struct ProcInfo {
 	gmmcProc* gmmc_proc;
 	ffzType* type;
 	ffzNode* node;
 	gmmcOpIdx addr_of_big_return;
 	
-	fMap64(ForLoopGotoTargets) for_loop_goto_targets; // key: ffzNode*
+	fMap64(gmmcBasicBlock*) continue_goto_targets; // key: ffzNode*
+	fMap64(gmmcBasicBlock*) break_goto_targets; // key: ffzNode*
 
 	fSlice(gmmcOpIdx) dbginfo_line_ops; // index 0 is the procedure's starting line. A value of GMMC_OP_IDX_INVALID means that the line doesn't have an op.
 	fArray(DebugInfoLocal) dbginfo_locals;
@@ -434,7 +429,8 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	proc_info->gmmc_proc = proc;
 	proc_info->node = node;
 	proc_info->type = proc_type;
-	proc_info->for_loop_goto_targets = f_map64_make<ForLoopGotoTargets>(g->arena);
+	proc_info->break_goto_targets = f_map64_make<gmmcBasicBlock*>(g->arena);
+	proc_info->continue_goto_targets = f_map64_make<gmmcBasicBlock*>(g->arena);
 	proc_info->dbginfo_locals = f_array_make<DebugInfoLocal>(g->arena);
 	proc_info->dbginfo_line_ops = f_make_slice<gmmcOpIdx>(node->loc.end.line_num - node->loc.start.line_num + 1, gmmcOpIdx{GMMC_OP_IDX_INVALID}, g->arena);
 
@@ -1113,7 +1109,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	}
 	else {
 		switch (node->kind) {
-		case ffzNodeKind_Scope: {
+		case ffzNodeKind_Block: {
 			// type-inferred initializer
 			out.op = gen_curly_initializer(g, checked.type, node);
 			needs_dereference = true; //should_dereference = !address_of;
@@ -1173,7 +1169,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 	ZoneScoped;
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
-		if (node->kind == ffzNodeKind_Scope) {}
+		if (node->kind == ffzNodeKind_Block) {}
 		else if (node->kind == ffzNodeKind_If) {}
 		else if (node->kind == ffzNodeKind_For) {}
 		else if (ffz_node_is_keyword(node, ffzKeyword_dbgbreak)) {}
@@ -1193,8 +1189,19 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		
 	case ffzNodeKind_Declare: {
 		ffzNodeIdentifier* definition = node->Op.left;
-		//F_HITS(__c, 2);
-		if (ffz_checked_decl_is_variable(node)) {
+		
+		if (checked.type->tag == ffzTypeTag_ExecutableBlock) {
+			// With labelled blocks, we need to generate another BB after it so that we can jump to it with `break`
+			gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
+			f_map64_insert(&g->proc_info->break_goto_targets, (u64)node->Op.right, after_bb);
+
+			// Execute the block
+			gen_statement(g, node->Op.right);
+			
+			gmmc_op_goto(g->bb, after_bb);
+			g->bb = after_bb;
+		}
+		else if (ffz_checked_decl_is_variable(node)) {
 			ffzNode* rhs = node->Op.right;
 			ffzCheckInfo rhs_checked = ffz_checked_get_info(rhs);
 			
@@ -1247,9 +1254,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		}
 	} break;
 
-	case ffzNodeKind_Scope: {
-		// TODO: if this is a named scope, we need to generate a BB so that we can jump to the end of it
-
+	case ffzNodeKind_Block: {
 		for FFZ_EACH_CHILD(n, node) {
 			gen_statement(g, n);
 		}
@@ -1291,7 +1296,8 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		gmmcBasicBlock* cond_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* body_bb = gmmc_make_basic_block(g->proc);
 		gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
-		f_map64_insert(&g->proc_info->for_loop_goto_targets, (u64)node, ForLoopGotoTargets{cond_bb, body_bb, after_bb});
+		f_map64_insert(&g->proc_info->break_goto_targets, (u64)node, after_bb);
+		f_map64_insert(&g->proc_info->continue_goto_targets, (u64)node, cond_bb);
 
 		gmmc_op_goto(g->bb, cond_bb);
 
@@ -1322,7 +1328,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 
 	case ffzNodeKind_Break: {
 		ffzNode* break_scope = ffz_break_get_target_scope(node);
-		gmmcBasicBlock* after_bb = f_map64_get(&g->proc_info->for_loop_goto_targets, (u64)break_scope)->after_bb;
+		gmmcBasicBlock* after_bb = *f_map64_get(&g->proc_info->break_goto_targets, (u64)break_scope);
 		set_loc(g, gmmc_op_goto(g->bb, after_bb), node->loc);
 	} break;
 
@@ -1338,7 +1344,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 			g->override_line_num = NULL;
 		}
 		
-		gmmcBasicBlock* cond_bb = f_map64_get(&g->proc_info->for_loop_goto_targets, (u64)for_loop)->cond_bb;
+		gmmcBasicBlock* cond_bb = *f_map64_get(&g->proc_info->continue_goto_targets, (u64)for_loop);
 		set_loc(g, gmmc_op_goto(g->bb, cond_bb), node->loc);
 	} break;
 

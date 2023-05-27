@@ -150,7 +150,7 @@ typedef enum ffzNodeKind {
 
 	ffzNodeKind_If,
 	ffzNodeKind_For,
-	ffzNodeKind_Scope, // `Scope` can be either an executable scope or an anonymous struct/array initializer
+	ffzNodeKind_Block, // `Block` can be either an executable scope or an anonymous struct/array initializer
 
 	ffzNodeKind_IntLiteral,
 	ffzNodeKind_StringLiteral,
@@ -296,6 +296,8 @@ typedef struct ffzPolymorph {
 	ffzNode* instantiated_node; // This will be the deep-copied node tree, with references to the polymorphic parameters replaced with GeneratedConstant-nodes
 } ffzPolymorph;
 
+#define FFZ_CONST_VAL_NO_REPRESENTATION (ffzDatum*)0xFFFFFFFFFFFFFFFF
+
 typedef struct ffzCheckInfo {
 	// TODO: turn these into flags
 	bool is_local_variable;
@@ -308,7 +310,7 @@ typedef struct ffzCheckInfo {
 		struct {
 			// NOTE: declarations also cache the type (and constant) here, even though declarations are not expressions.
 			fOpt(ffzType*) type;
-			fOpt(ffzDatum*) const_val;
+			fOpt(ffzDatum*) const_val; // NULL if not found, FFZ_CONST_VAL_NO_REPRESENTATION if found but no data is attached to the constant, i.e. with ffz_type_executable_block().
 		};
 		ffzValue constant;
 	};
@@ -458,18 +460,7 @@ typedef struct ffzParseResult {
 
 typedef enum ffzTypeTag {
 	ffzTypeTag_Invalid,
-
 	ffzTypeTag_Raw,       // `raw`
-	ffzTypeTag_Undefined, // the type of the expression `~~`
-
-	ffzTypeTag_Type,
-
-	// NOTE: only polymorphic regions in the AST can contain these Poly* types.
-	ffzTypeTag_PolyDef,   // i.e. #Array: poly[T] struct{...}
-	ffzTypeTag_PolyParam, // i.e. the type of `foo` in `#X: poly[T] proc(foo: T)` would be `PolyParam`
-	ffzTypeTag_PolyVal,
-	
-	ffzTypeTag_Module,
 
 	ffzTypeTag_Bool,
 	ffzTypeTag_Pointer,
@@ -488,7 +479,17 @@ typedef enum ffzTypeTag {
 	ffzTypeTag_String, // string has the semantics of `#string: distinct []u8` with a custom iterator attached
 	ffzTypeTag_FixedArray,
 	
-	//ffzTypeTag_Extra,
+	// -- Compile-time only types --
+	
+	ffzTypeTag_Type,
+	ffzTypeTag_ExecutableBlock,
+	ffzTypeTag_Module,
+	ffzTypeTag_Undefined, // the type of the expression `~~`
+
+	// NOTE: only polymorphic regions in the AST can contain these Poly* types.
+	ffzTypeTag_PolyDef,   // i.e. #Array: poly[T] struct{...}
+	ffzTypeTag_PolyParam, // i.e. the type of `foo` in `#X: poly[T] proc(foo: T)` would be `PolyParam`
+	ffzTypeTag_PolyVal,
 } ffzTypeTag;
 
 struct ffzDefinitionPath {
@@ -844,6 +845,8 @@ uint32_t ffz_get_child_index(ffzNode* child); // will assert if child is not par
 ffzNode* ffz_get_child(ffzNode* parent, uint32_t idx);
 uint32_t ffz_get_child_count(fOpt(ffzNode*) parent); // returns 0 if parent is NULL
 
+bool ffz_is_a_parent_of(ffzNode* parent, ffzNode* node);
+
 fString ffz_keyword_to_string(ffzKeyword keyword);
 
 fString ffz_node_kind_to_string(ffzNodeKind kind);
@@ -863,6 +866,7 @@ fString ffz_node_to_string(ffzProject* p, ffzNode* node, bool try_to_use_source,
 // ------------------------------------------------------
 
 ffzType* ffz_type_type();
+ffzType* ffz_type_executable_block();
 ffzType* ffz_type_poly_val();
 
 // TODO: make the following types not require passing the project
