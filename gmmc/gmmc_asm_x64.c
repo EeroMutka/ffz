@@ -1,3 +1,9 @@
+// --------------------------------------------------------
+
+#define DEBUG_PRINT_GENERATED_INSTRUCTIONS false
+
+// --------------------------------------------------------
+
 #include "src/foundation/foundation.h"
 
 #define gmmcString fString
@@ -5,8 +11,6 @@
 
 // We could see if intel XED would be faster than zydis
 #include "Zydis/Zydis.h"
-
-#define DEBUG_PRINT_GENERATED_INSTRUCTIONS false
 
 #define VALIDATE(x) f_assert(x)
 

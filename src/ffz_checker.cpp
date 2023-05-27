@@ -323,6 +323,7 @@ static void print_type(fWriter* w, ffzType* type) {
 	case ffzTypeTag_Invalid: { f_print(w, "<invalid>"); } break;
 	case ffzTypeTag_Raw: { f_print(w, "raw"); } break;
 	case ffzTypeTag_Undefined: { f_print(w, "<undefined>"); } break;
+	case ffzTypeTag_ExecutableBlock: { f_print(w, "<executable-block>"); } break;
 	case ffzTypeTag_Type: { f_print(w, "<type>"); } break;
 	case ffzTypeTag_PolyDef: { f_print(w, "<poly-def>"); } break;
 	case ffzTypeTag_PolyParam: { f_print(w, "<poly-param>"); } break;
@@ -2252,37 +2253,19 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		// For all other cases, except for parameters, the parent has already been checked.
 
 		bool is_parameter = ffz_decl_is_parameter(node);
-		bool is_local = false;
 		bool is_global_variable = ffz_decl_is_global_variable(node);
 
-		if (!is_parameter && !lhs->Identifier.is_constant) {
-			// check if this declaration is a local variable
-
-			is_local = node->parent->kind == ffzNodeKind_Block ||
-				node->parent->kind == ffzNodeKind_If ||
-				node->parent->kind == ffzNodeKind_For;
-				//parent_info.type && parent_info.type->tag == ffzTypeTag_Proc;
-			//ffzCheckInfo parent_info = ffz_checked_get_info(node->parent);
-			//f_trap();
-			//for (ffzNode* n = node->parent; n && n->parent; n = n->parent) {
-			//	ffzCheckInfo n_chk = ffz_checked_get_info(n);
-			//
-			//	if (n->kind == ffzNodeKind_Enum) break;
-			//	if (n->kind == ffzNodeKind_Record) break;
-			//	
-			//	if (n->kind == ffzNodeKind_Scope) continue;
-			//	if (n->kind == ffzNodeKind_If) continue;
-			//	if (n->kind == ffzNodeKind_For) continue;
-			//	is_local = n_chk.type && n_chk.type->tag == ffzTypeTag_Proc;
-			//	break;
-			//}
+		bool is_local_or_exec_block = false;
+		if (!is_global_variable && !is_parameter && !lhs->Identifier.is_constant) {
+			ffzCheckInfo parent_info = ffz_checked_get_info(node->parent);
+			is_local_or_exec_block = parent_info.type->tag == ffzTypeTag_Proc || parent_info.type->tag == ffzTypeTag_ExecutableBlock;
 		}
 
 		InferFlags rhs_flags = 0;
-		if (is_local || is_global_variable) {
+		if (is_local_or_exec_block || is_global_variable) {
 			rhs_flags |= InferFlag_AllowUndefinedValues;
 		}
-		if (!is_local) {
+		if (!is_local_or_exec_block) {
 			rhs_flags |= InferFlag_RequireConstant;
 		}
 
@@ -2292,9 +2275,9 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		TRY(check_node(c, rhs, require_type, rhs_flags, &rhs_chk));
 		
 		result = rhs_chk; // Declarations cache the value of the right-hand side
-		result.is_local_variable = is_local;
+		result.is_local_variable = is_local_or_exec_block && rhs_chk.type->tag != ffzTypeTag_ExecutableBlock;
 		
-		if (is_local || is_parameter || is_global_variable) {
+		if (result.is_local_variable || is_parameter || is_global_variable) {
 			if (is_parameter) {
 				// if the parameter is a type expression, then this declaration has that type
 				result.type = ffz_ground_type(result.const_val, result.type);
