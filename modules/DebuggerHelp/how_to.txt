@@ -1,0 +1,3 @@
+How to use:
+
+Copy ffz.natvis to "%USERPROFILE%\Documents\Visual Studio [your VS version]\Visualizers"

@@ -377,7 +377,7 @@ static void print_type(fWriter* w, ffzType* type) {
 			f_prints(w, name);
 		}
 		else {
-			f_print(w, "[anonymous enum defined at line:~u32, col:~u32]", n->loc.start.line_num, n->loc.start.column_num);
+			f_print(w, "<anonymous enum>", n->loc.start.line_num, n->loc.start.column_num); //f_print(w, "<anonymous enum defined at line ~u32, col ~u32>", n->loc.start.line_num, n->loc.start.column_num);
 		}
 	} break;
 	case ffzTypeTag_Record: {
@@ -387,8 +387,7 @@ static void print_type(fWriter* w, ffzType* type) {
 			f_prints(w, name);
 		}
 		else {
-			f_print(w, "[anonymous ~c defined at line:~u32, col:~u32]",
-				n->Record.is_union ? "union" : "struct", n->loc.start.line_num, n->loc.start.column_num);
+			f_print(w, "<anonymous ~c>", n->Record.is_union ? "union" : "struct"/*, n->loc.start.line_num, n->loc.start.column_num*/);
 		}
 		//f_print(w, "struct{");
 		//for (uint i = 0; i < type->record_fields.len; i++) {
@@ -683,27 +682,46 @@ static fOpt(ffzError*) verify_is_type_expression(ffzModuleChecker* c, ffzNode* n
 	return NULL;
 }
 
+static bool ffz_constants_match(ffzDatum* a, ffzDatum* b) {
+	return a == b; // :InternedConstants
+}
+
 // if this returns true, its ok to bit-cast between the types
-static bool types_match(ffzType* a, ffzType* b) {
+static bool types_match_liberal(ffzType* a, ffzType* b) {
 	if ((a->tag == ffzTypeTag_DefaultUint || a->tag == ffzTypeTag_DefaultSint) &&
 		(b->tag == ffzTypeTag_DefaultUint || b->tag == ffzTypeTag_DefaultSint)) return true; // Allow implicit cast between uint and int
 
 	// `raw` matches with any type, i.e. `^raw` and `^int` should match
 	if (a->tag == ffzTypeTag_Raw || b->tag == ffzTypeTag_Raw) return true;
 
+	// i.e. Array[int] should match with Array[raw]
+	if ((a->polymorphed_from != NULL) && a->polymorphed_from->poly_def == b->polymorphed_from->poly_def) {
+		for (uint i = 0; i < a->polymorphed_from->parameters.len; i++) {
+			ffzValue a_param = a->polymorphed_from->parameters[i];
+			ffzValue b_param = b->polymorphed_from->parameters[i];
+
+			if (types_match_liberal(a_param.type, b_param.type)) {
+				if (a_param.type->tag == ffzTypeTag_Type) {
+					if (!types_match_liberal(&a_param.datum->type, &b_param.datum->type)) return false;
+				} else {
+					if (!ffz_constants_match(a_param.datum, b_param.datum)) return false;
+				}
+			} else {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	if (a->tag == ffzTypeTag_Pointer && b->tag == ffzTypeTag_Pointer) {
-		return types_match(a->Pointer.pointer_to, b->Pointer.pointer_to);
+		return types_match_liberal(a->Pointer.pointer_to, b->Pointer.pointer_to);
 	} // TODO: ugh, the rest
 
 	return a == b; // :InternedConstants
 }
 
-static bool ffz_constants_match(ffzDatum* a, ffzDatum* b) {
-	return a == b; // :InternedConstants
-}
-
 static fOpt(ffzError*) check_types_match(ffzModuleChecker* c, ffzNode* node, ffzType* received, ffzType* expected, const char* message) {
-	if (!types_match(received, expected)) {
+	if (!types_match_liberal(received, expected)) {
 		ERR(c, node, "~c\n    received: ~s\n    expected: ~s", message, ffz_type_to_string(received, c->arena), ffz_type_to_string(expected, c->arena));
 	}
 	return NULL;
@@ -830,7 +848,7 @@ static fOpt(ffzError*) check_two_sided(ffzModuleChecker* c, ffzNode* left, ffzNo
 	}
 
 	if (has_non_poly_type(right_chk.type) && has_non_poly_type(left_chk.type)) {
-		if (types_match(left_chk.type, right_chk.type)) {
+		if (types_match_liberal(left_chk.type, right_chk.type)) {
 			result = left_chk.type;
 		}
 		else {
@@ -1484,7 +1502,7 @@ static fOpt(ffzError*) check_post_round_brackets(ffzModuleChecker* c, ffzNode* n
 			
 			// Constant cast
 			if (!result->is_undefined && arg_info.const_val) {
-				if (types_match(to, from)) {
+				if (types_match_liberal(to, from)) {
 					result->constant = arg_info.constant;
 				}
 				else if (ffz_type_is_pointer_ish(to->tag) && from->tag == ffzTypeTag_DefaultSint) { // int to ptr
@@ -1890,7 +1908,7 @@ FFZ_CAPI fOpt(ffzNode*) ffz_checked_this_dot_get_assignee(ffzNodeThisValueDot* d
 FFZ_CAPI fOpt(ffzDatum*) ffz_checked_get_tag(ffzNode* node, ffzType* tag_type) {
 	for (ffzNode* tag_n = node->first_tag; tag_n; tag_n = tag_n->next) {
 		ffzCheckInfo info = ffz_checked_get_info(tag_n);
-		if (types_match(info.type, tag_type)) {
+		if (types_match_liberal(info.type, tag_type)) {
 			return info.const_val;
 		}
 	}

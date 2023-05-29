@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+	
+	<!--
+	References:
+	https://msdn.microsoft.com/en-us/library/75w45ekt.aspx?f=255&MSPPError=-2147217396
+	https://docs.microsoft.com/en-us/visualstudio/debugger/create-custom-views-of-native-objects
+	-->
+	
+	<Type Name="slice&lt;*&gt;">
+		<!--    <DisplayString>{{ptr={(void*)ptr}, len={len}}}</DisplayString>        -->
+		<Expand>
+			<ArrayItems>
+			  <Size>len</Size>
+			  <ValuePointer>ptr</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+	
+	<!-- String -->
+	<Type Name="string">
+		<DisplayString>{ptr,[len]s}</DisplayString>
+		<Expand>
+			<ArrayItems>
+			  <Size>len</Size>
+			  <ValuePointer>ptr</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+	
+	<Type Name="Array&lt;*&gt;">
+		<Expand>
+			<ArrayItems>
+			  <Size>slice.len</Size>
+			  <ValuePointer>slice.ptr</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+	
+</AutoVisualizer>
