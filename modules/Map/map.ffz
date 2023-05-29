@@ -32,28 +32,28 @@
 
 // K must be KeyType
 #Map: poly[K, T] struct {
-	allocator: ^Basic.Allocator
+	arena: ^Basic.Arena
 	alive_count: u32(0)
 	slots: []MapSlot[K, T]{}
 }
 
-#make: poly[K, T] proc(allocator: ^Basic.Allocator) => Map[K, T] {
-	return {allocator: allocator}
+#make: poly[K, T] proc(arena: ^Basic.Arena) => Map[K, T] {
+	return {arena: arena}
 }
 
-#add_assert_unique: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
-	added: _insert[K, T](map, key, value, overwrite: false)
+#add_assert_unique: poly[K, T] proc(m: ^Map[K, T], key: K.KEY, value: T) {
+	added: _insert[K, T](m, key, value, overwrite: false)
 	Basic.assert(added)
 }
 
 // returns `true` if the value did not exist in the map before
-#add_or_ignore: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) => bool {
-	added: _insert(map, key, value, overwrite: false)
+#add_or_ignore: poly[K, T] proc(m: ^Map[K, T], key: K.KEY, value: T) => bool {
+	added: _insert(m, key, value, overwrite: false)
 	return added
 }
 
-#add_or_overwrite: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T) {
-	_ = _insert(map, key, value, overwrite: true)
+#add_or_overwrite: poly[K, T] proc(m: ^Map[K, T], key: K.KEY, value: T) {
+	_ = _insert(m, key, value, overwrite: true)
 }
 
 
@@ -61,17 +61,17 @@
  Returns null if not found.
  NOTE: the returned pointer is unstable across modifications to the map!
 */
-#find_slot: poly[K, T] proc(map: ^Map[K, T], key: K.KEY) => ^MapSlot[K, T] {
+#find_slot: poly[K, T] proc(m: ^Map[K, T], key: K.KEY) => ^MapSlot[K, T] {
 	hash: K.hash_fn(key)
 	if hash < HASH_FIRST_VALID {
 		hash = HASH_FIRST_VALID
 	}
 	
-	wrapping_mask: map.slots.len - 1
+	wrapping_mask: m.slots.len - 1
 	slot_index: bit_and(hash, wrapping_mask)
 	
 	for loop: true, loop, {
-		slot: &map.slots[slot_index]
+		slot: &m.slots[slot_index]
 		
 		if slot.hash == hash && K.compare_fn(slot.key, key) {
 			return slot
@@ -87,38 +87,38 @@
 	return ^MapSlot[K, T](0)
 }
 
-#resize: poly[K, T] proc(map: ^Map[K, T], slot_count_pow2: uint) {
+#resize: poly[K, T] proc(m: ^Map[K, T], slot_count_pow2: uint) {
 	Basic.assert(Basic.is_power_of_2(slot_count_pow2))
 	#SlotType: MapSlot[K, T]
 	
-	old_slots: map.slots
+	old_slots: m.slots
 	
-	map.slots = Basic.make_slice_undef[SlotType](slot_count_pow2, map.allocator)
-	Basic.memset(map.slots.ptr, 0, map.slots.len * size_of(SlotType)) // set each hash to HASH_EMPTY_SLOT
+	m.slots = Basic.make_slice_undef[SlotType](slot_count_pow2, m.arena)
+	Basic.memset(m.slots.ptr, 0, m.slots.len * size_of(SlotType)) // set each hash to HASH_EMPTY_SLOT
 	
 	for i: 0, i < old_slots.len, i=.+1 {
 		slot: &old_slots[i]
 		if slot.hash >= HASH_FIRST_VALID {
-			add_assert_unique[K, T](map, slot.key, slot.value)
+			add_assert_unique[K, T](m, slot.key, slot.value)
 		}
 	}
 	
-	Basic.free_slice(old_slots, map.allocator)
+	Basic.free_slice(old_slots, m.arena)
 }
 
 /*
  returns `true` if the value did not exist in the map before
 */
-#_insert: poly[K, T] proc(map: ^Map[K, T], key: K.KEY, value: T, overwrite: bool) => bool {
+#_insert: poly[K, T] proc(m: ^Map[K, T], key: K.KEY, value: T, overwrite: bool) => bool {
 	
 	//      filled / allocated >= 70/100
 	// <==> filled * 100 >= allocated * 70
 	
-	slot_count_before: map.slots.len
-	if (uint(map.alive_count) + 1) * 100 >= slot_count_before * 70 {
-		// expand the map; the + 7 is to make us start off with 8 elements initially
-		new_capacity: Basic.round_up_to_power_of_2(map.slots.len + 7)
-		resize(map, new_capacity)
+	slot_count_before: m.slots.len
+	if (uint(m.alive_count) + 1) * 100 >= slot_count_before * 70 {
+		// expand the m; the + 7 is to make us start off with 8 elements initially
+		new_capacity: Basic.round_up_to_power_of_2(m.slots.len + 7)
+		resize(m, new_capacity)
 	}
 	
 	hash: K.hash_fn(key)
@@ -126,12 +126,12 @@
 		hash = HASH_FIRST_VALID
 	}
 	
-	wrapping_mask: u32(map.slots.len) - 1
+	wrapping_mask: u32(m.slots.len) - 1
 	slot_index: bit_and(hash, wrapping_mask)
 	first_unused_slot: ^MapSlot[K, T](0)
 	
 	for loop: true, loop, {
-		slot: &map.slots[slot_index]
+		slot: &m.slots[slot_index]
 		
 		if slot.hash == hash && K.compare_fn(slot.key, key) {
 			// Key already exists in the map
@@ -153,7 +153,7 @@
 		slot_index = bit_and(. + 1, wrapping_mask)
 	}
 	
-	map.alive_count = .+1
+	m.alive_count = .+1
 	first_unused_slot.hash = hash
 	first_unused_slot.key = key
 	first_unused_slot.value = value

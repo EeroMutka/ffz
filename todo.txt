@@ -10,13 +10,12 @@
 
 [x] break/continue with labels
 
-[] fix the situation with commas and newlines
 
 [] Text rendering using texture/glyphs
 
-[] Get keyboard + mouse input working with the 2D drawing sample app
+[] fix the situation with commas and newlines
 
-[] struct and array ==, != comparison
+[] Get keyboard + mouse input working with the 2D drawing sample app
 
 [] Memory management; TLSF module, heap-scopes, heap-arenas.
 
@@ -27,6 +26,8 @@
 	But to start with, we could just trigger a breakpoint instruction.
 
 [] fix the "main" vs "entry" thing
+
+[] implicit cast to a member with @using, i.e. when passing as a parameter
 
 --------------- Keith release candidate ---------------
 [] deferred/scoped calls

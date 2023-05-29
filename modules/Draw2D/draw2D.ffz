@@ -108,7 +108,11 @@
 //LT_text_height: f32(LT_Font* font)
 //LT_text_dimensions(String str, LT_Font* font)
 
-//LT_Font* LT_make_font()
-//LT_font_params(LT_Font* font, Slice<u8> font_data, size: f32, y_offset: f32)
-//LT_rebuild_font_atlas()
 
+// Font atlas is a collection of fonts that will be cached into a single 2D texture atlas.
+
+// make_font_atlas(arena) => ^FontAtlas
+// add_ttf_font_from_file(atlas, filepath, arena, size: f32, y_offset: f32) => ^Font
+// add_ttf_font_from_data(atlas, data, size: f32, y_offset: f32) => ^Font
+// remove_font(atlas, font: ^Font)
+// build_font_atlas(atlas, ...)

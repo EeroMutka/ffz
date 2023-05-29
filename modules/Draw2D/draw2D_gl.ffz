@@ -3,9 +3,9 @@
 // hmm.. to easily allow for different backends, we would either need to implement module parameters + #if
 // OR @using import().
 
-//#Array: import(":Array")
+#Array: import(":Array")
 
-//#stbtt: import(":vendor/stb/stb_truetype")
+#stbtt: import(":vendor/stb/stb_truetype")
 
 #TEXTURE_SLOT: u32(0)
 #VERTEX_BUFFER_CAPACITY: 32768
@@ -362,21 +362,55 @@ void main() {
 	}
 }
 
-#rune: u32
 
-#Font: struct {
-	data: []u8
+
+
+
+
+
+
+// -- Font stuff ------------------------------------------
+
+#FontAtlas: struct {
+	//arena: ^Basic.Arena
+	font: ^Font //fonts: Array.Array[^Font] // TODO: use a pool here
+	foo: f32
 }
 
-#build_font_atlas: proc(fonts: []Font) {
-	
+//#make_font_atlas: proc(arena: ^Basic.Arena) => ^FontAtlas {
+//	return Basic.new(FontAtlas{arena: arena}, arena)
+//}
+
+// #add_ttf_font_from_file: proc
+
+
+#Font: struct {
+	atlas: ^FontAtlas
+	//data: []u8
+	//size: f32
+	y_offset: f32
+}
+
+//#add_ttf_font_from_data: proc(atlas: ^FontAtlas, data: []u8, size: f32, y_offset: f32) {
+//	font: Basic.new(Font{atlas, data, size: size, y_offset: y_offset}, atlas.arena)
+//	//Array.push(&atlas.fonts, font)
+//	return font
+//}
+
+#rune: u32
+
+#build_font_atlas: proc(atlas: ^FontAtlas, arena: ^Basic.Arena) {
+	/*
 	// Padding between glyphs within texture in pixels.
 	// If your rendering method doesn't rely on bilinear filtering you may set this to 0.
-	/*glyph_padding: s32(1)
+	glyph_padding: s32(1)
 	
 	total_surface: s32(0)
 	
-	#Range: struct {lo: u32, hi: u32}
+	#Range: struct{
+		lo: u32
+		hi: u32
+	}
 	
 	codepoint_ranges: []Range{{32, 127}}
 	
@@ -387,11 +421,9 @@ void main() {
 		w: s32, h: s32
 	}
 	
-	allocator: Basic.temp_alc() // TODO
-	
-	glyphs: Array.make[Glyph](allocator)
-	font_infos: Basic.make_slice_undef[stbtt.fontinfo](fonts.len, allocator)
-	glyph_ranges: Basic.make_slice_undef[Range](fonts.len, allocator)
+	glyphs: Array.make[Glyph](arena)
+	font_infos: Basic.make_slice_undef[stbtt.fontinfo](fonts.len, arena)
+	glyph_ranges: Basic.make_slice_undef[Range](fonts.len, arena)
 	
 	oversample_h: s32(1)
 	oversample_v: s32(1)
@@ -400,7 +432,7 @@ void main() {
 		font: &fonts[font_id] // ^Font
 		font_info: &font_infos[font_id] // ^stbtt.fontinfo
 		
-		glyph_ranges[font_id].lo = glyphs.len
+		glyph_ranges[font_id].lo = u32(glyphs.len)
 		
 		font_offset: stbtt.GetFontOffsetForIndex(font.data.ptr, 0)
 		Basic.assert(font_offset >= 0)
@@ -408,11 +440,36 @@ void main() {
 		
 		scale: stbtt.ScaleForPixelHeight(font_info, font.size)
 		
-		{
+		for range_i: 0, range_i < codepoint_ranges.len, range_i = .+1 {
+			range: codepoint_ranges[range_i]
+			
+			for codepoint: range.lo, codepoint < range.hi, codepoint = .+1 {
+				glyph_index: stbtt.FindGlyphIndex(font_info, codepoint)
+				
+				x0: s32(~~), y0: s32(~~), x1: s32(~~), y1: s32(~~)
+				stbtt.GetGlyphBitmapBoxSubpixel(font_info, glyph_index, scale * oversample_h, scale * oversample_v, 0, 0, &x0, &y0, &x1, &y1)
+				
+				width: x1 - x0 + glyph_padding + oversample_h - 1
+				height: y1 - y0 + glyph_padding + oversample_v - 1
+				total_surface = . + width * height
+				Basic.assert(width > 0 && height > 0)
+				
+				glyph: Glyph{
+					codepoint: codepoint
+					font_id: font_id
+					glyph_index: glyph_index
+					w: width
+					h: height
+				}
+				Array.push(&glyphs, glyph)
+			}
 		}
 		
 		glyph_ranges[font_id].hi = glyphs.len
-	}*/
+	}
+	
+	dbgbreak
+	*/
 }
 
 

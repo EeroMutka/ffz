@@ -37,4 +37,19 @@ That does mean that the checker should have write access to the AST nodes.
 But then at the same time, isn't it kinda the same thing with e.g. the 3rd statement in a for loop header?
 We could expand it into the body (and before continues) and it'd be easier for metaprogramming.
 
+But when exactly does defer run? Intuitively, we'd place the deferred code right before the return statement.
+However, this can problematic:
+
+	temp: Basic.temp_scope()~
+	return copy_string("hi", temp)
+
+So we want to run the deferred code AFTER the value in the return value has been computed, but BEFORE returning.
+
+debug idea: make a local variable called "return", and instead of returning immediately, with F10, return 1 line later!
+That way you can inspect the return value in the debugger!
+Then, maybe we can also support the following:
+
+	temp: Basic.temp_push()
+	return copy_string("hi", temp); Basic.temp_pop(temp)  // Basic.temp_pop(temp) is executed after the return value is determined, but before returning.
+
 */

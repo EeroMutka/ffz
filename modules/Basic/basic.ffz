@@ -125,7 +125,7 @@ _tl_arena_tls_index: u32(0)
 		committed_end: base
 	}
 	
-	arena: ^Arena(arena_push(&dummy, size_of(Arena), align_of(Arena)).ptr)
+	arena: ^Arena(arena_push(&dummy, size_of(Arena), align_of(Arena)))
 	arena^ = dummy
 	return arena
 }
@@ -193,9 +193,6 @@ _tl_arena_tls_index: u32(0)
 	memset(ptr, 0xCC, size)
 }
 
-// should we have a polymorphic `arena_push_new` thing?
-// #arena_push_new: poly[T] proc(arena: ^Arena) => ^T {...}
-
 #form_string: proc(ptr: ^u8, len: uint) => string {
 	result: string(~~)
 	result.ptr = ptr
@@ -210,7 +207,7 @@ _tl_arena_tls_index: u32(0)
 	return result
 }
 
-#arena_push: proc(arena: ^Arena, size: uint, align: uint) => []u8 {
+#arena_push: proc(arena: ^Arena, size: uint, align: uint) => ^raw {
 	allocation_pos: ^u8(align_up(int(arena.head), align))
 	
 	arena.head = ^u8(uint(allocation_pos) + size)
@@ -225,7 +222,7 @@ _tl_arena_tls_index: u32(0)
 	//if ENABLE_DEBUG_CHECKS {
 	//	_debug_clear_memory(allocation_pos, size)
 	//}
-	return form_slice[u8](allocation_pos, size)
+	return allocation_pos
 }
 
 // returns NULL if invalid
@@ -286,9 +283,15 @@ _tl_arena_tls_index: u32(0)
 //	_proc: AllocatorProc
 //}
 
+#new: poly[T] proc(x: T, arena: ^Arena) => ^T {
+	result: ^T(arena_push(arena, size_of(T), align_of(T)))
+	result^ = x
+	return result
+}
+
 #make_slice_undef: poly[T] proc(len: uint, arena: ^Arena) => []T {
 	result: []T(~~)
-	result.ptr = ^T(arena_push(arena, len * size_of(T), align_of(T)).ptr)
+	result.ptr = ^T(arena_push(arena, len * size_of(T), align_of(T)))
 	result.len = len
 	return result
 }

@@ -290,6 +290,7 @@ bool cache_is_polymorphic(ffzType* type, ffzType* root_type, bool recursing) {
 	
 	case ffzTypeTag_Record: {
 		for (uint i=0; i < type->record_fields.len; i++) {
+			//F_HITS(___c, 581);
 			ffzType* member_type = type->record_fields[i].type;
 			if (!cache_is_polymorphic(member_type, root_type, true)) return false;
 			
@@ -299,11 +300,11 @@ bool cache_is_polymorphic(ffzType* type, ffzType* root_type, bool recursing) {
 		}
 	} break;
 	case ffzTypeTag_Pointer: {
-		if (!cache_is_polymorphic(type->Pointer.pointer_to, root_type, false)) return false;
+		if (!cache_is_polymorphic(type->Pointer.pointer_to, root_type, true)) return false;
 		type->is_polymorphic = type->Pointer.pointer_to->is_polymorphic;
 	} break;
 	case ffzTypeTag_Slice: {
-		if (!cache_is_polymorphic(type->Slice.elem_type, root_type, false)) return false;
+		if (!cache_is_polymorphic(type->Slice.elem_type, root_type, true)) return false;
 		type->is_polymorphic = type->Slice.elem_type->is_polymorphic;
 	} break;
 	default: break;
@@ -2232,7 +2233,8 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		TRY(check_tag(c, tag_n));
 	}
 
-	//F_HITS(_c, 2307);
+	F_HITS(_c, 0);
+
 	ffzCheckInfo result = {};
 	bool post_check_curly_initializer = false;
 
@@ -2515,12 +2517,10 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		ffzCheckInfo lhs_info;
 		TRY(check_node(c, lhs, NULL, 0, &lhs_info));
 		
-		if (!c->is_inside_polymorphic_node) {
-			if (lhs_info.type->tag != ffzTypeTag_Pointer) {
-				ERR(c, node, "Attempted to dereference a non-pointer.");
-			}
-			result.type = lhs_info.type->Pointer.pointer_to;
+		if (!lhs_info.type || lhs_info.type->tag != ffzTypeTag_Pointer) {
+			ERR(c, node, "Attempted to dereference a non-pointer.");
 		}
+		result.type = lhs_info.type->Pointer.pointer_to;
 	} break;
 	
 	case ffzNodeKind_Equal: case ffzNodeKind_NotEqual: case ffzNodeKind_Less:
@@ -2576,7 +2576,7 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 		if (node->kind == ffzNodeKind_Declare) ERR(c, node, "Expected an expression, but got a declaration.");
 
 		if (!result.type && !(flags & InferFlag_IgnoreUncertainTypes)) {
-			ERR(c, node, "Expression has no type, or it cannot be inferred.");
+			ERR(c, node, "Expression has no type or it can't be inferred.");
 		}
 	}
 
@@ -2757,9 +2757,10 @@ static fOpt(ffzError*) check_node(ffzModuleChecker* c, ffzNode* node, fOpt(ffzTy
 			
 			ffzType* record_type = &result.const_val->type;
 			TRY(ffz_record_builder_finish(&b, record_type));
-
+			
 			record_type->unfinished = false;
 			cache_is_polymorphic(record_type, record_type, false);
+			int _ = 50;
 		} break;
 		}
 	}

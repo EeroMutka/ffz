@@ -1,0 +1,7 @@
+
+// A type is a POD-type if it's a basic type or struct containing basic types. Fixed types can be compared.
+// An array, string, or slice can be compared if the element type is a POD-type.
+// hmm... what about float comparisons? -0 and 0 are equal, but they're not bitwise equal.
+// so we can't use memcmp for optimization.
+// let's just not allow struct comparison for now I guess.
+
