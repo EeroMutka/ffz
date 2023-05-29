@@ -89,7 +89,7 @@ void print_bb(fWriter* f, gmmcBasicBlock* bb) {
 		// operand count
 		//operand_to_str(bb, op->operands[0])
 
-		if (gmmc_is_op_direct(bb->proc, op_idx)) continue;
+		if (gmmc_is_op_immediate(bb->proc, op_idx)) continue;
 
 		if (type != gmmcType_None) {
 			f_print(f, "~s _$~u32 = ", gmmc_type_get_string(type), op_idx);

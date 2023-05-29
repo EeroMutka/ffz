@@ -468,12 +468,12 @@ GMMC_API gmmcOpIdx gmmc_op_call(gmmcBasicBlock* bb,
 	gmmcType return_type, gmmcOpIdx proc_address,
 	gmmcOpIdx* in_arguments, uint32_t in_arguments_count);
 
-// -- Direct values ----------------------------
+// -- Immediate values ----------------------------
 //
-// Direct values are values that don't require any computation and such aren't tied to any specific basic block.
+// Immediate values don't require any computation and such aren't tied to any specific basic block.
 //
 #define GMMC_BB_INDEX_NONE 0xFFFFFFFF
-inline bool gmmc_is_op_direct(gmmcProc* proc, gmmcOpIdx op) {
+inline bool gmmc_is_op_immediate(gmmcProc* proc, gmmcOpIdx op) {
 	return ((gmmcOpData*)proc->ops.data)[op].bb_idx == GMMC_BB_INDEX_NONE;
 }
 
@@ -516,7 +516,9 @@ GMMC_API gmmcAsmModule* gmmc_asm_build_x64(gmmcModule* m); // TODO: pass a separ
 //GMMC_API void gmmc_asm_export_x64(fString obj_filepath, gmmcAsmModule* m);
 
 // returns the offset relative to the beginning of the code-section.
+// NOTE: even `gmmc_op_comment` will give the instruction offset at the comment, even though it's a no-op.
 GMMC_API u32 gmmc_asm_instruction_get_offset(gmmcAsmModule* m, gmmcProc* proc, gmmcOpIdx op);
+
 GMMC_API u32 gmmc_asm_proc_get_start_offset(gmmcAsmModule* m, gmmcProc* proc);
 GMMC_API u32 gmmc_asm_proc_get_end_offset(gmmcAsmModule* m, gmmcProc* proc);
 

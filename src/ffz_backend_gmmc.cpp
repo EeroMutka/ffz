@@ -203,17 +203,17 @@ static bool has_big_return(ffzType* proc_type) {
 	return proc_type->Proc.return_type && proc_type->Proc.return_type->size > 8; // :BigReturn
 }
 
-// optionally set debug-info location
-static void set_loc(Gen* g, gmmcOpIdx op, ffzLocRange loc) {
-	if (!gmmc_is_op_direct(g->proc, op)) {
+static gmmcOpIdx set_debug_loc(Gen* g, gmmcOpIdx op, ffzLocRange loc) {
+	if (!gmmc_is_op_immediate(g->proc, op)) {
 		u32 line_num = g->override_line_num ? *g->override_line_num : loc.start.line_num;
 		line_num -= g->proc_info->node->loc.start.line_num;
-		
+
 		gmmcOpIdx* line_op = &g->proc_info->dbginfo_line_ops[line_num];
 		if ((*line_op) == GMMC_OP_IDX_INVALID) {
 			*line_op = op;
 		}
 	}
+	return op;
 }
 
 static void print_debuginfo_type(Gen* g, fWriter* w, ffzType* type) {
@@ -477,7 +477,6 @@ static gmmcProc* gen_procedure(Gen* g, ffzNode* node) {
 	if (!proc_type->Proc.return_type) { // automatically generate a return statement if the proc doesn't return a value
 		g->override_line_num = &node->loc.end.line_num;
 		gmmcOpIdx op = gmmc_op_return(g->bb, gmmcOpIdx{GMMC_OP_IDX_INVALID});
-		set_loc(g, op, node->loc);
 		g->override_line_num = NULL;
 	}
 
@@ -634,7 +633,6 @@ static Value gen_constant(Gen* g, ffzType* type, ffzDatum* data, ffzLocRange loc
 			// Create a stack copy
 			gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, type->size, type->align);
 			gmmcOpIdx copy_op = gmmc_op_memcpy(g->bb, local_copy_addr, out.op, gmmc_op_i32(g->proc, type->size));
-			set_loc(g, copy_op, loc);
 			out.op = local_copy_addr;
 			out.indirect_is_temporary_copy = true;
 		}
@@ -698,7 +696,6 @@ static Value gen_call(Gen* g, ffzNodeOp* node) {
 				// We need to copy the value for the callee.
 				gmmcOpIdx local_copy_addr = gmmc_op_local(g->proc, param_type->size, param_type->align);
 				gmmcOpIdx copy = gmmc_op_memcpy(g->bb, local_copy_addr, arg_value.op, gmmc_op_i32(g->proc, param_type->size));
-				set_loc(g, copy, arg_node->loc);
 				arg_value.op = local_copy_addr;
 			}
 		}
@@ -715,7 +712,6 @@ static Value gen_call(Gen* g, ffzNodeOp* node) {
 	f_assert(target.op != UNDEFINED_VALUE);
 
 	gmmcOpIdx call = gmmc_op_call(g->bb, ret_type_gmmc, target.op, args.data, (u32)args.len);
-	set_loc(g, call, node->loc);
 	if (!big_return) out.op = call;
 
 	return out;
@@ -729,7 +725,6 @@ static gmmcOpIdx gen_store(Gen* g, gmmcOpIdx addr, gmmcOpIdx value, ffzType* typ
 	} else {
 		result = gmmc_op_memcpy(g->bb, addr, value, gmmc_op_i32(g->proc, type->size));
 	}
-	set_loc(g, result, node->loc);
 	return result;
 }
 
@@ -843,31 +838,31 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 
 			if (ffz_type_is_float(input_type->tag)) {
 				switch (node->kind) {
-				case ffzNodeKind_Add: { out.op = gmmc_op_fadd(g->bb, a, b); } break;
-				case ffzNodeKind_Sub: { out.op = gmmc_op_fsub(g->bb, a, b); } break;
-				case ffzNodeKind_Mul: { out.op = gmmc_op_fmul(g->bb, a, b); } break;
-				case ffzNodeKind_Div: { out.op = gmmc_op_fdiv(g->bb, a, b); } break;
-				case ffzNodeKind_Equal: { out.op = gmmc_op_eq(g->bb, a, b); } break;
-				case ffzNodeKind_NotEqual: { out.op = gmmc_op_ne(g->bb, a, b); } break;
-				case ffzNodeKind_Less: { out.op = gmmc_op_lt(g->bb, a, b, false); } break;
-				case ffzNodeKind_LessOrEqual: { out.op = gmmc_op_le(g->bb, a, b, false); } break;
-				case ffzNodeKind_Greater: { out.op = gmmc_op_gt(g->bb, a, b, false); } break;
+				case ffzNodeKind_Add: {            out.op = gmmc_op_fadd(g->bb, a, b);      } break;
+				case ffzNodeKind_Sub: {            out.op = gmmc_op_fsub(g->bb, a, b);      } break;
+				case ffzNodeKind_Mul: {            out.op = gmmc_op_fmul(g->bb, a, b);      } break;
+				case ffzNodeKind_Div: {            out.op = gmmc_op_fdiv(g->bb, a, b);      } break;
+				case ffzNodeKind_Equal: {          out.op = gmmc_op_eq(g->bb, a, b);        } break;
+				case ffzNodeKind_NotEqual: {       out.op = gmmc_op_ne(g->bb, a, b);        } break;
+				case ffzNodeKind_Less: {           out.op = gmmc_op_lt(g->bb, a, b, false); } break;
+				case ffzNodeKind_LessOrEqual: {    out.op = gmmc_op_le(g->bb, a, b, false); } break;
+				case ffzNodeKind_Greater: {        out.op = gmmc_op_gt(g->bb, a, b, false); } break;
 				case ffzNodeKind_GreaterOrEqual: { out.op = gmmc_op_ge(g->bb, a, b, false); } break;
 				default: f_trap();
 				}
 			} else {
 				switch (node->kind) {
-				case ffzNodeKind_Add: { out.op = gmmc_op_add(g->bb, a, b); } break;
-				case ffzNodeKind_Sub: { out.op = gmmc_op_sub(g->bb, a, b); } break;
-				case ffzNodeKind_Mul: { out.op = gmmc_op_mul(g->bb, a, b, is_signed); } break;
-				case ffzNodeKind_Div: { out.op = gmmc_op_div(g->bb, a, b, is_signed); } break;
-				case ffzNodeKind_Modulo: { out.op = gmmc_op_mod(g->bb, a, b, is_signed); } break;
-				case ffzNodeKind_Equal: { out.op = gmmc_op_eq(g->bb, a, b); } break;
-				case ffzNodeKind_NotEqual: { out.op = gmmc_op_ne(g->bb, a, b); } break;
-				case ffzNodeKind_Less: { out.op = gmmc_op_lt(g->bb, a, b, is_signed); } break;
-				case ffzNodeKind_LessOrEqual: { out.op = gmmc_op_le(g->bb, a, b, is_signed); } break;
-				case ffzNodeKind_Greater: { out.op = gmmc_op_gt(g->bb, a, b, is_signed); } break;
-				case ffzNodeKind_GreaterOrEqual: { out.op = gmmc_op_ge(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Add:             { out.op = gmmc_op_add(g->bb, a, b); } break;
+				case ffzNodeKind_Sub:             { out.op = gmmc_op_sub(g->bb, a, b); } break;
+				case ffzNodeKind_Mul:             { out.op = gmmc_op_mul(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Div:             { out.op = gmmc_op_div(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Modulo:          { out.op = gmmc_op_mod(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Equal:           { out.op = gmmc_op_eq(g->bb, a, b); } break;
+				case ffzNodeKind_NotEqual:        { out.op = gmmc_op_ne(g->bb, a, b); } break;
+				case ffzNodeKind_Less:            { out.op = gmmc_op_lt(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_LessOrEqual:     { out.op = gmmc_op_le(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_Greater:         { out.op = gmmc_op_gt(g->bb, a, b, is_signed); } break;
+				case ffzNodeKind_GreaterOrEqual:  { out.op = gmmc_op_ge(g->bb, a, b, is_signed); } break;
 				default: f_trap();
 				}
 			}
@@ -875,19 +870,21 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 
 		case ffzNodeKind_UnaryMinus: {
 			gmmcType type = get_gmmc_trivial_type(g, checked.type);
-
 			u64 zero = 0;
+			gmmcOpIdx zero_op = gmmc_op_immediate(g->proc, type, &zero);
+
 			out.op = gen_expr(g, right, false).op;
 			if (gmmc_type_is_float(type)) {
-				out.op = gmmc_op_fsub(g->bb, gmmc_op_immediate(g->proc, type, &zero), out.op);
+				out.op = gmmc_op_fsub(g->bb, zero_op, out.op);
 			} else {
-				out.op = gmmc_op_sub(g->bb, gmmc_op_immediate(g->proc, type, &zero), out.op);
+				out.op = gmmc_op_sub(g->bb, zero_op, out.op);
 			}
 		} break;
 
 		case ffzNodeKind_LogicalNOT: {
 			// (!x) is equivalent to (x == false)
-			out.op = gmmc_op_eq(g->bb, gen_expr(g, right, false).op, gmmc_op_bool(g->proc, false));
+			out.op = gen_expr(g, right, false).op;
+			out.op = gmmc_op_eq(g->bb, out.op, gmmc_op_bool(g->proc, false));
 		} break;
 
 		case ffzNodeKind_PostRoundBrackets: {
@@ -902,10 +899,16 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 					gmmcOpIdx second = gen_expr(g, ffz_get_child(node, 1), false).op;
 					switch (keyword) {
 					case ffzKeyword_bit_and: { out.op = gmmc_op_and(g->bb, first, second); } break;
-					case ffzKeyword_bit_or: { out.op = gmmc_op_or(g->bb, first, second); } break;
+					case ffzKeyword_bit_or: {  out.op = gmmc_op_or(g->bb, first, second); } break;
 					case ffzKeyword_bit_xor: { out.op = gmmc_op_xor(g->bb, first, second); } break;
-					case ffzKeyword_bit_shl: { out.op = gmmc_op_shl(g->bb, first, gmmc_op_int2int(g->bb, second, gmmcType_i8, false)); } break;
-					case ffzKeyword_bit_shr: { out.op = gmmc_op_shr(g->bb, first, gmmc_op_int2int(g->bb, second, gmmcType_i8, false)); } break;
+					case ffzKeyword_bit_shl: {
+						out.op = gmmc_op_int2int(g->bb, second, gmmcType_i8, false);
+						out.op = gmmc_op_shl(g->bb, first, out.op);
+					} break;
+					case ffzKeyword_bit_shr: {
+						out.op = gmmc_op_int2int(g->bb, second, gmmcType_i8, false);
+						out.op = gmmc_op_shr(g->bb, first, out.op);
+					} break;
 					default: f_trap();
 					}
 				}
@@ -1000,7 +1003,8 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 				gmmcOpIdx addr_of_struct = gen_expr(g, left, left_type->tag != ffzTypeTag_Pointer).op;
 				f_assert(addr_of_struct != UNDEFINED_VALUE);
 
-				out.op = field.offset ? gmmc_op_member_access(g->bb, addr_of_struct, field.offset) : addr_of_struct;
+				out.op = field.offset ? gmmc_op_member_access(g->bb, addr_of_struct, field.offset)
+					: addr_of_struct;
 			}
 			needs_dereference = true; //should_dereference = !address_of;
 		} break;
@@ -1139,7 +1143,7 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 	}
 
 	f_assert(out.op != UNDEFINED_VALUE);
-	set_loc(g, out.op, node->loc);
+	//f_trap();//set_loc(g, out.op, node->loc);
 	
 	if (needs_dereference) {
 		if (address_of) {}
@@ -1147,7 +1151,6 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 			// Dereference the indirect value
 			if (value_is_direct(checked.type)) {
 				out.op = gmmc_op_load(g->bb, get_gmmc_trivial_type(g, checked.type), out.op);
-				set_loc(g, out.op, node->loc);
 			}
 		}
 	}
@@ -1156,7 +1159,6 @@ static Value gen_expr(Gen* g, ffzNode* node, bool address_of) {
 		if (value_is_direct(checked.type)) {
 			gmmcOpIdx tmp = gmmc_op_local(g->proc, checked.type->size, checked.type->align);
 			gmmc_op_store(g->bb, tmp, out.op);
-			set_loc(g, tmp, node->loc);
 			out.op = tmp;
 			out.indirect_is_temporary_copy = true;
 		}
@@ -1169,18 +1171,20 @@ static void gen_statement(Gen* g, ffzNode* node) {
 	ZoneScoped;
 	if (g->proc) {
 		//gmmc_op_comment(g->bb, fString{}); // empty line
-		if (node->kind == ffzNodeKind_Block) {}
-		else if (node->kind == ffzNodeKind_If) {}
-		else if (node->kind == ffzNodeKind_For) {}
-		else if (ffz_node_is_keyword(node, ffzKeyword_dbgbreak)) {}
-		else {
-			//ffzParser* parser = g->project->parsers[node->source_id];
-			u32 start = node->loc.start.offset;
-			u32 end = node->loc.end.offset;
+		
+		bool full_comment = true;
+		if (node->kind == ffzNodeKind_Block) full_comment = false;
+		else if (node->kind == ffzNodeKind_If) full_comment = false;
+		else if (node->kind == ffzNodeKind_For) full_comment = false;
+		else if (ffz_node_is_keyword(node, ffzKeyword_dbgbreak)) full_comment = false;
+		
+		u32 start = node->loc.start.offset;
+		u32 end = node->loc.end.offset;
 			
+		set_debug_loc(g, 
 			gmmc_op_comment(g->bb, f_aprint(g->arena, "line ~u32:   ~s", node->loc.start.line_num,
-				fString{ node->loc_source->source_code.data + start, end - start }));
-		}
+				full_comment ? fString{ node->loc_source->source_code.data + start, end - start } : F_LIT(""))),
+			node->loc);
 	}
 	
 	ffzCheckInfo checked = ffz_checked_get_info(node);
@@ -1270,7 +1274,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		}
 
 		gmmcBasicBlock* after_bb = gmmc_make_basic_block(g->proc);
-		set_loc(g, gmmc_op_if(g->bb, cond, true_bb, node->If.false_scope ? false_bb : after_bb), node->loc);
+		gmmc_op_if(g->bb, cond, true_bb, node->If.false_scope ? false_bb : after_bb);
 
 		g->bb = true_bb;
 		gen_statement(g, node->If.true_scope);
@@ -1325,13 +1329,13 @@ static void gen_statement(Gen* g, ffzNode* node) {
 
 	case ffzNodeKind_Keyword: {
 		f_assert(node->Keyword.keyword == ffzKeyword_dbgbreak);
-		set_loc(g, gmmc_op_debugbreak(g->bb), node->loc);
+		gmmc_op_debugbreak(g->bb);
 	} break;
 
 	case ffzNodeKind_Break: {
 		ffzNode* break_scope = ffz_break_get_target_scope(node);
 		gmmcBasicBlock* after_bb = *f_map64_get(&g->proc_info->break_goto_targets, (u64)break_scope);
-		set_loc(g, gmmc_op_goto(g->bb, after_bb), node->loc);
+		gmmc_op_goto(g->bb, after_bb);
 	} break;
 
 	case ffzNodeKind_Continue: {
@@ -1347,7 +1351,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 		}
 		
 		gmmcBasicBlock* cond_bb = *f_map64_get(&g->proc_info->continue_goto_targets, (u64)for_loop);
-		set_loc(g, gmmc_op_goto(g->bb, cond_bb), node->loc);
+		gmmc_op_goto(g->bb, cond_bb);
 	} break;
 
 	case ffzNodeKind_Return: {
@@ -1365,7 +1369,7 @@ static void gen_statement(Gen* g, ffzNode* node) {
 			}
 		}
 
-		set_loc(g, gmmc_op_return(g->bb, val), node->loc);
+		gmmc_op_return(g->bb, val);
 	} break;
 
 	case ffzNodeKind_PostRoundBrackets: {
@@ -1573,8 +1577,6 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 		ProcInfo* proc_info = g->procs_sorted[i];
 		gmmcProc* proc = proc_info->gmmc_proc;
 
-		//gmmc_asm_global_get_offset(asm_module, 
-
 		u32 start_offset = gmmc_asm_proc_get_start_offset(asm_module, proc);
 
 		coffSymbol sym = {};
@@ -1612,15 +1614,33 @@ static bool build_x64(Gen* g, fString build_dir, fMap64(fString) link_libraries,
 			u32 start_line_num = proc_info->node->loc.start.line_num;
 			f_array_push(&lines, cviewLine{ start_line_num , start_offset });
 
+			bool has_pending_line = false; cviewLine pending_line;
+
 			for (u32 i = 0; i < proc_info->dbginfo_line_ops.len; i++) {
 				gmmcOpIdx line_op = proc_info->dbginfo_line_ops[i];
 				if (line_op != GMMC_OP_IDX_INVALID) {
 					cviewLine line;
 					line.line_num = start_line_num + i;
 					line.offset = gmmc_asm_instruction_get_offset(asm_module, proc, line_op);
-					f_array_push(&lines, line);
+
+					// Only add the pending line if the current line has a different offset.
+					// If two or more lines have the same offset, we want to only add the last one.
+					// i.e. in
+					//
+					//    foo: int(~~)
+					//    get_foo(&foo)
+					//
+					// , we add both statements to `dbginfo_line_ops`, but we only want the second line in the final debug info.
+
+					if (has_pending_line && pending_line.offset != line.offset) {
+						f_array_push(&lines, pending_line);
+					}
+					pending_line = line;
+					has_pending_line = true;
 				}
 			}
+
+			if (has_pending_line) f_array_push(&lines, pending_line);
 			
 			// we must sort the lines by offset for codeview!!
 			qsort(lines.data, lines.len, sizeof(cviewLine), cviewLine_compare_fn);

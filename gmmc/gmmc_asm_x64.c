@@ -324,7 +324,7 @@ static void spill(ProcGen* p, gmmcOpIdx op_idx) {
 	u32 size = gmmc_type_size(op->type);
 	
 	//if (op_idx == 22) f_trap();
-	if (!gmmc_is_op_direct(p->proc, op_idx)) {
+	if (!gmmc_is_op_immediate(p->proc, op_idx)) {
 		// if computation is required to find out the value of the op, store it on the stack.
 		// locals, immediates and addr_of_symbol don't need to be stored on the stack.
 
@@ -572,7 +572,7 @@ static GPR op_value_to_reg(ProcGen* p, gmmcOpIdx op_idx, GPR specify_reg/* = GPR
 			gmmcRelocation reloc = {reloc_offset, op->symbol};
 			f_array_push(&code_section->relocs, reloc);
 		}
-		else if (gmmc_is_op_direct(p->proc, op_idx)) {
+		else if (gmmc_is_op_immediate(p->proc, op_idx)) {
 
 			u32 size = gmmc_type_size(op->type);
 			if (gmmc_type_is_float(op->type)) {

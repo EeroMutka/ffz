@@ -456,7 +456,6 @@ void main() {
 				width: x1 - x0 + glyph_padding + oversample_h - 1
 				height: y1 - y0 + glyph_padding + oversample_v - 1
 				total_surface = . + width * height
-				Basic.assert(width > 0 && height > 0)
 				
 				Array.push(&glyphs, Glyph{
 					codepoint: codepoint
@@ -469,6 +468,8 @@ void main() {
 		}
 		
 		glyph_ranges[font_id].hi = u32(glyphs.len)
+		dbgbreak
+		
 	}
 	
 	dbgbreak
