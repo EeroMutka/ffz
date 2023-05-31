@@ -44,6 +44,8 @@ g: Globals(~~)
 }
 
 #entry: proc {
+	aaa: 3 - 1 + 1 + 1 - 1
+	
 	temp: Basic.temp_push()
 	
 	// node_scope: new_heap_arena(parent_heap_scope)
@@ -68,7 +70,8 @@ g: Globals(~~)
 	{
 		g.canvas = Draw2D.init(gl, temp.arena)
 		
-		font_data: Files.read_entire_file("C:/Windows/Fonts/consola.ttf", temp.arena)
+		//font_data: Files.read_entire_file("C:/Windows/Fonts/consola.ttf", temp.arena)
+		font_data: Files.read_entire_file("../roboto.ttf", temp.arena)
 		Basic.assert(font_data.ok)
 		
 		atlas: Draw2D.make_font_atlas(temp.arena)

@@ -1,5 +1,5 @@
 
-#STBRP: @extern{"lib/stb_rect_pack.lib"}
+#STBRP: extern{"lib/stb_rect_pack.lib", name_prefix: "stbrp_"}
 
 #context: struct {
 	width: s32
@@ -20,22 +20,22 @@
 }
 
 #rect: struct {
-	id: s32
-	w: coord
-	h: coord
-	x: coord
-	y: coord
-	was_packed: s32
+	id: s32(0)
+	w: coord(0)
+	h: coord(0)
+	x: coord(0)
+	y: coord(0)
+	was_packed: s32(0)
 }
 
 #coord: s32
 
 
-@STBRP #stbrp_pack_rects: proc(ctx: ^context, rects: ^rect, num_rects: s32) => s32
+@STBRP #pack_rects: proc(ctx: ^context, rects: ^rect, num_rects: s32) => s32
 
-@STBRP #stbrp_init_target: proc(ctx: ^context, width: s32, height: s32, nodes: ^node, num_nodes: s32)
+@STBRP #init_target: proc(ctx: ^context, width: s32, height: s32, nodes: ^node, num_nodes: s32)
 
-@STBRP #stbrp_setup_allow_out_of_mem: proc(ctx: ^context, allow_out_of_mem: s32)
+@STBRP #setup_allow_out_of_mem: proc(ctx: ^context, allow_out_of_mem: s32)
 
-@STBRP #stbrp_setup_heuristic: proc(ctx: ^context, heuristic: s32)
+@STBRP #setup_heuristic: proc(ctx: ^context, heuristic: s32)
 

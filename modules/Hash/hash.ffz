@@ -55,3 +55,18 @@
 }
 
 // --------------------------
+
+
+#fnv32: proc(str: ^raw, length: uint) => u32 {
+	#fnv_prime: u32(0x811C9DC5)
+	hash: u32(0)
+	
+	for i: 0, i < length, i = .+1 {
+		hash = . * fnv_prime
+		hash = bit_xor(., u32( (^u8(str))^ ))
+		str = ^u8(uint(str) + 1)
+	}
+
+	return hash
+}
+

@@ -1,4 +1,6 @@
 
+#stbrp: import(":vendor/stb/stb_rect_pack")
+
 #STBTT: extern{"lib/stb_truetype.lib", name_prefix: "stbtt_"}
 
 #buf: struct {
@@ -77,15 +79,6 @@
 	fdselect: buf
 }
 
-#rect: struct {
-	x: s32
-	y: s32
-	id: s32
-	w: s32
-	h: s32
-	was_packed: s32
-}
-
 #pack_range: struct {
 	font_size: f32
 	first_unicode_codepoint_in_range: s32
@@ -140,11 +133,11 @@
 
 @STBTT #GetPackedQuad: proc(chardata: ^packedchar, pw: s32, ph: s32, char_index: s32, xpos: ^f32, ypos: ^f32, q: ^aligned_quad, align_to_integer: s32)
 
-@STBTT #PackFontRangesGatherRects: proc(spc: ^pack_context, info: ^fontinfo, ranges: ^pack_range, num_ranges: s32, rects: ^rect) => s32
+@STBTT #PackFontRangesGatherRects: proc(spc: ^pack_context, info: ^fontinfo, ranges: ^pack_range, num_ranges: s32, rects: ^stbrp.rect) => s32
 
-@STBTT #PackFontRangesPackRects: proc(spc: ^pack_context, rects: ^rect, num_rects: s32)
+@STBTT #PackFontRangesPackRects: proc(spc: ^pack_context, rects: ^stbrp.rect, num_rects: s32)
 
-@STBTT #PackFontRangesRenderIntoRects: proc(spc: ^pack_context, info: ^fontinfo, ranges: ^pack_range, num_ranges: s32, rects: ^rect) => s32
+@STBTT #PackFontRangesRenderIntoRects: proc(spc: ^pack_context, info: ^fontinfo, ranges: ^pack_range, num_ranges: s32, rects: ^stbrp.rect) => s32
 
 @STBTT #GetNumberOfFonts: proc(data: ^u8) => s32
 

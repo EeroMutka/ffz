@@ -4,8 +4,12 @@
 // OR @using import().
 
 #Array: import(":Array")
+#Math: import(":Math")
+#Map: import(":Map")
+#Hash: import(":Hash")
 
 #stbtt: import(":vendor/stb/stb_truetype")
+#stbrp: import(":vendor/stb/stb_rect_pack")
 
 #TEXTURE_SLOT: u32(0)
 #VERTEX_BUFFER_CAPACITY: 32768
@@ -371,15 +375,22 @@ void main() {
 
 // -- Font stuff ------------------------------------------
 
+#FontAtlasGlyphKey: struct {
+	codepoint: rune
+	font_id: u16
+}
+
 #FontAtlas: struct {
 	arena: ^Basic.Arena
 	fonts: Array.Array[^Font] // TODO: use a pool here
+	glyphs: Map.Map[FontAtlasGlyphKey, FontAtlasGlyph]
 }
 
 #make_font_atlas: proc(arena: ^Basic.Arena) => ^FontAtlas {
 	return Basic.new(FontAtlas{
 		arena: arena
 		fonts: Array.make[^Font](arena)
+		glyphs: Map.make[FontAtlasGlyphKey, FontAtlasGlyph](arena)
 	}, arena)
 }
 
@@ -391,6 +402,13 @@ void main() {
 	data: []u8
 	size: f32
 	y_offset: f32
+}
+
+#FontAtlasGlyph: struct {
+	uv_origin: [2]f32
+	size_pixels: [2]f32
+	offset: [2]f32
+	advance: f32
 }
 
 #add_ttf_font_from_data: proc(atlas: ^FontAtlas, data: []u8, size: f32, y_offset: f32) => ^Font {
@@ -416,7 +434,7 @@ void main() {
 		hi: u32
 	}
 	
-	codepoint_ranges: []Range{{32, 127}}
+	codepoint_ranges: []Range{{33, 127}}
 	
 	#Glyph: struct {
 		codepoint: rune
@@ -426,17 +444,17 @@ void main() {
 	}
 	
 	glyphs: Array.make[Glyph](arena)
-	font_infos: Basic.make_slice_undef[stbtt.fontinfo](fonts.len, arena)
-	glyph_ranges: Basic.make_slice_undef[Range](fonts.len, arena)
+	font_info_per_font: Basic.make_slice_undef[stbtt.fontinfo](fonts.len, arena)
+	glyph_range_per_font: Basic.make_slice_undef[Range](fonts.len, arena)
 	
 	oversample_h: s32(1)
 	oversample_v: s32(1)
 	
 	for font_id: 0, font_id < fonts.len, font_id = .+1 {
 		font: fonts[font_id] // ^Font
-		font_info: &font_infos[font_id] // ^stbtt.fontinfo
+		font_info: &font_info_per_font[font_id] // ^stbtt.fontinfo
 		
-		glyph_ranges[font_id].lo = u32(glyphs.len)
+		glyph_range_per_font[font_id].lo = u32(glyphs.len)
 		
 		font_offset: stbtt.GetFontOffsetForIndex(font.data.ptr, 0)
 		Basic.assert(font_offset >= 0)
@@ -455,6 +473,8 @@ void main() {
 				
 				width: x1 - x0 + glyph_padding + oversample_h - 1
 				height: y1 - y0 + glyph_padding + oversample_v - 1
+				Basic.assert(width >= 0)
+				Basic.assert(height >= 0)
 				total_surface = . + width * height
 				
 				Array.push(&glyphs, Glyph{
@@ -467,9 +487,91 @@ void main() {
 			}
 		}
 		
-		glyph_ranges[font_id].hi = u32(glyphs.len)
-		dbgbreak
+		glyph_range_per_font[font_id].hi = u32(glyphs.len)
+	}
+	
+	surface_sqrt: Math.sqrtf(f32(total_surface)) + 1.0
+	tex_width:
+		Basic.select(surface_sqrt >= 4096., f32(4096. * 0.7),
+		Basic.select(surface_sqrt >= 2048., f32(2048. * 0.7),
+		Basic.select(surface_sqrt >= 1024., f32(1024. * 0.7), 512.)))
+	
+	tex_height_max: f32(1024.0 * 32.0)
+	
+	// Start packing the glyphs
+	
+	spc: stbtt.pack_context(~~)
+	Basic.assert(stbtt.PackBegin(&spc, ^u8(0), s32(tex_width), s32(tex_height_max), 0, glyph_padding, ^raw(0)) == 1)
+	
+	buf_rects: Basic.make_slice_undef[stbrp.rect](glyphs.len, arena)
+	glyph_list: Basic.make_slice_undef[u32](glyphs.len, arena)
+	buf_packedchars: Basic.make_slice_undef[stbtt.packedchar](glyphs.len, arena)
+	
+	for i: 0, i < glyphs.len, i = .+1 {
+		glyph: glyphs[i]
+		Basic.assert(glyph.w >= 0)
+		Basic.assert(glyph.h >= 0)
+		buf_rects[i] = {
+			w: glyph.w
+			h: glyph.h
+		}
+		glyph_list[i] = glyph.codepoint
+	}
+	
+	Basic.assert(stbrp.pack_rects(^stbrp.context(spc.pack_info), buf_rects.ptr, s32(buf_rects.len)) == 1)
+	
+	tex_height: s32(0)
+	for i: 0, i < buf_rects.len, i = .+1 {
+		r: buf_rects[i]
+		tex_height = Basic.max(., r.y + r.h)
+	}
+	
+	buffer_size: s32(tex_width) * tex_height
+	texture_data: Basic.make_slice_undef[u8](uint(buffer_size), arena)
+	Basic.memset(texture_data.ptr, 0, texture_data.len)
+	
+	spc.pixels = texture_data.ptr
+	spc.height = tex_height
+	
+	for font_id: 0, font_id < atlas.fonts.len, font_id = .+1 {
+		font: atlas.fonts[font_id] // ^Font
+		glyph_range: glyph_range_per_font[font_id]
+
+		pack_range: stbtt.pack_range {
+			font_size:                         font.size,
+			first_unicode_codepoint_in_range:  0,
+			array_of_unicode_codepoints:       ^s32(&glyph_list[glyph_range.lo]),
+			num_chars:                         s32(glyph_range.hi - glyph_range.lo),
+			chardata_for_range:                &buf_packedchars[glyph_range.lo],
+			h_oversample:                      u8(oversample_h),
+			v_oversample:                      u8(oversample_v)
+		}
+		Basic.assert(stbtt.PackFontRangesRenderIntoRects(&spc, &font_info_per_font[font_id], &pack_range, 1, &buf_rects[glyph_range.lo]) == 1)
+	}
+	
+	for i: 0, i < buf_rects.len, i = .+1 {
+		stb_rect: buf_rects[i]
+		glyph: glyphs[i]
 		
+		if (stb_rect.was_packed == 0) {
+			Basic.assert(false) // Something was not packed when building the font atlas!
+			continue
+		}
+		
+		q: stbtt.aligned_quad(~~)
+		unused_x: f32(0.), unused_y: f32(0.)
+		stbtt.GetPackedQuad(buf_packedchars.ptr, s32(tex_width), tex_height, s32(i), &unused_x, &unused_y, &q, 0)
+		
+		font: atlas.fonts[glyph.font_id]
+		font_info: font_info_per_font[glyph.font_id]
+		
+		val: FontAtlasGlyph {
+			uv_origin:   {f32(stb_rect.x) / tex_width, f32(stb_rect.y) / f32(tex_height)}
+			size_pixels: {f32(stb_rect.w), f32(stb_rect.h)}
+			offset:      {q.x0, q.y0 + font.y_offset}
+			advance:     buf_packedchars[i].xadvance
+		}
+		Map.add_assert_unique(&atlas.glyphs, FontAtlasGlyphKey{glyph.codepoint, glyph.font_id}, val)
 	}
 	
 	dbgbreak

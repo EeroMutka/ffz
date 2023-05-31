@@ -196,18 +196,18 @@ ffzOperatorPrecedence ffz_operator_get_precedence(ffzNodeKind kind) {
 	case ffzNodeKind_Mul:                // fallthrough
 	case ffzNodeKind_Div:                // fallthrough
 	case ffzNodeKind_Modulo:             return (ffzOperatorPrecedence){7, .right_associative=false};
-	case ffzNodeKind_Add:                return (ffzOperatorPrecedence){6, .right_associative=false};
-	case ffzNodeKind_Sub:                return (ffzOperatorPrecedence){5, .right_associative=false};
+	case ffzNodeKind_Add:                // fallthrough
+	case ffzNodeKind_Sub:                return (ffzOperatorPrecedence){6, .right_associative=false};
 	case ffzNodeKind_Less:               // fallthrough
 	case ffzNodeKind_LessOrEqual:        // fallthrough
 	case ffzNodeKind_Greater:            // fallthrough
-	case ffzNodeKind_GreaterOrEqual:     return (ffzOperatorPrecedence){4, .right_associative=false};
+	case ffzNodeKind_GreaterOrEqual:     return (ffzOperatorPrecedence){5, .right_associative=false};
 	case ffzNodeKind_Equal:              // fallthrough
-	case ffzNodeKind_NotEqual:           return (ffzOperatorPrecedence){3, .right_associative = false};
-	case ffzNodeKind_LogicalAND:         return (ffzOperatorPrecedence){2, .right_associative = false};
-	case ffzNodeKind_LogicalOR:          return (ffzOperatorPrecedence){1, .right_associative = false};
+	case ffzNodeKind_NotEqual:           return (ffzOperatorPrecedence){4, .right_associative = false};
+	case ffzNodeKind_LogicalAND:         return (ffzOperatorPrecedence){3, .right_associative = false};
+	case ffzNodeKind_LogicalOR:          return (ffzOperatorPrecedence){2, .right_associative = false};
 	case ffzNodeKind_Declare:            // fallthrough
-	case ffzNodeKind_Assign:             return (ffzOperatorPrecedence){0, .right_associative = false};
+	case ffzNodeKind_Assign:             return (ffzOperatorPrecedence){1, .right_associative = false};
 	default: f_assert(false);
 	}
 	return (ffzOperatorPrecedence) { 0 };

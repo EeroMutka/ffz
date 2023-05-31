@@ -399,12 +399,6 @@ _tl_arena_tls_index: u32(0)
 
 #HANDLE: ^raw
 
-#asm_routines: extern{"asm_routines/asm_routines.obj"}
-
-@asm_routines #memcpy: proc(dst: ^raw, src: ^raw, size: uint)
-@asm_routines #memmove: proc(dst: ^raw, src: ^raw, size: uint)
-@asm_routines #memset: proc(dst: ^raw, c: u32, n: uint)
-
 @Kernel32 #VirtualAlloc: proc(lpAddress: ^u8, dwSize: uint, flAllocationType: u32, flProtect: u32) => ^u8
 @Kernel32 #VirtualFree: proc(lpAddress: ^u8, dwSize: uint, dwFreeType: u32) => u32
 @Kernel32 #GetSystemInfo: proc(lpSystemInfo: ^SYSTEM_INFO)
@@ -429,3 +423,23 @@ _tl_arena_tls_index: u32(0)
 #PAGE_READWRITE: u32(4)
 #MEM_DECOMMIT: u32(16384)
 #MEM_RELEASE: u32(32768)
+
+
+/*
+#asm_routines: extern{"asm_routines/asm_routines.obj"}
+
+@asm_routines #memcpy: proc(dst: ^raw, src: ^raw, size: uint)
+@asm_routines #memmove: proc(dst: ^raw, src: ^raw, size: uint)
+@asm_routines #memset: proc(dst: ^raw, c: u32, n: uint)
+*/
+
+// For now, use memcpy, memmove, memset and memcmp from libc
+@build_option
+#link_against_libc: true
+
+#libc: extern{"?"}
+
+@libc #memcpy: proc(s1: ^raw, s2: ^raw, n: uint)
+@libc #memmove: proc(s1: ^raw, s2: ^raw, n: uint)
+@libc #memset: proc(s: ^raw, c: s32, n: uint)
+@libc #memcmp: proc(s1: ^raw, s2: ^raw, n: uint) => s32

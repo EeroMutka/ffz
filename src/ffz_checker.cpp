@@ -330,8 +330,7 @@ static void print_type(fWriter* w, ffzType* type) {
 	case ffzTypeTag_PolyParam: { f_print(w, "<poly-param>"); } break;
 	case ffzTypeTag_PolyVal: { f_print(w, "<poly-val>"); } break;
 	case ffzTypeTag_Module: { f_print(w, "<module>"); } break;
-	//case ffzTypeTag_Extra: { f_print(w, "<extra>"); } break;
-	//case ffzTypeTag_Bool: { f_print(w, "bool"); } break;
+	case ffzTypeTag_Bool: { f_print(w, "bool"); } break;
 	case ffzTypeTag_Pointer: {
 		f_print(w, "^");
 		print_type(w, type->Pointer.pointer_to);

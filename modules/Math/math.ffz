@@ -1,0 +1,10 @@
+
+// For now, use libc implementations of the math functions
+
+@build_option
+#link_against_libc: true
+
+#libc: extern{"?"}
+
+// square-root
+@libc #sqrtf: proc(x: f32) => f32

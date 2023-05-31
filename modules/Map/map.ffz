@@ -9,14 +9,67 @@
 // Key: KeyType
 //#Map: poly[Key, Value] struct {
 
+
+/*
+As an user, when using a custom type as the key, having to provide custom comparison and hash functions is annoying.
+For now, let's just say the key is always just raw data.
+
+#StringKey: distinct u64 // TODO: u128
+#SliceKey: distinct u64 // TODO: u128
+// key_from_bytes: poly[T] proc(slice: []T) {...}
+// key_from_string: poly[T] proc(str: string) {...}
+
+Map.get(&my_map, Map.key_from_bytes(my_int_array))
+
+
+An incremental improvement to this would be to allow optional custom hash & comparison functions,
+and to provide a StringKey and RawDataKey
+
+
+If we wanted to be more sophisticated, we could allow
+looping over struct members:
+
+#get_hash: poly[T] proc(x: T) => u32 {
+	#if type_is_integer(T) {
+		h: u64(x)
+		...
+		return h
+	}
+	#else #if type_is_struct(T) {
+		h: u64
+		for member in my_struct {
+			h += get_hash(member)
+		}
+		return h
+	}
+}
+
+if we go down this route, maybe we could even use it instead of runtime type info for stuff like easy printing!
+
+#print: poly[T] proc(fmt: string, args: T) {
+}
+
+print("hello, %", struct{x: f32}{10.5})
+// could be shorthanded: 
+print("hello, %", [2.5])
+
+x: [1, true]
+#for member in x {
+	#if type_of(member) == bool {
+		...
+	}
+}
+
+*/
+
 #Basic: import(":Basic")
 #Hash: import(":Hash")
 
-#KeyType: poly[_KEY] struct {
-	KEY: typeid // We need to expose the polymorphic parameter as a compile-time struct member
-	compare_fn: proc(a: _KEY, b: _KEY) => bool
-	hash_fn: proc(a: _KEY) => u32
-}
+//#KeyType: poly[_KEY] struct {
+//	KEY: typeid // We need to expose the polymorphic parameter as a compile-time struct member
+//	compare_fn: proc(a: _KEY, b: _KEY) => bool
+//	hash_fn: proc(a: _KEY) => u32
+//}
 
 #HASH_EMPTY_SLOT: u32(0)
 #HASH_ZOMBIE_SLOT: u32(1)
@@ -26,11 +79,10 @@
 	// This can have a special value of HASH_EMPTY_SLOT or HASH_ZOMBIE_SLOT
 	hash: u32
 	
-	key: K.KEY
+	key: K
 	value: T
 }
 
-// K must be KeyType
 #Map: poly[K, T] struct {
 	arena: ^Basic.Arena
 	alive_count: u32(0)
@@ -41,18 +93,18 @@
 	return {arena: arena}
 }
 
-#add_assert_unique: poly[K, T] proc(m: ^Map[K, T], key: K.KEY, value: T) {
+#add_assert_unique: poly[K, T] proc(m: ^Map[K, T], key: K, value: T) {
 	added: _insert[K, T](m, key, value, overwrite: false)
 	Basic.assert(added)
 }
 
 // returns `true` if the value did not exist in the map before
-#add_or_ignore: poly[K, T] proc(m: ^Map[K, T], key: K.KEY, value: T) => bool {
+#add_or_ignore: poly[K, T] proc(m: ^Map[K, T], key: K, value: T) => bool {
 	added: _insert(m, key, value, overwrite: false)
 	return added
 }
 
-#add_or_overwrite: poly[K, T] proc(m: ^Map[K, T], key: K.KEY, value: T) {
+#add_or_overwrite: poly[K, T] proc(m: ^Map[K, T], key: K, value: T) {
 	_ = _insert(m, key, value, overwrite: true)
 }
 
@@ -61,19 +113,19 @@
  Returns null if not found.
  NOTE: the returned pointer is unstable across modifications to the map!
 */
-#find_slot: poly[K, T] proc(m: ^Map[K, T], key: K.KEY) => ^MapSlot[K, T] {
-	hash: K.hash_fn(key)
+#find_slot: poly[K, T] proc(m: ^Map[K, T], key: K) => ^MapSlot[K, T] {
+	hash: Hash.fnv32(&key, size_of(K))
 	if hash < HASH_FIRST_VALID {
 		hash = HASH_FIRST_VALID
 	}
 	
-	wrapping_mask: m.slots.len - 1
+	wrapping_mask: u32(m.slots.len) - 1
 	slot_index: bit_and(hash, wrapping_mask)
 	
 	for loop: true, loop, {
 		slot: &m.slots[slot_index]
 		
-		if slot.hash == hash && K.compare_fn(slot.key, key) {
+		if slot.hash == hash && Basic.memcmp(&slot.key, &key, size_of(K)) == 0 {
 			return slot
 		}
 		
@@ -93,6 +145,7 @@
 	
 	old_slots: m.slots
 	
+	m.alive_count = 0
 	m.slots = Basic.make_slice_undef[SlotType](slot_count_pow2, m.arena)
 	Basic.memset(m.slots.ptr, 0, m.slots.len * size_of(SlotType)) // set each hash to HASH_EMPTY_SLOT
 	
@@ -103,13 +156,13 @@
 		}
 	}
 	
-	Basic.free_slice(old_slots, m.arena)
+	//Basic.free_slice(old_slots, m.arena)
 }
 
 /*
  returns `true` if the value did not exist in the map before
 */
-#_insert: poly[K, T] proc(m: ^Map[K, T], key: K.KEY, value: T, overwrite: bool) => bool {
+#_insert: poly[K, T] proc(m: ^Map[K, T], key: K, value: T, overwrite: bool) => bool {
 	
 	//      filled / allocated >= 70/100
 	// <==> filled * 100 >= allocated * 70
@@ -121,7 +174,7 @@
 		resize(m, new_capacity)
 	}
 	
-	hash: K.hash_fn(key)
+	hash: Hash.fnv32(&key, size_of(K))
 	if hash < HASH_FIRST_VALID {
 		hash = HASH_FIRST_VALID
 	}
@@ -133,7 +186,7 @@
 	for loop: true, loop, {
 		slot: &m.slots[slot_index]
 		
-		if slot.hash == hash && K.compare_fn(slot.key, key) {
+		if slot.hash == hash && Basic.memcmp(&slot.key, &key, size_of(K)) == 0 {
 			// Key already exists in the map
 			
 			if overwrite {
@@ -162,7 +215,7 @@
 
 // -- Built-in key types ----------------------------------
 
-#primitive_compare: poly[T] proc(a: T, b: T) => bool {
+/*#primitive_compare: poly[T] proc(a: T, b: T) => bool {
 	return a == b
 }
 
@@ -175,3 +228,4 @@
 #Key_u16: KeyType[u16]{u16, primitive_compare[u16], primitive_hash[u16]}
 #Key_u32: KeyType[u32]{u32, primitive_compare[u32], primitive_hash[u32]}
 #Key_u64: KeyType[u64]{u64, primitive_compare[u64], primitive_hash[u64]}
+*/
