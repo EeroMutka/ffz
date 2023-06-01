@@ -1,0 +1,311 @@
+
+#rune: u32
+
+#rune_width: proc(r: rune, font: ^Font) => f32 {
+	Basic.assert(!font.atlas.needs_rebuild) // You must call `build_font_atlas`!
+	
+	// TODO: return a default width with invalid glyph
+	glyph: Map.get(&font.atlas.glyphs, FontAtlasGlyphKey{r, font.id})
+	
+	return glyph.advance
+}
+
+#get_text_width: proc(text: string, font: ^Font) => f32 {
+	ascii: []u8(text) // @todo_unicode
+	w: f32(0)
+	for i: 0, i < ascii.len, i = .+1 {
+		w = . + rune_width(rune(ascii[i]), font)
+	}
+	return w
+}
+
+#draw_text: proc(c: ^Context, text: string, font: ^Font, p: Vec2, align: Align{}, color: Color) {
+	s: Vec2{get_text_width(text, font), font.size}
+	scale: f32(1.)
+	
+	/*if (origin_h == LT_TextOriginH_Middle) {
+		p.X -= s.X * 0.5f
+	}
+	else if (origin_h == LT_TextOriginH_Right) {
+		p.X -= s.X
+	}*/
+	
+	/*
+	p.y = . + s.y
+	if (origin_v == LT_TextOriginV_Middle) {
+		p.Y -= s.Y * 0.5f
+	}
+	else if (origin_v == LT_TextOriginV_Bottom) {
+		p.Y -= s.Y
+	}*/
+
+	ascii: []u8(text) // @todo_unicode
+	for i: 0, i < ascii.len, i = .+1 {
+		glyph: Map.get(&font.atlas.glyphs, FontAtlasGlyphKey{rune(ascii[i]), font.id}) // FontAtlasGlyph
+		
+		/*LT_Color glyph_color = color
+		if (!glyph) {
+			glyph = font->atlas->glyphs[LT_FontAtlasKey{ INVALID_GLYPH, font->id }]
+			glyph_color = INVALID_GLYPH_COLOR
+		}*/
+		
+		// @VectorMath
+		glyph_rect: Rect {
+			min: {p.x + scale * glyph.offset.x, p.y + scale * glyph.offset.y}
+			max: {glyph_rect.min.x + scale * glyph.size_pixels, glyph_rect.min.y + scale * glyph.size_pixels}
+		}
+		
+		// @VectorMath
+		glyph_uv_rect: Rect {
+			min: glyph.uv_origin
+			max: {
+				glyph_uv_rect.min.x + glyph.size_pixels.x / f32(font.atlas.texture.width)
+				glyph_uv_rect.min.y + glyph.size_pixels.y / f32(font.atlas.texture.height)
+			}
+		}
+		
+		rect(c, glyph_rect, glyph_color, glyph_uv_rect, font.atlas.texture)
+		p.x = . + scale * glyph.advance
+	}
+	
+	return s
+}
+
+
+// -- Font stuff ------------------------------------------
+
+#FontAtlasGlyphKey: struct {
+	codepoint: rune
+	font_id: u16
+}
+
+#FontAtlas: struct {
+	needs_rebuild: bool
+	
+	arena: ^Basic.Arena
+	fonts: Array.Array[^Font] // TODO: use a pool here
+	glyphs: Map.Map[FontAtlasGlyphKey, FontAtlasGlyph]
+	
+	has_texture: false
+	texture: Texture{}
+}
+
+#make_font_atlas: proc(arena: ^Basic.Arena) => ^FontAtlas {
+	return Basic.new(FontAtlas{
+		needs_rebuild: true
+		arena: arena
+		fonts: Array.make[^Font](arena)
+		glyphs: Map.make[FontAtlasGlyphKey, FontAtlasGlyph](arena)
+	}, arena)
+}
+
+// #add_ttf_font_from_file: proc
+
+#Font: struct {
+	atlas: ^FontAtlas
+	id: u16
+	
+	data: []u8
+	
+	size: f32
+	y_offset: f32
+}
+
+#FontAtlasGlyph: struct {
+	uv_origin: [2]f32
+	size_pixels: [2]f32
+	offset: [2]f32
+	advance: f32
+}
+
+#add_ttf_font_from_data: proc(atlas: ^FontAtlas, data: []u8, size: f32, y_offset: f32) => ^Font {
+	atlas.needs_rebuild = true
+	
+	font: Basic.new(Font{atlas, data, size: size, y_offset: y_offset}, atlas.arena)
+	Array.push(&atlas.fonts, font)
+	return font
+}
+
+#build_font_atlas: proc(ctx: ^Context, atlas: ^FontAtlas) {
+	if !atlas.needs_rebuild {
+		return
+	}
+	
+	arena: atlas.arena
+	fonts: atlas.fonts
+	
+	// Padding between glyphs within texture in pixels.
+	// If your rendering method doesn't rely on bilinear filtering you may set this to 0.
+	glyph_padding: s32(1)
+	
+	total_surface: s32(0)
+	
+	#Range: struct{
+		lo: u32
+		hi: u32
+	}
+	
+	codepoint_ranges: []Range{{33, 127}}
+	
+	#Glyph: struct {
+		codepoint: rune
+		font_id: u16
+		glyph_index: s32
+		w: s32, h: s32
+	}
+	
+	glyphs: Array.make[Glyph](arena)
+	font_info_per_font: Basic.make_slice_undef[stbtt.fontinfo](fonts.len, arena)
+	glyph_range_per_font: Basic.make_slice_undef[Range](fonts.len, arena)
+	
+	oversample_h: s32(1)
+	oversample_v: s32(1)
+	
+	for font_id: 0, font_id < fonts.len, font_id = .+1 {
+		font: fonts[font_id] // ^Font
+		font_info: &font_info_per_font[font_id] // ^stbtt.fontinfo
+		
+		glyph_range_per_font[font_id].lo = u32(glyphs.len)
+		
+		font_offset: stbtt.GetFontOffsetForIndex(font.data.ptr, 0)
+		Basic.assert(font_offset >= 0)
+		Basic.assert(stbtt.InitFont(font_info, font.data.ptr, font_offset) == 1)
+		
+		scale: stbtt.ScaleForPixelHeight(font_info, font.size)
+		
+		for range_i: 0, range_i < codepoint_ranges.len, range_i = .+1 {
+			range: codepoint_ranges[range_i]
+			
+			for codepoint: range.lo, codepoint < range.hi, codepoint = .+1 {
+				glyph_index: stbtt.FindGlyphIndex(font_info, s32(codepoint))
+				
+				x0: s32(~~), y0: s32(~~), x1: s32(~~), y1: s32(~~)
+				stbtt.GetGlyphBitmapBoxSubpixel(font_info, glyph_index, scale * f32(oversample_h), scale * f32(oversample_v), 0., 0., &x0, &y0, &x1, &y1)
+				
+				width: x1 - x0 + glyph_padding + oversample_h - 1
+				height: y1 - y0 + glyph_padding + oversample_v - 1
+				Basic.assert(width >= 0)
+				Basic.assert(height >= 0)
+				total_surface = . + width * height
+				
+				Array.push(&glyphs, Glyph{
+					codepoint: codepoint
+					font_id: u16(font_id)
+					glyph_index: glyph_index
+					w: width
+					h: height
+				})
+			}
+		}
+		
+		glyph_range_per_font[font_id].hi = u32(glyphs.len)
+	}
+	
+	surface_sqrt: Math.sqrtf(f32(total_surface)) + 1.0
+	tex_width:
+		Basic.select(surface_sqrt >= 4096., f32(4096. * 0.7),
+		Basic.select(surface_sqrt >= 2048., f32(2048. * 0.7),
+		Basic.select(surface_sqrt >= 1024., f32(1024. * 0.7), 512.)))
+	
+	tex_height_max: f32(1024.0 * 32.0)
+	
+	// Start packing the glyphs
+	
+	spc: stbtt.pack_context(~~)
+	Basic.assert(stbtt.PackBegin(&spc, ^u8(0), s32(tex_width), s32(tex_height_max), 0, glyph_padding, ^raw(0)) == 1)
+	
+	buf_rects: Basic.make_slice_undef[stbrp.rect](glyphs.len, arena)
+	glyph_list: Basic.make_slice_undef[u32](glyphs.len, arena)
+	buf_packedchars: Basic.make_slice_undef[stbtt.packedchar](glyphs.len, arena)
+	
+	for i: 0, i < glyphs.len, i = .+1 {
+		glyph: glyphs[i]
+		Basic.assert(glyph.w >= 0)
+		Basic.assert(glyph.h >= 0)
+		buf_rects[i] = {
+			w: glyph.w
+			h: glyph.h
+		}
+		glyph_list[i] = glyph.codepoint
+	}
+	
+	Basic.assert(stbrp.pack_rects(^stbrp.context(spc.pack_info), buf_rects.ptr, s32(buf_rects.len)) == 1)
+	
+	tex_height: s32(0)
+	for i: 0, i < buf_rects.len, i = .+1 {
+		r: buf_rects[i]
+		tex_height = Basic.max(., r.y + r.h)
+	}
+	
+	buffer_size: s32(tex_width) * tex_height
+	texture_data: Basic.make_slice_undef[u8](uint(buffer_size), arena)
+	Basic.memset(texture_data.ptr, 0, texture_data.len)
+	
+	spc.pixels = texture_data.ptr
+	spc.height = tex_height
+	
+	for font_id: 0, font_id < atlas.fonts.len, font_id = .+1 {
+		font: atlas.fonts[font_id] // ^Font
+		glyph_range: glyph_range_per_font[font_id]
+
+		pack_range: stbtt.pack_range {
+			font_size:                         font.size,
+			first_unicode_codepoint_in_range:  0,
+			array_of_unicode_codepoints:       ^s32(&glyph_list[glyph_range.lo]),
+			num_chars:                         s32(glyph_range.hi - glyph_range.lo),
+			chardata_for_range:                &buf_packedchars[glyph_range.lo],
+			h_oversample:                      u8(oversample_h),
+			v_oversample:                      u8(oversample_v)
+		}
+		Basic.assert(stbtt.PackFontRangesRenderIntoRects(&spc, &font_info_per_font[font_id], &pack_range, 1, &buf_rects[glyph_range.lo]) == 1)
+	}
+	
+	for i: 0, i < buf_rects.len, i = .+1 {
+		stb_rect: buf_rects[i]
+		glyph: glyphs[i]
+		
+		if (stb_rect.was_packed == 0) {
+			Basic.assert(false) // Something was not packed when building the font atlas!
+			continue
+		}
+		
+		q: stbtt.aligned_quad(~~)
+		unused_x: f32(0.), unused_y: f32(0.)
+		stbtt.GetPackedQuad(buf_packedchars.ptr, s32(tex_width), tex_height, s32(i), &unused_x, &unused_y, &q, 0)
+		
+		font: atlas.fonts[glyph.font_id]
+		font_info: font_info_per_font[glyph.font_id]
+		
+		val: FontAtlasGlyph {
+			uv_origin:   {f32(stb_rect.x) / tex_width, f32(stb_rect.y) / f32(tex_height)}
+			size_pixels: {f32(stb_rect.w), f32(stb_rect.h)}
+			offset:      {q.x0, q.y0 + font.y_offset}
+			advance:     buf_packedchars[i].xadvance
+		}
+		Map.add_assert_unique(&atlas.glyphs, FontAtlasGlyphKey{glyph.codepoint, glyph.font_id}, val)
+	}
+	
+	stbtt.PackEnd(&spc)
+	
+	if !atlas.has_texture {
+		atlas.texture = make_texture(ctx)
+		atlas.has_texture = true
+	}
+	
+	update_texture(ctx, &atlas.texture, TextureFormat.R8, u32(tex_width), u32(tex_height), texture_data.ptr)
+	atlas.needs_rebuild = false
+}
+
+
+//#triangle: proc(c: ^Context, p1: Vec2, p2: Vec2, p3: Vec2, color: Color) {
+//	first_vertex: Index(c.vertices.len)
+//	
+//	Array.push[Vertex](&c.vertices, {p1, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
+//	Array.push[Vertex](&c.vertices, {p2, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
+//	Array.push[Vertex](&c.vertices, {p3, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
+//	
+//	Array.push[Index](&c.indices, first_vertex)
+//	Array.push[Index](&c.indices, first_vertex + 1)
+//	Array.push[Index](&c.indices, first_vertex + 2)
+//}
+

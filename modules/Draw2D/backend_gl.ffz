@@ -24,7 +24,7 @@
 
 #Index: u32
 
-#Canvas: struct {
+#Context: struct {
 	gl: ^GL.API
 	//arena: ^Basic.Arena
 	
@@ -104,7 +104,7 @@ void main() {
 	return shader
 }
 
-#init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas {
+#init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Context {
 	vs: compile_shader(gl, GL.VERTEX_SHADER, vertex_shader_src.ptr)
 	fs: compile_shader(gl, GL.FRAGMENT_SHADER, fragment_shader_src.ptr)
 	
@@ -153,7 +153,7 @@ void main() {
 		gl.EnableVertexAttribArray(3)
 	}
 	
-	canvas: Canvas{
+	canvas: Context{
 		gl: gl
 		vertex_buf: Basic.make_slice_undef[Vertex](VERTEX_BUFFER_CAPACITY, arena)
 		index_buf: Basic.make_slice_undef[Index](INDEX_BUFFER_CAPACITY, arena)
@@ -167,14 +167,14 @@ void main() {
 	return canvas
 }
 
-#deinit: proc(c: ^Canvas) {
+#deinit: proc(c: ^Context) {
 	c.gl.DeleteBuffers(1, &c.ebo)
 	c.gl.DeleteBuffers(1, &c.vbo)
 	c.gl.DeleteVertexArrays(1, &c.vao)
 	c.gl.DeleteProgram(c.shader_program)
 }
 
-#make_texture: proc(c: ^Canvas) => Texture {
+#make_texture: proc(c: ^Context) => Texture {
 	id: GL.GLuint(0)
 	c.gl.GenTextures(1, &id)
 	Basic.assert(id != 0) // maybe we shouldn't assert here...
@@ -188,15 +188,20 @@ void main() {
 	return Texture{uint(id)}
 }
 
-#update_texture: proc(c: ^Canvas, texture: ^Texture, format: TextureFormat, width: u32, height: u32, data: ^raw) {
-	Basic.assert(format == TextureFormat.RGBA8)
-	
+#update_texture: proc(c: ^Context, texture: ^Texture, format: TextureFormat, width: u32, height: u32, data: ^raw) {
 	c.gl.ActiveTexture(GL.TEXTURE0 + TEXTURE_SLOT)
 	c.gl.BindTexture(GL.TEXTURE_2D, GL.GLuint(texture.backend_handle))
-	c.gl.TexImage2D(GL.TEXTURE_2D, 0, GL.RGBA8, s32(width), s32(height), 0, GL.RGBA, GL.UNSIGNED_BYTE, data)
+	
+	if format == TextureFormat.RGBA8 {
+		c.gl.TexImage2D(GL.TEXTURE_2D, 0, GL.RGBA8, s32(width), s32(height), 0, GL.RGBA, GL.UNSIGNED_BYTE, data)
+	} else if format == TextureFormat.R8 {
+		c.gl.TexImage2D(GL.TEXTURE_2D, 0, GL.RED, s32(width), s32(height), 0, GL.RED, GL.UNSIGNED_BYTE, data)
+	} else {
+		Basic.assert(false)
+	}
 }
 
-#make_texture_ex: proc(c: ^Canvas, format: TextureFormat, width: u32, height: u32, data: ^raw) => Texture {
+#make_texture_ex: proc(c: ^Context, format: TextureFormat, width: u32, height: u32, data: ^raw) => Texture {
 	texture: make_texture(c)
 	update_texture(c, &texture, format, width, height, data)
 	return texture
@@ -206,7 +211,7 @@ void main() {
 	dbgbreak
 }
 
-#begin_drawing: proc(c: ^Canvas, background: Color) {
+#begin_drawing: proc(c: ^Context, background: Color) {
 	c.vertex_count = 0
 	c.index_count = 0
 	
@@ -246,19 +251,19 @@ void main() {
 	gl.BindBuffer(GL.ELEMENT_ARRAY_BUFFER, c.ebo)
 }
 
-#end_drawing: proc(c: ^Canvas) {
+#end_drawing: proc(c: ^Context) {
 	draw_and_flush_batch(c)
 	_check_gl_error(c.gl)
 }
 
 // -- Primitive drawing procedures --
 
-//#add_vertex: proc(c: ^Canvas, vert: Vertex) {
+//#add_vertex: proc(c: ^Context, vert: Vertex) {
 //	c.vertex_buf[c.vertex_count] = vert
 //	c.vertex_count = .+1
 //}
 
-#draw_and_flush_batch: proc(c: ^Canvas) {
+#draw_and_flush_batch: proc(c: ^Context) {
 	if c.index_count > 0 {
 		// TODO: use glBufferSubData or whatever, I think BufferData resizes the buffer?
 		c.gl.BufferData(GL.ARRAY_BUFFER, s64(c.vertex_count * size_of(Vertex)), c.vertex_buf.ptr, GL.DYNAMIC_DRAW)
@@ -272,7 +277,7 @@ void main() {
 	c.index_count = 0
 }
 
-#reserve_vertices: proc(c: ^Canvas, num_vertices: uint, num_indices: uint) => struct{v: u32, i: u32} {
+#reserve_vertices: proc(c: ^Context, num_vertices: uint, num_indices: uint) => struct{v: u32, i: u32} {
 	Basic.assert(num_vertices < c.vertex_buf.len)
 	Basic.assert(num_indices < c.index_buf.len)
 	
@@ -287,7 +292,7 @@ void main() {
 	return {v, i}
 }
 
-#set_texture: proc(c: ^Canvas, texture: ^Texture(0)) {
+#set_texture: proc(c: ^Context, texture: ^Texture(0)) {
 	if c.current_tex != texture && texture != ^Texture(0) {
 		if c.current_tex != ^Texture(0) {
 			draw_and_flush_batch(c)
@@ -299,12 +304,12 @@ void main() {
 	c.current_tex = texture
 }
 
-#rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
+#rect: proc(c: ^Context, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
 	//apply_rect(c, r, Color{0, 0, 0, 0}, uv, texture) // fill stencil bits to 1
 	apply_rect(c, r, color, uv, texture)
 }
 
-#polygon: proc(c: ^Canvas, points: []Vec2, color: Color) {
+#polygon: proc(c: ^Context, points: []Vec2, color: Color) {
 	apply_polygon(c, points, color)
 	//apply_polygon(c, points, Color{0, 0, 0, 0}) // fill stencil bits to 1
 	
@@ -324,7 +329,7 @@ void main() {
 	apply_rect(c, {min: {min_x, min_y}, max: {max_x, max_y}}, color)*/
 }
 
-#apply_rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
+#apply_rect: proc(c: ^Context, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
 	set_texture(c, texture)
 	base: reserve_vertices(c, num_vertices: 4, num_indices: 6)
 	
@@ -343,7 +348,7 @@ void main() {
 	c.index_buf[base.i+5]  = base.v+3
 }
 
-#apply_polygon: proc(c: ^Canvas, points: []Vec2, color: Color) {
+#apply_polygon: proc(c: ^Context, points: []Vec2, color: Color) {
 	// Draw a triangle from one of the points to all other points.
 	// http://www.glprogramming.com/red/chapter14.html#name13
 	
@@ -365,228 +370,3 @@ void main() {
 		c.index_buf[base.i + u32(i)*3 + 2] = base.v + u32(i) + 1
 	}
 }
-
-
-
-
-
-
-
-
-// -- Font stuff ------------------------------------------
-
-#FontAtlasGlyphKey: struct {
-	codepoint: rune
-	font_id: u16
-}
-
-#FontAtlas: struct {
-	arena: ^Basic.Arena
-	fonts: Array.Array[^Font] // TODO: use a pool here
-	glyphs: Map.Map[FontAtlasGlyphKey, FontAtlasGlyph]
-}
-
-#make_font_atlas: proc(arena: ^Basic.Arena) => ^FontAtlas {
-	return Basic.new(FontAtlas{
-		arena: arena
-		fonts: Array.make[^Font](arena)
-		glyphs: Map.make[FontAtlasGlyphKey, FontAtlasGlyph](arena)
-	}, arena)
-}
-
-// #add_ttf_font_from_file: proc
-
-
-#Font: struct {
-	atlas: ^FontAtlas
-	data: []u8
-	size: f32
-	y_offset: f32
-}
-
-#FontAtlasGlyph: struct {
-	uv_origin: [2]f32
-	size_pixels: [2]f32
-	offset: [2]f32
-	advance: f32
-}
-
-#add_ttf_font_from_data: proc(atlas: ^FontAtlas, data: []u8, size: f32, y_offset: f32) => ^Font {
-	font: Basic.new(Font{atlas, data, size: size, y_offset: y_offset}, atlas.arena)
-	Array.push(&atlas.fonts, font)
-	return font
-}
-
-#rune: u32
-
-#build_font_atlas: proc(atlas: ^FontAtlas) {
-	arena: atlas.arena
-	fonts: atlas.fonts
-	
-	// Padding between glyphs within texture in pixels.
-	// If your rendering method doesn't rely on bilinear filtering you may set this to 0.
-	glyph_padding: s32(1)
-	
-	total_surface: s32(0)
-	
-	#Range: struct{
-		lo: u32
-		hi: u32
-	}
-	
-	codepoint_ranges: []Range{{33, 127}}
-	
-	#Glyph: struct {
-		codepoint: rune
-		font_id: u16
-		glyph_index: s32
-		w: s32, h: s32
-	}
-	
-	glyphs: Array.make[Glyph](arena)
-	font_info_per_font: Basic.make_slice_undef[stbtt.fontinfo](fonts.len, arena)
-	glyph_range_per_font: Basic.make_slice_undef[Range](fonts.len, arena)
-	
-	oversample_h: s32(1)
-	oversample_v: s32(1)
-	
-	for font_id: 0, font_id < fonts.len, font_id = .+1 {
-		font: fonts[font_id] // ^Font
-		font_info: &font_info_per_font[font_id] // ^stbtt.fontinfo
-		
-		glyph_range_per_font[font_id].lo = u32(glyphs.len)
-		
-		font_offset: stbtt.GetFontOffsetForIndex(font.data.ptr, 0)
-		Basic.assert(font_offset >= 0)
-		Basic.assert(stbtt.InitFont(font_info, font.data.ptr, font_offset) == 1)
-		
-		scale: stbtt.ScaleForPixelHeight(font_info, font.size)
-		
-		for range_i: 0, range_i < codepoint_ranges.len, range_i = .+1 {
-			range: codepoint_ranges[range_i]
-			
-			for codepoint: range.lo, codepoint < range.hi, codepoint = .+1 {
-				glyph_index: stbtt.FindGlyphIndex(font_info, s32(codepoint))
-				
-				x0: s32(~~), y0: s32(~~), x1: s32(~~), y1: s32(~~)
-				stbtt.GetGlyphBitmapBoxSubpixel(font_info, glyph_index, scale * f32(oversample_h), scale * f32(oversample_v), 0., 0., &x0, &y0, &x1, &y1)
-				
-				width: x1 - x0 + glyph_padding + oversample_h - 1
-				height: y1 - y0 + glyph_padding + oversample_v - 1
-				Basic.assert(width >= 0)
-				Basic.assert(height >= 0)
-				total_surface = . + width * height
-				
-				Array.push(&glyphs, Glyph{
-					codepoint: codepoint
-					font_id: u16(font_id)
-					glyph_index: glyph_index
-					w: width
-					h: height
-				})
-			}
-		}
-		
-		glyph_range_per_font[font_id].hi = u32(glyphs.len)
-	}
-	
-	surface_sqrt: Math.sqrtf(f32(total_surface)) + 1.0
-	tex_width:
-		Basic.select(surface_sqrt >= 4096., f32(4096. * 0.7),
-		Basic.select(surface_sqrt >= 2048., f32(2048. * 0.7),
-		Basic.select(surface_sqrt >= 1024., f32(1024. * 0.7), 512.)))
-	
-	tex_height_max: f32(1024.0 * 32.0)
-	
-	// Start packing the glyphs
-	
-	spc: stbtt.pack_context(~~)
-	Basic.assert(stbtt.PackBegin(&spc, ^u8(0), s32(tex_width), s32(tex_height_max), 0, glyph_padding, ^raw(0)) == 1)
-	
-	buf_rects: Basic.make_slice_undef[stbrp.rect](glyphs.len, arena)
-	glyph_list: Basic.make_slice_undef[u32](glyphs.len, arena)
-	buf_packedchars: Basic.make_slice_undef[stbtt.packedchar](glyphs.len, arena)
-	
-	for i: 0, i < glyphs.len, i = .+1 {
-		glyph: glyphs[i]
-		Basic.assert(glyph.w >= 0)
-		Basic.assert(glyph.h >= 0)
-		buf_rects[i] = {
-			w: glyph.w
-			h: glyph.h
-		}
-		glyph_list[i] = glyph.codepoint
-	}
-	
-	Basic.assert(stbrp.pack_rects(^stbrp.context(spc.pack_info), buf_rects.ptr, s32(buf_rects.len)) == 1)
-	
-	tex_height: s32(0)
-	for i: 0, i < buf_rects.len, i = .+1 {
-		r: buf_rects[i]
-		tex_height = Basic.max(., r.y + r.h)
-	}
-	
-	buffer_size: s32(tex_width) * tex_height
-	texture_data: Basic.make_slice_undef[u8](uint(buffer_size), arena)
-	Basic.memset(texture_data.ptr, 0, texture_data.len)
-	
-	spc.pixels = texture_data.ptr
-	spc.height = tex_height
-	
-	for font_id: 0, font_id < atlas.fonts.len, font_id = .+1 {
-		font: atlas.fonts[font_id] // ^Font
-		glyph_range: glyph_range_per_font[font_id]
-
-		pack_range: stbtt.pack_range {
-			font_size:                         font.size,
-			first_unicode_codepoint_in_range:  0,
-			array_of_unicode_codepoints:       ^s32(&glyph_list[glyph_range.lo]),
-			num_chars:                         s32(glyph_range.hi - glyph_range.lo),
-			chardata_for_range:                &buf_packedchars[glyph_range.lo],
-			h_oversample:                      u8(oversample_h),
-			v_oversample:                      u8(oversample_v)
-		}
-		Basic.assert(stbtt.PackFontRangesRenderIntoRects(&spc, &font_info_per_font[font_id], &pack_range, 1, &buf_rects[glyph_range.lo]) == 1)
-	}
-	
-	for i: 0, i < buf_rects.len, i = .+1 {
-		stb_rect: buf_rects[i]
-		glyph: glyphs[i]
-		
-		if (stb_rect.was_packed == 0) {
-			Basic.assert(false) // Something was not packed when building the font atlas!
-			continue
-		}
-		
-		q: stbtt.aligned_quad(~~)
-		unused_x: f32(0.), unused_y: f32(0.)
-		stbtt.GetPackedQuad(buf_packedchars.ptr, s32(tex_width), tex_height, s32(i), &unused_x, &unused_y, &q, 0)
-		
-		font: atlas.fonts[glyph.font_id]
-		font_info: font_info_per_font[glyph.font_id]
-		
-		val: FontAtlasGlyph {
-			uv_origin:   {f32(stb_rect.x) / tex_width, f32(stb_rect.y) / f32(tex_height)}
-			size_pixels: {f32(stb_rect.w), f32(stb_rect.h)}
-			offset:      {q.x0, q.y0 + font.y_offset}
-			advance:     buf_packedchars[i].xadvance
-		}
-		Map.add_assert_unique(&atlas.glyphs, FontAtlasGlyphKey{glyph.codepoint, glyph.font_id}, val)
-	}
-	
-	dbgbreak
-}
-
-
-//#triangle: proc(c: ^Canvas, p1: Vec2, p2: Vec2, p3: Vec2, color: Color) {
-//	first_vertex: Index(c.vertices.len)
-//	
-//	Array.push[Vertex](&c.vertices, {p1, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
-//	Array.push[Vertex](&c.vertices, {p2, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
-//	Array.push[Vertex](&c.vertices, {p3, uv: {0., 0.}, info: 0, scissor_rect: 0, color: color})
-//	
-//	Array.push[Index](&c.indices, first_vertex)
-//	Array.push[Index](&c.indices, first_vertex + 1)
-//	Array.push[Index](&c.indices, first_vertex + 2)
-//}
-

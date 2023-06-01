@@ -34,17 +34,22 @@
 #TextureFormat: enum, u32 {
 	Invalid: 0
 	RGBA8: 1
+	R8: 2
 }
+
+#AlignV: enum, u32 {Top: 0, Middle: 1, Bottom: 2}
+#AlignH: enum, u32 {Left: 0, Middle: 1, Right: 2}
+#Align: struct{v: AlignV.Top, h: AlignH.Left}
 
 /* -- API ------------------------------------
 
-#init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Canvas
-#deinit: proc(c: ^Canvas)
+#init: proc(gl: ^GL.API, arena: ^Basic.Arena) => Context
+#deinit: proc(c: ^Context)
 
 // NOTE: between `begin_drawing` and `end_drawing`, you shouldn't manually modify any OpenGL state yourself.
-#begin_drawing: proc(c: ^Canvas, background: Color)
+#begin_drawing: proc(c: ^Context, background: Color)
 
-#end_drawing: proc(c: ^Canvas)
+#end_drawing: proc(c: ^Context)
 
 
 // -- Textures --
@@ -57,44 +62,30 @@
 
 // -- Drawing --
 
-#triangle: proc(c: ^Canvas, points: [3]Vec2, color: Color)
-#triangle_ex: proc(c: ^Canvas, points: [3]Vec2, colors: [3]Color)
+#triangle: proc(c: ^Context, points: [3]Vec2, color: Color)
+#triangle_ex: proc(c: ^Context, points: [3]Vec2, colors: [3]Color)
 
-#rect: proc(c: ^Canvas, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0))
+#rect: proc(c: ^Context, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0))
 
-#quad: proc(c: ^Canvas, points: [4]Vec2, colors: [4]Color, tex_coords: [4]Vec2, texture: ^Texture(0))
+#quad: proc(c: ^Context, points: [4]Vec2, colors: [4]Color, tex_coords: [4]Vec2, texture: ^Texture(0))
 
 
-// #circle: proc(c: ^Canvas, p: Vec2, radius: f32, color: Color, edge_softness: f32(0.), border_thickness: f32)
+// #circle: proc(c: ^Context, p: Vec2, radius: f32, color: Color, edge_softness: f32(0.), border_thickness: f32)
 
 */
 
-
-// TODO: auto-incrementing enums
-//#AnchorV: enum, u32 {Top, Middle, Bottom}
-//#AnchorH: enum, u32 {Left, Middle, Right}
-
-//#Anchor: struct{v: AnchorV.Top, h: AnchorH.Left}
-
-// #Canvas: struct
-
-
-
-
-
-
 // colors correspond to {x0y0, x1y0, x1y1, x0y1}
-// #rect_ex(c: ^Canvas, rect: Rect, colors: [4]Color, corner_radius: f32 = 0.f, edge_softness: f32 = 0.f, border_thickness: f32 = F32_MAX)
+// #rect_ex(c: ^Context, rect: Rect, colors: [4]Color, corner_radius: f32 = 0.f, edge_softness: f32 = 0.f, border_thickness: f32 = F32_MAX)
 
 
-// #make_scissor: proc(c: ^Canvas, rect: Rect) => ScissorID
-// #get_scissor:  proc(c: ^Canvas) => ScissorID
-// #set_scissor:  proc(c: ^Canvas, id: ScissorID)
+// #make_scissor: proc(c: ^Context, rect: Rect) => ScissorID
+// #get_scissor:  proc(c: ^Context) => ScissorID
+// #set_scissor:  proc(c: ^Context, id: ScissorID)
 
 //#convex_polygon: proc(points: []Vec2, color: Color)
 //#point: proc(p: Vec2, thickness: f32, color: Color)
 //#line: proc(a: Vec2, b: Vec2, thickness: f32, color: Color)
-//#text: proc(String text, LT_Font* font, p: Vec2, anchor: Anchor{}, color: WHITE)
+//#text: proc(String text, LT_Font* font, p: Vec2, align: Align{}, color: WHITE)
 //#polyline: proc(points: []Vec2, thickness: f32, color: Color)
 
 //LT_draw2d_line_3d(const hmm_mat4& ws_to_proj, hmm_vec3 a, hmm_vec3 b, thickness: f32, color: Color)

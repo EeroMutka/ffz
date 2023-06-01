@@ -10,7 +10,7 @@
 #Globals: struct {
 	window: Window.Window
 	gl: GL.API
-	canvas: Draw2D.Canvas
+	draw_ctx: ^Draw2D.Context
 	
 	mursu: ^Draw2D.Texture(0)
 }
@@ -18,14 +18,14 @@
 @global
 g: Globals(~~)
 
-#draw: proc {
-	Draw2D.begin_drawing(&g.canvas, background: {20, 40, 20, 255})
+#draw_frame: proc {
+	Draw2D.begin_drawing(g.draw_ctx, background: {20, 40, 20, 255})
 	
-	Draw2D.rect(&g.canvas, {{-0.8, -0.8}, {0., 0.}}, color: {255, 0, 100, 255}, texture: g.mursu)
+	Draw2D.rect(g.draw_ctx, {{-0.8, -0.8}, {0., 0.}}, color: {255, 0, 100, 255}, texture: g.mursu)
 	
-	Draw2D.rect(&g.canvas, {{0.1, 0.1}, {0.5, 0.5}}, color: {255, 10, 255, 255}, texture: g.mursu)
+	Draw2D.rect(g.draw_ctx, {{0.1, 0.1}, {0.5, 0.5}}, color: {255, 10, 255, 255}, texture: g.mursu)
 	
-	Draw2D.end_drawing(&g.canvas)
+	Draw2D.end_drawing(g.draw_ctx)
 	
 	if !GL.swap_buffers(g.window) {
 		dbgbreak
@@ -34,7 +34,7 @@ g: Globals(~~)
 
 #my_resize_cb: Window.ResizeCallback {
 	g.gl.Viewport(0, 0, s32(in.width), s32(in.height))
-	draw()
+	draw_frame()
 }
 
 #MyArray: struct {
@@ -68,7 +68,7 @@ g: Globals(~~)
 	
 	
 	{
-		g.canvas = Draw2D.init(gl, temp.arena)
+		g.draw_ctx = &Draw2D.init(gl, temp.arena)
 		
 		//font_data: Files.read_entire_file("C:/Windows/Fonts/consola.ttf", temp.arena)
 		font_data: Files.read_entire_file("../roboto.ttf", temp.arena)
@@ -76,7 +76,7 @@ g: Globals(~~)
 		
 		atlas: Draw2D.make_font_atlas(temp.arena)
 		font: Draw2D.add_ttf_font_from_data(atlas, font_data.data, 16., 0.)
-		Draw2D.build_font_atlas(atlas)
+		Draw2D.build_font_atlas(g.draw_ctx, atlas)
 	}
 	
 	// load images
@@ -95,7 +95,7 @@ g: Globals(~~)
 		dbgbreak
 	}
 	
-	mursu: Draw2D.make_texture_ex(&g.canvas, Draw2D.TextureFormat.RGBA8, u32(width), u32(height), img_data)
+	mursu: Draw2D.make_texture_ex(g.draw_ctx, Draw2D.TextureFormat.RGBA8, u32(width), u32(height), img_data)
 	g.mursu = &mursu
 	
 	// stbi.image_free(img_data)
@@ -110,7 +110,7 @@ g: Globals(~~)
 			break
 		}
 		
-		draw()
+		draw_frame()
 		
 		i= . + 1
 	}

@@ -512,6 +512,7 @@ static void fill_global_constant_data(Gen* g, gmmcGlobal* global, u8* base, u32 
 	case ffzTypeTag_Sint: // fallthrough
 	case ffzTypeTag_DefaultSint: // fallthrough
 	case ffzTypeTag_Uint: // fallthrough
+	case ffzTypeTag_Enum: // fallthrough
 	case ffzTypeTag_DefaultUint: {
 		memcpy(base + offset, data, type->size);
 	} break;

@@ -108,6 +108,15 @@ x: [1, true]
 	_ = _insert(m, key, value, overwrite: true)
 }
 
+/*
+ The key *must* exist in the map when `get` is used
+*/
+#get: poly[K, T] proc(m: ^Map[K, T], key: K) => T {
+	slot: find_slot(m, key)
+	Basic.assert(slot != ^MapSlot[K, T](0))
+	return slot.value
+}
+
 
 /*
  Returns null if not found.

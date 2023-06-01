@@ -15,6 +15,12 @@
 
 [] fix the situation with commas and newlines
 
+[] switch statement
+
+[] implement + * / - for fixed length arrays against fixed length arrays and scalars  @VectorMath
+
+[] auto-incrementing enums
+
 [] Get keyboard + mouse input working with the 2D drawing sample app
 
 [] Memory management; TLSF module, heap-scopes, heap-arenas.
