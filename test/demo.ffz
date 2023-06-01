@@ -69,7 +69,7 @@ g: Globals(~~)
 	b: foo[2]
 	
 	Basic.print("hello!\n")
-	g.window_size = {512, 512}
+	g.window_size = {720, 720}
 	g.window = Window.create(g.window_size.x, g.window_size.y, "My window")
 	
 	gl: &g.gl

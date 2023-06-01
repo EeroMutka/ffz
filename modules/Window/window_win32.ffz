@@ -119,6 +119,14 @@
 // be any flicker as the window doesn't have to wait for the initialization.
 // 
 #create: proc(width: uint, height: uint, name: string) => Window {
+	// NOTE: When you use a DPI scale on windows that's not 1, the window that we get back from `CreateWindowExW`
+	// has an incorrect size that's not what we ask for.
+	// Calling `SetProcessDPIAware` seems to resolve this issue, at least for the single monitor case.
+	// 
+	// TODO: fix for multiple monitors
+	// https://stackoverflow.com/questions/71300163/how-to-create-a-window-with-createwindowex-but-ignoring-the-scale-settings-on-wi
+	_ = SetProcessDPIAware()
+	
 	// TODO: multiple windows?
 	register_window_class()
 	
@@ -313,6 +321,7 @@
 @User32 #DispatchMessageW: proc(lpMsg: ^MSG) => s64
 @User32 #GetWindowLongPtrW: proc(hWnd: HWND, nIndex: s32) => s64
 @User32 #SetWindowLongPtrW: proc(hWnd: HWND, nIndex: s32, dwNewLong: s64) => s64
+@User32 #SetProcessDPIAware: proc => s32
 //@User32 #GetClientRect: proc(hWnd: HWND, lpRect: ^RECT) => s32
 
 @Gdi32 #CreateSolidBrush: proc(color: u32) => HBRUSH
