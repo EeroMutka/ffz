@@ -126,7 +126,7 @@
 	y: s32(200)
 	rect: RECT{x, y, x + s32(width), y + s32(height)}
 	
-	// AdjustWindowRect modifies the rectangle from covering client area to covering the entire window
+	// AdjustWindowRect modifies the window rectangle: we give it the client area rectangle, it gives us back the entire window rectangle.
 	_ = AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, 0, 0)
 	
 	temp: Basic.temp_push()
