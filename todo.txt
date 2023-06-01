@@ -12,6 +12,7 @@
 
 
 [] Text rendering using texture/glyphs
+[] test runner
 
 [] fix the situation with commas and newlines
 

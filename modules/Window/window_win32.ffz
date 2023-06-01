@@ -122,8 +122,12 @@
 	// TODO: multiple windows?
 	register_window_class()
 	
-	x: s32(100)
-	y: s32(100)
+	x: s32(200)
+	y: s32(200)
+	rect: RECT{x, y, x + s32(width), y + s32(height)}
+	
+	// AdjustWindowRect modifies the rectangle from covering client area to covering the entire window
+	_ = AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, 0, 0)
 	
 	temp: Basic.temp_push()
 	
@@ -131,9 +135,10 @@
 		str_to_utf16(WINDOW_CLASS_NAME, temp.arena).ptr
 		str_to_utf16(name, temp.arena).ptr
 		WS_OVERLAPPEDWINDOW
-		x, y
-		s32(width)
-		s32(height)
+		rect.left
+		rect.top
+		rect.right - rect.left
+		rect.bottom - rect.top
 		HWND(0)
 		HMENU(0)
 		HINSTANCE(0)
@@ -270,12 +275,14 @@
 	pt: POINT
 }
 
-//#RECT: struct {
-//	left: s32
-//	top: s32
-//	right: s32
-//	bottom: s32
-//}
+#RECT: struct {
+	left: s32
+	top: s32
+	right: s32
+	bottom: s32
+}
+
+@User32 #AdjustWindowRectEx: proc(lpRect: ^RECT, dwStyle: u32, bMenu: s32, dwExStyle: u32) => s32
 
 @User32 #CreateWindowExW: proc(
 	dwExStyle: u32

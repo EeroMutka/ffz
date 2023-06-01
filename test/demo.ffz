@@ -9,9 +9,12 @@
 
 #Globals: struct {
 	window: Window.Window
+	window_size: [2]uint
+	
 	gl: GL.API
 	draw_ctx: ^Draw2D.Context
 	
+	my_font: ^Draw2D.Font
 	mursu: ^Draw2D.Texture(0)
 }
 
@@ -19,11 +22,17 @@
 g: Globals(~~)
 
 #draw_frame: proc {
-	Draw2D.begin_drawing(g.draw_ctx, background: {20, 40, 20, 255})
+	// we should provide a matrix to begin_drawing, to convert from pixel coordinates to normalized device coordinates
+	// maybe a "source rectangle" that we map from that to [-1, +1]
 	
-	Draw2D.rect(g.draw_ctx, {{-0.8, -0.8}, {0., 0.}}, color: {255, 0, 100, 255}, texture: g.mursu)
+	Draw2D.begin_drawing(g.draw_ctx, background: {120, 150, 190, 255},
+		draw_area_rect: {min: {0., 0.}, max: {f32(g.window_size.x), f32(g.window_size.y)}})
 	
-	Draw2D.rect(g.draw_ctx, {{0.1, 0.1}, {0.5, 0.5}}, color: {255, 10, 255, 255}, texture: g.mursu)
+	Draw2D.rect(g.draw_ctx, {{10., 10.}, {200., 200.}}, color: {255, 0, 100, 255}, texture: g.mursu)
+	
+	Draw2D.rect(g.draw_ctx, {{220., 220.}, {500., 500.}}, color: {255, 10, 255, 255}, texture: g.mursu)
+	
+	Draw2D.draw_text(g.draw_ctx, "Hello, sailor!", {200., 50.}, g.my_font, color: {255, 255, 255, 255})
 	
 	Draw2D.end_drawing(g.draw_ctx)
 	
@@ -59,9 +68,9 @@ g: Globals(~~)
 	foo[1] = 423
 	b: foo[2]
 	
-	//foo(0.5, 1.)
 	Basic.print("hello!\n")
-	g.window = Window.create(512, 512, "My window")
+	g.window_size = {512, 512}
+	g.window = Window.create(g.window_size.x, g.window_size.y, "My window")
 	
 	gl: &g.gl
 	GL.load(gl, g.window, GL.Version._3_3)
@@ -75,7 +84,7 @@ g: Globals(~~)
 		Basic.assert(font_data.ok)
 		
 		atlas: Draw2D.make_font_atlas(temp.arena)
-		font: Draw2D.add_ttf_font_from_data(atlas, font_data.data, 16., 0.)
+		g.my_font = Draw2D.add_ttf_font_from_data(atlas, font_data.data, 28., 0.)
 		Draw2D.build_font_atlas(g.draw_ctx, atlas)
 	}
 	
@@ -87,7 +96,7 @@ g: Globals(~~)
 	
 	width: s32(~~), height: s32(~~), channels_in_file: s32(~~)
 	
-	stbi.set_flip_vertically_on_load(1)
+	//stbi.set_flip_vertically_on_load(1)
 	img_data: stbi.load_from_memory(image_file.data.ptr, s32(image_file.data.len),
 		&width, &height, &channels_in_file, desired_channels: 4)
 	

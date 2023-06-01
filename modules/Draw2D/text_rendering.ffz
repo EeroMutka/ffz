@@ -1,6 +1,7 @@
 
 #rune: u32
 
+// see comment :AboutPixelScale
 #rune_width: proc(r: rune, font: ^Font) => f32 {
 	Basic.assert(!font.atlas.needs_rebuild) // You must call `build_font_atlas`!
 	
@@ -10,6 +11,7 @@
 	return glyph.advance
 }
 
+// see comment :AboutPixelScale
 #get_text_width: proc(text: string, font: ^Font) => f32 {
 	ascii: []u8(text) // @todo_unicode
 	w: f32(0)
@@ -19,9 +21,14 @@
 	return w
 }
 
-#draw_text: proc(c: ^Context, text: string, font: ^Font, p: Vec2, align: Align{}, color: Color) {
+/*
+ :AboutPixelScale
+ With `draw_text`, a single source pixel of text (as in the font atlas texture) takes up a single coordinate unit of the draw area
+ when `scale` is set to 1. This means that if you setup `draw_area_rect` in `begin_drawing` to have the size of the window in pixels,
+ then the text will be drawn with 1-to-1 pixel to screen mapping by default.
+*/
+#draw_text: proc(c: ^Context, text: string, p: Vec2, font: ^Font, color: Color, scale: f32(1.), align: Align{}, cached_width: ^f32(0)) {
 	s: Vec2{get_text_width(text, font), font.size}
-	scale: f32(1.)
 	
 	/*if (origin_h == LT_TextOriginH_Middle) {
 		p.X -= s.X * 0.5f
@@ -43,32 +50,35 @@
 	for i: 0, i < ascii.len, i = .+1 {
 		glyph: Map.get(&font.atlas.glyphs, FontAtlasGlyphKey{rune(ascii[i]), font.id}) // FontAtlasGlyph
 		
-		/*LT_Color glyph_color = color
-		if (!glyph) {
+		glyph_color: color
+		/*if (!glyph) {
 			glyph = font->atlas->glyphs[LT_FontAtlasKey{ INVALID_GLYPH, font->id }]
 			glyph_color = INVALID_GLYPH_COLOR
 		}*/
 		
 		// @VectorMath
+		glyph_rect_min: Vec2{
+			f32(Basic.round(p.x + scale * glyph.offset.x))
+			f32(Basic.round(p.y + scale * glyph.offset.y))
+		}
 		glyph_rect: Rect {
-			min: {p.x + scale * glyph.offset.x, p.y + scale * glyph.offset.y}
-			max: {glyph_rect.min.x + scale * glyph.size_pixels, glyph_rect.min.y + scale * glyph.size_pixels}
+			min: glyph_rect_min
+			max: {glyph_rect_min.x + scale * glyph.size_pixels.x, glyph_rect_min.y + scale * glyph.size_pixels.y}
 		}
 		
 		// @VectorMath
 		glyph_uv_rect: Rect {
 			min: glyph.uv_origin
 			max: {
-				glyph_uv_rect.min.x + glyph.size_pixels.x / f32(font.atlas.texture.width)
-				glyph_uv_rect.min.y + glyph.size_pixels.y / f32(font.atlas.texture.height)
+				glyph.uv_origin.x + glyph.size_pixels.x / f32(font.atlas.texture.width)
+				glyph.uv_origin.y + glyph.size_pixels.y / f32(font.atlas.texture.height)
 			}
 		}
 		
-		rect(c, glyph_rect, glyph_color, glyph_uv_rect, font.atlas.texture)
+		rect(c, glyph_rect, glyph_color, glyph_uv_rect, &font.atlas.texture, DRAW_FLAG_TEXTURE_IS_R_ALPHA)
+		
 		p.x = . + scale * glyph.advance
 	}
-	
-	return s
 }
 
 
@@ -121,7 +131,8 @@
 #add_ttf_font_from_data: proc(atlas: ^FontAtlas, data: []u8, size: f32, y_offset: f32) => ^Font {
 	atlas.needs_rebuild = true
 	
-	font: Basic.new(Font{atlas, data, size: size, y_offset: y_offset}, atlas.arena)
+	id: u16(atlas.fonts.len)
+	font: Basic.new(Font{atlas, id, data, size: size, y_offset: y_offset}, atlas.arena)
 	Array.push(&atlas.fonts, font)
 	return font
 }
@@ -145,7 +156,7 @@
 		hi: u32
 	}
 	
-	codepoint_ranges: []Range{{33, 127}}
+	codepoint_ranges: []Range{{32, 127}}
 	
 	#Glyph: struct {
 		codepoint: rune

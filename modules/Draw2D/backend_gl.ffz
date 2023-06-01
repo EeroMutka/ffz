@@ -15,10 +15,14 @@
 #VERTEX_BUFFER_CAPACITY: 32768
 #INDEX_BUFFER_CAPACITY: 65536
 
+#DRAW_FLAG_ENABLE_TEXTURE: u32(0b01)
+#DRAW_FLAG_TEXTURE_IS_R_ALPHA: u32(0b10)
+#DrawFlags: u32
+
 #Vertex: struct {
 	position: Vec2
 	uv: Vec2
-	enable_texture: f32
+	flags: DrawFlags
 	color: Color
 }
 
@@ -48,18 +52,30 @@
 
 layout (location = 0) in vec2 a_position;
 layout (location = 1) in vec2 a_uv;
-layout (location = 2) in float a_enable_texture;
+layout (location = 2) in uint a_flags;
 layout (location = 3) in vec4 a_color;
 
 out vec4 vert_color;
 out vec2 vert_uv;
-out float vert_enable_texture;
+flat out uint vert_flags;
+
+uniform vec4 u_draw_area_rect;
 
 void main() {
 	vert_color = a_color;
 	vert_uv = a_uv;
-	vert_enable_texture = a_enable_texture;
-	gl_Position = vec4(a_position, 0, 1.0);
+	vert_flags = a_flags;
+	
+	vec2 draw_area_min = u_draw_area_rect.xy;
+	vec2 draw_area_max = u_draw_area_rect.zw;
+	
+	vec2 pos_normalized_0_to_1 = (a_position - draw_area_min) / (draw_area_max - draw_area_min);
+	vec2 pos_normalized = pos_normalized_0_to_1 * 2. - 1.;
+	
+	// flip the y-coordinate, as we want (-1,-1) to be top-left instead of bottom-left like it is by default in OpenGL
+	pos_normalized.y *= -1.;
+	
+	gl_Position = vec4(pos_normalized, 0, 1.0);
 }
 "
 
@@ -68,14 +84,23 @@ void main() {
 
 in vec4 vert_color;
 in vec2 vert_uv;
-in float vert_enable_texture;
+flat in uint vert_flags;
 
 out vec4 frag_color;
 
 uniform sampler2D u_texture;
 
 void main() {
-	frag_color = vert_color * mix(vec4(1), texture(u_texture, vert_uv), vert_enable_texture);
+	frag_color = vert_color;
+	
+	if ((vert_flags & 0x1u) != 0u) { // DRAW_FLAG_ENABLE_TEXTURE
+		if ((vert_flags & 0x2u) != 0u) { // DRAW_FLAG_TEXTURE_IS_R_ALPHA
+			frag_color.a *= texture(u_texture, vert_uv).r;
+		}
+		else {
+			frag_color *= texture(u_texture, vert_uv);
+		}
+	}
 }
 "
 
@@ -145,7 +170,7 @@ void main() {
 		
 		gl.VertexAttribPointer (0, 2, GL.FLOAT,        false, size_of(Vertex), ^raw(0))   // position
 		gl.VertexAttribPointer (1, 2, GL.FLOAT,        false, size_of(Vertex), ^raw(8))   // uv
-		gl.VertexAttribPointer (2, 1, GL.FLOAT,        false, size_of(Vertex), ^raw(16))  // enable_texture
+		gl.VertexAttribIPointer (2, 1, GL.UNSIGNED_INT, size_of(Vertex), ^raw(16))  // enable_texture
 		gl.VertexAttribPointer (3, 4, GL.UNSIGNED_BYTE, true, size_of(Vertex), ^raw(20))  // color
 		gl.EnableVertexAttribArray(0)
 		gl.EnableVertexAttribArray(1)
@@ -183,8 +208,8 @@ void main() {
 	c.gl.BindTexture(GL.TEXTURE_2D, id)
 	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.REPEAT)
 	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.REPEAT)
-	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.LINEAR)
-	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.LINEAR)
+	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.NEAREST)
+	c.gl.TexParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.NEAREST)
 	return Texture{uint(id)}
 }
 
@@ -192,6 +217,10 @@ void main() {
 	c.gl.ActiveTexture(GL.TEXTURE0 + TEXTURE_SLOT)
 	c.gl.BindTexture(GL.TEXTURE_2D, GL.GLuint(texture.backend_handle))
 	
+	texture.format = format
+	texture.width = width
+	texture.height = height
+
 	if format == TextureFormat.RGBA8 {
 		c.gl.TexImage2D(GL.TEXTURE_2D, 0, GL.RGBA8, s32(width), s32(height), 0, GL.RGBA, GL.UNSIGNED_BYTE, data)
 	} else if format == TextureFormat.R8 {
@@ -211,7 +240,12 @@ void main() {
 	dbgbreak
 }
 
-#begin_drawing: proc(c: ^Context, background: Color) {
+/*
+ `draw_area_rect` is a way to specify the coordinate system used for the drawn shapes.
+ The `min` field of `draw_area_rect` maps to the top-left corner of the screen,
+ while the `max` field maps to the bottom-right corner.
+*/
+#begin_drawing: proc(c: ^Context, background: Color, draw_area_rect: Rect) {
 	c.vertex_count = 0
 	c.index_count = 0
 	
@@ -243,10 +277,17 @@ void main() {
 	gl.UseProgram(c.shader_program)
 	gl.BindVertexArray(c.vao)
 	
-	sampler_loc: gl.GetUniformLocation(c.shader_program, "u_texture".ptr)
-	Basic.assert(sampler_loc != -1)
-	gl.Uniform1i(sampler_loc, TEXTURE_SLOT) // NOTE: shader must be bound
-	
+	// TODO: cache the uniform locations at the start
+	u_texture_loc: gl.GetUniformLocation(c.shader_program, "u_texture".ptr)
+	if u_texture_loc != -1 {
+		gl.Uniform1i(u_texture_loc, TEXTURE_SLOT) // NOTE: shader must be bound at this point
+	}
+
+	u_draw_area_rect_loc: gl.GetUniformLocation(c.shader_program, "u_draw_area_rect".ptr)
+	if u_draw_area_rect_loc != -1 {
+		gl.Uniform4fv(u_draw_area_rect_loc, 1, ^f32(&draw_area_rect)) // NOTE: shader must be bound at this point
+	}
+
 	gl.BindBuffer(GL.ARRAY_BUFFER, c.vbo)
 	gl.BindBuffer(GL.ELEMENT_ARRAY_BUFFER, c.ebo)
 }
@@ -304,9 +345,9 @@ void main() {
 	c.current_tex = texture
 }
 
-#rect: proc(c: ^Context, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
+#rect: proc(c: ^Context, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0), flags: DrawFlags(0)) {
 	//apply_rect(c, r, Color{0, 0, 0, 0}, uv, texture) // fill stencil bits to 1
-	apply_rect(c, r, color, uv, texture)
+	apply_rect(c, r, color, uv, texture, flags)
 }
 
 #polygon: proc(c: ^Context, points: []Vec2, color: Color) {
@@ -329,16 +370,18 @@ void main() {
 	apply_rect(c, {min: {min_x, min_y}, max: {max_x, max_y}}, color)*/
 }
 
-#apply_rect: proc(c: ^Context, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0)) {
+#apply_rect: proc(c: ^Context, r: Rect, color: Color, uv: DEFAULT_UV_RECT, texture: ^Texture(0), flags: DrawFlags(0)) {
 	set_texture(c, texture)
 	base: reserve_vertices(c, num_vertices: 4, num_indices: 6)
 	
-	enable_texture: Basic.select[f32](texture == ^Texture(0), 0., 1.)
+	if texture != ^Texture(0) { // Automatically enable texture flag when a texture is provided
+		flags = bit_or(., DRAW_FLAG_ENABLE_TEXTURE)
+	}
 	
-	c.vertex_buf[base.v]   = {r.min             , uv.min              , enable_texture, color}
-	c.vertex_buf[base.v+1] = {{r.max.x, r.min.y}, {uv.max.x, uv.min.y}, enable_texture, color}
-	c.vertex_buf[base.v+2] = {r.max             , uv.max              , enable_texture, color}
-	c.vertex_buf[base.v+3] = {{r.min.x, r.max.y}, {uv.min.x, uv.max.y}, enable_texture, color}
+	c.vertex_buf[base.v]   = {r.min             , uv.min              , flags, color}
+	c.vertex_buf[base.v+1] = {{r.max.x, r.min.y}, {uv.max.x, uv.min.y}, flags, color}
+	c.vertex_buf[base.v+2] = {r.max             , uv.max              , flags, color}
+	c.vertex_buf[base.v+3] = {{r.min.x, r.max.y}, {uv.min.x, uv.max.y}, flags, color}
 	
 	c.index_buf[base.i]    = base.v
 	c.index_buf[base.i+1]  = base.v+1
@@ -358,7 +401,7 @@ void main() {
 	base: reserve_vertices(c, num_vertices: points.len, num_indices: num_triangles*3)
 	
 	for i: 0, i<points.len, i=.+1 {
-		c.vertex_buf[base.v + u32(i)] = {points[i], {0., 0.}, 0., color}
+		c.vertex_buf[base.v + u32(i)] = {points[i], {0., 0.}, 0, color}
 	}
 	
 	// Use the last vertex as the "origin vertex" where all triangles are connected

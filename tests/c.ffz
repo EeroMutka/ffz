@@ -1,0 +1,6 @@
+
+// the following should fail, as glyph_rect is referenced in itself!
+glyph_rect: Rect {
+	min: {p.x + scale * glyph.offset.x, p.y + scale * glyph.offset.y}
+	max: {glyph_rect.min.x + scale * glyph.size_pixels, glyph_rect.min.y + scale * glyph.size_pixels}
+}

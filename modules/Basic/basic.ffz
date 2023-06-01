@@ -306,6 +306,24 @@ _tl_arena_tls_index: u32(0)
 	}
 }
 
+// T must be a float
+#floor: poly[T] proc(x: T) => int {
+	result: int(x)
+	if x < 0. {
+		fraction: T(result) - x
+		if fraction != 0. {
+			result = int(.) - 1
+		}
+	}
+	return result
+}
+
+// T must be a float
+// todo: ceil?
+#round: poly[T] proc(x: T) => int {
+	return floor(x + 0.5)
+}
+
 // TODO: unicode support (and printing > 4GB strings?)
 #print: proc(str: string) {
 	num_chars_written: u32(~~)
